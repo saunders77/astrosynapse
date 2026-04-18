@@ -58,6 +58,7 @@ explorer = cardDetails[2]
 factions = ('red','green','blue','yellow','none')
 
 import random
+from chooser import choose
 
 class Player:
     def __init__(self, game, name):
@@ -72,12 +73,13 @@ class Player:
         self.mustDiscard = 0     
         self.cardsInPlay = {'red':[], 'blue':[], 'green':[], 'yellow':[], 'none':[]}
         self.knownTopOfDeck = 0
+        self.opponentKnownHandCards = []
         self.knownGameState = {
             'authority':None,
             'attack':0,
             'trade':0,
             'mustDiscard':None,
-            'deck':None,
+            'scrambleDeck':None,
             'topCards':None,
             'hand':self.hand,
             'discardPile':self.discardPile,
@@ -86,29 +88,90 @@ class Player:
             'nextShipTop':None,
             'opponentAuthority':None,
             'opponentMustDiscard':None,
-            'opponentDeckAndHand':None,
+            'opponentScrambleDeckAndHand':None,
             'opponentTopCards':None,
+            'opponentHandCards':None,
             'opponentDiscardPile':None,
             'opponentCardsInPlay':None,
         }
+
+    def calculateScrambleDeck(self):
+        scrambleDeck = []
+        topCards = []
+        i = 0
+        while i < len(self.deck) - self.knownTopOfDeck:
+            scrambleDeck.append(self.deck[i])
+            i += 1
+        random.shuffle(scrambleDeck)
+        self.knownGameState['scrambleDeck'] = scrambleDeck
+        while i < len(self.deck):
+            topCards.append(self.deck[i])
+            i += 1
+        self.knownGameState['topCards'] = topCards
+    
+    def calculateOpponentScrambleDeckAndHand(self):
+        opScrambleDeckHand = []
+        opTopCards = []
+        i = 0
+        while i < len(self.opponent.deck) - self.opponent.knownTopOfDeck:
+            opScrambleDeckHand.append(self.opponent.deck[i])
+            i += 1
+        while i < len(self.opponent.deck):
+            opTopCards.append(self.opponent.deck[i])
+            i += 1
+        i = 0
+        knownOpponentHandCards = self.opponent.opponentKnownHandCards
+        opHandTracker = []
+        for item in knownOpponentHandCards: opHandTracker.append(item)
+        while i < len(self.opponent.hand):
+            if self.opponent.hand[i] in opHandTracker:
+                opHandTracker.remove(self.opponent.hand[i]) # don't add it to the big scrambled list
+            else:
+                opScrambleDeckHand.append(self.opponent.hand[i])
+            i += 1
+        random.shuffle(opScrambleDeckHand)
+        self.knownGameState['opponentScrambleDeckAndHand'] = opScrambleDeckHand
+        self.knownGameState['opponentTopCards'] = opTopCards
+        self.knownGameState['opponentHandCards'] = knownOpponentHandCards
+
+    def sendChoice(self, decisionType, options):
+        self.knownGameState['authority'] = self.authority
+        self.knownGameState['attack'] = self.attack
+        self.knownGameState['trade'] = self.trade
+        self.knownGameState['mustDiscard'] = self.mustDiscard
+        # scrambleDeck and topCards are calculated dynamically        
+        self.knownGameState['nextShipTop'] = self.nextShipTop
+        self.knownGameState['opponentAuthority'] = self.opponent.authority
+        self.knownGameState['opponentMustDiscard'] = self.opponent.mustDiscard
+        # opScrambleDeckAndHand, opTopCard, and opHandCards are calculated dynamically
+        
+        return choose(self.name, decisionType, options, self.knownGameState)
 
     def draw(self, n):
         for i in range(n):
             if len(self.deck) > 0:
                 self.hand.append(self.deck.pop())
-                if self.knownTopOfDeck > 0: self.knownTopOfDeck -= 1
+                if self.knownTopOfDeck > 0: 
+                    self.opponentKnownHandCards.append(self.hand[-1])
+                    self.knownTopOfDeck -= 1
             elif len(self.discardPile) > 0:
                 # no more cards in the deck. use discard pile
                 while len(self.discardPile) > 0:
                     self.deck.append(self.discardPile.pop())
                 random.shuffle(self.deck)
                 self.hand.append(self.deck.pop())
+        self.calculateScrambleDeck()
+    
+    def discard(self):
+        self.discardPile.append(self.hand.pop(self.sendChoice('discard', self.hand))) 
    
     def takeTurn(self):
         self.playOptions = []
         self.abilityOptions = []
         self.scrapOptions = []
         self.acquireOptions = []
+
+        self.calculateOpponentScrambleDeckAndHand()
 
         self.attack = 0
         self.trade = 0
@@ -123,8 +186,23 @@ class Player:
 
         # discard if required, and reduce mustDiscard
         while self.mustDiscard > 0:
-            decision = self.choose('discard')
-            self.discardPile.append(self.hand.pop())
+            self.discard()
+
+        mainPhase = True
+        while mainPhase == True:
+            self.sendChoice('action',[''])
+        while len(self.hand) > 0:
+            self.playCard(self.sendChoice('play',self.hand))
+
+        
+        # discard from play area
+        for faction in factions:
+            for i in range(len(self.cardsInPlay[faction])):
+                if self.cardsInPlay[faction][i][0][5] == 'ship':
+                    self.discardPile.append(self.cardsInPlay[faction][i][0])
+                    self.cardsInPlay[faction].pop(i)
+        
+        self.opponentKnownHandCards = []
 
     def useAbility(self, abilityName, n = None):
         match abilityName:
@@ -155,7 +233,12 @@ class Player:
             self.useAbility(card[2][1:]) # [1:] removes the '-' character at the beginning
             card[2] = 'used'
 
-    def playCard(self, cardDetails):
+    def acquire(self):
+        print('acquiring')
+        # remember to recalculate scrambledeck
+
+    def playCard(self, handId):
+        cardDetails = self.hand.pop(handId)
         #                                        0              1               2               3       4 
         #                                                       allyTriggeredIt,abilityOption,  inPlay, isStealth
         self.cardsInPlay[cardDetails[4]].append([cardDetails,   False,          None,           True,   cardDetails[6] == 'copyship'])
@@ -237,6 +320,10 @@ class Game:
         self.players = [Player(self,p1name),Player(self,p2name)]
         self.players[0].opponent = self.players[1]
         self.players[1].opponent = self.players[0]
+        self.players[0].knownGameState['opponentDiscardPile'] = self.players[1].discardPile
+        self.players[0].knownGameState['opponentCardsInPlay'] = self.players[1].cardsInPlay
+        self.players[1].knownGameState['opponentDiscardPile'] = self.players[0].discardPile
+        self.players[1].knownGameState['opponentCardsInPlay'] = self.players[0].cardsInPlay
         random.shuffle(self.players)
         self.players[0].draw(3)
         self.players[1].draw(5)
