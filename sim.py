@@ -170,9 +170,9 @@ class Player:
         for i in range(len(self.hand)):
             options.append(('discard' + type,i,self.hand[i]))
         if required == False:
-            options.append(('nodiscard'))
+            options.append(('nodiscard',))
         decision = self.sendChoice(options)
-        if options[decision] != ('nodiscard'):
+        if options[decision] != ('nodiscard',):
             self.discardPile.append(self.hand.pop(decision)) 
             discardCount = 1
         return discardCount
@@ -187,6 +187,11 @@ class Player:
         self.nextShipTop = False # for several cards
         self.blobCardsPlayed = 0 # for Blob World
 
+        for faction in factions:
+            for card in self.cardsInPlay[faction]:
+                card[1] = False
+                card[2] = None
+
         # take care of bases starting in play
         for faction in factions:
             for i in range(len(self.cardsInPlay[faction])):
@@ -198,7 +203,7 @@ class Player:
                 self.discardPile.append(self.hand.pop())
             self.mustDiscard = 0
         while self.mustDiscard > 0:
-            self.discard('Normal', True)
+            self.mustDiscard -= self.discard('Normal', True)
 
         mainPhase = True
         while mainPhase == True:
@@ -215,7 +220,7 @@ class Player:
             for faction in factions:
                 # identify scrap targets and abilityOption targets
                 for i in range(len(self.cardsInPlay[faction])):
-                    if self.cardsInPlay[faction][i][2] not in ('none','used'):
+                    if self.cardsInPlay[faction][i][2] not in (None, 'used'):
                         options.append(('abilityOption', faction, i, self.cardsInPlay[faction][i][2]))
                     if self.cardsInPlay[faction][i][0][10] != 'none':
                         options.append(('scrapFromPlay', faction, i, self.cardsInPlay[faction][i], self.cardsInPlay[faction][i][0][10], self.cardsInPlay[faction][i][0][11]))
@@ -238,7 +243,7 @@ class Player:
                     for baseInfo in opBases:
                         if self.attack >= baseInfo[2]:
                             options.append(('attack', baseInfo[0], baseInfo[1], baseInfo[2], self.attack))
-                    options.append('attackOpponent', self.attack)
+                    options.append(('attackOpponent', self.attack))
                
             # identify acquisition targets
             if self.trade > 0:
@@ -247,7 +252,7 @@ class Player:
                         options.append(('acquire', i, self.game.tradeRow[i]))
             
             if len(self.hand) == 0:
-                options.append(('endTurn'))
+                options.append(('endTurn',))
 
             decision = self.sendChoice(options)
             match options[decision][0]:
@@ -266,13 +271,16 @@ class Player:
         
         # remove stuff from play area
         for faction in factions:
-            for i in range(len(self.cardsInPlay[faction])):
+            i = 0
+            while i < len(self.cardsInPlay[faction]):
                 if self.cardsInPlay[faction][i][0][6] == 'ship':
                     if self.cardsInPlay[faction][i][4] == True: # it's a copyship
                         self.discardPile.append(('Stealth Needle',  4,      0,      0,      0,      'red',  'ship', 'copyship', 'none',         0,      'none',         0,      0,      1))
                     else:
                         self.discardPile.append(self.cardsInPlay[faction][i][0])
                     self.removeCardFromPlay(faction,i)
+                else:
+                    i += 1
         
         self.opponentKnownHandCards = []
         # draw for my next turn
@@ -315,7 +323,7 @@ class Player:
                 if choice == 0: self.trade += 3
                 else: self.attack += 5
             case 'copyship':
-                options = [('nocopy')]
+                options = [('nocopy',)]
                 copierIndex = None
                 for faction in factions:
                     for i in range(len(self.cardsInPlay[faction])):
@@ -326,10 +334,17 @@ class Player:
                                 options.append(('copyship', self.cardsInPlay[faction][i][0]))
                 decision = self.sendChoice(options)
                 if decision > 0:
-                    self.cardsInPlay['red'][copierIndex][0] = options[decision][1] # modifies the needle details
-                    if options[decision][1][5] != 'red': #then we need to move the ship
-                        self.cardsInPlay[options[decision][1][5]].append(self.cardsInPlay['red'][copierIndex])
+                    copiedCard = options[decision][1]
+                    copiedFaction = 'red'
+                    self.cardsInPlay['red'][copierIndex][0] = copiedCard # modifies the needle details
+                    if copiedCard[5] != 'red': #then we need to move the ship
+                        self.cardsInPlay[copiedCard[5]].append(self.cardsInPlay['red'][copierIndex])
                         self.cardsInPlay['red'].pop(copierIndex)
+                        copiedFaction = copiedCard[5]
+                        copierIndex = len(self.cardsInPlay[copiedFaction]) - 1
+                    if copiedCard[5] == 'green':
+                        self.blobCardsPlayed += 1
+                    self.activateCard(copiedFaction, copierIndex)
             case 'recycle':
                 totalDiscardCount = 0
                 totalDiscardCount += self.discard('Draw', False)
@@ -350,11 +365,12 @@ class Player:
             case 'freebuy':
                 options = []
                 for i in range(5):
-                    if self.game.tradeRow[i][6] == 'ship':
+                    if self.game.tradeRow[i][0] != 'none' and self.game.tradeRow[i][6] == 'ship':
                         options.append(('freeAcquire', i, self.game.tradeRow[i]))
-                self.nextShipTop = True
                 if len(options) > 0:
-                    self.acquire(self.sendChoice(options), 0)
+                    self.nextShipTop = True
+                    decision = self.sendChoice(options)
+                    self.acquire(options[decision][1], 0)
             case 'destroyscrap':
                 self.selectAndDestroyBase()
                 self.selectAndScrapFromTradeRow()
@@ -379,7 +395,7 @@ class Player:
             options = outpostOptions
         else:
             options = baseOptions
-        options.append(('nokill'))
+        options.append(('nokill',))
         decision = self.sendChoice(options)
         if decision < len(options) - 1: # then it's a kill
             self.opponent.discardPile.append(self.opponent.removeCardFromPlay(options[decision][1], options[decision][2])) 
@@ -389,7 +405,7 @@ class Player:
         for i in range(5):
             if self.game.tradeRow[i][0] != 'none':
                 options.append(('rowscrap', i, self.game.tradeRow[i]))
-        options.append(('noRowScrap'))
+        options.append(('noRowScrap',))
         decision = self.sendChoice(options)
         if options[decision][0] == 'rowscrap':
             self.removeFromTradeRow(options[decision][1])
@@ -423,7 +439,7 @@ class Player:
         self.cardsInPlay[cardDetails[5]].append([cardDetails,   False,          None,           True,   cardDetails[7] == 'copyship'])
         if cardDetails[5] == 'green':
             self.blobCardsPlayed += 1
-        self.activateCard(self, cardDetails[5], len(self.cardsInPlay) - 1)
+        self.activateCard(cardDetails[5], len(self.cardsInPlay[cardDetails[5]]) - 1)
 
     def attackBase(self, faction, position, shieldAmount):
         self.attack -= shieldAmount
@@ -464,13 +480,17 @@ class Player:
                         self.useAbility(allyAbility, self.cardsInPlay[faction][i][0][9])
                     self.cardsInPlay[faction][i][1] = True # mark that that card's ally ability has already been used now
         triggerOtherAllyCards(faction,position)
+        if card[0][7] == 'allally':
+            triggerOtherAllyCards('blue',-1)
+            triggerOtherAllyCards('green',-1)
+            triggerOtherAllyCards('yellow',-1)
         if card[4] == True and faction != 'red': # then it's using the copyship and should also trigger red faction
             triggerOtherAllyCards('red',position)
         if self.fleetActive == True and card[0][6] == 'ship':
             self.attack += 1
         
         # trigger its own ally ability
-        if card[0][8] != 'none' and (self.allAllied == True or self.cardsInPlay[faction] > 1):
+        if card[1] == False and card[0][8] != 'none' and (self.allAllied == True or len(self.cardsInPlay[faction]) > 1):
             # ally ability is activated
             if card[0][8][0] == '-' and card[2] == None:  # the ability can be activated by the user at any time
                 card[2] = card[0][8]
@@ -484,14 +504,15 @@ class Player:
         self.useAbility(ability, abilityN)
         self.removeCardFromPlay(faction, position)
     
-    def scrapAny(self, type, required):
+    def scrapAny(self, type, required=False):
         options = []
         totalScrapped = 0
         for i in range(len(self.hand)):
             options.append(('scrapFromHand' + type, i, self.hand[i]))
         for i in range(len(self.discardPile)):
             options.append(('scrapFromDiscard' + type, i, self.discardPile[i]))
-        options.append(('noScrapFromHand'))
+        if required == False:
+            options.append(('noScrapFromHand',))
         decision = self.sendChoice(options)
         if options[decision][0] == 'scrapFromHand' + type:
             self.hand.pop(options[decision][1])
@@ -505,7 +526,8 @@ class Player:
         options = []
         for i in range(len(self.hand)):
             options.append(('scrapFromHandNormal', i, self.hand[i]))
-        self.hand.pop(self.sendChoice(options))
+        if len(options) > 0:
+            self.hand.pop(self.sendChoice(options))
 
     def removeFromTradeRow(self, i):
         if i == 0: #explorer
@@ -535,6 +557,7 @@ class Player:
 
 class Game:
     def __init__(self,p1name,p2name):
+        self.tradeRow = []
         self.players = [Player(self,p1name),Player(self,p2name)]
         self.players[0].opponent = self.players[1]
         self.players[1].opponent = self.players[0]
@@ -548,10 +571,10 @@ class Game:
         self.explorers = 10
         self.readyCards = []
         for card in cardDetails:
-            for i in range(card[12]):
+            for i in range(card[13]):
                 self.readyCards.append(card) #12 --> count
         random.shuffle(self.readyCards)
-        self.tradeRow = [explorer]
+        self.tradeRow.append(explorer)
         for i in range(4):
             self.tradeRow.append(self.readyCards.pop())
         self.nextPlayer = 0

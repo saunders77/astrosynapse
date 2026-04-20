@@ -1,30 +1,22 @@
 def choose(playerName, options, state):
     decisionIndex = 0
-
-    # print known game state
-    knownGameState = {
-            
-
-            'nextShipTop':None,
-            'blobPlayCount':None,
-
-
-    }
     print('Authority: ' + str(state['authority']) + '/' + str(state['opponentAuthority']))
     print('Attack: ' + str(state['attack']) + '. Trade: ' + str(state['trade']))
     cardsInPlayStr = 'Cards in play: '
-    for card in state['cardsInPlay']:
-        cardsInPlayStr += str(card[0][1]) + card[0][0] + '('
-        if card[2] != 'none': cardsInPlayStr += card[2]
-        if card[4] == True: cardsInPlayStr += ',Stealth'
-        cardsInPlayStr += '), '
+    for factionCards in state['cardsInPlay'].values():
+        for card in factionCards:
+            cardsInPlayStr += str(card[0][1]) + card[0][0] + '('
+            if card[2] not in (None, 'none'): cardsInPlayStr += card[2]
+            if card[4] == True: cardsInPlayStr += ',Stealth'
+            cardsInPlayStr += '), '
     print(cardsInPlayStr)
     opcardsInPlayStr = 'Opponent cards in play: '
-    for card in state['opponentCardsInPlay']:
-        opcardsInPlayStr += str(card[0][1]) + card[0][0] + '('
-        if card[2] != 'none': opcardsInPlayStr += card[2]
-        if card[4] == True: opcardsInPlayStr += ',Stealth'
-        opcardsInPlayStr += '), '
+    for factionCards in state['opponentCardsInPlay'].values():
+        for card in factionCards:
+            opcardsInPlayStr += str(card[0][1]) + card[0][0] + '('
+            if card[2] not in (None, 'none'): opcardsInPlayStr += card[2]
+            if card[4] == True: opcardsInPlayStr += ',Stealth'
+            opcardsInPlayStr += '), '
     print(opcardsInPlayStr)
     tradeStr = 'Trade row: '
     for card in state['tradeRow']:
@@ -58,8 +50,8 @@ def choose(playerName, options, state):
     for card in state['opponentDiscardPile']:
         opdiscardStr += str(card[1]) + card[0] + ', '
     print(opdiscardStr)
-    print('Must discard: ' + str(state['mustDiscard']) + ', Opponent must discard: ' + str(state['opponentMustDiscard']) + ', nextShipTop: ' + str(state['nextShipTop']) + ', blobPlayCount: ' + state['blobPlayCount'])
+    print('Must discard: ' + str(state['mustDiscard']) + ', Opponent must discard: ' + str(state['opponentMustDiscard']) + ', nextShipTop: ' + str(state['nextShipTop']) + ', blobPlayCount: ' + str(state['blobPlayCount']))
     print('Select an option:')
     print(str(options))
-    decisionIndex = input()
+    decisionIndex = int(input())
     return decisionIndex
