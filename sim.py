@@ -164,11 +164,18 @@ class Player:
                 self.hand.append(self.deck.pop())
         self.calculateScrambleDeck()
     
-    def discard(self):
+    def discard(self, type, required):
         options = []
+        discardCount = 0
         for i in range(len(self.hand)):
-            options.append('discard',i,self.hand[i])
-        self.discardPile.append(self.hand.pop(self.sendChoice(options))) 
+            options.append(('discard' + type,i,self.hand[i]))
+        if required == False:
+            options.append(('nodiscard'))
+        decision = self.sendChoice(options)
+        if options[decision] != ('nodiscard'):
+            self.discardPile.append(self.hand.pop(decision)) 
+            discardCount = 1
+        return discardCount
    
     def takeTurn(self):
         self.calculateOpponentScrambleDeckAndHand()
@@ -191,7 +198,7 @@ class Player:
                 self.discardPile.append(self.hand.pop())
             self.mustDiscard = 0
         while self.mustDiscard > 0:
-            self.discard()
+            self.discard('Normal', True)
 
         mainPhase = True
         while mainPhase == True:
@@ -254,7 +261,7 @@ class Player:
                     if self.opponent.authority <= 0:
                         mainPhase = False
                         self.game.winner = self
-                case 'acquire': self.acquire(options[decision][1])
+                case 'acquire': self.acquire(options[decision][1], options[decision][2][1])
                 case 'endTurn': mainPhase = False
         
         # remove stuff from play area
@@ -288,21 +295,11 @@ class Player:
                     for card in self.cardsInPlay[faction]:
                         if card[0][6] != 'ship': baseCount += 1
                 if baseCount >= 2: self.draw(2)
-            case 'rowscrap':
-                options = []
-                for i in range(5):
-                    if self.game.tradeRow[i][0] != 'none':
-                        options.append(('rowscrap', i, self.game.tradeRow[i]))
-                options.append(('noRowScrap'))
-                decision = self.sendChoice(options)
-                if options[decision][0] == 'rowscrap':
-                    self.removeFromTradeRow(options[decision][1])
+            case 'rowscrap': self.selectAndScrapFromTradeRow()
             case '5ordraws':
                 choice = self.sendChoice([('gainattack',5),('draw',self.blobCardsPlayed)])
-                if choice == 0:
-                    self.attack += 5
-                else:
-                    self.draw(self.blobCardsPlayed)
+                if choice == 0: self.attack += 5
+                else: self.draw(self.blobCardsPlayed)
             case 'scrapany': self.scrapAny('Normal')
             case 'scraptwo':
                 scraps = 0
@@ -312,32 +309,11 @@ class Player:
             case 'drawscrap':
                 self.draw(1)
                 self.mustScrapFromHand()
-            case 'killbase':
-                outpostsExist = False
-                outpostOptions = []
-                baseOptions = []
-                options = []
-                for faction in factions:
-                    for i in range(len(self.opponent.cardsInPlay[faction])): 
-                        if self.opponent.cardsInPlay[faction][i][0][6] == 'outp':
-                            outpostsExist = True
-                            outpostOptions.append(('killbase', faction, i, self.opponent.cardsInPlay[faction][i][0]))
-                        elif outpostsExist == False:
-                            baseOptions.append(('killbase', faction, i, self.opponent.cardsInPlay[faction][i][0]))
-                if outpostsExist == True:
-                    options = outpostOptions
-                else:
-                    options = baseOptions
-                options.append(('nokill'))
-                decision = self.sendChoice(options)
-                if decision < len(options) - 1: # then it's a kill
-                    self.opponent.discardPile.append(self.opponent.removeCardFromPlay(options[decision][1], options[decision][2]))            
+            case 'killbase': self.selectAndDestroyBase() 
             case '5or0or3':
                 choice = self.sendChoice([('trade', 3),('gainattack', 5)])
-                if choice == 0:
-                    self.trade += 3
-                else:
-                    self.attack += 5
+                if choice == 0: self.trade += 3
+                else: self.attack += 5
             case 'copyship':
                 options = [('nocopy')]
                 copierIndex = None
@@ -350,16 +326,73 @@ class Player:
                                 options.append(('copyship', self.cardsInPlay[faction][i][0]))
                 decision = self.sendChoice(options)
                 if decision > 0:
-                    newShip = self.cardsInPlay['red'][copierIndex]
-                    newShip[0] = options[decision][1]
-                    self.cardsInPlay['red'][copierIndex]
-                
-
-
+                    self.cardsInPlay['red'][copierIndex][0] = options[decision][1] # modifies the needle details
+                    if options[decision][1][5] != 'red': #then we need to move the ship
+                        self.cardsInPlay[options[decision][1][5]].append(self.cardsInPlay['red'][copierIndex])
+                        self.cardsInPlay['red'].pop(copierIndex)
+            case 'recycle':
+                totalDiscardCount = 0
+                totalDiscardCount += self.discard('Draw', False)
+                totalDiscardCount += self.discard('Draw', False)
+                self.draw(totalDiscardCount)
+            case '0or2or2':
+                choice = self.sendChoice([('authority', 2),('trade', 2)])
+                if choice == 0: self.authority += 2
+                else: self.trade += 2
+            case '2or3or0':
+                choice = self.sendChoice([('gainattack', 2),('authority', 3)])
+                if choice == 0: self.attack += 2
+                else: self.authority += 3
+            case '0or1or1':
+                choice = self.sendChoice([('authority', 1),('trade', 1)])
+                if choice == 0: self.authority += 1
+                else: self.trade += 1
+            case 'freebuy':
+                options = []
+                for i in range(5):
+                    if self.game.tradeRow[i][6] == 'ship':
+                        options.append(('freeAcquire', i, self.game.tradeRow[i]))
+                self.nextShipTop = True
+                if len(options) > 0:
+                    self.acquire(self.sendChoice(options), 0)
+            case 'destroyscrap':
+                self.selectAndDestroyBase()
+                self.selectAndScrapFromTradeRow()
+            case 'drawdestroy':
+                self.selectAndDestroyBase()
+                self.draw(1)       
             case _: raise ValueError('Used unknown ability ' + str(abilityName))
 
+    def selectAndDestroyBase(self):
+        outpostsExist = False
+        outpostOptions = []
+        baseOptions = []
+        options = []
+        for faction in factions:
+            for i in range(len(self.opponent.cardsInPlay[faction])): 
+                if self.opponent.cardsInPlay[faction][i][0][6] == 'outp':
+                    outpostsExist = True
+                    outpostOptions.append(('killbase', faction, i, self.opponent.cardsInPlay[faction][i][0]))
+                elif outpostsExist == False:
+                    baseOptions.append(('killbase', faction, i, self.opponent.cardsInPlay[faction][i][0]))
+        if outpostsExist == True:
+            options = outpostOptions
+        else:
+            options = baseOptions
+        options.append(('nokill'))
+        decision = self.sendChoice(options)
+        if decision < len(options) - 1: # then it's a kill
+            self.opponent.discardPile.append(self.opponent.removeCardFromPlay(options[decision][1], options[decision][2])) 
 
-        print(abilityName)
+    def selectAndScrapFromTradeRow(self):
+        options = []
+        for i in range(5):
+            if self.game.tradeRow[i][0] != 'none':
+                options.append(('rowscrap', i, self.game.tradeRow[i]))
+        options.append(('noRowScrap'))
+        decision = self.sendChoice(options)
+        if options[decision][0] == 'rowscrap':
+            self.removeFromTradeRow(options[decision][1])
 
     def triggerAbilityOption(self, faction, position):
         card = self.cardsInPlay[faction][position]
@@ -367,7 +400,7 @@ class Player:
             self.useAbility(card[2][1:]) # [1:] removes the '-' character at the beginning
             card[2] = 'used'
 
-    def acquire(self, i):
+    def acquire(self, i, cost):
         target = self.game.tradeRow[i]
         
         # get the card
@@ -375,9 +408,10 @@ class Player:
             self.deck.append(target)
             self.knownTopOfDeck += 1
             self.calculateScrambleDeck()
+            self.nextShipTop = False
         else:
             self.discardPile.append(target)
-        self.trade -= target[1]
+        self.trade -= cost
         
         # show the next card
         self.removeFromTradeRow(i)
