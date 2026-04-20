@@ -1,55 +1,55 @@
 cardDetails = [
-    #                   0       1       2       3       4       5       6           7               8       9               10      11      12
+    # 0                 1       2       3       4       5       6       7           8               9       10              11      12      13
     # name,             cost,   attack, health, trade,  colour, type,   ability,    allyability,    allyn,  scrapability,   scrapn, shield, count
     ('Scout',           0,      0,      0,      1,      'none', 'ship', 'none',     'none',         0,      'none',         0,      0,      0),
     ('Viper',           0,      1,      0,      0,      'none', 'ship', 'none',     'none',         0,      'none',         0,      0,      0),
-    ('Explorer',        2,      0,      0,      2,      'none', 'ship', 'none',     'none',         0,      'attack',       2,      0,      0),
-    ('Battle Blob',     6,      8,      0,      0,      'green','ship', 'none',     'draw',         0,      'attack',       4,      0,      1),
-    ('Battle Pod',      2,      4,      0,      0,      'green','ship', 'rowscrap', 'attack',       2,      'none',         0,      0,      2),
-    ('Blob Carrier',    6,      7,      0,      0,      'green','ship', 'none',     '-freebuy',      0,      'none',         0,      0,      1),
+    ('Explorer',        2,      0,      0,      2,      'none', 'ship', 'none',     'none',         0,      'gainattack',   2,      0,      0),
+    ('Battle Blob',     6,      8,      0,      0,      'green','ship', 'none',     'draw',         0,      'gainattack',   4,      0,      1),
+    ('Battle Pod',      2,      4,      0,      0,      'green','ship', 'rowscrap', 'gainattack',   2,      'none',         0,      0,      2),
+    ('Blob Carrier',    6,      7,      0,      0,      'green','ship', 'none',     '-freebuy',     0,      'none',         0,      0,      1),
     ('Blob Destroyer',  4,      6,      0,      0,      'green','ship', 'none',     '-destroyscrap',0,      'none',         0,      0,      2),
     ('Blob Fighter',    1,      3,      0,      0,      'green','ship', 'none',     'draw',         0,      'none',         0,      0,      3),
     ('Blob Wheel',      3,      1,      0,      0,      'green','base', 'none',     'none',         0,      'trade',        3,      5,      3),
     ('Blob World',      8,      0,      0,      0,      'green','base', '-5ordraws','none',         0,      'none',         0,      7,      1),
     ('Mothership',      7,      6,      0,      0,      'green','ship', 'draw',     'draw',         0,      'none',         0,      0,      1),
-    ('Ram',             3,      5,      0,      0,      'green','ship', 'none',     'attack',       2,      'trade',        3,      0,      2),
+    ('Ram',             3,      5,      0,      0,      'green','ship', 'none',     'gainattack',   2,      'trade',        3,      0,      2),
     ('The Hive',        5,      3,      0,      0,      'green','base', 'none',     'draw',         0,      'none',         0,      5,      1),
-    ('BTrade Pod',      2,      0,      0,      3,      'green','ship', 'none',     'attack',       2,      'none',         0,      0,      3),
+    ('Trade Pod',       2,      0,      0,      3,      'green','ship', 'none',     'gainattack',   2,      'none',         0,      0,      3),
     ('Battle Mech',     5,      4,      0,      0,      'red',  'ship', 'scrapany', 'draw',         0,      'none',         0,      0,      1),
-    ('Battle Station',  3,      0,      0,      0,      'red',  'outp', 'none',     'none',         0,      'attack',       5,      5,      2),
+    ('Battle Station',  3,      0,      0,      0,      'red',  'outp', 'none',     'none',         0,      'gainattack',   5,      5,      2),
     ('Brain World',     8,      0,      0,      0,      'red',  'outp', '-scraptwo','none',         0,      'none',         0,      6,      1),
     ('Junkyard',        6,      0,      0,      0,      'red',  'outp', '-scrapany','none',         0,      'none',         0,      5,      1),
     ('Machine Base',    7,      0,      0,      0,      'red',  'outp', '-drawscrap','none',        0,      'none',         0,      6,      1),
     ('Mech World',      5,      0,      0,      0,      'red',  'outp', 'allally',  'none',         0,      'none',         0,      6,      1),
-    ('Missile Bot',     2,      2,      0,      0,      'red',  'ship', 'scrapany', 'attack',       2,      'none',         0,      0,      3),
+    ('Missile Bot',     2,      2,      0,      0,      'red',  'ship', 'scrapany', 'gainattack',   2,      'none',         0,      0,      3),
     ('Missile Mech',    6,      6,      0,      0,      'red',  'ship', 'killbase', 'draw',         0,      'none',         0,      0,      1),
     ('Patrol Mech',     4,      0,      0,      0,      'red',  'ship', '5or0or3', '-scrapany',     0,      'none',         0,      0,      2),
     ('Stealth Needle',  4,      0,      0,      0,      'red',  'ship', 'copyship', 'none',         0,      'none',         0,      0,      1),
-    ('Supply Bot',      3,      0,      0,      2,      'red',  'ship', 'scrapany', 'attack',       2,      'none',         0,      0,      3),
-    ('Trade Bot',       1,      0,      0,      1,      'red',  'ship', 'scrapany', 'attack',       2,      'none',         0,      0,      3),
+    ('Supply Bot',      3,      0,      0,      2,      'red',  'ship', 'scrapany', 'gainattack',   2,      'none',         0,      0,      3),
+    ('Trade Bot',       1,      0,      0,      1,      'red',  'ship', 'scrapany', 'gainattack',   2,      'none',         0,      0,      3),
     ('Battlecruiser',   6,      5,      0,      0,      'yellow','ship','draw',     'opdiscard',    0,      'drawdestroy',  0,      0,      1),
-    ('Corvette',        2,      1,      0,      0,      'yellow','ship','draw',     'attack',       2,      'none',         0,      0,      2),
-    ('Dreadnaught',     7,      7,      0,      0,      'yellow','ship','draw',     'none',         0,      'attack',       5,      0,      1),
+    ('Corvette',        2,      1,      0,      0,      'yellow','ship','draw',     'gainattack',   2,      'none',         0,      0,      2),
+    ('Dreadnaught',     7,      7,      0,      0,      'yellow','ship','draw',     'none',         0,      'gainattack',   5,      0,      1),
     ('Fleet HQ',        8,      0,      0,      0,      'yellow','base','fleethq',  'none',         0,      'none',         0,      8,      1),
-    ('Imperial Fighter',1,      2,      0,      0,      'yellow','ship','opdiscard','attack',       2,      'none',         0,      0,      3),
-    ('Imperial Frigate',3,      4,      0,      0,      'yellow','ship','opdiscard','attack',       2,      'draw',         0,      0,      3),
+    ('Imperial Fighter',1,      2,      0,      0,      'yellow','ship','opdiscard','gainattack',   2,      'none',         0,      0,      3),
+    ('Imperial Frigate',3,      4,      0,      0,      'yellow','ship','opdiscard','gainattack',   2,      'draw',         0,      0,      3),
     ('Recycling Station',4,     0,      0,      0,      'yellow','outp','-recycle', 'none',         0,      'none',         0,      4,      2),
     ('Royal Redoubt',   6,      3,      0,      0,      'yellow','outp','none',     'opdiscard',    0,      'none',         0,      6,      1),
-    ('Space Station',   4,      2,      0,      0,      'yellow','outp','none',     'attack',       2,      'trade',        4,      4,      2),
+    ('Space Station',   4,      2,      0,      0,      'yellow','outp','none',     'gainattack',   2,      'trade',        4,      4,      2),
     ('Survey Ship',     3,      0,      0,      1,      'yellow','ship','draw',     'none',         0,      'opdiscard',    0,      0,      3),
-    ('War World',       5,      3,      0,      0,      'yellow','outp','none',     'attack',       4,      'none',         0,      4,      1),
-    ('Barter World',    4,      0,      0,      0,      'blue', 'base', '-0or2or2', 'none',         0,      'attack',       5,      4,      2),
+    ('War World',       5,      3,      0,      0,      'yellow','outp','none',     'gainattack',   4,      'none',         0,      4,      1),
+    ('Barter World',    4,      0,      0,      0,      'blue', 'base', '-0or2or2', 'none',         0,      'gainattack',   5,      4,      2),
     ('Central Office',  7,      0,      0,      2,      'blue', 'base', 'shiptop',  'draw',         0,      'none',         0,      6,      1),
     ('Command Ship',    8,      5,      4,      0,      'blue', 'ship', 'draw2',    '-killbase',    0,      'none',         0,      0,      1),
-    ('Cutter',          2,      0,      4,      2,      'blue', 'ship', 'none',     'attack',       4,      'none',         0,      0,      3),
-    ('Defense Center',  5,      0,      0,      0,      'blue', 'outp', '-2or3or0', 'attack',       2,      'none',         0,      5,      1),
+    ('Cutter',          2,      0,      4,      2,      'blue', 'ship', 'none',     'gainattack',   4,      'none',         0,      0,      3),
+    ('Defense Center',  5,      0,      0,      0,      'blue', 'outp', '-2or3or0', 'gainattack',   2,      'none',         0,      5,      1),
     ('Embassy Yacht',   3,      0,      3,      2,      'blue', 'ship', 'bases2d2', 'none',         0,      'none',         0,      0,      2),
     ('Federation Shuttle',1,    0,      0,      2,      'blue', 'ship', 'none',     'authority',    4,      'none',         0,      0,      3),
     ('Flagship',        6,      0,      0,      0,      'blue', 'ship', 'draw',     'authority',    5,      'none',         0,      0,      1),
     ('Freighter',       4,      0,      0,      4,      'blue', 'ship', 'none',     'shiptop',      0,      'none',         0,      0,      2),
     ('Port of Call',    6,      0,      0,      3,      'blue', 'outp', 'none',     'none',         0,      'drawdestroy',  0,      6,      1),
     ('Trade Escort',    5,      4,      4,      0,      'blue', 'ship', 'none',     'draw',         0,      'none',         0,      0,      1),
-    ('Trading Post',    3,      0,      0,      0,      'blue', 'outp', '-0or1or1', 'none',         0,      'attack',       3,      4,      2),
+    ('Trading Post',    3,      0,      0,      0,      'blue', 'outp', '-0or1or1', 'none',         0,      'gainattack',   3,      4,      2),
 
 ]
 scout = cardDetails[0]
@@ -73,7 +73,7 @@ class Player:
         self.mustDiscard = 0     
         self.cardsInPlay = {'red':[], 'blue':[], 'green':[], 'yellow':[], 'none':[]}
         self.knownTopOfDeck = 0
-        self.opponentKnownHandCards = []
+        self.opponentKnownHandCards = [] # the cards in my hand that my opponent knows about
         self.knownGameState = {
             'authority':None,
             'attack':0,
@@ -86,6 +86,7 @@ class Player:
             'cardsInPlay':self.cardsInPlay,
             'tradeRow':self.game.tradeRow,
             'nextShipTop':None,
+            'blobPlayCount':None,
             'opponentAuthority':None,
             'opponentMustDiscard':None,
             'opponentScrambleDeckAndHand':None,
@@ -134,18 +135,19 @@ class Player:
         self.knownGameState['opponentTopCards'] = opTopCards
         self.knownGameState['opponentHandCards'] = knownOpponentHandCards
 
-    def sendChoice(self, decisionType, options):
+    def sendChoice(self, options):
         self.knownGameState['authority'] = self.authority
         self.knownGameState['attack'] = self.attack
         self.knownGameState['trade'] = self.trade
         self.knownGameState['mustDiscard'] = self.mustDiscard
         # scrambleDeck and topCards are calculated dynamically        
         self.knownGameState['nextShipTop'] = self.nextShipTop
+        self.knownGameState['blobPlayCount'] = self.blobCardsPlayed
         self.knownGameState['opponentAuthority'] = self.opponent.authority
         self.knownGameState['opponentMustDiscard'] = self.opponent.mustDiscard
         # opScrambleDeckAndHand, opTopCard, and opHandCards are calculated dynamically
         
-        return choose(self.name, decisionType, options, self.knownGameState)
+        return choose(self.name, options, self.knownGameState)
 
     def draw(self, n):
         for i in range(n):
@@ -163,14 +165,12 @@ class Player:
         self.calculateScrambleDeck()
     
     def discard(self):
-        self.discardPile.append(self.hand.pop(self.sendChoice('discard', self.hand))) 
+        options = []
+        for i in range(len(self.hand)):
+            options.append('discard',i,self.hand[i])
+        self.discardPile.append(self.hand.pop(self.sendChoice(options))) 
    
     def takeTurn(self):
-        self.playOptions = []
-        self.abilityOptions = []
-        self.scrapOptions = []
-        self.acquireOptions = []
-
         self.calculateOpponentScrambleDeckAndHand()
 
         self.attack = 0
@@ -178,6 +178,7 @@ class Player:
         self.allAllied = False # for Mech World
         self.fleetActive = False # for FleetHQ
         self.nextShipTop = False # for several cards
+        self.blobCardsPlayed = 0 # for Blob World
 
         # take care of bases starting in play
         for faction in factions:
@@ -185,28 +186,94 @@ class Player:
                 self.activateCard(faction,i)
 
         # discard if required, and reduce mustDiscard
+        if self.mustDiscard >= len(self.hand): 
+            for i in range(len(self.hand)):
+                self.discardPile.append(self.hand.pop())
+            self.mustDiscard = 0
         while self.mustDiscard > 0:
             self.discard()
 
         mainPhase = True
         while mainPhase == True:
-            self.sendChoice('action',[''])
-        while len(self.hand) > 0:
-            self.playCard(self.sendChoice('play',self.hand))
+            # generate options
+            options = []
+            
+            # can play any card
+            for i in range(len(self.hand)):
+                options.append(('play', i, self.hand[i]))
+            
+            opOutposts = []
+            opBases = []
 
+            for faction in factions:
+                # identify scrap targets and abilityOption targets
+                for i in range(len(self.cardsInPlay[faction])):
+                    if self.cardsInPlay[faction][i][2] not in ('none','used'):
+                        options.append(('abilityOption', faction, i, self.cardsInPlay[faction][i][2]))
+                    if self.cardsInPlay[faction][i][0][10] != 'none':
+                        options.append(('scrapFromPlay', faction, i, self.cardsInPlay[faction][i], self.cardsInPlay[faction][i][0][10], self.cardsInPlay[faction][i][0][11]))
+                
+                # identify attack targets
+                if self.attack > 0:
+                    for i in range(len(self.opponent.cardsInPlay[faction])): # should all be bases/outposts 
+                        if self.opponent.cardsInPlay[faction][i][0][6] == 'base':
+                            opBases.append((faction,i,self.opponent.cardsInPlay[faction][i][0][12],self.opponent.cardsInPlay[faction][i][0]))
+                        else:
+                            opOutposts.append((faction,i,self.opponent.cardsInPlay[faction][i][0][12],self.opponent.cardsInPlay[faction][i][0]))
+
+            if self.attack > 0:
+                if len(opOutposts) > 0:
+                    for outpostInfo in opOutposts:
+                        if self.attack >= outpostInfo[2]:
+                            #                           1faction        2index,         3shield amount, 4available attack
+                            options.append(('attack',   outpostInfo[0], outpostInfo[1], outpostInfo[2], self.attack))
+                else:
+                    for baseInfo in opBases:
+                        if self.attack >= baseInfo[2]:
+                            options.append(('attack', baseInfo[0], baseInfo[1], baseInfo[2], self.attack))
+                    options.append('attackOpponent', self.attack)
+               
+            # identify acquisition targets
+            if self.trade > 0:
+                for i in range(5):
+                    if self.game.tradeRow[i][1] <= self.trade:
+                        options.append(('acquire', i, self.game.tradeRow[i]))
+            
+            if len(self.hand) == 0:
+                options.append(('endTurn'))
+
+            decision = self.sendChoice(options)
+            match options[decision][0]:
+                case 'play': self.playCard(options[decision][1])
+                case 'abilityOption': self.triggerAbilityOption(options[decision][1], options[decision][2])
+                case 'scrapFromPlay': self.scrapFromPlay(options[decision][1], options[decision][2], options[decision][4], options[decision][5])
+                case 'attack': self.attackBase(options[decision][1], options[decision][2], options[decision][3])
+                case 'attackOpponent':
+                    self.opponent.authority -= self.attack
+                    self.attack = 0
+                    if self.opponent.authority <= 0:
+                        mainPhase = False
+                        self.game.winner = self
+                case 'acquire': self.acquire(options[decision][1])
+                case 'endTurn': mainPhase = False
         
-        # discard from play area
+        # remove stuff from play area
         for faction in factions:
             for i in range(len(self.cardsInPlay[faction])):
-                if self.cardsInPlay[faction][i][0][5] == 'ship':
-                    self.discardPile.append(self.cardsInPlay[faction][i][0])
-                    self.cardsInPlay[faction].pop(i)
+                if self.cardsInPlay[faction][i][0][6] == 'ship':
+                    if self.cardsInPlay[faction][i][4] == True: # it's a copyship
+                        self.discardPile.append(('Stealth Needle',  4,      0,      0,      0,      'red',  'ship', 'copyship', 'none',         0,      'none',         0,      0,      1))
+                    else:
+                        self.discardPile.append(self.cardsInPlay[faction][i][0])
+                    self.removeCardFromPlay(faction,i)
         
         self.opponentKnownHandCards = []
+        # draw for my next turn
+        self.draw(5)
 
     def useAbility(self, abilityName, n = None):
         match abilityName:
-            case 'attack': self.attack += n
+            case 'gainattack': self.attack += n
             case 'trade': self.trade += n
             case 'authority': self.authority += n
             case 'draw': self.draw(1)
@@ -219,8 +286,75 @@ class Player:
                 baseCount = 0
                 for faction in factions:
                     for card in self.cardsInPlay[faction]:
-                        if card[0][5] != 'ship': baseCount += 1
+                        if card[0][6] != 'ship': baseCount += 1
                 if baseCount >= 2: self.draw(2)
+            case 'rowscrap':
+                options = []
+                for i in range(5):
+                    if self.game.tradeRow[i][0] != 'none':
+                        options.append(('rowscrap', i, self.game.tradeRow[i]))
+                options.append(('noRowScrap'))
+                decision = self.sendChoice(options)
+                if options[decision][0] == 'rowscrap':
+                    self.removeFromTradeRow(options[decision][1])
+            case '5ordraws':
+                choice = self.sendChoice([('gainattack',5),('draw',self.blobCardsPlayed)])
+                if choice == 0:
+                    self.attack += 5
+                else:
+                    self.draw(self.blobCardsPlayed)
+            case 'scrapany': self.scrapAny('Normal')
+            case 'scraptwo':
+                scraps = 0
+                scraps += self.scrapAny('Draw')
+                scraps += self.scrapAny('Draw')
+                self.draw(scraps)
+            case 'drawscrap':
+                self.draw(1)
+                self.mustScrapFromHand()
+            case 'killbase':
+                outpostsExist = False
+                outpostOptions = []
+                baseOptions = []
+                options = []
+                for faction in factions:
+                    for i in range(len(self.opponent.cardsInPlay[faction])): 
+                        if self.opponent.cardsInPlay[faction][i][0][6] == 'outp':
+                            outpostsExist = True
+                            outpostOptions.append(('killbase', faction, i, self.opponent.cardsInPlay[faction][i][0]))
+                        elif outpostsExist == False:
+                            baseOptions.append(('killbase', faction, i, self.opponent.cardsInPlay[faction][i][0]))
+                if outpostsExist == True:
+                    options = outpostOptions
+                else:
+                    options = baseOptions
+                options.append(('nokill'))
+                decision = self.sendChoice(options)
+                if decision < len(options) - 1: # then it's a kill
+                    self.opponent.discardPile.append(self.opponent.removeCardFromPlay(options[decision][1], options[decision][2]))            
+            case '5or0or3':
+                choice = self.sendChoice([('trade', 3),('gainattack', 5)])
+                if choice == 0:
+                    self.trade += 3
+                else:
+                    self.attack += 5
+            case 'copyship':
+                options = [('nocopy')]
+                copierIndex = None
+                for faction in factions:
+                    for i in range(len(self.cardsInPlay[faction])):
+                        if self.cardsInPlay[faction][i][0][6] == 'ship':
+                            if self.cardsInPlay[faction][i][0][7] == 'copyship':
+                                copierIndex = i
+                            else:
+                                options.append(('copyship', self.cardsInPlay[faction][i][0]))
+                decision = self.sendChoice(options)
+                if decision > 0:
+                    newShip = self.cardsInPlay['red'][copierIndex]
+                    newShip[0] = options[decision][1]
+                    self.cardsInPlay['red'][copierIndex]
+                
+
 
             case _: raise ValueError('Used unknown ability ' + str(abilityName))
 
@@ -233,80 +367,130 @@ class Player:
             self.useAbility(card[2][1:]) # [1:] removes the '-' character at the beginning
             card[2] = 'used'
 
-    def acquire(self):
-        print('acquiring')
-        # remember to recalculate scrambledeck
+    def acquire(self, i):
+        target = self.game.tradeRow[i]
+        
+        # get the card
+        if self.nextShipTop == True and target[6] == 'ship':
+            self.deck.append(target)
+            self.knownTopOfDeck += 1
+            self.calculateScrambleDeck()
+        else:
+            self.discardPile.append(target)
+        self.trade -= target[1]
+        
+        # show the next card
+        self.removeFromTradeRow(i)
 
     def playCard(self, handId):
         cardDetails = self.hand.pop(handId)
         #                                        0              1               2               3       4 
         #                                                       allyTriggeredIt,abilityOption,  inPlay, isStealth
-        self.cardsInPlay[cardDetails[4]].append([cardDetails,   False,          None,           True,   cardDetails[6] == 'copyship'])
-        self.activateCard(self, cardDetails[4], len(self.cardsInPlay) - 1)
+        self.cardsInPlay[cardDetails[5]].append([cardDetails,   False,          None,           True,   cardDetails[7] == 'copyship'])
+        if cardDetails[5] == 'green':
+            self.blobCardsPlayed += 1
+        self.activateCard(self, cardDetails[5], len(self.cardsInPlay) - 1)
 
+    def attackBase(self, faction, position, shieldAmount):
+        self.attack -= shieldAmount
+        self.opponent.discardPile.append(self.opponent.removeCardFromPlay(faction, position))
+        
     def removeCardFromPlay(self, faction, position):
         card = self.cardsInPlay[faction][position]
-        if card[0][6] == 'allally': self.allAllied = False
-        if card[0][6] == 'fleethq': self.fleetActive = False
+        if card[0][7] == 'allally': self.allAllied = False
+        if card[0][7] == 'fleethq': self.fleetActive = False
         self.cardsInPlay[faction][position][3] = False
         self.cardsInPlay[faction].pop(position)
+        return card[0]
     
     def activateCard(self, faction, position):
         card = self.cardsInPlay[faction][position]
-        self.attack += card[0][1]
-        self.authority += card[0][2]
-        self.trade += card[0][3]
+        self.attack += card[0][2]
+        self.authority += card[0][3]
+        self.trade += card[0][4]
         
         # use its ability
-        if card[0][6][0] == '-' and card[2] == None: # the ability can be activated by the user at any time
-            card[2] = card[0][6] # card[2] is the active ability option
-            self.abilityOptions.append(card)
-        elif card[0][6][0] == '-' and card[2] != None:
-            raise ValueError('Option ability ' + str(card[0][6]) + ' could not be added because of an existing option: ' + str(card[2]))
-        elif card[0][6] != 'none': 
-            self.useAbility(card[0][6])
+        if card[0][7][0] == '-' and card[2] == None: # the ability can be activated by the user at any time
+            card[2] = card[0][7] # card[2] is the active ability option
+        elif card[0][7][0] == '-' and card[2] != None:
+            raise ValueError('Option ability ' + str(card[0][7]) + ' could not be added because of an existing option: ' + str(card[2]))
+        elif card[0][7] != 'none': 
+            self.useAbility(card[0][7])
         
         # trigger other ally cards
         def triggerOtherAllyCards(faction,position):
             for i in range(len(self.cardsInPlay[faction])):
-                allyAbility = self.cardsInPlay[faction][i][0][7]
+                allyAbility = self.cardsInPlay[faction][i][0][8]
                 if i != position and allyAbility != 'none' and self.cardsInPlay[faction][i][1] == False: # the card is not this one and it has an ally ability and it hasn't been triggered
                     if allyAbility[0] == '-' and self.cardsInPlay[faction][i][2] == None: # the ability of the other card can be activated by the user at any time and hasn't already been added
                         self.cardsInPlay[faction][i][2] = allyAbility # card[2] is the active ability option
-                        self.abilityOptions.append(self.cardsInPlay[faction][i])
                     elif allyAbility[0] == '-' and self.cardsInPlay[faction][i][2] != None:
                         raise ValueError('Option ability ' + str(allyAbility) + ' could not be added because of an existing option: ' + str(self.cardsInPlay[faction][i][2]))
                     else:
-                        self.useAbility(allyAbility, self.cardsInPlay[faction][i][0][8])
+                        self.useAbility(allyAbility, self.cardsInPlay[faction][i][0][9])
                     self.cardsInPlay[faction][i][1] = True # mark that that card's ally ability has already been used now
         triggerOtherAllyCards(faction,position)
         if card[4] == True and faction != 'red': # then it's using the copyship and should also trigger red faction
             triggerOtherAllyCards('red',position)
+        if self.fleetActive == True and card[0][6] == 'ship':
+            self.attack += 1
         
         # trigger its own ally ability
-        if card[0][7] != 'none' and (self.allAllied == True or self.cardsInPlay[faction] > 1):
+        if card[0][8] != 'none' and (self.allAllied == True or self.cardsInPlay[faction] > 1):
             # ally ability is activated
-            if card[0][7][0] == '-' and card[2] == None:  # the ability can be activated by the user at any time
-                card[2] = card[0][7]
-                self.abilityOptions.append(card)
-            elif card[0][7][0] == '-' and card[2] != None:
-                raise ValueError('Option ability ' + str(card[0][7]) + ' could not be added because of an existing option: ' + str(card[2]))
+            if card[0][8][0] == '-' and card[2] == None:  # the ability can be activated by the user at any time
+                card[2] = card[0][8]
+            elif card[0][8][0] == '-' and card[2] != None:
+                raise ValueError('Option ability ' + str(card[0][8]) + ' could not be added because of an existing option: ' + str(card[2]))
             else:
-                self.useAbility(card[0][7],card[0][8])
-            card[1] = True # the ally ability has now been used
-        
-        if card[0][9] != 'none':
-            self.scrapOptions.append(card)      
+                self.useAbility(card[0][8],card[0][9])
+            card[1] = True # the ally ability has now been used 
     
-    def scrapCard(self, faction, position):
-        print("scrapping")
-        # remember to turn off stuff for fleetHQ and mech world
+    def scrapFromPlay(self, faction, position, ability, abilityN):
+        self.useAbility(ability, abilityN)
+        self.removeCardFromPlay(faction, position)
+    
+    def scrapAny(self, type, required):
+        options = []
+        totalScrapped = 0
+        for i in range(len(self.hand)):
+            options.append(('scrapFromHand' + type, i, self.hand[i]))
+        for i in range(len(self.discardPile)):
+            options.append(('scrapFromDiscard' + type, i, self.discardPile[i]))
+        options.append(('noScrapFromHand'))
+        decision = self.sendChoice(options)
+        if options[decision][0] == 'scrapFromHand' + type:
+            self.hand.pop(options[decision][1])
+            totalScrapped += 1
+        elif options[decision][0] == 'scrapFromDiscard' + type:
+            self.discardPile.pop(options[decision][1])
+            totalScrapped += 1
+        return totalScrapped
+    
+    def mustScrapFromHand(self):
+        options = []
+        for i in range(len(self.hand)):
+            options.append(('scrapFromHandNormal', i, self.hand[i]))
+        self.hand.pop(self.sendChoice(options))
+
+    def removeFromTradeRow(self, i):
+        if i == 0: #explorer
+            self.game.explorers -= 1
+            if self.game.explorers == 0:
+                self.game.tradeRow[0] = ('none', 1000) # signifies it cannot be acquired
+            else:
+                self.game.tradeRow[0] = explorer
+        else:
+            if len(self.game.readyCards) == 0:
+                self.game.tradeRow[i] = ('none', 1000)
+            else:
+                self.game.tradeRow[i] = self.game.readyCards.pop()
 
     def endTurn(self):
         for faction in factions:
             i = 0
             while i < len(self.cardsInPlay[faction]):
-                if self.cardsInPlay[faction][i][0][5] == 'ship':
+                if self.cardsInPlay[faction][i][0][6] == 'ship':
                     self.discardPile.append(self.cardsInPlay[faction].pop(i)[0])
                 else:
                     i += 1
@@ -329,11 +513,11 @@ class Game:
         self.players[1].draw(5)
         self.explorers = 10
         self.readyCards = []
-        for card in cards:
+        for card in cardDetails:
             for i in range(card[12]):
                 self.readyCards.append(card) #12 --> count
         random.shuffle(self.readyCards)
-        self.tradeRow = []
+        self.tradeRow = [explorer]
         for i in range(4):
             self.tradeRow.append(self.readyCards.pop())
         self.nextPlayer = 0
