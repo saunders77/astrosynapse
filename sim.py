@@ -58,12 +58,13 @@ explorer = cardDetails[2]
 factions = ('red','green','blue','yellow','none')
 
 import random
-from chooser import choose
+from chooser import choose as default_choose
 
 class Player:
-    def __init__(self, game, name):
+    def __init__(self, game, name, chooser_fn=None):
         self.name = name
         self.game = game
+        self.chooser_fn = chooser_fn or default_choose
         self.opponent = None
         self.deck = [scout, scout, scout, scout, scout, scout, scout, scout, viper, viper]
         random.shuffle(self.deck)
@@ -147,7 +148,7 @@ class Player:
         self.knownGameState['opponentMustDiscard'] = self.opponent.mustDiscard
         # opScrambleDeckAndHand, opTopCard, and opHandCards are calculated dynamically
         
-        return choose(self.name, options, self.knownGameState)
+        return self.chooser_fn(self.name, options, self.knownGameState)
 
     def draw(self, n):
         for i in range(n):
@@ -206,7 +207,13 @@ class Player:
             self.mustDiscard -= self.discard('Normal', True)
 
         mainPhase = True
+        actionCount = 0
         while mainPhase == True:
+            actionCount += 1
+            if actionCount > self.game.max_actions_per_turn:
+                mainPhase = False
+                break
+
             # generate options
             options = []
             
@@ -556,9 +563,12 @@ class Player:
 
 
 class Game:
-    def __init__(self,p1name,p2name):
+    def __init__(self, p1name, p2name, p1_choose=None, p2_choose=None, verbose=True, max_turns=400, max_actions_per_turn=200):
+        self.verbose = verbose
+        self.max_turns = max_turns
+        self.max_actions_per_turn = max_actions_per_turn
         self.tradeRow = []
-        self.players = [Player(self,p1name),Player(self,p2name)]
+        self.players = [Player(self, p1name, p1_choose), Player(self, p2name, p2_choose)]
         self.players[0].opponent = self.players[1]
         self.players[1].opponent = self.players[0]
         self.players[0].knownGameState['opponentDiscardPile'] = self.players[1].discardPile
@@ -579,10 +589,46 @@ class Game:
             self.tradeRow.append(self.readyCards.pop())
         self.nextPlayer = 0
         self.winner = None
-        while self.winner == None:
+        self.ended_by_limit = False
+        self.turnsTaken = 0
+        while self.winner == None and self.turnsTaken < self.max_turns:
             self.players[self.nextPlayer].takeTurn()
-            self.nextPlayer = (self.nextPlayer + 1) % 2
-        print('The winner is: ' + self.winner.name + "!")
+            self.turnsTaken += 1
+            if self.winner == None:
+                self.nextPlayer = (self.nextPlayer + 1) % 2
+        if self.winner == None:
+            self.ended_by_limit = True
+            self.winner = self.resolveStalemate()
+        if self.verbose:
+            print('The winner is: ' + self.winner.name + "!")
+
+    def resolveStalemate(self):
+        def playerScore(player):
+            score = player.authority
+            for card in player.deck:
+                score += card[1] + card[2] + card[4] + card[12]
+            for card in player.hand:
+                score += card[1] + card[2] + card[4] + card[12]
+            for card in player.discardPile:
+                score += card[1] + card[2] + card[4] + card[12]
+            for faction in factions:
+                for cardInPlay in player.cardsInPlay[faction]:
+                    card = cardInPlay[0]
+                    score += card[1] + card[2] + card[4] + card[12] + 1
+            return score
+
+        p1 = self.players[0]
+        p2 = self.players[1]
+        p1Score = playerScore(p1)
+        p2Score = playerScore(p2)
+        if p1.authority != p2.authority:
+            return p1 if p1.authority > p2.authority else p2
+        if p1Score != p2Score:
+            return p1 if p1Score > p2Score else p2
+        return p1 if p1.name < p2.name else p2
+
+if __name__ == "__main__":
+    Game('michael', 'caitlin')
 
         
 
