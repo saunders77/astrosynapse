@@ -353,10 +353,13 @@ class Player:
                         self.blobCardsPlayed += 1
                     self.activateCard(copiedFaction, copierIndex)
             case 'recycle':
-                totalDiscardCount = 0
-                totalDiscardCount += self.discard('Draw', False)
-                totalDiscardCount += self.discard('Draw', False)
-                self.draw(totalDiscardCount)
+                choice = self.sendChoice([('trade', 1),('switch', 0)])
+                if choice == 0: self.trade += 1
+                else:
+                    totalDiscardCount = 0
+                    totalDiscardCount += self.discard('Draw', False)
+                    totalDiscardCount += self.discard('Draw', False)
+                    self.draw(totalDiscardCount)
             case '0or2or2':
                 choice = self.sendChoice([('authority', 2),('trade', 2)])
                 if choice == 0: self.authority += 2

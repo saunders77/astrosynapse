@@ -1,0 +1,1001 @@
+from __future__ import annotations
+
+import copy
+import queue
+import threading
+import traceback
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Sequence
+
+try:
+    import tkinter as tk
+    from tkinter import messagebox, ttk
+    from tkinter.scrolledtext import ScrolledText
+except ImportError as exc:  # pragma: no cover - depends on local Python install
+    raise RuntimeError("Tkinter is required to run the trainer GUI.") from exc
+
+import chooser as chooser_ui
+import starrealms_selfplay as sp
+
+
+WINDOW_BG = "#0b1420"
+PANEL_BG = "#132235"
+ACCENT = "#f4b860"
+TEXT = "#ecf3ff"
+SUBTEXT = "#c3d3ea"
+MUTED = "#87a0c2"
+BUTTON_BG = "#25476a"
+BUTTON_ACTIVE = "#356796"
+POLL_INTERVAL_MS = 1000
+
+
+@dataclass
+class HumanChoiceRequest:
+    player_name: str
+    options: List[Sequence[Any]]
+    state: Dict[str, Any]
+    event: threading.Event = field(default_factory=threading.Event)
+    selection: Optional[int] = None
+    error: Optional[str] = None
+
+
+class HumanChoiceBridge:
+    def __init__(self, app: "TrainerGUI") -> None:
+        self.app = app
+
+    def choose(self, player_name: str, options: Sequence[Sequence[Any]], state: Dict[str, Any]) -> int:
+        request = HumanChoiceRequest(
+            player_name=player_name,
+            options=copy.deepcopy(list(options)),
+            state=copy.deepcopy(dict(state)),
+        )
+        self.app.choice_queue.put(request)
+        request.event.wait()
+        if request.error is not None:
+            raise RuntimeError(request.error)
+        if request.selection is None:
+            raise RuntimeError("No selection was returned for the human decision.")
+        return request.selection
+
+
+class HumanDecisionDialog(tk.Toplevel):
+    def __init__(self, parent: tk.Misc, request: HumanChoiceRequest) -> None:
+        super().__init__(parent, bg=WINDOW_BG)
+        self.request = request
+        self.selection: Optional[int] = None
+        self.title(f"{request.player_name} - Choose Action")
+        self.geometry("1460x920")
+        self.minsize(1100, 700)
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+        self.option_var = tk.IntVar(value=0 if request.options else -1)
+
+        self._build()
+        self._populate()
+        self.bind("<Return>", self._on_confirm)
+        self.bind("<Escape>", self._on_cancel)
+
+    def _build(self) -> None:
+        header = tk.Frame(self, bg=WINDOW_BG, padx=12, pady=10)
+        header.pack(fill="x")
+
+        summary = self.request.state
+        title_text = (
+            f"{self.request.player_name}  |  "
+            f"Authority {summary.get('authority')}  |  "
+            f"Attack {summary.get('attack')}  |  "
+            f"Trade {summary.get('trade')}  |  "
+            f"Opponent {summary.get('opponentAuthority')}"
+        )
+        title_label = tk.Label(
+            header,
+            text=title_text,
+            bg=WINDOW_BG,
+            fg=TEXT,
+            anchor="w",
+            font=("Segoe UI Semibold", 16),
+        )
+        title_label.pack(fill="x")
+
+        sub_text = (
+            f"Must discard {summary.get('mustDiscard')}  |  "
+            f"Opponent discard {summary.get('opponentMustDiscard')}  |  "
+            f"Next ship top {bool(summary.get('nextShipTop'))}  |  "
+            f"Blob play count {summary.get('blobPlayCount')}"
+        )
+        sub_label = tk.Label(
+            header,
+            text=sub_text,
+            bg=WINDOW_BG,
+            fg=SUBTEXT,
+            anchor="w",
+            font=("Segoe UI", 10),
+        )
+        sub_label.pack(fill="x", pady=(4, 0))
+
+        body = tk.PanedWindow(self, orient="horizontal", sashrelief="flat", bg=WINDOW_BG, bd=0)
+        body.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
+        left_panel = tk.Frame(body, bg=PANEL_BG, padx=8, pady=8)
+        right_panel = tk.Frame(body, bg=PANEL_BG, padx=8, pady=8)
+        body.add(left_panel, stretch="always")
+        body.add(right_panel, stretch="always")
+
+        left_title = tk.Label(
+            left_panel,
+            text="Game State",
+            bg=PANEL_BG,
+            fg=ACCENT,
+            anchor="w",
+            font=("Segoe UI Semibold", 12),
+        )
+        left_title.pack(fill="x", pady=(0, 6))
+
+        self.state_text = ScrolledText(
+            left_panel,
+            bg="#0f1a29",
+            fg=TEXT,
+            insertbackground=TEXT,
+            font=("Consolas", 9),
+            wrap="word",
+            relief="flat",
+            padx=8,
+            pady=8,
+        )
+        self.state_text.pack(fill="both", expand=True)
+
+        right_title = tk.Label(
+            right_panel,
+            text="Available Options",
+            bg=PANEL_BG,
+            fg=ACCENT,
+            anchor="w",
+            font=("Segoe UI Semibold", 12),
+        )
+        right_title.pack(fill="x", pady=(0, 6))
+
+        list_row = tk.Frame(right_panel, bg=PANEL_BG)
+        list_row.pack(fill="both", expand=True)
+
+        list_scroll = tk.Scrollbar(list_row, orient="vertical")
+        list_scroll.pack(side="right", fill="y")
+
+        self.option_list = tk.Listbox(
+            list_row,
+            bg="#0f1a29",
+            fg=TEXT,
+            selectbackground=BUTTON_ACTIVE,
+            selectforeground=TEXT,
+            activestyle="none",
+            font=("Segoe UI", 10),
+            exportselection=False,
+            yscrollcommand=list_scroll.set,
+        )
+        self.option_list.pack(side="left", fill="both", expand=True)
+        list_scroll.configure(command=self.option_list.yview)
+        self.option_list.bind("<<ListboxSelect>>", self._update_option_details)
+        self.option_list.bind("<Double-Button-1>", self._on_confirm)
+
+        detail_title = tk.Label(
+            right_panel,
+            text="Selected Option Details",
+            bg=PANEL_BG,
+            fg=ACCENT,
+            anchor="w",
+            font=("Segoe UI Semibold", 11),
+        )
+        detail_title.pack(fill="x", pady=(8, 4))
+
+        self.detail_text = ScrolledText(
+            right_panel,
+            height=10,
+            bg="#0f1a29",
+            fg=SUBTEXT,
+            insertbackground=TEXT,
+            font=("Consolas", 9),
+            wrap="word",
+            relief="flat",
+            padx=8,
+            pady=8,
+        )
+        self.detail_text.pack(fill="both", expand=False)
+
+        button_row = tk.Frame(self, bg=WINDOW_BG, padx=12, pady=(0, 12))
+        button_row.pack(fill="x")
+
+        confirm_button = tk.Button(
+            button_row,
+            text="Choose Selected Option",
+            command=self._confirm_selection,
+            bg=BUTTON_BG,
+            activebackground=BUTTON_ACTIVE,
+            fg=TEXT,
+            activeforeground=TEXT,
+            relief="flat",
+            bd=0,
+            padx=14,
+            pady=8,
+            font=("Segoe UI Semibold", 10),
+        )
+        confirm_button.pack(side="left")
+
+        cancel_button = tk.Button(
+            button_row,
+            text="Cancel Game",
+            command=self._on_cancel,
+            bg="#4f2a2a",
+            activebackground="#7e3d3d",
+            fg=TEXT,
+            activeforeground=TEXT,
+            relief="flat",
+            bd=0,
+            padx=14,
+            pady=8,
+            font=("Segoe UI Semibold", 10),
+        )
+        cancel_button.pack(side="right")
+
+    def _populate(self) -> None:
+        state_snapshot = self._format_state_snapshot()
+        self.state_text.configure(state="normal")
+        self.state_text.delete("1.0", "end")
+        self.state_text.insert("1.0", state_snapshot)
+        self.state_text.configure(state="disabled")
+
+        self.option_list.delete(0, "end")
+        for index, option in enumerate(self.request.options):
+            label = chooser_ui._format_option(option, self.request.state)
+            self.option_list.insert("end", f"{index}. {label}")
+
+        if self.request.options:
+            self.option_list.selection_set(0)
+            self.option_list.activate(0)
+            self.option_list.see(0)
+        self._update_option_details()
+
+    def _cards_block(self, title: str, cards: Sequence[Any], in_play: bool = False) -> List[str]:
+        lines = [title]
+        if not cards:
+            lines.append("  (none)")
+            return lines
+        for index, card in enumerate(cards):
+            card_text = chooser_ui._format_card_text(card, in_play=in_play).replace("\n", " | ")
+            lines.append(f"  {index}. {card_text}")
+        return lines
+
+    def _cards_in_play_block(self, title: str, cards_by_faction: Dict[str, Sequence[Any]]) -> List[str]:
+        lines = [title]
+        has_cards = False
+        for faction in chooser_ui.FACTION_ORDER:
+            faction_cards = list((cards_by_faction or {}).get(faction) or [])
+            if not faction_cards:
+                continue
+            has_cards = True
+            lines.append(f"  {faction.title()}:")
+            for index, card in enumerate(faction_cards):
+                card_text = chooser_ui._format_card_text(card, in_play=True).replace("\n", " | ")
+                lines.append(f"    {index}. {card_text}")
+        if not has_cards:
+            lines.append("  (none)")
+        return lines
+
+    def _format_state_snapshot(self) -> str:
+        state = self.request.state
+        lines = [
+            f"Authority: {state.get('authority')}  Opponent: {state.get('opponentAuthority')}",
+            f"Attack: {state.get('attack')}  Trade: {state.get('trade')}",
+            f"Must discard: {state.get('mustDiscard')}  Opponent must discard: {state.get('opponentMustDiscard')}",
+            f"Next ship top: {bool(state.get('nextShipTop'))}  Blob plays: {state.get('blobPlayCount')}",
+            "",
+        ]
+        lines.extend(self._cards_in_play_block("Your battlefield", state.get("cardsInPlay") or {}))
+        lines.append("")
+        lines.extend(self._cards_block("Your hand", state.get("hand") or []))
+        lines.append("")
+        lines.extend(self._cards_block("Your deck (scrambled)", state.get("scrambleDeck") or []))
+        lines.append("")
+        lines.extend(self._cards_block("Your known top cards", state.get("topCards") or []))
+        lines.append("")
+        lines.extend(self._cards_block("Your discard pile", state.get("discardPile") or []))
+        lines.append("")
+        lines.extend(self._cards_block("Trade row", state.get("tradeRow") or []))
+        lines.append("")
+        lines.extend(self._cards_in_play_block("Opponent battlefield", state.get("opponentCardsInPlay") or {}))
+        lines.append("")
+        lines.extend(self._cards_block("Opponent hidden deck + hand", state.get("opponentScrambleDeckAndHand") or []))
+        lines.append("")
+        lines.extend(self._cards_block("Opponent known top cards", state.get("opponentTopCards") or []))
+        lines.append("")
+        lines.extend(self._cards_block("Opponent known hand cards", state.get("opponentHandCards") or []))
+        lines.append("")
+        lines.extend(self._cards_block("Opponent discard pile", state.get("opponentDiscardPile") or []))
+        return "\n".join(lines)
+
+    def _selected_index(self) -> Optional[int]:
+        selection = self.option_list.curselection()
+        if not selection:
+            return None
+        return int(selection[0])
+
+    def _update_option_details(self, _: Optional[tk.Event] = None) -> None:
+        index = self._selected_index()
+        self.detail_text.configure(state="normal")
+        self.detail_text.delete("1.0", "end")
+        if index is not None:
+            option = self.request.options[index]
+            pretty = chooser_ui._format_option(option, self.request.state)
+            self.detail_text.insert("1.0", pretty + "\n\n" + repr(option))
+        self.detail_text.configure(state="disabled")
+
+    def _confirm_selection(self) -> None:
+        index = self._selected_index()
+        if index is None:
+            messagebox.showinfo("Select an option", "Pick an option before confirming.", parent=self)
+            return
+        self.selection = index
+        self.destroy()
+
+    def _on_confirm(self, _: Optional[tk.Event] = None) -> None:
+        self._confirm_selection()
+
+    def _on_cancel(self, _: Optional[tk.Event] = None) -> None:
+        self.selection = None
+        self.destroy()
+
+
+class TrainerGUI(tk.Tk):
+    def __init__(self) -> None:
+        super().__init__()
+        self.title("Star Realms Self-Play Trainer")
+        self.geometry("1620x980")
+        self.minsize(1280, 760)
+        self.configure(bg=WINDOW_BG)
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        self.choice_queue: "queue.Queue[HumanChoiceRequest]" = queue.Queue()
+        self.result_queue: "queue.Queue[tuple[str, str, Any, Optional[Callable[[Any], None]]]]" = queue.Queue()
+        self.command_thread: Optional[threading.Thread] = None
+        self.human_bridge = HumanChoiceBridge(self)
+
+        self.run_name_var = tk.StringVar(value=sp.LATEST_RUN_NAME)
+        self.checkpoint_var = tk.StringVar(value="latest")
+        self.chunk_var = tk.StringVar(value="5")
+        self.human_name_var = tk.StringVar(value="Human")
+        self.policy_name_var = tk.StringVar(value="Policy")
+
+        self.status_vars = {
+            "status": tk.StringVar(value="idle"),
+            "iteration": tk.StringVar(value="0"),
+            "matches": tk.StringVar(value="0"),
+            "games": tk.StringVar(value="0"),
+            "elo": tk.StringVar(value="1000.0"),
+            "best_elo": tk.StringVar(value="1000.0"),
+            "best_checkpoint": tk.StringVar(value="-"),
+            "latest_checkpoint": tk.StringVar(value="-"),
+            "runtime": tk.StringVar(value="-"),
+            "last_error": tk.StringVar(value=""),
+        }
+
+        self._build_style()
+        self._build_layout()
+        self.refresh_data()
+        self.after(POLL_INTERVAL_MS, self._poll)
+
+    def _build_style(self) -> None:
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        style.configure(".", background=WINDOW_BG, foreground=TEXT)
+        style.configure("TFrame", background=WINDOW_BG)
+        style.configure("TLabelframe", background=WINDOW_BG, foreground=TEXT)
+        style.configure("TLabelframe.Label", background=WINDOW_BG, foreground=ACCENT)
+        style.configure("TLabel", background=WINDOW_BG, foreground=TEXT)
+        style.configure("Treeview", background="#102034", fieldbackground="#102034", foreground=TEXT, rowheight=24)
+        style.configure("Treeview.Heading", background="#1a314b", foreground=TEXT)
+        style.map("Treeview", background=[("selected", "#335d89")], foreground=[("selected", TEXT)])
+        style.configure("TButton", background=BUTTON_BG, foreground=TEXT)
+        style.map("TButton", background=[("active", BUTTON_ACTIVE)])
+        style.configure("TEntry", fieldbackground="#102034", foreground=TEXT)
+        style.configure("TCombobox", fieldbackground="#102034", foreground=TEXT)
+
+    def _build_layout(self) -> None:
+        top = tk.Frame(self, bg=WINDOW_BG, padx=12, pady=10)
+        top.pack(fill="x")
+
+        controls = ttk.LabelFrame(top, text="Controls", padding=10)
+        controls.pack(fill="x")
+        for column in range(7):
+            controls.grid_columnconfigure(column, weight=1 if column in (1, 3) else 0)
+
+        ttk.Label(controls, text="Run").grid(row=0, column=0, sticky="w")
+        self.run_combo = ttk.Combobox(controls, textvariable=self.run_name_var)
+        self.run_combo.grid(row=0, column=1, sticky="ew", padx=(6, 12))
+        self.run_combo.bind("<<ComboboxSelected>>", self._on_run_combo)
+        self.run_combo.bind("<Return>", self._on_run_combo)
+
+        ttk.Label(controls, text="Checkpoint").grid(row=0, column=2, sticky="w")
+        self.checkpoint_combo = ttk.Combobox(controls, textvariable=self.checkpoint_var, state="readonly")
+        self.checkpoint_combo.grid(row=0, column=3, sticky="ew", padx=(6, 12))
+
+        ttk.Label(controls, text="Chunk Iterations").grid(row=0, column=4, sticky="w")
+        chunk_entry = ttk.Entry(controls, textvariable=self.chunk_var, width=8)
+        chunk_entry.grid(row=0, column=5, sticky="w", padx=(6, 12))
+
+        refresh_button = tk.Button(
+            controls,
+            text="Refresh",
+            command=self.refresh_data,
+            bg=BUTTON_BG,
+            activebackground=BUTTON_ACTIVE,
+            fg=TEXT,
+            activeforeground=TEXT,
+            relief="flat",
+            bd=0,
+            padx=12,
+            pady=6,
+        )
+        refresh_button.grid(row=0, column=6, sticky="e")
+
+        button_row = tk.Frame(controls, bg=WINDOW_BG)
+        button_row.grid(row=1, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+
+        self.train_chunk_button = self._button(button_row, "Train Chunk", self._train_chunk)
+        self.train_chunk_button.pack(side="left", padx=(0, 6))
+        self.start_button = self._button(button_row, "Start Background", self._start_background)
+        self.start_button.pack(side="left", padx=6)
+        self.continue_button = self._button(button_row, "Continue Background", self._continue_background)
+        self.continue_button.pack(side="left", padx=6)
+        self.interrupt_button = self._button(button_row, "Interrupt", self._interrupt_background)
+        self.interrupt_button.pack(side="left", padx=6)
+        self.selfplay_button = self._button(button_row, "Run Self-Play Game", self._play_self_game)
+        self.selfplay_button.pack(side="left", padx=6)
+        self.human_button = self._button(button_row, "Play Against Selected Policy", self._play_human_game)
+        self.human_button.pack(side="left", padx=6)
+
+        name_row = tk.Frame(controls, bg=WINDOW_BG)
+        name_row.grid(row=2, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        ttk.Label(name_row, text="Human Name").pack(side="left")
+        ttk.Entry(name_row, textvariable=self.human_name_var, width=18).pack(side="left", padx=(6, 16))
+        ttk.Label(name_row, text="Policy Display Name").pack(side="left")
+        ttk.Entry(name_row, textvariable=self.policy_name_var, width=18).pack(side="left", padx=(6, 16))
+        tip = tk.Label(
+            name_row,
+            text="Type a new run name above to create it on the first training action.",
+            bg=WINDOW_BG,
+            fg=MUTED,
+            anchor="w",
+            font=("Segoe UI", 9),
+        )
+        tip.pack(side="left")
+
+        summary = ttk.LabelFrame(self, text="Selected Run Summary", padding=10)
+        summary.pack(fill="x", padx=12, pady=(0, 10))
+        for column in range(5):
+            summary.grid_columnconfigure(column, weight=1)
+
+        self._summary_pair(summary, 0, 0, "Status", self.status_vars["status"])
+        self._summary_pair(summary, 0, 1, "Iteration", self.status_vars["iteration"])
+        self._summary_pair(summary, 0, 2, "Matches", self.status_vars["matches"])
+        self._summary_pair(summary, 0, 3, "Games", self.status_vars["games"])
+        self._summary_pair(summary, 0, 4, "Runtime", self.status_vars["runtime"])
+        self._summary_pair(summary, 1, 0, "Current Elo", self.status_vars["elo"])
+        self._summary_pair(summary, 1, 1, "Best Elo", self.status_vars["best_elo"])
+        self._summary_pair(summary, 1, 2, "Best Checkpoint", self.status_vars["best_checkpoint"])
+        self._summary_pair(summary, 1, 3, "Latest Checkpoint", self.status_vars["latest_checkpoint"])
+        self._summary_pair(summary, 1, 4, "Last Error", self.status_vars["last_error"])
+
+        body = tk.PanedWindow(self, orient="horizontal", sashrelief="flat", bg=WINDOW_BG, bd=0)
+        body.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
+        runs_frame = ttk.LabelFrame(body, text="Runs", padding=8)
+        checkpoints_frame = ttk.LabelFrame(body, text="Checkpoints", padding=8)
+        details_frame = ttk.LabelFrame(body, text="Details And Logs", padding=8)
+        body.add(runs_frame, stretch="always")
+        body.add(checkpoints_frame, stretch="always")
+        body.add(details_frame, stretch="always")
+
+        self.runs_tree = self._build_tree(
+            runs_frame,
+            columns=("status", "iteration", "elo", "best_elo", "matches", "games"),
+            headings=("Status", "Iter", "Elo", "Best Elo", "Matches", "Games"),
+        )
+        self.runs_tree.bind("<<TreeviewSelect>>", self._on_run_tree_select)
+
+        self.checkpoints_tree = self._build_tree(
+            checkpoints_frame,
+            columns=("iteration", "elo", "flags"),
+            headings=("Iter", "Elo", "Flags"),
+        )
+        self.checkpoints_tree.bind("<<TreeviewSelect>>", self._on_checkpoint_tree_select)
+
+        notebook = ttk.Notebook(details_frame)
+        notebook.pack(fill="both", expand=True)
+
+        summary_tab = tk.Frame(notebook, bg=WINDOW_BG)
+        log_tab = tk.Frame(notebook, bg=WINDOW_BG)
+        notebook.add(summary_tab, text="Run Details")
+        notebook.add(log_tab, text="Activity Log")
+
+        self.details_text = ScrolledText(
+            summary_tab,
+            bg="#102034",
+            fg=TEXT,
+            insertbackground=TEXT,
+            font=("Consolas", 9),
+            wrap="word",
+            relief="flat",
+            padx=8,
+            pady=8,
+        )
+        self.details_text.pack(fill="both", expand=True)
+
+        self.log_text = ScrolledText(
+            log_tab,
+            bg="#102034",
+            fg=SUBTEXT,
+            insertbackground=TEXT,
+            font=("Consolas", 9),
+            wrap="word",
+            relief="flat",
+            padx=8,
+            pady=8,
+        )
+        self.log_text.pack(fill="both", expand=True)
+        self.log("Trainer GUI ready.")
+
+    def _button(self, parent: tk.Widget, text: str, command: Callable[[], None]) -> tk.Button:
+        return tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=BUTTON_BG,
+            activebackground=BUTTON_ACTIVE,
+            fg=TEXT,
+            activeforeground=TEXT,
+            relief="flat",
+            bd=0,
+            padx=12,
+            pady=6,
+            font=("Segoe UI Semibold", 9),
+        )
+
+    def _build_tree(self, parent: tk.Widget, columns: Sequence[str], headings: Sequence[str]) -> ttk.Treeview:
+        frame = tk.Frame(parent, bg=WINDOW_BG)
+        frame.pack(fill="both", expand=True)
+
+        tree = ttk.Treeview(frame, columns=columns, show="tree headings", selectmode="browse")
+        tree.pack(side="left", fill="both", expand=True)
+        tree.heading("#0", text="Name")
+        tree.column("#0", width=190, stretch=True)
+        for column, heading in zip(columns, headings):
+            tree.heading(column, text=heading)
+            tree.column(column, width=90, stretch=True, anchor="center")
+
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        scrollbar.pack(side="right", fill="y")
+        tree.configure(yscrollcommand=scrollbar.set)
+        return tree
+
+    def _summary_pair(self, parent: tk.Widget, row: int, column: int, label: str, var: tk.StringVar) -> None:
+        wrapper = tk.Frame(parent, bg=WINDOW_BG)
+        wrapper.grid(row=row, column=column, sticky="ew", padx=6, pady=4)
+        tk.Label(
+            wrapper,
+            text=label,
+            bg=WINDOW_BG,
+            fg=MUTED,
+            anchor="w",
+            font=("Segoe UI", 9),
+        ).pack(fill="x")
+        tk.Label(
+            wrapper,
+            textvariable=var,
+            bg=WINDOW_BG,
+            fg=TEXT,
+            anchor="w",
+            font=("Segoe UI Semibold", 11),
+        ).pack(fill="x")
+
+    def _selected_run_name(self) -> str:
+        run_name = self.run_name_var.get().strip()
+        return run_name or sp.LATEST_RUN_NAME
+
+    def _selected_checkpoint(self) -> str:
+        checkpoint = self.checkpoint_var.get().strip()
+        return checkpoint or "latest"
+
+    def _chunk_iterations(self) -> int:
+        try:
+            iterations = int(self.chunk_var.get().strip())
+        except ValueError:
+            raise ValueError("Chunk iterations must be an integer.")
+        if iterations <= 0:
+            raise ValueError("Chunk iterations must be positive.")
+        return iterations
+
+    def _run_async(
+        self,
+        label: str,
+        func: Callable[[], Any],
+        on_success: Optional[Callable[[Any], None]] = None,
+    ) -> None:
+        if self.command_thread is not None and self.command_thread.is_alive():
+            messagebox.showinfo("Busy", "Another command is still running. Wait for it to finish first.", parent=self)
+            return
+
+        self.log(f"{label} started.")
+
+        def worker() -> None:
+            try:
+                result = func()
+                self.result_queue.put(("success", label, result, on_success))
+            except Exception:
+                self.result_queue.put(("error", label, traceback.format_exc(), on_success))
+
+        self.command_thread = threading.Thread(target=worker, name="trainer-gui-command", daemon=True)
+        self.command_thread.start()
+
+    def refresh_data(self) -> None:
+        runs = sp.list_runs()
+        run_names = [item["run_name"] for item in runs]
+        self.run_combo.configure(values=run_names)
+
+        current_run = self._selected_run_name()
+        selected_run = current_run if current_run else (run_names[0] if run_names else sp.LATEST_RUN_NAME)
+        self.run_name_var.set(selected_run)
+
+        current_run_selection = None
+        selected_items = self.runs_tree.selection()
+        if selected_items:
+            current_run_selection = selected_items[0]
+
+        self.runs_tree.delete(*self.runs_tree.get_children())
+        for run in runs:
+            iid = run["run_name"]
+            self.runs_tree.insert(
+                "",
+                "end",
+                iid=iid,
+                text=run["run_name"],
+                values=(
+                    run["status"],
+                    run["iteration"],
+                    f"{run['current_elo']:.1f}",
+                    f"{run['best_elo']:.1f}",
+                    run["total_matches"],
+                    run["total_games"],
+                ),
+            )
+
+        if selected_run in self.runs_tree.get_children():
+            self.runs_tree.selection_set(selected_run)
+            self.runs_tree.focus(selected_run)
+            self.runs_tree.see(selected_run)
+        elif current_run_selection in self.runs_tree.get_children():
+            self.runs_tree.selection_set(current_run_selection)
+
+        self._refresh_checkpoint_selector(selected_run)
+        self._refresh_summary(selected_run)
+
+    def _refresh_checkpoint_selector(self, run_name: str) -> None:
+        checkpoints = sp.list_checkpoints(run_name)
+        checkpoint_values = ["latest", "best"] + [item["name"] for item in checkpoints]
+        self.checkpoint_combo.configure(values=checkpoint_values)
+
+        current_checkpoint = self._selected_checkpoint()
+        if current_checkpoint not in checkpoint_values:
+            current_checkpoint = "latest"
+        self.checkpoint_var.set(current_checkpoint)
+
+        selected_items = self.checkpoints_tree.selection()
+        selected_checkpoint = selected_items[0] if selected_items else None
+
+        self.checkpoints_tree.delete(*self.checkpoints_tree.get_children())
+        for checkpoint in checkpoints:
+            flags = []
+            if checkpoint.get("is_latest"):
+                flags.append("latest")
+            if checkpoint.get("is_best"):
+                flags.append("best")
+            self.checkpoints_tree.insert(
+                "",
+                "end",
+                iid=checkpoint["name"],
+                text=checkpoint["name"],
+                values=(
+                    checkpoint.get("iteration", 0),
+                    f"{float(checkpoint.get('elo', sp.INITIAL_ELO)):.1f}",
+                    ", ".join(flags) or "-",
+                ),
+            )
+
+        if current_checkpoint not in ("latest", "best") and current_checkpoint in self.checkpoints_tree.get_children():
+            self.checkpoints_tree.selection_set(current_checkpoint)
+            self.checkpoints_tree.focus(current_checkpoint)
+            self.checkpoints_tree.see(current_checkpoint)
+        elif selected_checkpoint in self.checkpoints_tree.get_children():
+            self.checkpoints_tree.selection_set(selected_checkpoint)
+
+    def _refresh_summary(self, run_name: str) -> None:
+        run_names = {item["run_name"] for item in sp.list_runs()}
+        if run_name not in run_names:
+            for key, value in self.status_vars.items():
+                value.set("" if key == "last_error" else "-")
+            self.status_vars["status"].set("new run")
+            self.status_vars["last_error"].set("")
+            self._write_details(
+                "\n".join(
+                    [
+                        f"Run '{run_name}' does not exist yet.",
+                        "",
+                        "It will be created automatically the first time you train or start background training.",
+                    ]
+                )
+            )
+            return
+
+        summary = sp.training_progress(run_name)
+        state = sp.get_run_state(run_name)
+
+        self.status_vars["status"].set(str(summary.get("status", "idle")))
+        self.status_vars["iteration"].set(str(summary.get("iteration", 0)))
+        self.status_vars["matches"].set(str(summary.get("total_matches", 0)))
+        self.status_vars["games"].set(str(summary.get("total_games", 0)))
+        self.status_vars["elo"].set(str(summary.get("current_elo", sp.INITIAL_ELO)))
+        self.status_vars["best_elo"].set(str(summary.get("best_elo", sp.INITIAL_ELO)))
+        self.status_vars["best_checkpoint"].set(str(summary.get("best_checkpoint", "-")))
+        self.status_vars["latest_checkpoint"].set(str(summary.get("latest_checkpoint", "-")))
+        self.status_vars["runtime"].set(str(summary.get("runtime", "-")))
+        self.status_vars["last_error"].set(str(summary.get("last_error") or ""))
+
+        checkpoints = sp.list_checkpoints(run_name)
+        checkpoint_lines = []
+        for checkpoint in checkpoints:
+            flags = []
+            if checkpoint.get("is_latest"):
+                flags.append("latest")
+            if checkpoint.get("is_best"):
+                flags.append("best")
+            checkpoint_lines.append(
+                f"- {checkpoint['name']}: iter {checkpoint.get('iteration', 0)}, "
+                f"elo {float(checkpoint.get('elo', sp.INITIAL_ELO)):.1f}"
+                + (f" ({', '.join(flags)})" if flags else "")
+            )
+
+        config = state.get("config") or {}
+        config_lines = [f"- {key}: {config[key]}" for key in sorted(config.keys())]
+
+        last_match = summary.get("last_match") or {}
+        last_update = summary.get("last_update") or {}
+        details = [
+            f"Run: {run_name}",
+            f"Directory: {summary.get('run_dir', '-')}",
+            "",
+            "Progress",
+            f"- Status: {summary.get('status')}",
+            f"- Iteration: {summary.get('iteration')}",
+            f"- Matches: {summary.get('total_matches')}",
+            f"- Games: {summary.get('total_games')}",
+            f"- Current Elo: {summary.get('current_elo')}",
+            f"- Best Elo: {summary.get('best_elo')}",
+            f"- Best checkpoint: {summary.get('best_checkpoint')}",
+            f"- Latest checkpoint: {summary.get('latest_checkpoint')}",
+            f"- Runtime: {summary.get('runtime')}",
+            "",
+            "Last Match",
+            f"- Wins: {last_match.get('wins', '-')}",
+            f"- Losses: {last_match.get('losses', '-')}",
+            f"- Games played: {last_match.get('games_played', '-')}",
+            f"- Return value: {last_match.get('return_value', '-')}",
+            f"- Duration seconds: {last_match.get('duration_seconds', '-')}",
+            "",
+            "Last Update",
+            f"- Samples: {last_update.get('samples', '-')}",
+            f"- Policy loss: {last_update.get('policy_loss', '-')}",
+            f"- Value loss: {last_update.get('value_loss', '-')}",
+            f"- Clip fraction: {last_update.get('clip_fraction', '-')}",
+            f"- Average ratio: {last_update.get('avg_ratio', '-')}",
+            f"- Average value prediction: {last_update.get('avg_value_prediction', '-')}",
+            "",
+            "Config",
+            *(config_lines or ["- No saved config"]),
+            "",
+            "Checkpoints",
+            *(checkpoint_lines or ["- No checkpoints yet"]),
+        ]
+        if summary.get("last_error"):
+            details.extend(["", "Last Error", str(summary.get("last_error"))])
+
+        self._write_details("\n".join(details))
+
+    def _write_details(self, text: str) -> None:
+        self.details_text.configure(state="normal")
+        self.details_text.delete("1.0", "end")
+        self.details_text.insert("1.0", text)
+        self.details_text.configure(state="disabled")
+
+    def log(self, message: str) -> None:
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", message.rstrip() + "\n")
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
+
+    def _on_run_tree_select(self, _: Optional[tk.Event] = None) -> None:
+        selection = self.runs_tree.selection()
+        if not selection:
+            return
+        self.run_name_var.set(selection[0])
+        self.refresh_data()
+
+    def _on_run_combo(self, _: Optional[tk.Event] = None) -> None:
+        self.refresh_data()
+
+    def _on_checkpoint_tree_select(self, _: Optional[tk.Event] = None) -> None:
+        selection = self.checkpoints_tree.selection()
+        if not selection:
+            return
+        self.checkpoint_var.set(selection[0])
+
+    def _train_chunk(self) -> None:
+        try:
+            iterations = self._chunk_iterations()
+        except ValueError as exc:
+            messagebox.showerror("Invalid chunk size", str(exc), parent=self)
+            return
+        run_name = self._selected_run_name()
+
+        def action() -> Dict[str, Any]:
+            return sp.train_iterations(iterations, run_name=run_name)
+
+        def on_success(result: Dict[str, Any]) -> None:
+            self.log(
+                f"Train chunk finished for '{run_name}': iteration {result.get('iteration')}, "
+                f"elo {result.get('current_elo')}."
+            )
+
+        self._run_async(f"Train {iterations} iteration(s) for '{run_name}'", action, on_success=on_success)
+
+    def _start_background(self) -> None:
+        run_name = self._selected_run_name()
+        summary = sp.start_training(run_name=run_name, background=True)
+        self.log(f"Background training started for '{run_name}'. Status: {summary.get('status')}.")
+        self.refresh_data()
+
+    def _continue_background(self) -> None:
+        run_name = self._selected_run_name()
+        message = sp.continue_training(run_name=run_name)
+        self.log(message)
+        self.refresh_data()
+
+    def _interrupt_background(self) -> None:
+        run_name = self._selected_run_name()
+
+        def action() -> str:
+            return sp.interrupt_training(run_name=run_name)
+
+        def on_success(result: str) -> None:
+            self.log(result)
+
+        self._run_async(f"Interrupt background training for '{run_name}'", action, on_success=on_success)
+
+    def _play_self_game(self) -> None:
+        run_name = self._selected_run_name()
+        checkpoint = self._selected_checkpoint()
+
+        def action() -> Dict[str, Any]:
+            return sp.play_self_game(run_name=run_name, checkpoint=checkpoint, verbose=False)
+
+        def on_success(result: Dict[str, Any]) -> None:
+            self.log(
+                f"Self-play finished for '{run_name}' / '{checkpoint}': "
+                f"winner {result.get('winner')}, turns {result.get('turns_taken')}, "
+                f"ended_by_limit={result.get('ended_by_limit')}."
+            )
+
+        self._run_async(f"Run self-play for '{run_name}' / '{checkpoint}'", action, on_success=on_success)
+
+    def _play_human_game(self) -> None:
+        run_name = self._selected_run_name()
+        checkpoint = self._selected_checkpoint()
+        human_name = self.human_name_var.get().strip() or "Human"
+        policy_name = self.policy_name_var.get().strip() or "Policy"
+
+        def action() -> Dict[str, Any]:
+            return sp.play_human_game(
+                run_name=run_name,
+                checkpoint=checkpoint,
+                human_name=human_name,
+                policy_name=policy_name,
+                human_choose_fn=self.human_bridge.choose,
+                verbose=False,
+            )
+
+        def on_success(result: Dict[str, Any]) -> None:
+            self.log(
+                f"Human game finished for '{run_name}' / '{checkpoint}': "
+                f"winner {result.get('winner')}, turns {result.get('turns_taken')}, "
+                f"ended_by_limit={result.get('ended_by_limit')}."
+            )
+
+        self._run_async(f"Play human game against '{run_name}' / '{checkpoint}'", action, on_success=on_success)
+
+    def _handle_choice_requests(self) -> None:
+        while True:
+            try:
+                request = self.choice_queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                dialog = HumanDecisionDialog(self, request)
+                self.wait_window(dialog)
+                if dialog.selection is None:
+                    request.error = "The human decision dialog was closed. The game was cancelled."
+                else:
+                    request.selection = dialog.selection
+            except Exception as exc:
+                request.error = f"{type(exc).__name__}: {exc}"
+            finally:
+                request.event.set()
+
+    def _handle_worker_results(self) -> None:
+        while True:
+            try:
+                status, label, payload, callback = self.result_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            if status == "success":
+                self.log(f"{label} finished.")
+                if callback is not None:
+                    callback(payload)
+            else:
+                self.log(f"{label} failed.\n{payload}")
+                messagebox.showerror("Command failed", payload, parent=self)
+
+            self.refresh_data()
+
+    def _poll(self) -> None:
+        self._handle_choice_requests()
+        self._handle_worker_results()
+        self.refresh_data()
+        self.after(POLL_INTERVAL_MS, self._poll)
+
+    def _on_close(self) -> None:
+        run_name = self._selected_run_name()
+        try:
+            summary = sp.training_progress(run_name)
+        except Exception:
+            summary = {}
+
+        if summary.get("status") == "training":
+            confirmed = messagebox.askyesno(
+                "Training is running",
+                "Background training is still running in this GUI process. Closing the window will stop it. Close anyway?",
+                parent=self,
+            )
+            if not confirmed:
+                return
+
+        while True:
+            try:
+                request = self.choice_queue.get_nowait()
+            except queue.Empty:
+                break
+            request.error = "The trainer GUI was closed."
+            request.event.set()
+
+        self.destroy()
+
+
+def launch_gui() -> None:
+    app = TrainerGUI()
+    app.mainloop()
+
+
+if __name__ == "__main__":
+    launch_gui()

@@ -25,6 +25,10 @@ MUTED_TEXT = "#8da4c3"
 ACCENT = "#f3b63a"
 BUTTON_BG = "#28456a"
 BUTTON_ACTIVE_BG = "#356296"
+CARD_BORDER = "#0a1018"
+HOVER_OUTLINE = "#ffffff"
+ACQUIRE_OUTLINE = "#d7b23f"
+ATTACK_OUTLINE = "#d9534f"
 
 
 def _console_choose(player_name: str, options: Sequence[Sequence[Any]], state: Dict[str, Any]) -> int:
@@ -144,7 +148,9 @@ def _humanize_ability(ability_name: str, amount: Optional[Any] = None) -> str:
         case "copyship":
             return "copy another ship"
         case "recycle":
-            return "discard up to 2 cards, then draw that many"
+            return "choose recycle ability"
+        case "switch":
+            return "choose recycle switch cards ability"
         case "0or2or2":
             return "choose +2 authority or +2 trade"
         case "2or3or0":
@@ -363,6 +369,10 @@ if tk is not None:
 
             self._closed = False
             self._selection_var: Optional[tk.IntVar] = None
+            self._play_actions: Dict[int, int] = {}
+            self._acquire_actions: Dict[int, int] = {}
+            self._attack_actions: Dict[tuple[str, int], int] = {}
+            self._attack_opponent_action: Optional[int] = None
 
             self._build_layout()
 
@@ -478,7 +488,28 @@ if tk is not None:
                 raise SystemExit("The chooser window was closed.")
             return selected
 
+        def _prepare_interactions(self, options: Sequence[Sequence[Any]]) -> None:
+            self._play_actions = {}
+            self._acquire_actions = {}
+            self._attack_actions = {}
+            self._attack_opponent_action = None
+
+            for option_index, option in enumerate(options):
+                if not option:
+                    continue
+
+                action = option[0]
+                if action == "play":
+                    self._play_actions[option[1]] = option_index
+                elif action in ("acquire", "freeAcquire"):
+                    self._acquire_actions[option[1]] = option_index
+                elif action == "attack":
+                    self._attack_actions[(str(option[1]), option[2])] = option_index
+                elif action == "attackOpponent":
+                    self._attack_opponent_action = option_index
+
         def _render(self, player_name: str, options: Sequence[Sequence[Any]], state: Dict[str, Any]) -> None:
+            self._prepare_interactions(options)
             summary_lines = [
                 f"You {state.get('authority')} auth | {state.get('attack')} atk | {state.get('trade')} trade | discard {state.get('mustDiscard')}",
                 f"Opp {state.get('opponentAuthority')} auth | opp discard {state.get('opponentMustDiscard')}",
@@ -494,6 +525,9 @@ if tk is not None:
                 "Trade row",
                 state.get("tradeRow") or [],
                 columns=6,
+                option_lookup=self._acquire_actions,
+                active_outline=ACQUIRE_OUTLINE,
+                hover_outline=HOVER_OUTLINE,
             )
             self._render_battlefield(self.player_board_section, state.get("cardsInPlay") or {})
             self._render_single_cards_section(
@@ -501,6 +535,8 @@ if tk is not None:
                 f"Hand ({_count_label(state.get('hand') or [])})",
                 state.get("hand") or [],
                 columns=6,
+                option_lookup=self._play_actions,
+                hover_outline=HOVER_OUTLINE,
             )
             self._render_player_deck(state)
             self._render_single_cards_section(
@@ -521,27 +557,129 @@ if tk is not None:
         def _render_match_summary(self, state: Dict[str, Any]) -> None:
             self._clear(self.match_summary_section)
 
-            summary_text = " | ".join(
+            authority_row = tk.Frame(self.match_summary_section, bg=SECTION_BG)
+            authority_row.pack(fill="x", pady=(0, 6))
+            authority_row.grid_columnconfigure(0, weight=1)
+            authority_row.grid_columnconfigure(1, weight=1)
+
+            your_frame = tk.Frame(
+                authority_row,
+                bg=PANEL_BG,
+                highlightbackground="#294160",
+                highlightthickness=1,
+                bd=0,
+                padx=8,
+                pady=6,
+            )
+            your_frame.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+
+            your_label = tk.Label(
+                your_frame,
+                text="You",
+                bg=PANEL_BG,
+                fg=SUBTEXT_COLOR,
+                anchor="w",
+                font=("Segoe UI Semibold", 10),
+            )
+            your_label.pack(anchor="w")
+
+            your_authority = tk.Label(
+                your_frame,
+                text=str(state.get("authority")),
+                bg=PANEL_BG,
+                fg=TEXT_COLOR,
+                anchor="w",
+                font=("Segoe UI Semibold", 24),
+            )
+            your_authority.pack(anchor="w")
+
+            your_stats = tk.Label(
+                your_frame,
+                text=f"ATK {state.get('attack')} | TRADE {state.get('trade')} | DISCARD {state.get('mustDiscard')}",
+                bg=PANEL_BG,
+                fg=SUBTEXT_COLOR,
+                anchor="w",
+                font=("Segoe UI", 9),
+            )
+            your_stats.pack(anchor="w")
+
+            opponent_frame = tk.Frame(
+                authority_row,
+                bg=PANEL_BG,
+                highlightbackground="#294160",
+                highlightthickness=1,
+                bd=0,
+                padx=8,
+                pady=6,
+            )
+            opponent_frame.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+
+            opponent_target = tk.Label(
+                opponent_frame,
+                text="Opp",
+                bg=PANEL_BG,
+                fg=TEXT_COLOR,
+                anchor="w",
+                font=("Segoe UI Semibold", 10),
+                padx=6,
+                pady=2,
+            )
+            opponent_target.pack(anchor="w")
+
+            opponent_authority = tk.Label(
+                opponent_frame,
+                text=str(state.get("opponentAuthority")),
+                bg=PANEL_BG,
+                fg=TEXT_COLOR,
+                anchor="w",
+                font=("Segoe UI Semibold", 24),
+            )
+            opponent_authority.pack(anchor="w")
+
+            opponent_stats = tk.Label(
+                opponent_frame,
+                text=f"DISCARD {state.get('opponentMustDiscard')}",
+                bg=PANEL_BG,
+                fg=SUBTEXT_COLOR,
+                anchor="w",
+                font=("Segoe UI", 9),
+            )
+            opponent_stats.pack(anchor="w")
+
+            if self._attack_opponent_action is not None:
+                self._wire_interaction(
+                    opponent_frame,
+                    self._attack_opponent_action,
+                    ATTACK_OUTLINE,
+                    HOVER_OUTLINE,
+                    base_thickness=2,
+                    hover_thickness=2,
+                )
+                self._wire_interaction(
+                    opponent_target,
+                    self._attack_opponent_action,
+                    ATTACK_OUTLINE,
+                    HOVER_OUTLINE,
+                    base_thickness=2,
+                    hover_thickness=2,
+                )
+
+            detail_text = " | ".join(
                 [
-                    f"You {state.get('authority')} auth / {state.get('attack')} atk / {state.get('trade')} trade",
-                    f"Opp {state.get('opponentAuthority')} auth",
-                    f"Discard {state.get('mustDiscard')} / opp {state.get('opponentMustDiscard')}",
                     f"Next-top {bool(state.get('nextShipTop'))}",
                     f"Blob plays {state.get('blobPlayCount')}",
                 ]
             )
-
-            summary_label = tk.Label(
+            detail_label = tk.Label(
                 self.match_summary_section,
-                text=summary_text,
+                text=detail_text,
                 bg=SECTION_BG,
-                fg=TEXT_COLOR,
+                fg=SUBTEXT_COLOR,
                 justify="left",
                 anchor="w",
-                wraplength=920,
-                font=("Segoe UI", 10),
+                font=("Segoe UI", 9),
             )
-            summary_label.pack(fill="x")
+            detail_label.pack(fill="x")
 
         def _render_battlefield(self, section: tk.Frame, cards_by_faction: Dict[str, Sequence[Any]]) -> None:
             self._clear(section)
@@ -565,7 +703,22 @@ if tk is not None:
 
                 group = tk.Frame(section, bg=SECTION_BG)
                 group.pack(fill="x", pady=(0, 4))
-                self._populate_cards(group, faction_cards, columns=6, in_play=True)
+                option_lookup = None
+                active_outline = None
+                hover_outline = None
+                if section == self.opponent_board_section:
+                    option_lookup = {i: self._attack_actions.get((faction, i)) for i in range(len(faction_cards))}
+                    active_outline = ATTACK_OUTLINE
+                    hover_outline = HOVER_OUTLINE
+                self._populate_cards(
+                    group,
+                    faction_cards,
+                    columns=6,
+                    in_play=True,
+                    option_lookup=option_lookup,
+                    active_outline=active_outline,
+                    hover_outline=hover_outline,
+                )
 
             if not any_cards:
                 self._render_empty_text(section, "No cards in play.")
@@ -614,9 +767,20 @@ if tk is not None:
             title: str,
             cards: Sequence[Any],
             columns: int = 5,
+            option_lookup: Optional[Dict[int, int]] = None,
+            active_outline: Optional[str] = None,
+            hover_outline: Optional[str] = None,
         ) -> None:
             self._clear(section)
-            self._render_cards_group(section, title, cards, columns=columns)
+            self._render_cards_group(
+                section,
+                title,
+                cards,
+                columns=columns,
+                option_lookup=option_lookup,
+                active_outline=active_outline,
+                hover_outline=hover_outline,
+            )
 
         def _render_cards_group(
             self,
@@ -624,6 +788,9 @@ if tk is not None:
             title: str,
             cards: Sequence[Any],
             columns: int = 5,
+            option_lookup: Optional[Dict[int, int]] = None,
+            active_outline: Optional[str] = None,
+            hover_outline: Optional[str] = None,
         ) -> None:
             group = tk.Frame(parent, bg=SECTION_BG)
             group.pack(fill="x", pady=(0, 6))
@@ -642,7 +809,14 @@ if tk is not None:
             if cards:
                 card_holder = tk.Frame(group, bg=SECTION_BG)
                 card_holder.pack(fill="x")
-                self._populate_cards(card_holder, cards, columns=columns)
+                self._populate_cards(
+                    card_holder,
+                    cards,
+                    columns=columns,
+                    option_lookup=option_lookup,
+                    active_outline=active_outline,
+                    hover_outline=hover_outline,
+                )
             else:
                 self._render_empty_text(group, "No known cards.")
 
@@ -652,20 +826,50 @@ if tk is not None:
             cards: Sequence[Any],
             columns: int = 5,
             in_play: bool = False,
+            option_lookup: Optional[Dict[int, Optional[int]]] = None,
+            active_outline: Optional[str] = None,
+            hover_outline: Optional[str] = None,
         ) -> None:
             for index, card in enumerate(cards):
                 row = index // columns
                 column = index % columns
-                tile = self._create_card_tile(parent, card, in_play=in_play)
+                option_index = None if option_lookup is None else option_lookup.get(index)
+                tile = self._create_card_tile(
+                    parent,
+                    card,
+                    in_play=in_play,
+                    option_index=option_index,
+                    active_outline=active_outline,
+                    hover_outline=hover_outline,
+                )
                 tile.grid(row=row, column=column, sticky="nsew", padx=3, pady=3)
                 parent.grid_columnconfigure(column, weight=1)
 
-        def _create_card_tile(self, parent: tk.Widget, card: Any, in_play: bool = False) -> tk.Frame:
+        def _create_card_tile(
+            self,
+            parent: tk.Widget,
+            card: Any,
+            in_play: bool = False,
+            option_index: Optional[int] = None,
+            active_outline: Optional[str] = None,
+            hover_outline: Optional[str] = None,
+        ) -> tk.Frame:
             faction = _faction_name(card)
             card_bg = FACTION_COLORS.get(faction, FACTION_COLORS["none"])
             text = _format_card_text(card, in_play=in_play)
+            border_color = active_outline if option_index is not None and active_outline else CARD_BORDER
+            border_thickness = 2 if option_index is not None and active_outline else 1
 
-            frame = tk.Frame(parent, bg=card_bg, highlightbackground="#0a1018", highlightthickness=1, bd=0, padx=6, pady=5)
+            frame = tk.Frame(
+                parent,
+                bg=card_bg,
+                highlightbackground=border_color,
+                highlightcolor=border_color,
+                highlightthickness=border_thickness,
+                bd=0,
+                padx=6,
+                pady=5,
+            )
             name_label = tk.Label(
                 frame,
                 text=_card_name(card),
@@ -689,7 +893,64 @@ if tk is not None:
                 font=("Segoe UI", 8),
             )
             details_label.pack(fill="x", pady=(2, 0))
+
+            if option_index is not None:
+                self._wire_interaction(
+                    frame,
+                    option_index,
+                    border_color,
+                    hover_outline or HOVER_OUTLINE,
+                    base_thickness=border_thickness,
+                    hover_thickness=max(2, border_thickness),
+                )
             return frame
+
+        def _wire_interaction(
+            self,
+            widget: tk.Widget,
+            option_index: int,
+            base_outline: str,
+            hover_outline: str,
+            base_thickness: int = 2,
+            hover_thickness: int = 2,
+        ) -> None:
+            widget.configure(
+                highlightbackground=base_outline,
+                highlightcolor=base_outline,
+                highlightthickness=base_thickness,
+            )
+
+            def on_enter(_: tk.Event) -> None:
+                widget.configure(
+                    highlightbackground=hover_outline,
+                    highlightcolor=hover_outline,
+                    highlightthickness=hover_thickness,
+                )
+
+            def on_leave(_: tk.Event) -> None:
+                widget.configure(
+                    highlightbackground=base_outline,
+                    highlightcolor=base_outline,
+                    highlightthickness=base_thickness,
+                )
+
+            def on_click(_: tk.Event) -> str:
+                if self._selection_var is not None:
+                    self._selection_var.set(option_index)
+                return "break"
+
+            self._bind_recursive(widget, "<Enter>", on_enter)
+            self._bind_recursive(widget, "<Leave>", on_leave)
+            self._bind_recursive(widget, "<Button-1>", on_click)
+
+        def _bind_recursive(self, widget: tk.Widget, sequence: str, callback: Any) -> None:
+            widget.bind(sequence, callback, add="+")
+            try:
+                widget.configure(cursor="hand2")
+            except tk.TclError:
+                pass
+            for child in widget.winfo_children():
+                self._bind_recursive(child, sequence, callback)
 
         def _render_options(self, options: Sequence[Sequence[Any]], state: Dict[str, Any]) -> None:
             self._clear(self.options_body)

@@ -790,6 +790,64 @@ def load_policy(run_name: str = LATEST_RUN_NAME, checkpoint: str = "latest") -> 
     return PolicyNetwork.from_dict(payload)
 
 
+def list_runs() -> List[Dict[str, Any]]:
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    runs: List[Dict[str, Any]] = []
+    for run_dir in RUNS_DIR.iterdir():
+        if not run_dir.is_dir():
+            continue
+        state_path = run_dir / "training_state.json"
+        state = _load_json_or_none(state_path) or {}
+        checkpoints = list(state.get("checkpoints") or [])
+        runs.append(
+            {
+                "run_name": state.get("run_name", run_dir.name),
+                "status": state.get("status", "idle"),
+                "iteration": int(state.get("iteration", 0)),
+                "total_matches": int(state.get("total_matches", 0)),
+                "total_games": int(state.get("total_games", 0)),
+                "current_elo": float(state.get("current_elo", INITIAL_ELO)),
+                "best_elo": float(state.get("best_elo", INITIAL_ELO)),
+                "best_checkpoint": state.get("best_checkpoint"),
+                "latest_checkpoint": state.get("latest_checkpoint"),
+                "checkpoint_count": len(checkpoints),
+                "created_at": state.get("created_at"),
+                "updated_at": state.get("updated_at"),
+                "last_match": state.get("last_match"),
+                "last_update": state.get("last_update"),
+                "last_error": state.get("last_error"),
+                "run_dir": str(run_dir),
+            }
+        )
+    runs.sort(key=lambda item: (item.get("updated_at") or 0.0, item["run_name"]), reverse=True)
+    return runs
+
+
+def list_checkpoints(run_name: str = LATEST_RUN_NAME) -> List[Dict[str, Any]]:
+    files = RunFiles(run_name)
+    state = _load_json_or_none(files.training_state_file) or {}
+    best_name = state.get("best_checkpoint")
+    latest_name = state.get("latest_checkpoint")
+    checkpoints = []
+    for item in list(state.get("checkpoints") or []):
+        checkpoint = dict(item)
+        checkpoint["is_best"] = checkpoint.get("name") == best_name
+        checkpoint["is_latest"] = checkpoint.get("name") == latest_name
+        checkpoints.append(checkpoint)
+    checkpoints.sort(key=lambda item: (int(item.get("iteration", 0)), item.get("name", "")))
+    return checkpoints
+
+
+def get_run_state(run_name: str = LATEST_RUN_NAME) -> Dict[str, Any]:
+    files = RunFiles(run_name)
+    state = _load_json_or_none(files.training_state_file) or {}
+    if not state:
+        return {}
+    state["run_name"] = state.get("run_name", run_name)
+    state["run_dir"] = str(files.run_dir)
+    return state
+
+
 def _play_match(
     policy_a: PolicyNetwork,
     policy_b: PolicyNetwork,
@@ -1157,6 +1215,7 @@ def play_self_game(
     run_name: str = LATEST_RUN_NAME,
     checkpoint: str = "latest",
     deterministic: bool = True,
+    verbose: bool = True,
 ) -> Dict[str, Any]:
     policy_a = load_policy(run_name, checkpoint)
     policy_b = load_policy(run_name, checkpoint)
@@ -1178,7 +1237,7 @@ def play_self_game(
         "policy_b",
         p1_choose=actor_a.choose,
         p2_choose=actor_b.choose,
-        verbose=True,
+        verbose=verbose,
         max_turns=config.max_turns_per_game,
         max_actions_per_turn=config.max_actions_per_turn,
     )
@@ -1196,16 +1255,19 @@ def play_human_game(
     checkpoint: str = "latest",
     human_name: str = "Human",
     policy_name: str = "Policy",
+    human_choose_fn: Optional[Any] = None,
+    verbose: bool = True,
 ) -> Dict[str, Any]:
     policy = load_policy(run_name, checkpoint)
     config = _get_trainer(run_name).config
     actor = PolicyActor(policy, deterministic=True, temperature=config.eval_temperature, epsilon_random=0.0)
+    chooser_fn = human_choose if human_choose_fn is None else human_choose_fn
     game = Game(
         human_name,
         policy_name,
-        p1_choose=human_choose,
+        p1_choose=chooser_fn,
         p2_choose=actor.choose,
-        verbose=True,
+        verbose=verbose,
         max_turns=config.max_turns_per_game,
         max_actions_per_turn=config.max_actions_per_turn,
     )
