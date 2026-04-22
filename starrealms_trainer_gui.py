@@ -444,6 +444,11 @@ class TrainerGUI(tk.Tk):
 
         self.run_name_var = tk.StringVar(value=sp.LATEST_RUN_NAME)
         self.checkpoint_var = tk.StringVar(value="latest")
+        self.match_run_a_var = tk.StringVar(value=sp.LATEST_RUN_NAME)
+        self.match_checkpoint_a_var = tk.StringVar(value="latest")
+        self.match_run_b_var = tk.StringVar(value=sp.LATEST_RUN_NAME)
+        self.match_checkpoint_b_var = tk.StringVar(value="latest")
+        self.match_games_var = tk.StringVar(value="24")
         self.chunk_var = tk.StringVar(value="5")
         self.new_run_model_var = tk.StringVar(value=sp.MODEL_TYPE_DEEP)
         self.new_run_matches_var = tk.StringVar(value="5")
@@ -569,8 +574,31 @@ class TrainerGUI(tk.Tk):
         self.human_button = self._button(button_row, "Play Against Selected Policy", self._play_human_game)
         self.human_button.pack(side="left", padx=6)
 
+        match_row = tk.Frame(controls, bg=WINDOW_BG)
+        match_row.grid(row=2, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        ttk.Label(match_row, text="Match A").pack(side="left")
+        self.match_run_a_combo = ttk.Combobox(match_row, textvariable=self.match_run_a_var, width=16)
+        self.match_run_a_combo.pack(side="left", padx=(6, 6))
+        self.match_run_a_combo.bind("<<ComboboxSelected>>", self._on_match_run_combo)
+        self.match_run_a_combo.bind("<Return>", self._on_match_run_combo)
+        self.match_checkpoint_a_combo = ttk.Combobox(match_row, textvariable=self.match_checkpoint_a_var, width=16)
+        self.match_checkpoint_a_combo.pack(side="left", padx=(0, 16))
+
+        ttk.Label(match_row, text="Match B").pack(side="left")
+        self.match_run_b_combo = ttk.Combobox(match_row, textvariable=self.match_run_b_var, width=16)
+        self.match_run_b_combo.pack(side="left", padx=(6, 6))
+        self.match_run_b_combo.bind("<<ComboboxSelected>>", self._on_match_run_combo)
+        self.match_run_b_combo.bind("<Return>", self._on_match_run_combo)
+        self.match_checkpoint_b_combo = ttk.Combobox(match_row, textvariable=self.match_checkpoint_b_var, width=16)
+        self.match_checkpoint_b_combo.pack(side="left", padx=(0, 16))
+
+        ttk.Label(match_row, text="Games").pack(side="left")
+        ttk.Entry(match_row, textvariable=self.match_games_var, width=8).pack(side="left", padx=(6, 16))
+        self.policy_match_button = self._button(match_row, "Run Policy Match", self._play_policy_match)
+        self.policy_match_button.pack(side="left")
+
         new_run_row = tk.Frame(controls, bg=WINDOW_BG)
-        new_run_row.grid(row=2, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        new_run_row.grid(row=3, column=0, columnspan=7, sticky="ew", pady=(10, 0))
         ttk.Label(new_run_row, text="New Run Model").pack(side="left")
         new_run_model_combo = ttk.Combobox(
             new_run_row,
@@ -597,7 +625,7 @@ class TrainerGUI(tk.Tk):
         new_run_tip.pack(side="left")
 
         rating_row = tk.Frame(controls, bg=WINDOW_BG)
-        rating_row.grid(row=3, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        rating_row.grid(row=4, column=0, columnspan=7, sticky="ew", pady=(10, 0))
         ttk.Label(rating_row, text="Rating Policies").pack(side="left")
         ttk.Entry(rating_row, textvariable=self.rating_models_var, width=8).pack(side="left", padx=(6, 16))
         ttk.Label(rating_row, text="Games / Pair").pack(side="left")
@@ -614,7 +642,7 @@ class TrainerGUI(tk.Tk):
         rating_tip.pack(side="left", padx=(16, 0))
 
         name_row = tk.Frame(controls, bg=WINDOW_BG)
-        name_row.grid(row=4, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        name_row.grid(row=5, column=0, columnspan=7, sticky="ew", pady=(10, 0))
         ttk.Label(name_row, text="Human Name").pack(side="left")
         ttk.Entry(name_row, textvariable=self.human_name_var, width=18).pack(side="left", padx=(6, 16))
         ttk.Label(name_row, text="Policy Display Name").pack(side="left")
@@ -765,6 +793,15 @@ class TrainerGUI(tk.Tk):
         checkpoint = self.checkpoint_var.get().strip()
         return checkpoint or "latest"
 
+    def _selected_match_games(self) -> int:
+        try:
+            games = int(self.match_games_var.get().strip())
+        except ValueError:
+            raise ValueError("Match games must be an integer.")
+        if games <= 0:
+            raise ValueError("Match games must be positive.")
+        return games
+
     def _chunk_iterations(self) -> int:
         try:
             iterations = int(self.chunk_var.get().strip())
@@ -854,10 +891,33 @@ class TrainerGUI(tk.Tk):
         self.command_thread = threading.Thread(target=worker, name="trainer-gui-command", daemon=True)
         self.command_thread.start()
 
+    def _refresh_match_policy_selectors(self, run_names: Sequence[str]) -> None:
+        values = list(run_names)
+        self.match_run_a_combo.configure(values=values)
+        self.match_run_b_combo.configure(values=values)
+
+        if not self.match_run_a_var.get().strip():
+            self.match_run_a_var.set(self._selected_run_name())
+        if not self.match_run_b_var.get().strip():
+            self.match_run_b_var.set(self._selected_run_name())
+
+        for run_var, checkpoint_var, checkpoint_combo in [
+            (self.match_run_a_var, self.match_checkpoint_a_var, self.match_checkpoint_a_combo),
+            (self.match_run_b_var, self.match_checkpoint_b_var, self.match_checkpoint_b_combo),
+        ]:
+            run_name = run_var.get().strip() or sp.LATEST_RUN_NAME
+            checkpoint_values = ["latest", "best"]
+            if sp.run_exists(run_name):
+                checkpoint_values.extend(item["name"] for item in sp.list_checkpoints(run_name))
+            checkpoint_combo.configure(values=checkpoint_values)
+            if checkpoint_var.get().strip() not in checkpoint_values:
+                checkpoint_var.set("latest")
+
     def refresh_data(self) -> None:
         runs = sp.list_runs()
         run_names = [item["run_name"] for item in runs]
         self.run_combo.configure(values=run_names)
+        self._refresh_match_policy_selectors(run_names)
 
         current_run = self._selected_run_name()
         typed_new_run = bool(current_run) and current_run not in run_names
@@ -1166,6 +1226,9 @@ class TrainerGUI(tk.Tk):
     def _on_run_combo(self, _: Optional[tk.Event] = None) -> None:
         self.refresh_data()
 
+    def _on_match_run_combo(self, _: Optional[tk.Event] = None) -> None:
+        self._refresh_match_policy_selectors([item["run_name"] for item in sp.list_runs()])
+
     def _on_checkpoint_tree_select(self, _: Optional[tk.Event] = None) -> None:
         selection = self.checkpoints_tree.selection()
         if not selection:
@@ -1299,6 +1362,50 @@ class TrainerGUI(tk.Tk):
             )
 
         self._run_async(f"Run self-play for '{run_name}' / '{checkpoint}'", action, on_success=on_success)
+
+    def _play_policy_match(self) -> None:
+        run_name_a = self.match_run_a_var.get().strip() or sp.LATEST_RUN_NAME
+        checkpoint_a = self.match_checkpoint_a_var.get().strip() or "latest"
+        run_name_b = self.match_run_b_var.get().strip() or sp.LATEST_RUN_NAME
+        checkpoint_b = self.match_checkpoint_b_var.get().strip() or "latest"
+        try:
+            games_per_match = self._selected_match_games()
+        except ValueError as exc:
+            messagebox.showerror("Invalid match settings", str(exc), parent=self)
+            return
+
+        def action() -> Dict[str, Any]:
+            return sp.play_policy_match(
+                run_name_a=run_name_a,
+                checkpoint_a=checkpoint_a,
+                run_name_b=run_name_b,
+                checkpoint_b=checkpoint_b,
+                games_per_match=games_per_match,
+            )
+
+        def on_success(result: Dict[str, Any]) -> None:
+            policy_a = result.get("policy_a") or {}
+            policy_b = result.get("policy_b") or {}
+            winner = result.get("winner")
+            if winner == "policy_a":
+                winner_text = f"{policy_a.get('run_name')} / {policy_a.get('checkpoint')}"
+            elif winner == "policy_b":
+                winner_text = f"{policy_b.get('run_name')} / {policy_b.get('checkpoint')}"
+            else:
+                winner_text = "draw"
+            self.log(
+                "Policy match finished: "
+                f"{policy_a.get('run_name')} / {policy_a.get('checkpoint')} "
+                f"{result.get('wins_a')}-{result.get('wins_b')} "
+                f"{policy_b.get('run_name')} / {policy_b.get('checkpoint')} "
+                f"over {result.get('games_played')} game(s). Winner: {winner_text}."
+            )
+
+        self._run_async(
+            f"Run policy match for '{run_name_a}' / '{checkpoint_a}' vs '{run_name_b}' / '{checkpoint_b}'",
+            action,
+            on_success=on_success,
+        )
 
     def _play_human_game(self) -> None:
         run_name = self._selected_run_name()

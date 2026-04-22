@@ -2237,6 +2237,61 @@ def play_self_game(
     return result
 
 
+def play_policy_match(
+    run_name_a: str,
+    checkpoint_a: str = "latest",
+    run_name_b: Optional[str] = None,
+    checkpoint_b: str = "latest",
+    games_per_match: int = 24,
+    deterministic: bool = True,
+) -> Dict[str, Any]:
+    if not str(run_name_a).strip():
+        raise ValueError("run_name_a is required.")
+    resolved_run_b = str(run_name_b or run_name_a).strip() or run_name_a
+    if games_per_match <= 0:
+        raise ValueError("games_per_match must be positive.")
+
+    policy_a = load_policy(run_name_a, checkpoint_a)
+    policy_b = load_policy(resolved_run_b, checkpoint_b)
+    config_a = _get_trainer(run_name_a).config
+    config_b = _get_trainer(resolved_run_b).config
+    config = config_a.merged(
+        {
+            "max_turns_per_game": max(int(config_a.max_turns_per_game), int(config_b.max_turns_per_game)),
+            "max_actions_per_turn": max(int(config_a.max_actions_per_turn), int(config_b.max_actions_per_turn)),
+            "eval_temperature": min(float(config_a.eval_temperature), float(config_b.eval_temperature)),
+        }
+    )
+    summary = _play_balanced_match(
+        policy_a,
+        policy_b,
+        config,
+        games_per_match=max(1, int(games_per_match)),
+    )
+    wins_a = int(summary.get("wins_a", 0))
+    wins_b = int(summary.get("wins_b", 0))
+    if wins_a > wins_b:
+        winner = "policy_a"
+    elif wins_b > wins_a:
+        winner = "policy_b"
+    else:
+        winner = "draw"
+    return {
+        "policy_a": {"run_name": run_name_a, "checkpoint": checkpoint_a},
+        "policy_b": {"run_name": resolved_run_b, "checkpoint": checkpoint_b},
+        "games_per_match": int(games_per_match),
+        "deterministic": bool(deterministic),
+        "wins_a": wins_a,
+        "wins_b": wins_b,
+        "games_played": int(summary.get("games_played", 0)),
+        "score_a": wins_a / max(int(summary.get("games_played", 0)), 1),
+        "score_b": wins_b / max(int(summary.get("games_played", 0)), 1),
+        "winner": winner,
+        "duration_seconds": float(summary.get("duration_seconds", 0.0)),
+        "seat_results": list(summary.get("seat_results", [])),
+    }
+
+
 def play_human_game(
     run_name: str = LATEST_RUN_NAME,
     checkpoint: str = "latest",
