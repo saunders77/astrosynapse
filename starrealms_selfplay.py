@@ -41,6 +41,10 @@ NUMERIC_OPTION_SCALE = 10.0
 EPSILON = 1e-12
 LEGACY_MODEL_ARCHITECTURE = "legacy_v1"
 CURRENT_MODEL_ARCHITECTURE = "deep_v2"
+MODEL_TYPE_DEEP = "deep"
+MODEL_TYPE_DEFAULT = "default"
+DEFAULT_MODEL_HIDDEN_SIZE = 24
+DEEP_MODEL_HIDDEN_SIZE = 96
 NOOP_ACTIONS = {"endTurn", "nodiscard", "nokill", "noRowScrap", "noScrapFromHand", "nocopy"}
 
 
@@ -459,7 +463,7 @@ def option_to_vector(option: Sequence[Any], state: Dict[str, Any]) -> List[float
 
 @dataclass
 class TrainingConfig:
-    hidden_size: int = 96
+    hidden_size: int = DEEP_MODEL_HIDDEN_SIZE
     model_architecture: str = CURRENT_MODEL_ARCHITECTURE
     learning_rate: float = 0.0015
     min_learning_rate: float = 0.0003
@@ -474,8 +478,8 @@ class TrainingConfig:
     min_train_temperature: float = 0.55
     eval_temperature: float = 0.35
     checkpoint_interval: int = 1
-    training_matches_per_iteration: int = 3
-    training_games_per_match: int = 24
+    training_matches_per_iteration: int = 5
+    training_games_per_match: int = 16
     promotion_games: int = 24
     promotion_score_threshold: float = 0.55
     candidate_patience: int = 8
@@ -857,11 +861,51 @@ def _default_candidate_state(base_checkpoint: str, iteration: int) -> Dict[str, 
         "total_attempts": 0,
         "resets": 0,
         "promotions": 0,
+        "rating_pass_elo": None,
         "last_score": None,
         "last_result": "initialized",
         "last_reset_reason": "initialization",
         "last_opponents": [],
     }
+
+
+def model_type_overrides(model_type: str) -> Dict[str, Any]:
+    normalized = str(model_type or MODEL_TYPE_DEEP).strip().lower()
+    if normalized == MODEL_TYPE_DEEP:
+        return {
+            "model_architecture": CURRENT_MODEL_ARCHITECTURE,
+            "hidden_size": DEEP_MODEL_HIDDEN_SIZE,
+        }
+    if normalized == MODEL_TYPE_DEFAULT:
+        return {
+            "model_architecture": LEGACY_MODEL_ARCHITECTURE,
+            "hidden_size": DEFAULT_MODEL_HIDDEN_SIZE,
+        }
+    raise ValueError(f"Unknown model type '{model_type}'. Expected 'deep' or 'default'.")
+
+
+def new_run_overrides(
+    model_type: str = MODEL_TYPE_DEEP,
+    training_matches_per_iteration: int = 5,
+    training_games_per_match: int = 16,
+    promotion_games: int = 24,
+) -> Dict[str, Any]:
+    if int(training_matches_per_iteration) <= 0:
+        raise ValueError("training_matches_per_iteration must be positive.")
+    if int(training_games_per_match) <= 0:
+        raise ValueError("training_games_per_match must be positive.")
+    if int(promotion_games) <= 0:
+        raise ValueError("promotion_games must be positive.")
+
+    overrides = model_type_overrides(model_type)
+    overrides.update(
+        {
+            "training_matches_per_iteration": int(training_matches_per_iteration),
+            "training_games_per_match": int(training_games_per_match),
+            "promotion_games": int(promotion_games),
+        }
+    )
+    return overrides
 
 
 def _default_training_state(config: TrainingConfig) -> Dict[str, Any]:
@@ -884,6 +928,7 @@ def _default_training_state(config: TrainingConfig) -> Dict[str, Any]:
         "last_match": None,
         "last_update": None,
         "last_eval": None,
+        "last_rating_pass": None,
         "candidate": _default_candidate_state("checkpoint_000000.json", 0),
         "checkpoints": [
             {
@@ -1039,6 +1084,11 @@ def _ensure_run(run_name: str, config_overrides: Optional[Dict[str, Any]] = None
     return files
 
 
+def run_exists(run_name: str) -> bool:
+    files = RunFiles(run_name)
+    return files.training_state_file.exists() and files.policy_file.exists()
+
+
 def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, Any]] = None) -> Tuple[RunFiles, PolicyNetwork, Dict[str, Any], TrainingConfig]:
     files = _ensure_run(run_name, config_overrides=config_overrides)
     state_payload = _load_json_or_none(files.training_state_file)
@@ -1153,11 +1203,14 @@ def list_checkpoints(run_name: str = LATEST_RUN_NAME) -> List[Dict[str, Any]]:
         checkpoints.append(checkpoint)
     if files.candidate_policy_file.exists():
         candidate_state = dict(state.get("candidate") or {})
+        candidate_elo = candidate_state.get("rating_pass_elo")
+        if candidate_elo is None:
+            candidate_elo = state.get("current_elo", INITIAL_ELO)
         checkpoints.append(
             {
                 "name": "candidate",
                 "iteration": int(state.get("iteration", 0)),
-                "elo": float(state.get("current_elo", INITIAL_ELO)),
+                "elo": float(candidate_elo),
                 "is_best": False,
                 "is_latest": False,
                 "is_candidate": True,
@@ -1240,6 +1293,65 @@ def _play_match(
     }
 
 
+def _play_balanced_match(
+    policy_a: PolicyNetwork,
+    policy_b: PolicyNetwork,
+    config: TrainingConfig,
+    games_per_match: int,
+) -> Dict[str, Any]:
+    if games_per_match <= 1:
+        return _play_match(
+            policy_a,
+            policy_b,
+            config,
+            collect_a=False,
+            deterministic_a=True,
+            deterministic_b=True,
+            games_per_match=1,
+        )
+
+    games_as_first = max(1, games_per_match // 2)
+    games_as_second = max(1, games_per_match - games_as_first)
+    started_at = _timestamp()
+
+    first_seat = _play_match(
+        policy_a,
+        policy_b,
+        config,
+        collect_a=False,
+        deterministic_a=True,
+        deterministic_b=True,
+        games_per_match=games_as_first,
+    )
+    second_seat = _play_match(
+        policy_b,
+        policy_a,
+        config,
+        collect_a=False,
+        deterministic_a=True,
+        deterministic_b=True,
+        games_per_match=games_as_second,
+    )
+
+    wins_a = int(first_seat.get("wins_a", 0)) + int(second_seat.get("wins_b", 0))
+    wins_b = int(first_seat.get("wins_b", 0)) + int(second_seat.get("wins_a", 0))
+    games_played = int(first_seat.get("games_played", 0)) + int(second_seat.get("games_played", 0))
+    return {
+        "wins_a": wins_a,
+        "wins_b": wins_b,
+        "games_played": games_played,
+        "return_value": (wins_a - wins_b) / max(games_played, 1),
+        "per_game_winners": list(first_seat.get("per_game_winners", []))
+        + [("policy_a" if winner == "policy_b" else "policy_b") for winner in second_seat.get("per_game_winners", [])],
+        "trajectory": [],
+        "duration_seconds": _timestamp() - started_at,
+        "seat_results": [
+            {"seat": "a_first", **first_seat},
+            {"seat": "a_second", **second_seat},
+        ],
+    }
+
+
 class SelfPlayTrainer:
     def __init__(self, run_name: str = LATEST_RUN_NAME, config_overrides: Optional[Dict[str, Any]] = None) -> None:
         files, policy, state, config = _load_policy_and_state(run_name, config_overrides=config_overrides)
@@ -1285,6 +1397,247 @@ class SelfPlayTrainer:
                 "ppo_clip": _lerp(self.config.ppo_clip, self.config.min_ppo_clip, progress),
             }
         )
+
+    def _rating_pass_pool(self, max_policies: int, include_candidate: bool) -> List[Dict[str, Any]]:
+        checkpoints = self._checkpoint_entries_sorted()
+        candidate_available = include_candidate and self.files.candidate_policy_file.exists()
+        checkpoint_limit = max(0, max_policies - (1 if candidate_available else 0))
+
+        selected_names: List[str] = []
+        checkpoint_by_name = {item.get("name"): item for item in checkpoints if item.get("name")}
+
+        if checkpoint_limit >= len(checkpoints):
+            selected_names = [str(item["name"]) for item in checkpoints if item.get("name")]
+        else:
+            for anchor_name in [
+                self.state.get("latest_checkpoint"),
+                self.state.get("best_checkpoint"),
+                checkpoints[0]["name"] if checkpoints else None,
+            ]:
+                if (
+                    checkpoint_limit > 0
+                    and anchor_name
+                    and anchor_name in checkpoint_by_name
+                    and anchor_name not in selected_names
+                    and len(selected_names) < checkpoint_limit
+                ):
+                    selected_names.append(str(anchor_name))
+
+            remaining = [item for item in checkpoints if item.get("name") not in selected_names]
+            extra_slots = max(0, checkpoint_limit - len(selected_names))
+            if extra_slots >= len(remaining):
+                selected_names.extend(str(item["name"]) for item in remaining if item.get("name"))
+            elif extra_slots > 0 and remaining:
+                chosen_indices = set()
+                for index in range(extra_slots):
+                    raw_index = int((index + 0.5) * len(remaining) / extra_slots)
+                    raw_index = _clip(raw_index, 0, len(remaining) - 1)
+                    chosen_indices.add(int(raw_index))
+                while len(chosen_indices) < extra_slots:
+                    for index in range(len(remaining)):
+                        if index not in chosen_indices:
+                            chosen_indices.add(index)
+                        if len(chosen_indices) >= extra_slots:
+                            break
+                selected_names.extend(
+                    str(remaining[index]["name"])
+                    for index in sorted(chosen_indices)
+                    if remaining[index].get("name")
+                )
+
+        participants: List[Dict[str, Any]] = []
+        for checkpoint_name in selected_names:
+            checkpoint = checkpoint_by_name.get(checkpoint_name)
+            if checkpoint is None:
+                continue
+            participants.append(
+                {
+                    "name": checkpoint_name,
+                    "kind": "checkpoint",
+                    "iteration": int(checkpoint.get("iteration", 0)),
+                    "elo": float(checkpoint.get("elo", INITIAL_ELO)),
+                }
+            )
+
+        if candidate_available and len(participants) < max_policies:
+            candidate_state = self._candidate_state()
+            candidate_elo = candidate_state.get("rating_pass_elo")
+            if candidate_elo is None:
+                candidate_elo = self.state.get("current_elo", INITIAL_ELO)
+            participants.append(
+                {
+                    "name": "candidate",
+                    "kind": "candidate",
+                    "iteration": int(self.state.get("iteration", 0)),
+                    "elo": float(candidate_elo),
+                    "base_checkpoint": candidate_state.get("base_checkpoint"),
+                }
+            )
+
+        participants.sort(key=lambda item: (int(item.get("iteration", 0)), item.get("name", "")))
+        return participants
+
+    def _policy_for_rating_participant(self, participant: Dict[str, Any]) -> PolicyNetwork:
+        if participant.get("kind") == "candidate":
+            return self.candidate_policy
+        checkpoint_name = participant.get("name")
+        if checkpoint_name == self.state.get("latest_checkpoint"):
+            return self.policy
+        return _cached_policy(self.run_name, str(checkpoint_name))
+
+    def run_rating_pass(
+        self,
+        max_policies: int = 8,
+        games_per_pair: int = 12,
+        include_candidate: bool = True,
+        ) -> Dict[str, Any]:
+        if max_policies < 2:
+            raise ValueError("Rating pass needs at least 2 policies.")
+        if games_per_pair < 2:
+            raise ValueError("Rating pass needs at least 2 games per pairing.")
+        status = str(self.state.get("status", "idle"))
+        last_updated_at = float(self.state.get("updated_at", 0.0) or 0.0)
+        recently_updated = (_timestamp() - last_updated_at) <= 300.0
+        if self.is_running or (status == "training" and recently_updated):
+            raise RuntimeError("Interrupt training for this run before starting a rating pass.")
+
+        participants = self._rating_pass_pool(max_policies=max_policies, include_candidate=include_candidate)
+        if len(participants) < 2:
+            raise RuntimeError("Not enough available models in this run to perform a rating pass.")
+
+        rating_map = {item["name"]: float(item.get("elo", INITIAL_ELO)) for item in participants}
+        started_at = _timestamp()
+        self.state["status"] = "rating"
+        self.state["last_error"] = None
+        self.state["last_rating_pass"] = {
+            "status": "running",
+            "participant_count": len(participants),
+            "games_per_pair": int(games_per_pair),
+            "include_candidate": bool(include_candidate),
+            "started_at": started_at,
+        }
+        self._save()
+
+        try:
+            pairings: List[Dict[str, Any]] = []
+            for index_a, participant_a in enumerate(participants):
+                for index_b in range(index_a + 1, len(participants)):
+                    participant_b = participants[index_b]
+                    name_a = str(participant_a["name"])
+                    name_b = str(participant_b["name"])
+                    rating_a_before = float(rating_map[name_a])
+                    rating_b_before = float(rating_map[name_b])
+                    match_summary = _play_balanced_match(
+                        self._policy_for_rating_participant(participant_a),
+                        self._policy_for_rating_participant(participant_b),
+                        self.config,
+                        games_per_match=games_per_pair,
+                    )
+                    score_a = float(match_summary.get("wins_a", 0)) / max(int(match_summary.get("games_played", 0)), 1)
+                    rating_a_after, rating_b_after = _elo_update(
+                        rating_a_before,
+                        rating_b_before,
+                        score_a,
+                        self.config.elo_k,
+                    )
+                    rating_map[name_a] = rating_a_after
+                    rating_map[name_b] = rating_b_after
+                    pairings.append(
+                        {
+                            "a": name_a,
+                            "b": name_b,
+                            "wins_a": int(match_summary.get("wins_a", 0)),
+                            "wins_b": int(match_summary.get("wins_b", 0)),
+                            "games_played": int(match_summary.get("games_played", 0)),
+                            "score_a": score_a,
+                            "rating_a_before": rating_a_before,
+                            "rating_b_before": rating_b_before,
+                            "rating_a_after": rating_a_after,
+                            "rating_b_after": rating_b_after,
+                            "duration_seconds": float(match_summary.get("duration_seconds", 0.0)),
+                        }
+                    )
+
+            candidate_state = self._candidate_state()
+            for participant in participants:
+                name = str(participant["name"])
+                rating = float(rating_map[name])
+                if participant.get("kind") == "candidate":
+                    candidate_state["rating_pass_elo"] = rating
+                    continue
+                checkpoint_name = name
+                checkpoint_entry = self._find_checkpoint_entry(checkpoint_name)
+                if checkpoint_entry is None:
+                    checkpoint_entry = _ensure_checkpoint_entry(
+                        self.state,
+                        checkpoint_name,
+                        int(participant.get("iteration", 0)),
+                        rating,
+                    )
+                checkpoint_entry["elo"] = rating
+
+            latest_name = self.state.get("latest_checkpoint")
+            latest_entry = self._find_checkpoint_entry(str(latest_name)) if latest_name else None
+            if latest_entry is not None:
+                self.state["current_elo"] = float(latest_entry.get("elo", self.state.get("current_elo", INITIAL_ELO)))
+
+            checkpoint_entries = self._checkpoint_entries_sorted()
+            if checkpoint_entries:
+                best_entry = max(
+                    checkpoint_entries,
+                    key=lambda item: (float(item.get("elo", INITIAL_ELO)), int(item.get("iteration", 0))),
+                )
+                self.state["best_checkpoint"] = best_entry.get("name")
+                self.state["best_elo"] = float(best_entry.get("elo", INITIAL_ELO))
+
+            leaderboard = [
+                {
+                    "name": str(participant["name"]),
+                    "kind": str(participant.get("kind", "checkpoint")),
+                    "iteration": int(participant.get("iteration", 0)),
+                    "elo": float(rating_map[str(participant["name"])]),
+                }
+                for participant in participants
+            ]
+            leaderboard.sort(key=lambda item: (item["elo"], item["iteration"], item["name"]), reverse=True)
+
+            summary = {
+                "status": "completed",
+                "participant_count": len(participants),
+                "participants": [
+                    {
+                        "name": str(participant["name"]),
+                        "kind": str(participant.get("kind", "checkpoint")),
+                        "iteration": int(participant.get("iteration", 0)),
+                    }
+                    for participant in participants
+                ],
+                "include_candidate": bool(include_candidate),
+                "games_per_pair": int(games_per_pair),
+                "pairings_played": len(pairings),
+                "pairings": pairings,
+                "leaderboard": leaderboard,
+                "duration_seconds": _timestamp() - started_at,
+                "completed_at": _timestamp(),
+            }
+            self.state["last_rating_pass"] = summary
+            self.state["status"] = "idle"
+            self.state["last_error"] = None
+            self._save()
+            return summary
+        except Exception as exc:
+            self.state["status"] = "idle"
+            self.state["last_error"] = f"{type(exc).__name__}: {exc}"
+            self.state["last_rating_pass"] = {
+                "status": "failed",
+                "participant_count": len(participants),
+                "games_per_pair": int(games_per_pair),
+                "include_candidate": bool(include_candidate),
+                "duration_seconds": _timestamp() - started_at,
+                "error": self.state["last_error"],
+            }
+            self._save()
+            raise
 
     def _find_checkpoint_entry(self, checkpoint_name: str) -> Optional[Dict[str, Any]]:
         for item in self.state.get("checkpoints", []):
@@ -1445,6 +1798,7 @@ class SelfPlayTrainer:
         candidate_state["last_result"] = last_result
         candidate_state["last_reset_reason"] = reason
         candidate_state["last_opponents"] = list(opponents)
+        candidate_state["rating_pass_elo"] = float(self.state.get("current_elo", INITIAL_ELO))
         self.state["candidate"] = candidate_state
 
     def _promote_candidate(self, iteration: int, eval_summary: Dict[str, Any], training_summary: Dict[str, Any]) -> str:
@@ -1679,6 +2033,7 @@ class SelfPlayTrainer:
             "last_match": self.state.get("last_match"),
             "last_update": self.state.get("last_update"),
             "last_eval": self.state.get("last_eval"),
+            "last_rating_pass": self.state.get("last_rating_pass"),
             "last_error": self.state.get("last_error"),
             "runtime": _format_seconds(runtime),
             "run_dir": str(self.files.run_dir),
@@ -1776,6 +2131,63 @@ def train_iterations(
         return trainer.progress_summary()
     finally:
         trainer.config.max_iterations = original_max
+
+
+def create_run(
+    run_name: str,
+    model_type: str = MODEL_TYPE_DEEP,
+    training_matches_per_iteration: int = 5,
+    training_games_per_match: int = 16,
+    promotion_games: int = 24,
+) -> Dict[str, Any]:
+    if not str(run_name).strip():
+        raise ValueError("run_name is required.")
+    if run_exists(run_name):
+        raise ValueError(f"Run '{run_name}' already exists.")
+
+    overrides = new_run_overrides(
+        model_type=model_type,
+        training_matches_per_iteration=training_matches_per_iteration,
+        training_games_per_match=training_games_per_match,
+        promotion_games=promotion_games,
+    )
+    _ensure_run(run_name, config_overrides=overrides)
+    trainer = _get_trainer(run_name, overrides)
+    return trainer.progress_summary()
+
+
+def run_rating_pass(
+    run_name: str = LATEST_RUN_NAME,
+    max_policies: int = 8,
+    games_per_pair: int = 12,
+    include_candidate: bool = True,
+) -> Dict[str, Any]:
+    trainer = _get_trainer(run_name)
+    return trainer.run_rating_pass(
+        max_policies=max_policies,
+        games_per_pair=games_per_pair,
+        include_candidate=include_candidate,
+    )
+
+
+def summarize_rating_pass(
+    run_name: str = LATEST_RUN_NAME,
+    max_policies: int = 8,
+    games_per_pair: int = 12,
+    include_candidate: bool = True,
+) -> str:
+    summary = run_rating_pass(
+        run_name=run_name,
+        max_policies=max_policies,
+        games_per_pair=games_per_pair,
+        include_candidate=include_candidate,
+    )
+    top_entry = (summary.get("leaderboard") or [{}])[0]
+    return (
+        f"Rating pass for '{run_name}' completed with {summary.get('participant_count', 0)} models "
+        f"and {summary.get('pairings_played', 0)} pairings. "
+        f"Top rated: {top_entry.get('name', '-')} at {round(float(top_entry.get('elo', INITIAL_ELO)), 2)} Elo."
+    )
 
 
 def play_self_game(

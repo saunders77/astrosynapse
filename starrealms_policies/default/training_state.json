@@ -1,6 +1,6 @@
 {
-  "best_checkpoint": "champion_003135.json",
-  "best_elo": 3756.9214723133064,
+  "best_checkpoint": "champion_003123.json",
+  "best_elo": 3752.5578359496703,
   "candidate": {
     "base_checkpoint": "champion_003135.json",
     "base_iteration": 3135,
@@ -8,6 +8,7 @@
     "total_attempts": 2556,
     "resets": 414,
     "promotions": 837,
+    "rating_pass_elo": 3768.9214723133064,
     "last_score": 0.5909090909090909,
     "last_result": "promoted",
     "last_reset_reason": "Promoted to champion_003135.json",
@@ -113,7 +114,7 @@
     {
       "name": "champion_003135.json",
       "iteration": 3135,
-      "elo": 3756.9214723133064,
+      "elo": 3744.9214723133064,
       "created_at": 1776876271.3225217,
       "promoted_from": "champion_003123.json",
       "promotion_eval": {
@@ -210,7 +211,7 @@
     "max_iterations": null
   },
   "created_at": 1776710984.0338745,
-  "current_elo": 3756.9214723133064,
+  "current_elo": 3744.9214723133064,
   "iteration": 3135,
   "last_error": null,
   "last_eval": {
@@ -265,10 +266,60 @@
   "latest_checkpoint": "champion_003135.json",
   "promotions": 837,
   "run_name": "default",
-  "status": "training",
+  "status": "idle",
   "strategy": "champion_league_v2",
   "strategy_version": 2,
   "total_games": 220001,
   "total_matches": 10810,
-  "updated_at": 1776876286.1480064
+  "updated_at": 1776884338.5789413,
+  "last_rating_pass": {
+    "status": "completed",
+    "participant_count": 2,
+    "participants": [
+      {
+        "name": "candidate",
+        "kind": "candidate",
+        "iteration": 3135
+      },
+      {
+        "name": "champion_003135.json",
+        "kind": "checkpoint",
+        "iteration": 3135
+      }
+    ],
+    "include_candidate": true,
+    "games_per_pair": 2,
+    "pairings_played": 1,
+    "pairings": [
+      {
+        "a": "candidate",
+        "b": "champion_003135.json",
+        "wins_a": 2,
+        "wins_b": 0,
+        "games_played": 2,
+        "score_a": 1.0,
+        "rating_a_before": 3756.9214723133064,
+        "rating_b_before": 3756.9214723133064,
+        "rating_a_after": 3768.9214723133064,
+        "rating_b_after": 3744.9214723133064,
+        "duration_seconds": 0.4659748077392578
+      }
+    ],
+    "leaderboard": [
+      {
+        "name": "candidate",
+        "kind": "candidate",
+        "iteration": 3135,
+        "elo": 3768.9214723133064
+      },
+      {
+        "name": "champion_003135.json",
+        "kind": "checkpoint",
+        "iteration": 3135,
+        "elo": 3744.9214723133064
+      }
+    ],
+    "duration_seconds": 0.500154972076416,
+    "completed_at": 1776884338.578895
+  }
 }

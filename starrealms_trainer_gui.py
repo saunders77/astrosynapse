@@ -445,6 +445,13 @@ class TrainerGUI(tk.Tk):
         self.run_name_var = tk.StringVar(value=sp.LATEST_RUN_NAME)
         self.checkpoint_var = tk.StringVar(value="latest")
         self.chunk_var = tk.StringVar(value="5")
+        self.new_run_model_var = tk.StringVar(value=sp.MODEL_TYPE_DEEP)
+        self.new_run_matches_var = tk.StringVar(value="5")
+        self.new_run_games_var = tk.StringVar(value="16")
+        self.new_run_promotion_games_var = tk.StringVar(value="24")
+        self.rating_models_var = tk.StringVar(value="8")
+        self.rating_games_var = tk.StringVar(value="12")
+        self.include_candidate_var = tk.BooleanVar(value=True)
         self.human_name_var = tk.StringVar(value="Human")
         self.policy_name_var = tk.StringVar(value="Policy")
 
@@ -553,13 +560,61 @@ class TrainerGUI(tk.Tk):
         self.continue_button.pack(side="left", padx=6)
         self.interrupt_button = self._button(button_row, "Interrupt", self._interrupt_background)
         self.interrupt_button.pack(side="left", padx=6)
+        self.create_run_button = self._button(button_row, "Create Run", self._create_run)
+        self.create_run_button.pack(side="left", padx=6)
+        self.rating_pass_button = self._button(button_row, "Run Rating Pass", self._run_rating_pass)
+        self.rating_pass_button.pack(side="left", padx=6)
         self.selfplay_button = self._button(button_row, "Run Self-Play Game", self._play_self_game)
         self.selfplay_button.pack(side="left", padx=6)
         self.human_button = self._button(button_row, "Play Against Selected Policy", self._play_human_game)
         self.human_button.pack(side="left", padx=6)
 
+        new_run_row = tk.Frame(controls, bg=WINDOW_BG)
+        new_run_row.grid(row=2, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        ttk.Label(new_run_row, text="New Run Model").pack(side="left")
+        new_run_model_combo = ttk.Combobox(
+            new_run_row,
+            textvariable=self.new_run_model_var,
+            values=(sp.MODEL_TYPE_DEEP, sp.MODEL_TYPE_DEFAULT),
+            state="readonly",
+            width=10,
+        )
+        new_run_model_combo.pack(side="left", padx=(6, 16))
+        ttk.Label(new_run_row, text="Matches / Iter").pack(side="left")
+        ttk.Entry(new_run_row, textvariable=self.new_run_matches_var, width=8).pack(side="left", padx=(6, 16))
+        ttk.Label(new_run_row, text="Games / Match").pack(side="left")
+        ttk.Entry(new_run_row, textvariable=self.new_run_games_var, width=8).pack(side="left", padx=(6, 16))
+        ttk.Label(new_run_row, text="Promotion Games").pack(side="left")
+        ttk.Entry(new_run_row, textvariable=self.new_run_promotion_games_var, width=8).pack(side="left", padx=(6, 16))
+        new_run_tip = tk.Label(
+            new_run_row,
+            text="These settings are used only when creating a brand-new run.",
+            bg=WINDOW_BG,
+            fg=MUTED,
+            anchor="w",
+            font=("Segoe UI", 9),
+        )
+        new_run_tip.pack(side="left")
+
+        rating_row = tk.Frame(controls, bg=WINDOW_BG)
+        rating_row.grid(row=3, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        ttk.Label(rating_row, text="Rating Policies").pack(side="left")
+        ttk.Entry(rating_row, textvariable=self.rating_models_var, width=8).pack(side="left", padx=(6, 16))
+        ttk.Label(rating_row, text="Games / Pair").pack(side="left")
+        ttk.Entry(rating_row, textvariable=self.rating_games_var, width=8).pack(side="left", padx=(6, 16))
+        ttk.Checkbutton(rating_row, text="Include Candidate", variable=self.include_candidate_var).pack(side="left")
+        rating_tip = tk.Label(
+            rating_row,
+            text="Rating pass runs a round-robin over a representative checkpoint pool and rewrites Elo from those results.",
+            bg=WINDOW_BG,
+            fg=MUTED,
+            anchor="w",
+            font=("Segoe UI", 9),
+        )
+        rating_tip.pack(side="left", padx=(16, 0))
+
         name_row = tk.Frame(controls, bg=WINDOW_BG)
-        name_row.grid(row=2, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        name_row.grid(row=4, column=0, columnspan=7, sticky="ew", pady=(10, 0))
         ttk.Label(name_row, text="Human Name").pack(side="left")
         ttk.Entry(name_row, textvariable=self.human_name_var, width=18).pack(side="left", padx=(6, 16))
         ttk.Label(name_row, text="Policy Display Name").pack(side="left")
@@ -718,6 +773,64 @@ class TrainerGUI(tk.Tk):
         if iterations <= 0:
             raise ValueError("Chunk iterations must be positive.")
         return iterations
+
+    def _rating_policy_count(self) -> int:
+        try:
+            count = int(self.rating_models_var.get().strip())
+        except ValueError:
+            raise ValueError("Rating policy count must be an integer.")
+        if count < 2:
+            raise ValueError("Rating policy count must be at least 2.")
+        return count
+
+    def _rating_games_per_pair(self) -> int:
+        try:
+            games = int(self.rating_games_var.get().strip())
+        except ValueError:
+            raise ValueError("Games per pair must be an integer.")
+        if games < 2:
+            raise ValueError("Games per pair must be at least 2.")
+        return games
+
+    def _new_run_training_matches(self) -> int:
+        try:
+            value = int(self.new_run_matches_var.get().strip())
+        except ValueError:
+            raise ValueError("New run matches per iteration must be an integer.")
+        if value <= 0:
+            raise ValueError("New run matches per iteration must be positive.")
+        return value
+
+    def _new_run_games_per_match(self) -> int:
+        try:
+            value = int(self.new_run_games_var.get().strip())
+        except ValueError:
+            raise ValueError("New run games per match must be an integer.")
+        if value <= 0:
+            raise ValueError("New run games per match must be positive.")
+        return value
+
+    def _new_run_promotion_games(self) -> int:
+        try:
+            value = int(self.new_run_promotion_games_var.get().strip())
+        except ValueError:
+            raise ValueError("New run promotion games must be an integer.")
+        if value <= 0:
+            raise ValueError("New run promotion games must be positive.")
+        return value
+
+    def _selected_new_run_overrides(self) -> Dict[str, Any]:
+        return sp.new_run_overrides(
+            model_type=self.new_run_model_var.get().strip() or sp.MODEL_TYPE_DEEP,
+            training_matches_per_iteration=self._new_run_training_matches(),
+            training_games_per_match=self._new_run_games_per_match(),
+            promotion_games=self._new_run_promotion_games(),
+        )
+
+    def _new_run_overrides_for(self, run_name: str) -> Optional[Dict[str, Any]]:
+        if sp.run_exists(run_name):
+            return None
+        return self._selected_new_run_overrides()
 
     def _run_async(
         self,
@@ -884,6 +997,7 @@ class TrainerGUI(tk.Tk):
         last_match = summary.get("last_match") or {}
         last_update = summary.get("last_update") or {}
         last_eval = summary.get("last_eval") or {}
+        last_rating_pass = summary.get("last_rating_pass") or {}
         candidate = summary.get("candidate") or {}
         details = [
             f"Run: {run_name}",
@@ -929,12 +1043,21 @@ class TrainerGUI(tk.Tk):
             f"- Promoted: {last_eval.get('promoted', '-')}",
             f"- Promoted checkpoint: {last_eval.get('promoted_checkpoint', '-')}",
             "",
+            "Last Rating Pass",
+            f"- Status: {last_rating_pass.get('status', '-')}",
+            f"- Participant count: {last_rating_pass.get('participant_count', '-')}",
+            f"- Pairings played: {last_rating_pass.get('pairings_played', '-')}",
+            f"- Games per pair: {last_rating_pass.get('games_per_pair', '-')}",
+            f"- Included candidate: {last_rating_pass.get('include_candidate', '-')}",
+            f"- Duration seconds: {last_rating_pass.get('duration_seconds', '-')}",
+            "",
             "Candidate",
             f"- Base checkpoint: {candidate.get('base_checkpoint', '-')}",
             f"- Attempts since reset: {candidate.get('attempts_since_reset', '-')}",
             f"- Total attempts: {candidate.get('total_attempts', '-')}",
             f"- Resets: {candidate.get('resets', '-')}",
             f"- Promotions: {candidate.get('promotions', '-')}",
+            f"- Rating pass Elo: {candidate.get('rating_pass_elo', '-')}",
             f"- Last score: {candidate.get('last_score', '-')}",
             f"- Last result: {candidate.get('last_result', '-')}",
             f"- Last reset reason: {candidate.get('last_reset_reason', '-')}",
@@ -945,6 +1068,19 @@ class TrainerGUI(tk.Tk):
             "Checkpoints",
             *(checkpoint_lines or ["- No checkpoints yet"]),
         ]
+        leaderboard = list(last_rating_pass.get("leaderboard") or [])
+        if leaderboard:
+            details.extend(
+                [
+                    "",
+                    "Rating Pass Leaderboard",
+                    *[
+                        f"- {item.get('name', '-')}: elo {round(float(item.get('elo', sp.INITIAL_ELO)), 2)}, "
+                        f"iter {item.get('iteration', '-')}, kind {item.get('kind', '-')}"
+                        for item in leaderboard
+                    ],
+                ]
+            )
         if summary.get("last_error"):
             details.extend(["", "Last Error", str(summary.get("last_error"))])
 
@@ -964,6 +1100,7 @@ class TrainerGUI(tk.Tk):
                 "latest_checkpoint": "-",
                 "last_match": None,
                 "last_update": None,
+                "last_rating_pass": None,
                 "last_error": None,
                 "runtime": "-",
                 "run_dir": str((Path(sp.RUNS_DIR) / run_name).resolve()),
@@ -988,6 +1125,7 @@ class TrainerGUI(tk.Tk):
             "last_match": state.get("last_match"),
             "last_update": state.get("last_update"),
             "last_eval": state.get("last_eval"),
+            "last_rating_pass": state.get("last_rating_pass"),
             "last_error": state.get("last_error"),
             "runtime": runtime,
             "run_dir": state.get("run_dir", str((Path(sp.RUNS_DIR) / run_name).resolve())),
@@ -1037,13 +1175,14 @@ class TrainerGUI(tk.Tk):
     def _train_chunk(self) -> None:
         try:
             iterations = self._chunk_iterations()
+            overrides = self._new_run_overrides_for(self._selected_run_name())
         except ValueError as exc:
             messagebox.showerror("Invalid chunk size", str(exc), parent=self)
             return
         run_name = self._selected_run_name()
 
         def action() -> Dict[str, Any]:
-            return sp.train_iterations(iterations, run_name=run_name)
+            return sp.train_iterations(iterations, run_name=run_name, **(overrides or {}))
 
         def on_success(result: Dict[str, Any]) -> None:
             self.log(
@@ -1055,15 +1194,48 @@ class TrainerGUI(tk.Tk):
 
     def _start_background(self) -> None:
         run_name = self._selected_run_name()
-        summary = sp.start_training(run_name=run_name, background=True)
+        try:
+            overrides = self._new_run_overrides_for(run_name)
+        except ValueError as exc:
+            messagebox.showerror("Invalid new run settings", str(exc), parent=self)
+            return
+        summary = sp.start_training(run_name=run_name, background=True, **(overrides or {}))
         self.log(f"Background training started for '{run_name}'. Status: {summary.get('status')}.")
         self.refresh_data()
 
     def _continue_background(self) -> None:
         run_name = self._selected_run_name()
-        message = sp.continue_training(run_name=run_name)
+        try:
+            overrides = self._new_run_overrides_for(run_name)
+        except ValueError as exc:
+            messagebox.showerror("Invalid new run settings", str(exc), parent=self)
+            return
+        message = sp.continue_training(run_name=run_name, **(overrides or {}))
         self.log(message)
         self.refresh_data()
+
+    def _create_run(self) -> None:
+        run_name = self._selected_run_name()
+        try:
+            overrides = self._selected_new_run_overrides()
+        except ValueError as exc:
+            messagebox.showerror("Invalid new run settings", str(exc), parent=self)
+            return
+
+        def action() -> Dict[str, Any]:
+            return sp.create_run(run_name=run_name, **overrides)
+
+        def on_success(result: Dict[str, Any]) -> None:
+            config = sp.get_run_state(run_name).get("config") or {}
+            self.log(
+                f"Created run '{run_name}' with model {config.get('model_architecture')} "
+                f"and {config.get('training_matches_per_iteration')} match(es)/iter, "
+                f"{config.get('training_games_per_match')} game(s)/match, "
+                f"{config.get('promotion_games')} promotion game(s)."
+            )
+            self.refresh_data()
+
+        self._run_async(f"Create run '{run_name}'", action, on_success=on_success)
 
     def _interrupt_background(self) -> None:
         run_name = self._selected_run_name()
@@ -1075,6 +1247,37 @@ class TrainerGUI(tk.Tk):
             self.log(result)
 
         self._run_async(f"Interrupt background training for '{run_name}'", action, on_success=on_success)
+
+    def _run_rating_pass(self) -> None:
+        run_name = self._selected_run_name()
+        try:
+            max_policies = self._rating_policy_count()
+            games_per_pair = self._rating_games_per_pair()
+        except ValueError as exc:
+            messagebox.showerror("Invalid rating pass settings", str(exc), parent=self)
+            return
+        include_candidate = bool(self.include_candidate_var.get())
+
+        def action() -> Dict[str, Any]:
+            return sp.run_rating_pass(
+                run_name=run_name,
+                max_policies=max_policies,
+                games_per_pair=games_per_pair,
+                include_candidate=include_candidate,
+            )
+
+        def on_success(result: Dict[str, Any]) -> None:
+            leaderboard = list(result.get("leaderboard") or [])
+            top_line = "-"
+            if leaderboard:
+                top_entry = leaderboard[0]
+                top_line = f"{top_entry.get('name')} at {round(float(top_entry.get('elo', sp.INITIAL_ELO)), 2)}"
+            self.log(
+                f"Rating pass finished for '{run_name}': {result.get('participant_count', 0)} models, "
+                f"{result.get('pairings_played', 0)} pairings, top rated {top_line}."
+            )
+
+        self._run_async(f"Run rating pass for '{run_name}'", action, on_success=on_success)
 
     def _play_self_game(self) -> None:
         run_name = self._selected_run_name()
