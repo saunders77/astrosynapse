@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import copy
+import os
 import queue
+import sys
 import threading
 import traceback
 from dataclasses import dataclass, field
@@ -15,6 +17,28 @@ try:
 except ImportError as exc:  # pragma: no cover - depends on local Python install
     raise RuntimeError("Tkinter is required to run the trainer GUI.") from exc
 
+ROOT_DIR = Path(__file__).resolve().parent
+VENV_PYTHON = ROOT_DIR / ".venv" / "Scripts" / "python.exe"
+
+
+def _ensure_supported_python() -> None:
+    if VENV_PYTHON.exists() and Path(sys.executable).resolve() != VENV_PYTHON.resolve():
+        try:
+            import torch  # type: ignore
+        except Exception:
+            message = (
+                "Star Realms trainer GUI must be run from the project's venv.\n\n"
+                f"Current interpreter:\n{sys.executable}\n\n"
+                f"Run this instead:\n{VENV_PYTHON} {Path(__file__).name}\n"
+                "or activate the venv first with:\n"
+                ".\\.venv\\Scripts\\Activate.ps1"
+            )
+            print(message)
+            raise SystemExit(1)
+
+
+_ensure_supported_python()
+
 import chooser as chooser_ui
 import starrealms_selfplay as sp
 
@@ -27,7 +51,7 @@ SUBTEXT = "#c3d3ea"
 MUTED = "#87a0c2"
 BUTTON_BG = "#25476a"
 BUTTON_ACTIVE = "#356796"
-POLL_INTERVAL_MS = 1000
+POLL_INTERVAL_MS = 100
 
 
 @dataclass
@@ -57,6 +81,59 @@ class HumanChoiceBridge:
         if request.selection is None:
             raise RuntimeError("No selection was returned for the human decision.")
         return request.selection
+
+
+@dataclass
+class GameViewRequest:
+    kind: str
+    payload: Dict[str, Any] = field(default_factory=dict)
+    event: threading.Event = field(default_factory=threading.Event)
+    result: Any = None
+    error: Optional[str] = None
+
+
+class GameViewBridge:
+    def __init__(self, app: "TrainerGUI") -> None:
+        self.app = app
+
+    def _round_trip(self, kind: str, **payload: Any) -> Any:
+        request = GameViewRequest(kind=kind, payload=payload)
+        self.app.choice_queue.put(request)
+        request.event.wait()
+        if request.error is not None:
+            raise RuntimeError(request.error)
+        return request.result
+
+    def start_session(self, title: str) -> None:
+        self._round_trip("start_session", title=title)
+
+    def policy_choice(
+        self,
+        player_name: str,
+        options: Sequence[Sequence[Any]],
+        state: Dict[str, Any],
+        selection_index: int,
+    ) -> None:
+        self._round_trip(
+            "policy_choice",
+            player_name=player_name,
+            options=copy.deepcopy(list(options)),
+            state=copy.deepcopy(dict(state)),
+            selection_index=selection_index,
+        )
+
+    def request_human_choice(self, player_name: str, options: Sequence[Sequence[Any]], state: Dict[str, Any]) -> int:
+        return int(
+            self._round_trip(
+                "human_choice",
+                player_name=player_name,
+                options=copy.deepcopy(list(options)),
+                state=copy.deepcopy(dict(state)),
+            )
+        )
+
+    def finish_session(self, result: Dict[str, Any]) -> None:
+        self._round_trip("finish_session", result=copy.deepcopy(dict(result)))
 
 
 class HumanDecisionDialog(tk.Toplevel):
@@ -203,8 +280,8 @@ class HumanDecisionDialog(tk.Toplevel):
         )
         self.detail_text.pack(fill="both", expand=False)
 
-        button_row = tk.Frame(self, bg=WINDOW_BG, padx=12, pady=(0, 12))
-        button_row.pack(fill="x")
+        button_row = tk.Frame(self, bg=WINDOW_BG, padx=12, pady=0)
+        button_row.pack(fill="x", pady=(0, 12))
 
         confirm_button = tk.Button(
             button_row,
@@ -355,10 +432,12 @@ class TrainerGUI(tk.Tk):
         self.configure(bg=WINDOW_BG)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        self.choice_queue: "queue.Queue[HumanChoiceRequest]" = queue.Queue()
+        self.choice_queue: "queue.Queue[Any]" = queue.Queue()
         self.result_queue: "queue.Queue[tuple[str, str, Any, Optional[Callable[[Any], None]]]]" = queue.Queue()
         self.command_thread: Optional[threading.Thread] = None
-        self.human_bridge = HumanChoiceBridge(self)
+        self.game_view = chooser_ui.GameChooserGUI(parent=self, title="Star Realms Game Viewer")
+        self.game_view_bridge = GameViewBridge(self)
+        self._suppress_run_events = False
 
         self.run_name_var = tk.StringVar(value=sp.LATEST_RUN_NAME)
         self.checkpoint_var = tk.StringVar(value="latest")
@@ -381,8 +460,27 @@ class TrainerGUI(tk.Tk):
 
         self._build_style()
         self._build_layout()
-        self.refresh_data()
+        self.after(50, self._surface_window)
+        self.after(10, self._initial_refresh)
         self.after(POLL_INTERVAL_MS, self._poll)
+
+    def _initial_refresh(self) -> None:
+        try:
+            self.refresh_data()
+        except Exception:
+            error = traceback.format_exc()
+            self.log("Initial GUI refresh failed.\n" + error)
+            messagebox.showerror("Startup failed", error, parent=self)
+
+    def _surface_window(self) -> None:
+        try:
+            self.deiconify()
+            self.lift()
+            self.attributes("-topmost", True)
+            self.after(300, lambda: self.attributes("-topmost", False))
+            self.focus_force()
+        except tk.TclError:
+            pass
 
     def _build_style(self) -> None:
         style = ttk.Style(self)
@@ -654,30 +752,34 @@ class TrainerGUI(tk.Tk):
         if selected_items:
             current_run_selection = selected_items[0]
 
-        self.runs_tree.delete(*self.runs_tree.get_children())
-        for run in runs:
-            iid = run["run_name"]
-            self.runs_tree.insert(
-                "",
-                "end",
-                iid=iid,
-                text=run["run_name"],
-                values=(
-                    run["status"],
-                    run["iteration"],
-                    f"{run['current_elo']:.1f}",
-                    f"{run['best_elo']:.1f}",
-                    run["total_matches"],
-                    run["total_games"],
-                ),
-            )
+        self._suppress_run_events = True
+        try:
+            self.runs_tree.delete(*self.runs_tree.get_children())
+            for run in runs:
+                iid = run["run_name"]
+                self.runs_tree.insert(
+                    "",
+                    "end",
+                    iid=iid,
+                    text=run["run_name"],
+                    values=(
+                        run["status"],
+                        run["iteration"],
+                        f"{run['current_elo']:.1f}",
+                        f"{run['best_elo']:.1f}",
+                        run["total_matches"],
+                        run["total_games"],
+                    ),
+                )
 
-        if selected_run in self.runs_tree.get_children():
-            self.runs_tree.selection_set(selected_run)
-            self.runs_tree.focus(selected_run)
-            self.runs_tree.see(selected_run)
-        elif current_run_selection in self.runs_tree.get_children():
-            self.runs_tree.selection_set(current_run_selection)
+            if selected_run in self.runs_tree.get_children():
+                self.runs_tree.selection_set(selected_run)
+                self.runs_tree.focus(selected_run)
+                self.runs_tree.see(selected_run)
+            elif current_run_selection in self.runs_tree.get_children():
+                self.runs_tree.selection_set(current_run_selection)
+        finally:
+            self._suppress_run_events = False
 
         self._refresh_checkpoint_selector(selected_run)
         self._refresh_summary(selected_run)
@@ -702,6 +804,8 @@ class TrainerGUI(tk.Tk):
                 flags.append("latest")
             if checkpoint.get("is_best"):
                 flags.append("best")
+            if checkpoint.get("is_candidate"):
+                flags.append("candidate")
             self.checkpoints_tree.insert(
                 "",
                 "end",
@@ -739,8 +843,8 @@ class TrainerGUI(tk.Tk):
             )
             return
 
-        summary = sp.training_progress(run_name)
         state = sp.get_run_state(run_name)
+        summary = self._summary_from_state(run_name, state)
 
         self.status_vars["status"].set(str(summary.get("status", "idle")))
         self.status_vars["iteration"].set(str(summary.get("iteration", 0)))
@@ -772,6 +876,8 @@ class TrainerGUI(tk.Tk):
 
         last_match = summary.get("last_match") or {}
         last_update = summary.get("last_update") or {}
+        last_eval = summary.get("last_eval") or {}
+        candidate = summary.get("candidate") or {}
         details = [
             f"Run: {run_name}",
             f"Directory: {summary.get('run_dir', '-')}",
@@ -785,6 +891,7 @@ class TrainerGUI(tk.Tk):
             f"- Best Elo: {summary.get('best_elo')}",
             f"- Best checkpoint: {summary.get('best_checkpoint')}",
             f"- Latest checkpoint: {summary.get('latest_checkpoint')}",
+            f"- Promotions: {summary.get('promotions', 0)}",
             f"- Runtime: {summary.get('runtime')}",
             "",
             "Last Match",
@@ -801,6 +908,29 @@ class TrainerGUI(tk.Tk):
             f"- Clip fraction: {last_update.get('clip_fraction', '-')}",
             f"- Average ratio: {last_update.get('avg_ratio', '-')}",
             f"- Average value prediction: {last_update.get('avg_value_prediction', '-')}",
+            f"- Learning rate: {last_update.get('learning_rate', '-')}",
+            f"- Epsilon random: {last_update.get('epsilon_random', '-')}",
+            f"- Train temperature: {last_update.get('train_temperature', '-')}",
+            f"- PPO clip: {last_update.get('ppo_clip', '-')}",
+            "",
+            "Last Eval",
+            f"- Wins: {last_eval.get('wins', '-')}",
+            f"- Losses: {last_eval.get('losses', '-')}",
+            f"- Games played: {last_eval.get('games_played', '-')}",
+            f"- Score: {last_eval.get('score', '-')}",
+            f"- Action: {last_eval.get('action', '-')}",
+            f"- Promoted: {last_eval.get('promoted', '-')}",
+            f"- Promoted checkpoint: {last_eval.get('promoted_checkpoint', '-')}",
+            "",
+            "Candidate",
+            f"- Base checkpoint: {candidate.get('base_checkpoint', '-')}",
+            f"- Attempts since reset: {candidate.get('attempts_since_reset', '-')}",
+            f"- Total attempts: {candidate.get('total_attempts', '-')}",
+            f"- Resets: {candidate.get('resets', '-')}",
+            f"- Promotions: {candidate.get('promotions', '-')}",
+            f"- Last score: {candidate.get('last_score', '-')}",
+            f"- Last result: {candidate.get('last_result', '-')}",
+            f"- Last reset reason: {candidate.get('last_reset_reason', '-')}",
             "",
             "Config",
             *(config_lines or ["- No saved config"]),
@@ -812,6 +942,49 @@ class TrainerGUI(tk.Tk):
             details.extend(["", "Last Error", str(summary.get("last_error"))])
 
         self._write_details("\n".join(details))
+
+    def _summary_from_state(self, run_name: str, state: Dict[str, Any]) -> Dict[str, Any]:
+        if not state:
+            return {
+                "run_name": run_name,
+                "status": "idle",
+                "iteration": 0,
+                "total_matches": 0,
+                "total_games": 0,
+                "current_elo": sp.INITIAL_ELO,
+                "best_elo": sp.INITIAL_ELO,
+                "best_checkpoint": "-",
+                "latest_checkpoint": "-",
+                "last_match": None,
+                "last_update": None,
+                "last_error": None,
+                "runtime": "-",
+                "run_dir": str((Path(sp.RUNS_DIR) / run_name).resolve()),
+            }
+
+        created_at = state.get("created_at")
+        runtime = "-"
+        if created_at is not None:
+            runtime = sp._format_seconds(sp._timestamp() - float(created_at))
+        return {
+            "run_name": state.get("run_name", run_name),
+            "status": state.get("status", "idle"),
+            "iteration": int(state.get("iteration", 0)),
+            "total_matches": int(state.get("total_matches", 0)),
+            "total_games": int(state.get("total_games", 0)),
+            "current_elo": round(float(state.get("current_elo", sp.INITIAL_ELO)), 2),
+            "best_elo": round(float(state.get("best_elo", sp.INITIAL_ELO)), 2),
+            "best_checkpoint": state.get("best_checkpoint"),
+            "latest_checkpoint": state.get("latest_checkpoint"),
+            "promotions": int(state.get("promotions", 0)),
+            "candidate": state.get("candidate"),
+            "last_match": state.get("last_match"),
+            "last_update": state.get("last_update"),
+            "last_eval": state.get("last_eval"),
+            "last_error": state.get("last_error"),
+            "runtime": runtime,
+            "run_dir": state.get("run_dir", str((Path(sp.RUNS_DIR) / run_name).resolve())),
+        }
 
     def _write_details(self, text: str) -> None:
         self.details_text.configure(state="normal")
@@ -826,11 +999,15 @@ class TrainerGUI(tk.Tk):
         self.log_text.configure(state="disabled")
 
     def _on_run_tree_select(self, _: Optional[tk.Event] = None) -> None:
+        if self._suppress_run_events:
+            return
         selection = self.runs_tree.selection()
         if not selection:
             return
-        self.run_name_var.set(selection[0])
-        self.refresh_data()
+        run_name = selection[0]
+        self.run_name_var.set(run_name)
+        self._refresh_checkpoint_selector(run_name)
+        self._refresh_summary(run_name)
 
     def _on_run_combo(self, _: Optional[tk.Event] = None) -> None:
         self.refresh_data()
@@ -888,7 +1065,12 @@ class TrainerGUI(tk.Tk):
         checkpoint = self._selected_checkpoint()
 
         def action() -> Dict[str, Any]:
-            return sp.play_self_game(run_name=run_name, checkpoint=checkpoint, verbose=False)
+            return sp.play_self_game(
+                run_name=run_name,
+                checkpoint=checkpoint,
+                verbose=False,
+                ui_observer=self.game_view_bridge,
+            )
 
         def on_success(result: Dict[str, Any]) -> None:
             self.log(
@@ -911,8 +1093,9 @@ class TrainerGUI(tk.Tk):
                 checkpoint=checkpoint,
                 human_name=human_name,
                 policy_name=policy_name,
-                human_choose_fn=self.human_bridge.choose,
+                human_choose_fn=self.game_view_bridge.request_human_choice,
                 verbose=False,
+                ui_observer=self.game_view_bridge,
             )
 
         def on_success(result: Dict[str, Any]) -> None:
@@ -931,12 +1114,57 @@ class TrainerGUI(tk.Tk):
             except queue.Empty:
                 break
             try:
-                dialog = HumanDecisionDialog(self, request)
-                self.wait_window(dialog)
-                if dialog.selection is None:
-                    request.error = "The human decision dialog was closed. The game was cancelled."
+                if isinstance(request, HumanChoiceRequest):
+                    dialog = HumanDecisionDialog(self, request)
+                    self.wait_window(dialog)
+                    if dialog.selection is None:
+                        request.error = "The human decision dialog was closed. The game was cancelled."
+                    else:
+                        request.selection = dialog.selection
+                elif isinstance(request, GameViewRequest):
+                    if request.kind == "start_session":
+                        self.game_view.begin_session(str(request.payload.get("title", "Star Realms Game")), clear_log=True)
+                    elif request.kind == "policy_choice":
+                        player_name = str(request.payload["player_name"])
+                        options = request.payload["options"]
+                        state = request.payload["state"]
+                        selection_index = int(request.payload["selection_index"])
+                        self.game_view.show_state(
+                            player_name,
+                            options,
+                            state,
+                            selectable=False,
+                            selected_index=selection_index,
+                            mode_text="Policy-selected action.",
+                        )
+                        selected_text = chooser_ui._format_option(options[selection_index], state)
+                        self.game_view.append_log(f"{player_name}: {selected_text}")
+                    elif request.kind == "human_choice":
+                        player_name = str(request.payload["player_name"])
+                        options = request.payload["options"]
+                        state = request.payload["state"]
+                        selection = self.game_view.choose(
+                            player_name,
+                            options,
+                            state,
+                            mode_text="Choose the action to take.",
+                        )
+                        request.result = selection
+                        selected_text = chooser_ui._format_option(options[selection], state)
+                        self.game_view.append_log(f"{player_name}: {selected_text}")
+                    elif request.kind == "finish_session":
+                        result = dict(request.payload.get("result") or {})
+                        self.game_view.append_log(
+                            "Result: winner {winner}, turns {turns}, ended_by_limit={ended}.".format(
+                                winner=result.get("winner", "-"),
+                                turns=result.get("turns_taken", "-"),
+                                ended=result.get("ended_by_limit", "-"),
+                            )
+                        )
+                    else:
+                        request.error = f"Unknown game view request kind: {request.kind}"
                 else:
-                    request.selection = dialog.selection
+                    request.error = f"Unsupported queued request type: {type(request).__name__}"
             except Exception as exc:
                 request.error = f"{type(exc).__name__}: {exc}"
             finally:
@@ -967,10 +1195,8 @@ class TrainerGUI(tk.Tk):
 
     def _on_close(self) -> None:
         run_name = self._selected_run_name()
-        try:
-            summary = sp.training_progress(run_name)
-        except Exception:
-            summary = {}
+        state = sp.get_run_state(run_name)
+        summary = self._summary_from_state(run_name, state)
 
         if summary.get("status") == "training":
             confirmed = messagebox.askyesno(
@@ -993,6 +1219,7 @@ class TrainerGUI(tk.Tk):
 
 
 def launch_gui() -> None:
+    print(f"Launching Star Realms trainer GUI with {sys.executable}")
     app = TrainerGUI()
     app.mainloop()
 

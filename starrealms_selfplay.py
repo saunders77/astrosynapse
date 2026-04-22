@@ -159,6 +159,24 @@ def _clip(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
+def _lerp(start: float, end: float, progress: float) -> float:
+    return start + (end - start) * _clip(progress, 0.0, 1.0)
+
+
+def _weighted_choice(choices: Sequence[Tuple[Any, float]]) -> Any:
+    filtered = [(item, weight) for item, weight in choices if weight > 0]
+    if not filtered:
+        raise ValueError("At least one positive-weight choice is required.")
+    total = sum(weight for _, weight in filtered)
+    draw = random.random() * total
+    cumulative = 0.0
+    for item, weight in filtered:
+        cumulative += weight
+        if draw <= cumulative:
+            return item
+    return filtered[-1][0]
+
+
 def _timestamp() -> float:
     return time.time()
 
@@ -415,14 +433,30 @@ def option_to_vector(option: Sequence[Any], state: Dict[str, Any]) -> List[float
 class TrainingConfig:
     hidden_size: int = 16
     learning_rate: float = 0.0015
-    ppo_epochs: int = 1
+    min_learning_rate: float = 0.0003
+    ppo_epochs: int = 2
     ppo_clip: float = 0.2
+    min_ppo_clip: float = 0.1
     value_coef: float = 0.5
     grad_clip: float = 1.0
     epsilon_random: float = 0.05
+    min_epsilon_random: float = 0.01
     train_temperature: float = 1.0
+    min_train_temperature: float = 0.55
     eval_temperature: float = 0.35
-    checkpoint_interval: int = 5
+    checkpoint_interval: int = 1
+    training_matches_per_iteration: int = 3
+    training_games_per_match: int = 24
+    promotion_games: int = 24
+    promotion_score_threshold: float = 0.55
+    candidate_patience: int = 8
+    candidate_reset_threshold: float = 0.35
+    league_recent_window: int = 10
+    league_champion_weight: float = 0.45
+    league_best_weight: float = 0.2
+    league_recent_weight: float = 0.25
+    league_historical_weight: float = 0.1
+    anneal_steps: int = 3000
     elo_k: float = 24.0
     max_training_samples_per_match: int = 256
     max_turns_per_game: int = 400
@@ -437,22 +471,30 @@ class TrainingConfig:
         return TrainingConfig(**data)
 
 
-class _TorchPolicyModule(nn.Module):
-    def __init__(self, state_size: int, option_size: int, hidden_size: int) -> None:
-        super().__init__()
-        self.state_linear = nn.Linear(state_size, hidden_size)
-        self.option_linear = nn.Linear(option_size, hidden_size)
-        self.joint_bias = nn.Parameter(torch.zeros(hidden_size))
-        self.policy_head = nn.Linear(hidden_size, 1)
-        self.value_head = nn.Linear(hidden_size, 1)
+if nn is not None and torch is not None:
+    class _TorchPolicyModule(nn.Module):
+        def __init__(self, state_size: int, option_size: int, hidden_size: int) -> None:
+            super().__init__()
+            self.state_linear = nn.Linear(state_size, hidden_size)
+            self.option_linear = nn.Linear(option_size, hidden_size)
+            self.joint_bias = nn.Parameter(torch.zeros(hidden_size))
+            self.policy_head = nn.Linear(hidden_size, 1)
+            self.value_head = nn.Linear(hidden_size, 1)
 
-    def forward(self, state_tensor: "torch.Tensor", option_tensor: "torch.Tensor") -> Tuple["torch.Tensor", "torch.Tensor"]:
-        state_hidden = torch.tanh(self.state_linear(state_tensor))
-        option_hidden = torch.tanh(self.option_linear(option_tensor))
-        joint_hidden = torch.tanh(state_hidden.unsqueeze(0) + option_hidden + self.joint_bias.unsqueeze(0))
-        logits = self.policy_head(joint_hidden).squeeze(-1)
-        value = self.value_head(state_hidden).squeeze(-1)
-        return logits, value
+        def forward(self, state_tensor: "torch.Tensor", option_tensor: "torch.Tensor") -> Tuple["torch.Tensor", "torch.Tensor"]:
+            state_hidden = torch.tanh(self.state_linear(state_tensor))
+            option_hidden = torch.tanh(self.option_linear(option_tensor))
+            joint_hidden = torch.tanh(state_hidden.unsqueeze(0) + option_hidden + self.joint_bias.unsqueeze(0))
+            logits = self.policy_head(joint_hidden).squeeze(-1)
+            value = self.value_head(state_hidden).squeeze(-1)
+            return logits, value
+else:
+    class _TorchPolicyModule:  # pragma: no cover - only used when torch is unavailable
+        def __init__(self, *_: Any, **__: Any) -> None:
+            raise RuntimeError(
+                "PyTorch is required for starrealms_selfplay.py. "
+                "Run this module from the project's .venv where torch is installed."
+            ) from TORCH_IMPORT_ERROR
 
 
 class PolicyNetwork:
@@ -645,12 +687,14 @@ class PolicyActor:
         temperature: float = 1.0,
         epsilon_random: float = 0.0,
         collector: Optional[List[Dict[str, Any]]] = None,
+        decision_callback: Optional[Any] = None,
     ) -> None:
         self.policy = policy
         self.deterministic = deterministic
         self.temperature = temperature
         self.epsilon_random = epsilon_random
         self.collector = collector
+        self.decision_callback = decision_callback
 
     def choose(self, player_name: str, options: Sequence[Sequence[Any]], known_game_state: Dict[str, Any]) -> int:
         state_vec = state_to_vector(known_game_state, legal_option_count=len(options))
@@ -673,6 +717,8 @@ class PolicyActor:
                     "player_name": player_name,
                 }
             )
+        if self.decision_callback is not None:
+            self.decision_callback(player_name, options, known_game_state, selection["action_index"])
         return selection["action_index"]
 
 
@@ -694,8 +740,24 @@ class RunFiles:
         self.run_name = run_name
         self.run_dir = RUNS_DIR / run_name
         self.policy_file = self.run_dir / "latest_policy.json"
+        self.candidate_policy_file = self.run_dir / "candidate_policy.json"
         self.training_state_file = self.run_dir / "training_state.json"
         self.checkpoints_dir = self.run_dir / "checkpoints"
+
+
+def _default_candidate_state(base_checkpoint: str, iteration: int) -> Dict[str, Any]:
+    return {
+        "base_checkpoint": base_checkpoint,
+        "base_iteration": iteration,
+        "attempts_since_reset": 0,
+        "total_attempts": 0,
+        "resets": 0,
+        "promotions": 0,
+        "last_score": None,
+        "last_result": "initialized",
+        "last_reset_reason": "initialization",
+        "last_opponents": [],
+    }
 
 
 def _default_training_state(config: TrainingConfig) -> Dict[str, Any]:
@@ -707,13 +769,18 @@ def _default_training_state(config: TrainingConfig) -> Dict[str, Any]:
         "total_games": 0,
         "created_at": _timestamp(),
         "updated_at": _timestamp(),
+        "strategy": "champion_league_v2",
+        "strategy_version": 2,
         "current_elo": INITIAL_ELO,
         "best_elo": INITIAL_ELO,
         "best_checkpoint": "checkpoint_000000.json",
         "latest_checkpoint": "checkpoint_000000.json",
+        "promotions": 0,
         "config": asdict(config),
         "last_match": None,
         "last_update": None,
+        "last_eval": None,
+        "candidate": _default_candidate_state("checkpoint_000000.json", 0),
         "checkpoints": [
             {
                 "name": "checkpoint_000000.json",
@@ -732,6 +799,108 @@ def _load_json_or_none(path: Path) -> Optional[Dict[str, Any]]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _load_policy_from_path(path: Path) -> Optional[PolicyNetwork]:
+    payload = _load_json_or_none(path)
+    if payload is None:
+        return None
+    return PolicyNetwork.from_dict(payload)
+
+
+def _ensure_checkpoint_entry(state: Dict[str, Any], checkpoint_name: str, iteration: int, elo: float) -> Dict[str, Any]:
+    checkpoints = state.setdefault("checkpoints", [])
+    for item in checkpoints:
+        if item.get("name") == checkpoint_name:
+            item["iteration"] = int(item.get("iteration", iteration))
+            item["elo"] = float(item.get("elo", elo))
+            return item
+    entry = {
+        "name": checkpoint_name,
+        "iteration": iteration,
+        "elo": float(elo),
+        "created_at": _timestamp(),
+    }
+    checkpoints.append(entry)
+    return entry
+
+
+def _migrate_run_state(files: RunFiles, policy: PolicyNetwork, state: Dict[str, Any], config: TrainingConfig) -> Tuple[PolicyNetwork, Dict[str, Any], bool]:
+    dirty = False
+    state["run_name"] = state.get("run_name", files.run_name)
+    state["checkpoints"] = list(state.get("checkpoints") or [])
+
+    for checkpoint in state["checkpoints"]:
+        if "iteration" in checkpoint:
+            checkpoint["iteration"] = int(checkpoint["iteration"])
+        if "elo" in checkpoint:
+            checkpoint["elo"] = float(checkpoint["elo"])
+
+    best_name = state.get("best_checkpoint") or state.get("latest_checkpoint") or "checkpoint_000000.json"
+    latest_name = state.get("latest_checkpoint") or best_name
+    strategy_version = int(state.get("strategy_version", 0) or 0)
+    migrated_to_v2 = state.get("strategy") != "champion_league_v2" or strategy_version < 2
+
+    if migrated_to_v2:
+        latest_name = best_name
+        champion_policy = _load_policy_from_path(files.checkpoints_dir / latest_name)
+        if champion_policy is not None:
+            policy = champion_policy
+        champion_entry = _ensure_checkpoint_entry(
+            state,
+            latest_name,
+            int(state.get("iteration", 0)),
+            float(state.get("best_elo", state.get("current_elo", INITIAL_ELO))),
+        )
+        champion_elo = float(champion_entry.get("elo", state.get("best_elo", INITIAL_ELO)))
+        state["strategy"] = "champion_league_v2"
+        state["strategy_version"] = 2
+        state["latest_checkpoint"] = latest_name
+        state["best_checkpoint"] = best_name or latest_name
+        state["current_elo"] = champion_elo
+        state["best_elo"] = max(float(state.get("best_elo", champion_elo)), champion_elo)
+        state["promotions"] = int(state.get("promotions", 0))
+        state["last_eval"] = state.get("last_eval")
+        state["candidate"] = _default_candidate_state(latest_name, int(state.get("iteration", 0)))
+        dirty = True
+    else:
+        state["strategy"] = "champion_league_v2"
+        state["strategy_version"] = 2
+        state["promotions"] = int(state.get("promotions", 0))
+        state["last_eval"] = state.get("last_eval")
+        default_candidate = _default_candidate_state(latest_name, int(state.get("iteration", 0)))
+        candidate_state = dict(default_candidate)
+        candidate_state.update(state.get("candidate") or {})
+        if candidate_state != state.get("candidate"):
+            state["candidate"] = candidate_state
+            dirty = True
+
+    champion_entry = _ensure_checkpoint_entry(
+        state,
+        state.get("latest_checkpoint", latest_name),
+        int(state.get("iteration", 0)),
+        float(state.get("current_elo", INITIAL_ELO)),
+    )
+    state["current_elo"] = float(champion_entry.get("elo", state.get("current_elo", INITIAL_ELO)))
+    state["best_checkpoint"] = state.get("best_checkpoint", state.get("latest_checkpoint"))
+    if state["best_checkpoint"]:
+        best_entry = _ensure_checkpoint_entry(
+            state,
+            state["best_checkpoint"],
+            int(champion_entry.get("iteration", state.get("iteration", 0))),
+            float(state.get("best_elo", state.get("current_elo", INITIAL_ELO))),
+        )
+        state["best_elo"] = max(float(state.get("best_elo", INITIAL_ELO)), float(best_entry.get("elo", INITIAL_ELO)))
+
+    if not files.policy_file.exists() or migrated_to_v2:
+        _atomic_write_json(files.policy_file, policy.to_dict(include_optimizer=True))
+        dirty = True
+
+    if not files.candidate_policy_file.exists():
+        _atomic_write_json(files.candidate_policy_file, policy.to_dict(include_optimizer=True))
+        dirty = True
+
+    return policy, state, dirty
+
+
 def _ensure_run(run_name: str, config_overrides: Optional[Dict[str, Any]] = None) -> RunFiles:
     files = RunFiles(run_name)
     files.run_dir.mkdir(parents=True, exist_ok=True)
@@ -745,6 +914,7 @@ def _ensure_run(run_name: str, config_overrides: Optional[Dict[str, Any]] = None
     state = _default_training_state(config)
     state["run_name"] = run_name
     _atomic_write_json(files.policy_file, policy.to_dict(include_optimizer=True))
+    _atomic_write_json(files.candidate_policy_file, policy.to_dict(include_optimizer=True))
     _atomic_write_json(files.training_state_file, state)
     _atomic_write_json(files.checkpoints_dir / "checkpoint_000000.json", policy.to_dict(include_optimizer=False))
     return files
@@ -756,12 +926,23 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
     if state_payload is None:
         state_payload = _default_training_state(TrainingConfig())
         state_payload["run_name"] = run_name
-    config = TrainingConfig().merged(state_payload.get("config", {})).merged(config_overrides)
+    original_saved_config = dict(state_payload.get("config", {}) or {})
+    saved_config = dict(original_saved_config)
+    if "training_games_per_match" not in saved_config:
+        saved_config["training_games_per_match"] = 24
+    if saved_config.get("promotion_games") == 13:
+        saved_config["promotion_games"] = 24
+    state_payload["config"] = saved_config
+    config = TrainingConfig().merged(saved_config).merged(config_overrides)
     policy_payload = _load_json_or_none(files.policy_file)
     if policy_payload is None:
         policy = PolicyNetwork(hidden_size=config.hidden_size)
     else:
         policy = PolicyNetwork.from_dict(policy_payload)
+    policy, state_payload, dirty = _migrate_run_state(files, policy, state_payload, config)
+    dirty = dirty or (saved_config != original_saved_config)
+    if dirty:
+        _save_policy_and_state(files, policy, state_payload)
     return files, policy, state_payload, config
 
 
@@ -772,13 +953,16 @@ def _save_policy_and_state(files: RunFiles, policy: PolicyNetwork, state: Dict[s
 
 
 def _checkpoint_path(files: RunFiles, iteration: int) -> Path:
-    return files.checkpoints_dir / f"checkpoint_{iteration:06d}.json"
+    return files.checkpoints_dir / f"champion_{iteration:06d}.json"
 
 
 def load_policy(run_name: str = LATEST_RUN_NAME, checkpoint: str = "latest") -> PolicyNetwork:
     files, policy, state, _ = _load_policy_and_state(run_name)
     if checkpoint == "latest":
         return policy
+    if checkpoint == "candidate":
+        candidate_policy = _load_policy_from_path(files.candidate_policy_file)
+        return candidate_policy or policy.clone()
     if checkpoint == "best":
         checkpoint_name = state.get("best_checkpoint", state.get("latest_checkpoint"))
     else:
@@ -810,11 +994,13 @@ def list_runs() -> List[Dict[str, Any]]:
                 "best_elo": float(state.get("best_elo", INITIAL_ELO)),
                 "best_checkpoint": state.get("best_checkpoint"),
                 "latest_checkpoint": state.get("latest_checkpoint"),
+                "promotions": int(state.get("promotions", 0)),
                 "checkpoint_count": len(checkpoints),
                 "created_at": state.get("created_at"),
                 "updated_at": state.get("updated_at"),
                 "last_match": state.get("last_match"),
                 "last_update": state.get("last_update"),
+                "last_eval": state.get("last_eval"),
                 "last_error": state.get("last_error"),
                 "run_dir": str(run_dir),
             }
@@ -833,7 +1019,23 @@ def list_checkpoints(run_name: str = LATEST_RUN_NAME) -> List[Dict[str, Any]]:
         checkpoint = dict(item)
         checkpoint["is_best"] = checkpoint.get("name") == best_name
         checkpoint["is_latest"] = checkpoint.get("name") == latest_name
+        checkpoint["is_candidate"] = False
         checkpoints.append(checkpoint)
+    if files.candidate_policy_file.exists():
+        candidate_state = dict(state.get("candidate") or {})
+        checkpoints.append(
+            {
+                "name": "candidate",
+                "iteration": int(state.get("iteration", 0)),
+                "elo": float(state.get("current_elo", INITIAL_ELO)),
+                "is_best": False,
+                "is_latest": False,
+                "is_candidate": True,
+                "base_checkpoint": candidate_state.get("base_checkpoint"),
+                "attempts_since_reset": int(candidate_state.get("attempts_since_reset", 0)),
+                "last_score": candidate_state.get("last_score"),
+            }
+        )
     checkpoints.sort(key=lambda item: (int(item.get("iteration", 0)), item.get("name", "")))
     return checkpoints
 
@@ -845,6 +1047,7 @@ def get_run_state(run_name: str = LATEST_RUN_NAME) -> Dict[str, Any]:
         return {}
     state["run_name"] = state.get("run_name", run_name)
     state["run_dir"] = str(files.run_dir)
+    state["candidate_policy_file"] = str(files.candidate_policy_file)
     return state
 
 
@@ -855,7 +1058,7 @@ def _play_match(
     collect_a: bool = False,
     deterministic_a: bool = False,
     deterministic_b: bool = False,
-    games_per_match: int = 13,
+    games_per_match: int = 24,
 ) -> Dict[str, Any]:
     collector: Optional[List[Dict[str, Any]]] = [] if collect_a else None
     wins_a = 0
@@ -912,6 +1115,7 @@ class SelfPlayTrainer:
         files, policy, state, config = _load_policy_and_state(run_name, config_overrides=config_overrides)
         self.files = files
         self.policy = policy
+        self.candidate_policy = _load_policy_from_path(files.candidate_policy_file) or policy.clone()
         self.state = state
         self.config = config
         self.run_name = run_name
@@ -928,28 +1132,29 @@ class SelfPlayTrainer:
         config_payload["max_iterations"] = None
         self.state["config"] = config_payload
         _save_policy_and_state(self.files, self.policy, self.state)
+        _atomic_write_json(self.files.candidate_policy_file, self.candidate_policy.to_dict(include_optimizer=True))
 
-    def _record_checkpoint(self) -> None:
-        checkpoint_name = _checkpoint_path(self.files, self.state["iteration"]).name
-        _atomic_write_json(
-            _checkpoint_path(self.files, self.state["iteration"]),
-            self.policy.to_dict(include_optimizer=False),
-        )
-        self.state["latest_checkpoint"] = checkpoint_name
-        existing = None
-        for item in self.state["checkpoints"]:
-            if item["name"] == checkpoint_name:
-                existing = item
-                break
-        if existing is None:
-            self.state["checkpoints"].append(
-                {
-                    "name": checkpoint_name,
-                    "iteration": self.state["iteration"],
-                    "elo": self.state["current_elo"],
-                    "created_at": _timestamp(),
-                }
+    def _candidate_state(self) -> Dict[str, Any]:
+        candidate_state = self.state.get("candidate")
+        if candidate_state is None:
+            candidate_state = _default_candidate_state(
+                self.state.get("latest_checkpoint", "checkpoint_000000.json"),
+                int(self.state.get("iteration", 0)),
             )
+            self.state["candidate"] = candidate_state
+        return candidate_state
+
+    def _scheduled_training_config(self) -> TrainingConfig:
+        anneal_steps = max(1, int(self.config.anneal_steps))
+        progress = _clip(float(self.state.get("iteration", 0)) / float(anneal_steps), 0.0, 1.0)
+        return self.config.merged(
+            {
+                "learning_rate": _lerp(self.config.learning_rate, self.config.min_learning_rate, progress),
+                "epsilon_random": _lerp(self.config.epsilon_random, self.config.min_epsilon_random, progress),
+                "train_temperature": _lerp(self.config.train_temperature, self.config.min_train_temperature, progress),
+                "ppo_clip": _lerp(self.config.ppo_clip, self.config.min_ppo_clip, progress),
+            }
+        )
 
     def _find_checkpoint_entry(self, checkpoint_name: str) -> Optional[Dict[str, Any]]:
         for item in self.state.get("checkpoints", []):
@@ -957,47 +1162,72 @@ class SelfPlayTrainer:
                 return item
         return None
 
-    def _evaluate_latest_checkpoint(self) -> None:
-        if self.state["iteration"] == 0:
-            return
+    def _checkpoint_entries_sorted(self) -> List[Dict[str, Any]]:
+        return sorted(
+            list(self.state.get("checkpoints", [])),
+            key=lambda item: (int(item.get("iteration", 0)), item.get("name", "")),
+        )
 
+    def _sample_league_opponent(self) -> Tuple[PolicyNetwork, Dict[str, Any]]:
         latest_name = self.state.get("latest_checkpoint")
-        if not latest_name:
-            return
+        best_name = self.state.get("best_checkpoint")
+        historical_names = [item["name"] for item in self._checkpoint_entries_sorted() if item.get("name")]
+        historical_names = [name for name in historical_names if name != latest_name]
 
-        best_name = self.state.get("best_checkpoint", latest_name)
-        if best_name == latest_name and len(self.state.get("checkpoints", [])) > 1:
-            best_name = self.state["checkpoints"][-2]["name"]
+        recent_window = max(0, int(self.config.league_recent_window))
+        recent_pool = historical_names[-recent_window:] if recent_window > 0 else []
+        older_pool = historical_names[:-recent_window] if recent_window > 0 else historical_names
 
-        latest_entry = self._find_checkpoint_entry(latest_name)
-        best_entry = self._find_checkpoint_entry(best_name)
-        if latest_entry is None or best_entry is None:
-            return
+        choices: List[Tuple[Dict[str, Any], float]] = [
+            (
+                {
+                    "label": "champion",
+                    "source": "champion",
+                    "checkpoint": latest_name,
+                },
+                float(self.config.league_champion_weight),
+            )
+        ]
 
-        latest_policy = load_policy(self.run_name, latest_name)
-        best_policy = load_policy(self.run_name, best_name)
-        eval_summary = _play_match(
-            latest_policy,
-            best_policy,
-            self.config,
-            collect_a=False,
-            deterministic_a=True,
-            deterministic_b=True,
-        )
-        score_a = eval_summary["wins_a"] / max(eval_summary["games_played"], 1)
-        new_latest_elo, new_best_elo = _elo_update(
-            float(latest_entry.get("elo", INITIAL_ELO)),
-            float(best_entry.get("elo", INITIAL_ELO)),
-            score_a,
-            self.config.elo_k,
-        )
-        latest_entry["elo"] = new_latest_elo
-        best_entry["elo"] = new_best_elo
-        latest_entry["last_eval"] = eval_summary
-        self.state["current_elo"] = new_latest_elo
-        if new_latest_elo >= float(self.state.get("best_elo", INITIAL_ELO)):
-            self.state["best_elo"] = new_latest_elo
-            self.state["best_checkpoint"] = latest_name
+        if best_name and best_name != latest_name:
+            choices.append(
+                (
+                    {
+                        "label": "best",
+                        "source": "best",
+                        "checkpoint": best_name,
+                    },
+                    float(self.config.league_best_weight),
+                )
+            )
+        if recent_pool:
+            choices.append(
+                (
+                    {
+                        "label": "recent",
+                        "source": "recent",
+                        "checkpoint": random.choice(recent_pool),
+                    },
+                    float(self.config.league_recent_weight),
+                )
+            )
+        if older_pool:
+            choices.append(
+                (
+                    {
+                        "label": "historical",
+                        "source": "historical",
+                        "checkpoint": random.choice(older_pool),
+                    },
+                    float(self.config.league_historical_weight),
+                )
+            )
+
+        selected = _weighted_choice(choices)
+        checkpoint_name = selected.get("checkpoint")
+        if selected["source"] == "champion" or checkpoint_name in (None, latest_name):
+            return self.policy, selected
+        return _cached_policy(self.run_name, checkpoint_name), selected
 
     def _match_to_training_samples(self, match_summary: Dict[str, Any]) -> List[Dict[str, Any]]:
         trajectory = match_summary["trajectory"]
@@ -1017,46 +1247,218 @@ class SelfPlayTrainer:
             trajectory = random.sample(trajectory, self.config.max_training_samples_per_match)
         return trajectory
 
-    def train_iteration(self) -> Dict[str, Any]:
-        opponent = self.policy.clone()
-        match_summary = _play_match(
-            self.policy,
-            opponent,
-            self.config,
-            collect_a=True,
-            deterministic_a=False,
-            deterministic_b=False,
-        )
-        training_samples = self._match_to_training_samples(match_summary)
-        update_stats = self.policy.train_on_samples(training_samples, self.config)
-
-        self.state["iteration"] += 1
-        self.state["total_matches"] += 1
-        self.state["total_games"] += match_summary["games_played"]
-        self.state["last_match"] = {
-            "wins": match_summary["wins_a"],
-            "losses": match_summary["wins_b"],
-            "games_played": match_summary["games_played"],
-            "return_value": match_summary["return_value"],
-            "duration_seconds": match_summary["duration_seconds"],
+    def _summarize_training_matches(self, match_summaries: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+        if not match_summaries:
+            return {
+                "wins": 0,
+                "losses": 0,
+                "games_played": 0,
+                "return_value": 0.0,
+                "duration_seconds": 0.0,
+                "matches_played": 0,
+                "opponents": [],
+            }
+        return {
+            "wins": sum(int(match.get("wins_a", 0)) for match in match_summaries),
+            "losses": sum(int(match.get("wins_b", 0)) for match in match_summaries),
+            "games_played": sum(int(match.get("games_played", 0)) for match in match_summaries),
+            "return_value": _mean([float(match.get("return_value", 0.0)) for match in match_summaries]),
+            "duration_seconds": sum(float(match.get("duration_seconds", 0.0)) for match in match_summaries),
+            "matches_played": len(match_summaries),
+            "opponents": [match.get("opponent") for match in match_summaries],
         }
-        self.state["last_update"] = update_stats
 
-        if self.state["iteration"] % self.config.checkpoint_interval == 0:
-            self._record_checkpoint()
-            self._evaluate_latest_checkpoint()
+    def _reseed_candidate(
+        self,
+        base_iteration: int,
+        total_attempts: int,
+        total_resets: int,
+        total_promotions: int,
+        last_score: float,
+        last_result: str,
+        reason: str,
+        opponents: Sequence[Dict[str, Any]],
+    ) -> None:
+        self.candidate_policy = self.policy.clone()
+        candidate_state = _default_candidate_state(
+            self.state.get("latest_checkpoint", "checkpoint_000000.json"),
+            base_iteration,
+        )
+        candidate_state["total_attempts"] = total_attempts
+        candidate_state["resets"] = total_resets
+        candidate_state["promotions"] = total_promotions
+        candidate_state["last_score"] = last_score
+        candidate_state["last_result"] = last_result
+        candidate_state["last_reset_reason"] = reason
+        candidate_state["last_opponents"] = list(opponents)
+        self.state["candidate"] = candidate_state
 
+    def _promote_candidate(self, iteration: int, eval_summary: Dict[str, Any], training_summary: Dict[str, Any]) -> str:
+        previous_checkpoint = self.state.get("latest_checkpoint", "checkpoint_000000.json")
+        previous_entry = _ensure_checkpoint_entry(
+            self.state,
+            previous_checkpoint,
+            int(self.state.get("iteration", 0)),
+            float(self.state.get("current_elo", INITIAL_ELO)),
+        )
+        previous_elo = float(previous_entry.get("elo", self.state.get("current_elo", INITIAL_ELO)))
+        score = float(eval_summary.get("wins_a", 0)) / max(int(eval_summary.get("games_played", 0)), 1)
+        new_candidate_elo, updated_previous_elo = _elo_update(previous_elo, previous_elo, score, self.config.elo_k)
+        previous_entry["elo"] = updated_previous_elo
+        previous_entry["last_defense"] = eval_summary
+
+        checkpoint_path = _checkpoint_path(self.files, iteration)
+        checkpoint_name = checkpoint_path.name
+        _atomic_write_json(checkpoint_path, self.candidate_policy.to_dict(include_optimizer=False))
+
+        promoted_entry = _ensure_checkpoint_entry(self.state, checkpoint_name, iteration, new_candidate_elo)
+        promoted_entry["elo"] = new_candidate_elo
+        promoted_entry["created_at"] = _timestamp()
+        promoted_entry["promoted_from"] = previous_checkpoint
+        promoted_entry["promotion_eval"] = eval_summary
+        promoted_entry["training_summary"] = training_summary
+
+        self.policy = self.candidate_policy.clone()
+        self.state["latest_checkpoint"] = checkpoint_name
+        self.state["current_elo"] = new_candidate_elo
+        if new_candidate_elo >= float(self.state.get("best_elo", INITIAL_ELO)):
+            self.state["best_elo"] = new_candidate_elo
+            self.state["best_checkpoint"] = checkpoint_name
+        return checkpoint_name
+
+    def train_iteration(self) -> Dict[str, Any]:
+        scheduled_config = self._scheduled_training_config()
+        candidate_state = self._candidate_state()
+        training_matches: List[Dict[str, Any]] = []
+        training_samples: List[Dict[str, Any]] = []
+        opponent_summaries: List[Dict[str, Any]] = []
+
+        for _ in range(max(1, int(scheduled_config.training_matches_per_iteration))):
+            opponent_policy, opponent_meta = self._sample_league_opponent()
+            match_summary = _play_match(
+                self.candidate_policy,
+                opponent_policy,
+                scheduled_config,
+                collect_a=True,
+                deterministic_a=False,
+                deterministic_b=False,
+                games_per_match=max(1, int(scheduled_config.training_games_per_match)),
+            )
+            match_summary["opponent"] = opponent_meta
+            training_matches.append(match_summary)
+            opponent_summaries.append(opponent_meta)
+            training_samples.extend(self._match_to_training_samples(match_summary))
+
+        update_stats = self.candidate_policy.train_on_samples(training_samples, scheduled_config)
+        training_summary = self._summarize_training_matches(training_matches)
+        eval_summary = _play_match(
+            self.candidate_policy,
+            self.policy,
+            scheduled_config,
+            collect_a=False,
+            deterministic_a=True,
+            deterministic_b=True,
+            games_per_match=max(1, int(scheduled_config.promotion_games)),
+        )
+        candidate_score = float(eval_summary["wins_a"]) / max(int(eval_summary["games_played"]), 1)
+        promoted = (
+            eval_summary["wins_a"] > eval_summary["wins_b"]
+            and candidate_score >= float(scheduled_config.promotion_score_threshold)
+        )
+        defending_champion = self.state.get("latest_checkpoint")
+
+        next_iteration = int(self.state.get("iteration", 0)) + 1
+        total_attempts = int(candidate_state.get("total_attempts", 0)) + 1
+        total_resets = int(candidate_state.get("resets", 0))
+        total_promotions = int(candidate_state.get("promotions", 0))
+        action = "keep_training"
+        promoted_checkpoint: Optional[str] = None
+
+        self.state["iteration"] = next_iteration
+        self.state["total_matches"] += len(training_matches) + 1
+        self.state["total_games"] += int(training_summary["games_played"]) + int(eval_summary["games_played"])
+        self.state["last_match"] = training_summary
+
+        self.state["last_update"] = {
+            **update_stats,
+            "learning_rate": scheduled_config.learning_rate,
+            "epsilon_random": scheduled_config.epsilon_random,
+            "train_temperature": scheduled_config.train_temperature,
+            "ppo_clip": scheduled_config.ppo_clip,
+            "matches_collected": len(training_matches),
+        }
+
+        if promoted:
+            promoted_checkpoint = self._promote_candidate(next_iteration, eval_summary, training_summary)
+            total_promotions += 1
+            self.state["promotions"] = int(self.state.get("promotions", 0)) + 1
+            action = "promoted"
+            self._reseed_candidate(
+                next_iteration,
+                total_attempts,
+                total_resets,
+                total_promotions,
+                candidate_score,
+                "promoted",
+                f"Promoted to {promoted_checkpoint}",
+                opponent_summaries,
+            )
+        else:
+            attempts_since_reset = int(candidate_state.get("attempts_since_reset", 0)) + 1
+            should_reset = (
+                candidate_score <= float(scheduled_config.candidate_reset_threshold)
+                or attempts_since_reset >= max(1, int(scheduled_config.candidate_patience))
+            )
+            if should_reset:
+                total_resets += 1
+                reason = (
+                    f"Candidate reset after score {candidate_score:.3f} "
+                    f"and {attempts_since_reset} attempt(s) since the last reset."
+                )
+                action = "reset_candidate"
+                self._reseed_candidate(
+                    next_iteration,
+                    total_attempts,
+                    total_resets,
+                    total_promotions,
+                    candidate_score,
+                    "reset",
+                    reason,
+                    opponent_summaries,
+                )
+            else:
+                candidate_state["attempts_since_reset"] = attempts_since_reset
+                candidate_state["total_attempts"] = total_attempts
+                candidate_state["last_score"] = candidate_score
+                candidate_state["last_result"] = "keep_training"
+                candidate_state["last_opponents"] = opponent_summaries
+
+        self.state["last_eval"] = {
+            "wins": eval_summary["wins_a"],
+            "losses": eval_summary["wins_b"],
+            "games_played": eval_summary["games_played"],
+            "score": candidate_score,
+            "promoted": promoted,
+            "action": action,
+            "promoted_checkpoint": promoted_checkpoint,
+            "champion_checkpoint": defending_champion,
+            "duration_seconds": eval_summary["duration_seconds"],
+        }
+        self.state["last_error"] = None
         self._save()
         return {
-            "match": match_summary,
+            "match": training_summary,
+            "evaluation": self.state["last_eval"],
             "update": update_stats,
             "iteration": self.state["iteration"],
             "current_elo": self.state.get("current_elo", INITIAL_ELO),
+            "action": action,
         }
 
     def _training_loop(self) -> None:
         with self._lock:
             self.state["status"] = "training"
+            self.state["last_error"] = None
             self._save()
         target_iterations = self.config.max_iterations
         try:
@@ -1118,8 +1520,11 @@ class SelfPlayTrainer:
             "best_elo": round(float(self.state.get("best_elo", INITIAL_ELO)), 2),
             "best_checkpoint": self.state.get("best_checkpoint"),
             "latest_checkpoint": self.state.get("latest_checkpoint"),
+            "promotions": int(self.state.get("promotions", 0)),
+            "candidate": self.state.get("candidate"),
             "last_match": self.state.get("last_match"),
             "last_update": self.state.get("last_update"),
+            "last_eval": self.state.get("last_eval"),
             "last_error": self.state.get("last_error"),
             "runtime": _format_seconds(runtime),
             "run_dir": str(self.files.run_dir),
@@ -1164,16 +1569,24 @@ def summarize_training_progress(run_name: str = LATEST_RUN_NAME) -> str:
     trainer = _get_trainer(run_name)
     summary = trainer.progress_summary()
     last_match = summary.get("last_match") or {}
+    last_eval = summary.get("last_eval") or {}
     match_text = "no completed matches yet"
     if last_match:
         match_text = (
             f"last match {last_match.get('wins', 0)}-{last_match.get('losses', 0)} "
             f"over {last_match.get('games_played', 0)} games"
         )
+    eval_text = ""
+    if last_eval:
+        eval_text = (
+            f" Last eval {last_eval.get('wins', 0)}-{last_eval.get('losses', 0)} "
+            f"({last_eval.get('action', 'keep_training')})."
+        )
     return (
         f"Run '{summary['run_name']}' is {summary['status']}. "
         f"Iteration {summary['iteration']}, total matches {summary['total_matches']}, "
-        f"Elo {summary['current_elo']} (best {summary['best_elo']}), {match_text}. "
+        f"Elo {summary['current_elo']} (best {summary['best_elo']}), promotions {summary.get('promotions', 0)}, "
+        f"{match_text}.{eval_text} "
         f"Artifacts: {summary['run_dir']}."
     )
 
@@ -1216,21 +1629,26 @@ def play_self_game(
     checkpoint: str = "latest",
     deterministic: bool = True,
     verbose: bool = True,
+    ui_observer: Optional[Any] = None,
 ) -> Dict[str, Any]:
     policy_a = load_policy(run_name, checkpoint)
     policy_b = load_policy(run_name, checkpoint)
     config = _get_trainer(run_name).config
+    if ui_observer is not None:
+        ui_observer.start_session(f"Star Realms Self-Play: {run_name} / {checkpoint}")
     actor_a = PolicyActor(
         policy_a,
         deterministic=deterministic,
         temperature=config.eval_temperature if deterministic else config.train_temperature,
         epsilon_random=0.0 if deterministic else config.epsilon_random,
+        decision_callback=None if ui_observer is None else ui_observer.policy_choice,
     )
     actor_b = PolicyActor(
         policy_b,
         deterministic=deterministic,
         temperature=config.eval_temperature if deterministic else config.train_temperature,
         epsilon_random=0.0 if deterministic else config.epsilon_random,
+        decision_callback=None if ui_observer is None else ui_observer.policy_choice,
     )
     game = Game(
         "policy_a",
@@ -1241,13 +1659,16 @@ def play_self_game(
         max_turns=config.max_turns_per_game,
         max_actions_per_turn=config.max_actions_per_turn,
     )
-    return {
+    result = {
         "winner": game.winner.name,
         "checkpoint": checkpoint,
         "run_name": run_name,
         "ended_by_limit": game.ended_by_limit,
         "turns_taken": game.turnsTaken,
     }
+    if ui_observer is not None:
+        ui_observer.finish_session(result)
+    return result
 
 
 def play_human_game(
@@ -1257,10 +1678,19 @@ def play_human_game(
     policy_name: str = "Policy",
     human_choose_fn: Optional[Any] = None,
     verbose: bool = True,
+    ui_observer: Optional[Any] = None,
 ) -> Dict[str, Any]:
     policy = load_policy(run_name, checkpoint)
     config = _get_trainer(run_name).config
-    actor = PolicyActor(policy, deterministic=True, temperature=config.eval_temperature, epsilon_random=0.0)
+    if ui_observer is not None:
+        ui_observer.start_session(f"Star Realms Human Game: {run_name} / {checkpoint}")
+    actor = PolicyActor(
+        policy,
+        deterministic=True,
+        temperature=config.eval_temperature,
+        epsilon_random=0.0,
+        decision_callback=None if ui_observer is None else ui_observer.policy_choice,
+    )
     chooser_fn = human_choose if human_choose_fn is None else human_choose_fn
     game = Game(
         human_name,
@@ -1271,19 +1701,24 @@ def play_human_game(
         max_turns=config.max_turns_per_game,
         max_actions_per_turn=config.max_actions_per_turn,
     )
-    return {
+    result = {
         "winner": game.winner.name,
         "checkpoint": checkpoint,
         "run_name": run_name,
         "ended_by_limit": game.ended_by_limit,
         "turns_taken": game.turnsTaken,
     }
+    if ui_observer is not None:
+        ui_observer.finish_session(result)
+    return result
 
 
 def _cached_policy(run_name: str, checkpoint: str) -> PolicyNetwork:
     files, _, state, _ = _load_policy_and_state(run_name)
     if checkpoint == "latest":
         path = files.policy_file
+    elif checkpoint == "candidate":
+        path = files.candidate_policy_file
     elif checkpoint == "best":
         path = files.checkpoints_dir / state.get("best_checkpoint", state.get("latest_checkpoint"))
     else:

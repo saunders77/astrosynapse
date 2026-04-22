@@ -4,6 +4,7 @@ from typing import Any, Dict, Iterable, Optional, Sequence
 
 try:
     import tkinter as tk
+    from tkinter.scrolledtext import ScrolledText
 except ImportError:  # pragma: no cover - depends on local Python install
     tk = None
 
@@ -359,13 +360,16 @@ if tk is not None:
 
 
     class GameChooserGUI:
-        def __init__(self) -> None:
-            self.root = tk.Tk()
-            self.root.title("AstroSynapse Game Chooser")
-            self.root.geometry("1540x940")
-            self.root.minsize(1200, 760)
-            self.root.configure(bg=WINDOW_BG)
-            self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        def __init__(self, parent: Optional[tk.Misc] = None, title: str = "AstroSynapse Game Chooser") -> None:
+            self._owns_root = parent is None
+            self.window = tk.Tk() if self._owns_root else tk.Toplevel(parent)
+            self.window.title(title)
+            self.window.geometry("1720x980")
+            self.window.minsize(1320, 780)
+            self.window.configure(bg=WINDOW_BG)
+            self.window.protocol("WM_DELETE_WINDOW", self._on_close)
+            if not self._owns_root:
+                self.window.withdraw()
 
             self._closed = False
             self._selection_var: Optional[tk.IntVar] = None
@@ -373,11 +377,12 @@ if tk is not None:
             self._acquire_actions: Dict[int, int] = {}
             self._attack_actions: Dict[tuple[str, int], int] = {}
             self._attack_opponent_action: Optional[int] = None
+            self._current_title = title
 
             self._build_layout()
 
         def _build_layout(self) -> None:
-            header = tk.Frame(self.root, bg=WINDOW_BG, padx=14, pady=10)
+            header = tk.Frame(self.window, bg=WINDOW_BG, padx=14, pady=10)
             header.pack(fill="x")
 
             self.turn_label = tk.Label(
@@ -401,17 +406,50 @@ if tk is not None:
             )
             self.summary_label.pack(fill="x", pady=(2, 0))
 
-            body = tk.Frame(self.root, bg=WINDOW_BG, padx=14, pady=0)
+            body = tk.Frame(self.window, bg=WINDOW_BG, padx=14, pady=0)
             body.pack(fill="both", expand=True)
             body.grid_columnconfigure(0, weight=3)
             body.grid_columnconfigure(1, weight=2)
-            body.grid_rowconfigure(0, weight=1)
+            body.grid_rowconfigure(0, weight=3)
+            body.grid_rowconfigure(1, weight=2)
 
             self.state_panel = ScrollableFrame(body, bg=WINDOW_BG)
-            self.state_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=(0, 10))
+            self.state_panel.grid(row=0, column=0, rowspan=2, sticky="nsew", padx=(0, 8), pady=(0, 10))
 
             self.options_panel = ScrollableFrame(body, bg=WINDOW_BG)
-            self.options_panel.grid(row=0, column=1, sticky="nsew", pady=(0, 10))
+            self.options_panel.grid(row=0, column=1, sticky="nsew", pady=(0, 8))
+
+            log_container = tk.Frame(body, bg=PANEL_BG, highlightbackground="#263953", highlightthickness=1, bd=0)
+            log_container.grid(row=1, column=1, sticky="nsew", pady=(0, 10))
+            title_label = tk.Label(
+                log_container,
+                text="Action Log",
+                bg=PANEL_BG,
+                fg=TEXT_COLOR,
+                anchor="w",
+                padx=8,
+                pady=6,
+                font=("Segoe UI Semibold", 12),
+            )
+            title_label.pack(fill="x")
+            self.log_section = tk.Frame(log_container, bg=SECTION_BG, padx=8, pady=8)
+            self.log_section.pack(fill="both", expand=True)
+            self.log_section.grid_columnconfigure(0, weight=1)
+            self.log_section.grid_rowconfigure(0, weight=1)
+            self.log_text = ScrolledText(
+                self.log_section,
+                bg="#101a28",
+                fg=SUBTEXT_COLOR,
+                insertbackground=TEXT_COLOR,
+                font=("Consolas", 9),
+                wrap="word",
+                relief="flat",
+                padx=8,
+                pady=8,
+                height=12,
+            )
+            self.log_text.grid(row=0, column=0, sticky="nsew")
+            self.log_text.configure(state="disabled")
 
             self._build_state_sections()
             self._build_options_sections()
@@ -444,9 +482,10 @@ if tk is not None:
             self.options_body = tk.Frame(body, bg=SECTION_BG)
             self.options_body.pack(fill="both", expand=True, pady=(6, 0))
 
-        def _create_section(self, parent: tk.Widget, title: str) -> tk.Frame:
+        def _create_section(self, parent: tk.Widget, title: str, pack_section: bool = True) -> tk.Frame:
             container = tk.Frame(parent, bg=PANEL_BG, highlightbackground="#263953", highlightthickness=1, bd=0)
-            container.pack(fill="x", pady=(0, 6))
+            if pack_section:
+                container.pack(fill="x", pady=(0, 6))
 
             title_label = tk.Label(
                 container,
@@ -468,19 +507,63 @@ if tk is not None:
             self._closed = True
             if self._selection_var is not None:
                 self._selection_var.set(-1)
+            if not self._owns_root:
+                self.window.withdraw()
 
-        def choose(self, player_name: str, options: Sequence[Sequence[Any]], state: Dict[str, Any]) -> int:
+        def begin_session(self, title: str, clear_log: bool = True) -> None:
+            self._current_title = title
+            self.window.title(title)
+            if clear_log:
+                self.clear_log()
+
+        def clear_log(self) -> None:
+            self.log_text.configure(state="normal")
+            self.log_text.delete("1.0", "end")
+            self.log_text.configure(state="disabled")
+
+        def append_log(self, message: str) -> None:
+            self.log_text.configure(state="normal")
+            self.log_text.insert("end", message.rstrip() + "\n")
+            self.log_text.see("end")
+            self.log_text.configure(state="disabled")
+
+        def show_state(
+            self,
+            player_name: str,
+            options: Sequence[Sequence[Any]],
+            state: Dict[str, Any],
+            selectable: bool = False,
+            selected_index: Optional[int] = None,
+            mode_text: Optional[str] = None,
+        ) -> None:
+            if self._closed:
+                raise SystemExit("The chooser window was closed.")
+            self._selection_var = None
+            self._render(player_name, options, state, selectable=selectable, selected_index=selected_index, mode_text=mode_text)
+            self.window.deiconify()
+            self.window.lift()
+            self.window.focus_force()
+            self.window.update_idletasks()
+            self.window.update()
+
+        def choose(
+            self,
+            player_name: str,
+            options: Sequence[Sequence[Any]],
+            state: Dict[str, Any],
+            mode_text: Optional[str] = None,
+        ) -> int:
             if self._closed:
                 raise SystemExit("The chooser window was closed.")
 
             self._selection_var = tk.IntVar(value=-1)
-            self._render(player_name, options, state)
+            self._render(player_name, options, state, selectable=True, selected_index=None, mode_text=mode_text)
 
-            self.root.deiconify()
-            self.root.lift()
-            self.root.focus_force()
-            self.root.update_idletasks()
-            self.root.wait_variable(self._selection_var)
+            self.window.deiconify()
+            self.window.lift()
+            self.window.focus_force()
+            self.window.update_idletasks()
+            self.window.wait_variable(self._selection_var)
 
             selected = self._selection_var.get()
             self._selection_var = None
@@ -508,7 +591,15 @@ if tk is not None:
                 elif action == "attackOpponent":
                     self._attack_opponent_action = option_index
 
-        def _render(self, player_name: str, options: Sequence[Sequence[Any]], state: Dict[str, Any]) -> None:
+        def _render(
+            self,
+            player_name: str,
+            options: Sequence[Sequence[Any]],
+            state: Dict[str, Any],
+            selectable: bool = True,
+            selected_index: Optional[int] = None,
+            mode_text: Optional[str] = None,
+        ) -> None:
             self._prepare_interactions(options)
             summary_lines = [
                 f"You {state.get('authority')} auth | {state.get('attack')} atk | {state.get('trade')} trade | discard {state.get('mustDiscard')}",
@@ -516,6 +607,8 @@ if tk is not None:
                 f"Next-top {bool(state.get('nextShipTop'))} | blob plays {state.get('blobPlayCount')}",
             ]
             self.turn_label.configure(text=f"{player_name}'s decision")
+            if mode_text:
+                summary_lines.append(mode_text)
             self.summary_label.configure(text="    |    ".join(summary_lines))
 
             self._render_match_summary(state)
@@ -552,7 +645,7 @@ if tk is not None:
                 state.get("opponentDiscardPile") or [],
                 columns=7,
             )
-            self._render_options(options, state)
+            self._render_options(options, state, selectable=selectable, selected_index=selected_index)
 
         def _render_match_summary(self, state: Dict[str, Any]) -> None:
             self._clear(self.match_summary_section)
@@ -952,16 +1045,31 @@ if tk is not None:
             for child in widget.winfo_children():
                 self._bind_recursive(child, sequence, callback)
 
-        def _render_options(self, options: Sequence[Sequence[Any]], state: Dict[str, Any]) -> None:
+        def _render_options(
+            self,
+            options: Sequence[Sequence[Any]],
+            state: Dict[str, Any],
+            selectable: bool = True,
+            selected_index: Optional[int] = None,
+        ) -> None:
             self._clear(self.options_body)
             self.options_panel.canvas.yview_moveto(0)
+            if selectable:
+                self.options_intro_label.configure(text="Click the action you want to send back to the game.")
+            elif selected_index is None:
+                self.options_intro_label.configure(text="Viewing the current decision state.")
+            else:
+                self.options_intro_label.configure(
+                    text=f"Showing the action that was taken: {selected_index}. {_format_option(options[selected_index], state)}"
+                )
 
             for index, option in enumerate(options):
+                is_selected = selected_index == index
                 wrapper = tk.Frame(
                     self.options_body,
-                    bg=PANEL_BG,
-                    highlightbackground="#294160",
-                    highlightthickness=1,
+                    bg=PANEL_BG if not is_selected else "#27405f",
+                    highlightbackground=ACCENT if is_selected else "#294160",
+                    highlightthickness=2 if is_selected else 1,
                     bd=0,
                     padx=8,
                     pady=6,
@@ -984,6 +1092,8 @@ if tk is not None:
                     anchor="w",
                     wraplength=390,
                     font=("Segoe UI Semibold", 9),
+                    state="normal" if selectable else "disabled",
+                    disabledforeground=TEXT_COLOR,
                 )
                 button.pack(fill="x")
 
