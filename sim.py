@@ -45,7 +45,7 @@ cardDetails = [
     ('Defense Center',  5,      0,      0,      0,      'blue', 'outp', '-2or3or0', 'gainattack',   2,      'none',         0,      5,      1),
     ('Embassy Yacht',   3,      0,      3,      2,      'blue', 'ship', 'bases2d2', 'none',         0,      'none',         0,      0,      2),
     ('Federation Shuttle',1,    0,      0,      2,      'blue', 'ship', 'none',     'authority',    4,      'none',         0,      0,      3),
-    ('Flagship',        6,      0,      0,      0,      'blue', 'ship', 'draw',     'authority',    5,      'none',         0,      0,      1),
+    ('Flagship',        6,      5,      0,      0,      'blue', 'ship', 'draw',     'authority',    5,      'none',         0,      0,      1),
     ('Freighter',       4,      0,      0,      4,      'blue', 'ship', 'none',     'shiptop',      0,      'none',         0,      0,      2),
     ('Port of Call',    6,      0,      0,      3,      'blue', 'outp', 'none',     'none',         0,      'drawdestroy',  0,      6,      1),
     ('Trade Escort',    5,      4,      4,      0,      'blue', 'ship', 'none',     'draw',         0,      'none',         0,      0,      1),

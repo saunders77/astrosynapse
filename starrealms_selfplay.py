@@ -38,6 +38,8 @@ INITIAL_ELO = 1000.0
 CARD_ZONE_SCALE = 15.0
 NUMERIC_OPTION_SCALE = 10.0
 EPSILON = 1e-12
+LEGACY_MODEL_ARCHITECTURE = "legacy_v1"
+CURRENT_MODEL_ARCHITECTURE = "deep_v2"
 NOOP_ACTIONS = {"endTurn", "nodiscard", "nokill", "noRowScrap", "noScrapFromHand", "nocopy"}
 
 
@@ -431,7 +433,8 @@ def option_to_vector(option: Sequence[Any], state: Dict[str, Any]) -> List[float
 
 @dataclass
 class TrainingConfig:
-    hidden_size: int = 16
+    hidden_size: int = 96
+    model_architecture: str = CURRENT_MODEL_ARCHITECTURE
     learning_rate: float = 0.0015
     min_learning_rate: float = 0.0003
     ppo_epochs: int = 2
@@ -472,7 +475,7 @@ class TrainingConfig:
 
 
 if nn is not None and torch is not None:
-    class _TorchPolicyModule(nn.Module):
+    class _LegacyTorchPolicyModule(nn.Module):
         def __init__(self, state_size: int, option_size: int, hidden_size: int) -> None:
             super().__init__()
             self.state_linear = nn.Linear(state_size, hidden_size)
@@ -488,8 +491,56 @@ if nn is not None and torch is not None:
             logits = self.policy_head(joint_hidden).squeeze(-1)
             value = self.value_head(state_hidden).squeeze(-1)
             return logits, value
+
+
+    class _DeepTorchPolicyModule(nn.Module):
+        def __init__(self, state_size: int, option_size: int, hidden_size: int) -> None:
+            super().__init__()
+            self.state_linear = nn.Linear(state_size, hidden_size)
+            self.option_linear = nn.Linear(option_size, hidden_size)
+            self.joint_bias = nn.Parameter(torch.zeros(hidden_size))
+
+            self.state_refine_1 = nn.Linear(hidden_size, hidden_size)
+            self.state_refine_2 = nn.Linear(hidden_size, hidden_size)
+            self.option_refine_1 = nn.Linear(hidden_size, hidden_size)
+            self.option_refine_2 = nn.Linear(hidden_size, hidden_size)
+            self.joint_mix_1 = nn.Linear(hidden_size * 4, hidden_size)
+            self.joint_mix_2 = nn.Linear(hidden_size, hidden_size)
+            self.value_refine = nn.Linear(hidden_size, hidden_size)
+
+            self.policy_head = nn.Linear(hidden_size, 1)
+            self.value_head = nn.Linear(hidden_size, 1)
+
+        def forward(self, state_tensor: "torch.Tensor", option_tensor: "torch.Tensor") -> Tuple["torch.Tensor", "torch.Tensor"]:
+            state_hidden = torch.tanh(self.state_linear(state_tensor))
+            state_hidden = state_hidden + 0.35 * torch.tanh(self.state_refine_1(state_hidden))
+            state_hidden = state_hidden + 0.35 * torch.tanh(self.state_refine_2(state_hidden))
+
+            option_hidden = torch.tanh(self.option_linear(option_tensor))
+            option_hidden = option_hidden + 0.35 * torch.tanh(self.option_refine_1(option_hidden))
+            option_hidden = option_hidden + 0.35 * torch.tanh(self.option_refine_2(option_hidden))
+
+            state_expanded = state_hidden.unsqueeze(0).expand(option_hidden.shape[0], -1)
+            legacy_joint = torch.tanh(state_expanded + option_hidden + self.joint_bias.unsqueeze(0))
+            interaction = state_expanded * option_hidden
+            joint_input = torch.cat([legacy_joint, state_expanded, option_hidden, interaction], dim=-1)
+            joint_hidden = legacy_joint + 0.35 * torch.tanh(self.joint_mix_1(joint_input))
+            joint_hidden = joint_hidden + 0.35 * torch.tanh(self.joint_mix_2(joint_hidden))
+
+            value_hidden = state_hidden + 0.35 * torch.tanh(self.value_refine(state_hidden))
+            logits = self.policy_head(joint_hidden).squeeze(-1)
+            value = self.value_head(value_hidden).squeeze(-1)
+            return logits, value
 else:
-    class _TorchPolicyModule:  # pragma: no cover - only used when torch is unavailable
+    class _LegacyTorchPolicyModule:  # pragma: no cover - only used when torch is unavailable
+        def __init__(self, *_: Any, **__: Any) -> None:
+            raise RuntimeError(
+                "PyTorch is required for starrealms_selfplay.py. "
+                "Run this module from the project's .venv where torch is installed."
+            ) from TORCH_IMPORT_ERROR
+
+
+    class _DeepTorchPolicyModule:  # pragma: no cover - only used when torch is unavailable
         def __init__(self, *_: Any, **__: Any) -> None:
             raise RuntimeError(
                 "PyTorch is required for starrealms_selfplay.py. "
@@ -502,7 +553,8 @@ class PolicyNetwork:
         self,
         state_size: int = STATE_VECTOR_SIZE,
         option_size: int = OPTION_VECTOR_SIZE,
-        hidden_size: int = 24,
+        hidden_size: int = 96,
+        architecture: str = CURRENT_MODEL_ARCHITECTURE,
         init_seed: Optional[int] = None,
     ) -> None:
         if torch is None or nn is None:
@@ -515,8 +567,14 @@ class PolicyNetwork:
         self.state_size = state_size
         self.option_size = option_size
         self.hidden_size = hidden_size
+        self.architecture = architecture
         self.device = torch.device("cpu")
-        self.model = _TorchPolicyModule(state_size, option_size, hidden_size).to(self.device)
+        if architecture == LEGACY_MODEL_ARCHITECTURE:
+            self.model = _LegacyTorchPolicyModule(state_size, option_size, hidden_size).to(self.device)
+        elif architecture == CURRENT_MODEL_ARCHITECTURE:
+            self.model = _DeepTorchPolicyModule(state_size, option_size, hidden_size).to(self.device)
+        else:
+            raise ValueError(f"Unknown policy architecture: {architecture}")
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.0015)
 
     def clone(self) -> "PolicyNetwork":
@@ -524,6 +582,7 @@ class PolicyNetwork:
             state_size=self.state_size,
             option_size=self.option_size,
             hidden_size=self.hidden_size,
+            architecture=self.architecture,
         )
         clone.model.load_state_dict(self.model.state_dict())
         clone.optimizer = torch.optim.Adam(clone.model.parameters(), lr=self.optimizer.param_groups[0]["lr"])
@@ -539,6 +598,7 @@ class PolicyNetwork:
             "state_size": self.state_size,
             "option_size": self.option_size,
             "hidden_size": self.hidden_size,
+            "architecture": self.architecture,
             "state_dict": state_dict,
         }
         if include_optimizer:
@@ -551,8 +611,20 @@ class PolicyNetwork:
     def from_dict(cls, payload: Dict[str, Any]) -> "PolicyNetwork":
         state_size = payload.get("state_size", STATE_VECTOR_SIZE)
         option_size = payload.get("option_size", OPTION_VECTOR_SIZE)
-        hidden_size = payload.get("hidden_size", 24)
-        model = cls(state_size=state_size, option_size=option_size, hidden_size=hidden_size)
+        architecture = payload.get("architecture")
+        if architecture is None:
+            state_dict = payload.get("state_dict") or {}
+            if any(name.startswith("state_refine_") or name.startswith("joint_mix_") or name.startswith("value_refine") for name in state_dict.keys()):
+                architecture = CURRENT_MODEL_ARCHITECTURE
+            else:
+                architecture = LEGACY_MODEL_ARCHITECTURE
+        hidden_size = payload.get("hidden_size", 24 if architecture == LEGACY_MODEL_ARCHITECTURE else 96)
+        model = cls(
+            state_size=state_size,
+            option_size=option_size,
+            hidden_size=hidden_size,
+            architecture=architecture,
+        )
 
         if payload.get("backend") == "torch" or "state_dict" in payload:
             tensor_state = {
@@ -566,6 +638,12 @@ class PolicyNetwork:
             return model
 
         params = payload["params"]
+        model = cls(
+            state_size=state_size,
+            option_size=option_size,
+            hidden_size=hidden_size,
+            architecture=LEGACY_MODEL_ARCHITECTURE,
+        )
         converted_state = {
             "state_linear.weight": torch.tensor(params["state_w"], dtype=torch.float32, device=model.device),
             "state_linear.bias": torch.tensor(params["state_b"], dtype=torch.float32, device=model.device),
@@ -910,7 +988,7 @@ def _ensure_run(run_name: str, config_overrides: Optional[Dict[str, Any]] = None
         return files
 
     config = TrainingConfig().merged(config_overrides)
-    policy = PolicyNetwork(hidden_size=config.hidden_size)
+    policy = PolicyNetwork(hidden_size=config.hidden_size, architecture=config.model_architecture)
     state = _default_training_state(config)
     state["run_name"] = run_name
     _atomic_write_json(files.policy_file, policy.to_dict(include_optimizer=True))
@@ -926,17 +1004,28 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
     if state_payload is None:
         state_payload = _default_training_state(TrainingConfig())
         state_payload["run_name"] = run_name
+    policy_payload = _load_json_or_none(files.policy_file)
     original_saved_config = dict(state_payload.get("config", {}) or {})
     saved_config = dict(original_saved_config)
     if "training_games_per_match" not in saved_config:
         saved_config["training_games_per_match"] = 24
     if saved_config.get("promotion_games") == 13:
         saved_config["promotion_games"] = 24
+    if policy_payload is not None:
+        payload_architecture = policy_payload.get("architecture")
+        if payload_architecture is None:
+            payload_state_dict = policy_payload.get("state_dict") or {}
+            if any(name.startswith("state_refine_") or name.startswith("joint_mix_") or name.startswith("value_refine") for name in payload_state_dict.keys()):
+                payload_architecture = CURRENT_MODEL_ARCHITECTURE
+            else:
+                payload_architecture = LEGACY_MODEL_ARCHITECTURE
+        saved_config["model_architecture"] = payload_architecture
+        if "hidden_size" not in original_saved_config or saved_config.get("hidden_size") != policy_payload.get("hidden_size"):
+            saved_config["hidden_size"] = policy_payload.get("hidden_size", saved_config.get("hidden_size", 96))
     state_payload["config"] = saved_config
     config = TrainingConfig().merged(saved_config).merged(config_overrides)
-    policy_payload = _load_json_or_none(files.policy_file)
     if policy_payload is None:
-        policy = PolicyNetwork(hidden_size=config.hidden_size)
+        policy = PolicyNetwork(hidden_size=config.hidden_size, architecture=config.model_architecture)
     else:
         policy = PolicyNetwork.from_dict(policy_payload)
     policy, state_payload, dirty = _migrate_run_state(files, policy, state_payload, config)
@@ -1268,6 +1357,30 @@ class SelfPlayTrainer:
             "opponents": [match.get("opponent") for match in match_summaries],
         }
 
+    def _record_live_match_progress(
+        self,
+        match_summary: Dict[str, Any],
+        kind: str,
+        completed_training_matches: Sequence[Dict[str, Any]],
+    ) -> None:
+        self.state["total_matches"] = int(self.state.get("total_matches", 0)) + 1
+        self.state["total_games"] = int(self.state.get("total_games", 0)) + int(match_summary.get("games_played", 0))
+        if kind == "training":
+            self.state["last_match"] = self._summarize_training_matches(completed_training_matches)
+        else:
+            self.state["last_eval"] = {
+                "wins": match_summary.get("wins_a", 0),
+                "losses": match_summary.get("wins_b", 0),
+                "games_played": match_summary.get("games_played", 0),
+                "score": float(match_summary.get("wins_a", 0)) / max(int(match_summary.get("games_played", 0)), 1),
+                "promoted": False,
+                "action": "evaluating",
+                "promoted_checkpoint": None,
+                "champion_checkpoint": self.state.get("latest_checkpoint"),
+                "duration_seconds": match_summary.get("duration_seconds", 0.0),
+            }
+        self._save()
+
     def _reseed_candidate(
         self,
         base_iteration: int,
@@ -1348,6 +1461,7 @@ class SelfPlayTrainer:
             training_matches.append(match_summary)
             opponent_summaries.append(opponent_meta)
             training_samples.extend(self._match_to_training_samples(match_summary))
+            self._record_live_match_progress(match_summary, "training", training_matches)
 
         update_stats = self.candidate_policy.train_on_samples(training_samples, scheduled_config)
         training_summary = self._summarize_training_matches(training_matches)
@@ -1360,6 +1474,7 @@ class SelfPlayTrainer:
             deterministic_b=True,
             games_per_match=max(1, int(scheduled_config.promotion_games)),
         )
+        self._record_live_match_progress(eval_summary, "evaluation", training_matches)
         candidate_score = float(eval_summary["wins_a"]) / max(int(eval_summary["games_played"]), 1)
         promoted = (
             eval_summary["wins_a"] > eval_summary["wins_b"]
@@ -1375,8 +1490,6 @@ class SelfPlayTrainer:
         promoted_checkpoint: Optional[str] = None
 
         self.state["iteration"] = next_iteration
-        self.state["total_matches"] += len(training_matches) + 1
-        self.state["total_games"] += int(training_summary["games_played"]) + int(eval_summary["games_played"])
         self.state["last_match"] = training_summary
 
         self.state["last_update"] = {

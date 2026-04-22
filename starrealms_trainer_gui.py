@@ -744,6 +744,7 @@ class TrainerGUI(tk.Tk):
         self.run_combo.configure(values=run_names)
 
         current_run = self._selected_run_name()
+        typed_new_run = bool(current_run) and current_run not in run_names
         selected_run = current_run if current_run else (run_names[0] if run_names else sp.LATEST_RUN_NAME)
         self.run_name_var.set(selected_run)
 
@@ -772,7 +773,10 @@ class TrainerGUI(tk.Tk):
                     ),
                 )
 
-            if selected_run in self.runs_tree.get_children():
+            if typed_new_run:
+                self.runs_tree.selection_remove(self.runs_tree.selection())
+                self.runs_tree.focus("")
+            elif selected_run in self.runs_tree.get_children():
                 self.runs_tree.selection_set(selected_run)
                 self.runs_tree.focus(selected_run)
                 self.runs_tree.see(selected_run)
@@ -987,10 +991,19 @@ class TrainerGUI(tk.Tk):
         }
 
     def _write_details(self, text: str) -> None:
+        current_text = self.details_text.get("1.0", "end-1c")
+        if current_text == text:
+            return
+        yview = self.details_text.yview()
+        xview = self.details_text.xview()
         self.details_text.configure(state="normal")
         self.details_text.delete("1.0", "end")
         self.details_text.insert("1.0", text)
         self.details_text.configure(state="disabled")
+        if yview:
+            self.details_text.yview_moveto(yview[0])
+        if xview:
+            self.details_text.xview_moveto(xview[0])
 
     def log(self, message: str) -> None:
         self.log_text.configure(state="normal")
