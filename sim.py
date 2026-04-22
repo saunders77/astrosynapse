@@ -98,57 +98,45 @@ class Player:
         }
 
     def calculateScrambleDeck(self):
-        scrambleDeck = []
-        topCards = []
-        i = 0
-        while i < len(self.deck) - self.knownTopOfDeck:
-            scrambleDeck.append(self.deck[i])
-            i += 1
+        split_index = len(self.deck) - self.knownTopOfDeck
+        scrambleDeck = list(self.deck[:split_index])
         random.shuffle(scrambleDeck)
         self.knownGameState['scrambleDeck'] = scrambleDeck
-        while i < len(self.deck):
-            topCards.append(self.deck[i])
-            i += 1
-        self.knownGameState['topCards'] = topCards
+        self.knownGameState['topCards'] = list(self.deck[split_index:])
     
     def calculateOpponentScrambleDeckAndHand(self):
-        opScrambleDeckHand = []
-        opTopCards = []
-        i = 0
-        while i < len(self.opponent.deck) - self.opponent.knownTopOfDeck:
-            opScrambleDeckHand.append(self.opponent.deck[i])
-            i += 1
-        while i < len(self.opponent.deck):
-            opTopCards.append(self.opponent.deck[i])
-            i += 1
-        i = 0
+        opponent_deck = self.opponent.deck
+        split_index = len(opponent_deck) - self.opponent.knownTopOfDeck
+        opScrambleDeckHand = list(opponent_deck[:split_index])
+        opTopCards = list(opponent_deck[split_index:])
         knownOpponentHandCards = self.opponent.opponentKnownHandCards
         opHandTracker = []
         for item in knownOpponentHandCards: opHandTracker.append(item)
-        while i < len(self.opponent.hand):
-            if self.opponent.hand[i] in opHandTracker:
-                opHandTracker.remove(self.opponent.hand[i]) # don't add it to the big scrambled list
+        for handCard in self.opponent.hand:
+            if handCard in opHandTracker:
+                opHandTracker.remove(handCard) # don't add it to the big scrambled list
             else:
-                opScrambleDeckHand.append(self.opponent.hand[i])
-            i += 1
+                opScrambleDeckHand.append(handCard)
         random.shuffle(opScrambleDeckHand)
         self.knownGameState['opponentScrambleDeckAndHand'] = opScrambleDeckHand
         self.knownGameState['opponentTopCards'] = opTopCards
         self.knownGameState['opponentHandCards'] = knownOpponentHandCards
 
     def sendChoice(self, options):
-        self.knownGameState['authority'] = self.authority
-        self.knownGameState['attack'] = self.attack
-        self.knownGameState['trade'] = self.trade
-        self.knownGameState['mustDiscard'] = self.mustDiscard
+        knownGameState = self.knownGameState
+        opponent = self.opponent
+        knownGameState['authority'] = self.authority
+        knownGameState['attack'] = self.attack
+        knownGameState['trade'] = self.trade
+        knownGameState['mustDiscard'] = self.mustDiscard
         # scrambleDeck and topCards are calculated dynamically        
-        self.knownGameState['nextShipTop'] = self.nextShipTop
-        self.knownGameState['blobPlayCount'] = self.blobCardsPlayed
-        self.knownGameState['opponentAuthority'] = self.opponent.authority
-        self.knownGameState['opponentMustDiscard'] = self.opponent.mustDiscard
+        knownGameState['nextShipTop'] = self.nextShipTop
+        knownGameState['blobPlayCount'] = self.blobCardsPlayed
+        knownGameState['opponentAuthority'] = opponent.authority
+        knownGameState['opponentMustDiscard'] = opponent.mustDiscard
         # opScrambleDeckAndHand, opTopCard, and opHandCards are calculated dynamically
         
-        return self.chooser_fn(self.name, options, self.knownGameState)
+        return self.chooser_fn(self.name, options, knownGameState)
 
     def draw(self, n):
         for i in range(n):
@@ -166,17 +154,15 @@ class Player:
         self.calculateScrambleDeck()
     
     def discard(self, type, required):
-        options = []
-        discardCount = 0
-        for i in range(len(self.hand)):
-            options.append(('discard' + type,i,self.hand[i]))
+        discard_action = 'discard' + type
+        options = [(discard_action, i, card) for i, card in enumerate(self.hand)]
         if required == False:
             options.append(('nodiscard',))
         decision = self.sendChoice(options)
         if options[decision] != ('nodiscard',):
             self.discardPile.append(self.hand.pop(decision)) 
-            discardCount = 1
-        return discardCount
+            return 1
+        return 0
    
     def takeTurn(self):
         self.calculateOpponentScrambleDeckAndHand()
@@ -216,50 +202,58 @@ class Player:
 
             # generate options
             options = []
+            append_option = options.append
+            hand = self.hand
+            cards_in_play = self.cardsInPlay
+            opponent_cards_in_play = self.opponent.cardsInPlay
+            current_attack = self.attack
+            current_trade = self.trade
             
             # can play any card
-            for i in range(len(self.hand)):
-                options.append(('play', i, self.hand[i]))
+            for i, card in enumerate(hand):
+                append_option(('play', i, card))
             
             opOutposts = []
             opBases = []
 
             for faction in factions:
+                faction_cards = cards_in_play[faction]
                 # identify scrap targets and abilityOption targets
-                for i in range(len(self.cardsInPlay[faction])):
-                    if self.cardsInPlay[faction][i][2] not in (None, 'used'):
-                        options.append(('abilityOption', faction, i, self.cardsInPlay[faction][i][2]))
-                    if self.cardsInPlay[faction][i][0][10] != 'none':
-                        options.append(('scrapFromPlay', faction, i, self.cardsInPlay[faction][i], self.cardsInPlay[faction][i][0][10], self.cardsInPlay[faction][i][0][11]))
+                for i, playCard in enumerate(faction_cards):
+                    if playCard[2] not in (None, 'used'):
+                        append_option(('abilityOption', faction, i, playCard[2]))
+                    if playCard[0][10] != 'none':
+                        append_option(('scrapFromPlay', faction, i, playCard, playCard[0][10], playCard[0][11]))
                 
                 # identify attack targets
-                if self.attack > 0:
-                    for i in range(len(self.opponent.cardsInPlay[faction])): # should all be bases/outposts 
-                        if self.opponent.cardsInPlay[faction][i][0][6] == 'base':
-                            opBases.append((faction,i,self.opponent.cardsInPlay[faction][i][0][12],self.opponent.cardsInPlay[faction][i][0]))
+                if current_attack > 0:
+                    for i, opponentCard in enumerate(opponent_cards_in_play[faction]): # should all be bases/outposts 
+                        if opponentCard[0][6] == 'base':
+                            opBases.append((faction, i, opponentCard[0][12], opponentCard[0]))
                         else:
-                            opOutposts.append((faction,i,self.opponent.cardsInPlay[faction][i][0][12],self.opponent.cardsInPlay[faction][i][0]))
+                            opOutposts.append((faction, i, opponentCard[0][12], opponentCard[0]))
 
-            if self.attack > 0:
+            if current_attack > 0:
                 if len(opOutposts) > 0:
                     for outpostInfo in opOutposts:
-                        if self.attack >= outpostInfo[2]:
+                        if current_attack >= outpostInfo[2]:
                             #                           1faction        2index,         3shield amount, 4available attack
-                            options.append(('attack',   outpostInfo[0], outpostInfo[1], outpostInfo[2], self.attack))
+                            append_option(('attack', outpostInfo[0], outpostInfo[1], outpostInfo[2], current_attack))
                 else:
                     for baseInfo in opBases:
-                        if self.attack >= baseInfo[2]:
-                            options.append(('attack', baseInfo[0], baseInfo[1], baseInfo[2], self.attack))
-                    options.append(('attackOpponent', self.attack))
+                        if current_attack >= baseInfo[2]:
+                            append_option(('attack', baseInfo[0], baseInfo[1], baseInfo[2], current_attack))
+                    append_option(('attackOpponent', current_attack))
                
             # identify acquisition targets
-            if self.trade > 0:
-                for i in range(6):
-                    if self.game.tradeRow[i][1] <= self.trade:
-                        options.append(('acquire', i, self.game.tradeRow[i]))
+            if current_trade > 0:
+                tradeRow = self.game.tradeRow
+                for i, tradeCard in enumerate(tradeRow):
+                    if tradeCard[1] <= current_trade:
+                        append_option(('acquire', i, tradeCard))
             
-            if len(self.hand) == 0:
-                options.append(('endTurn',))
+            if len(hand) == 0:
+                append_option(('endTurn',))
 
             decision = self.sendChoice(options)
             match options[decision][0]:
@@ -393,28 +387,22 @@ class Player:
         outpostsExist = False
         outpostOptions = []
         baseOptions = []
-        options = []
+        opponent_cards_in_play = self.opponent.cardsInPlay
         for faction in factions:
-            for i in range(len(self.opponent.cardsInPlay[faction])): 
-                if self.opponent.cardsInPlay[faction][i][0][6] == 'outp':
+            for i, opponentCard in enumerate(opponent_cards_in_play[faction]): 
+                if opponentCard[0][6] == 'outp':
                     outpostsExist = True
-                    outpostOptions.append(('killbase', faction, i, self.opponent.cardsInPlay[faction][i][0]))
+                    outpostOptions.append(('killbase', faction, i, opponentCard[0]))
                 elif outpostsExist == False:
-                    baseOptions.append(('killbase', faction, i, self.opponent.cardsInPlay[faction][i][0]))
-        if outpostsExist == True:
-            options = outpostOptions
-        else:
-            options = baseOptions
+                    baseOptions.append(('killbase', faction, i, opponentCard[0]))
+        options = outpostOptions if outpostsExist else baseOptions
         options.append(('nokill',))
         decision = self.sendChoice(options)
         if decision < len(options) - 1: # then it's a kill
             self.opponent.discardPile.append(self.opponent.removeCardFromPlay(options[decision][1], options[decision][2])) 
 
     def selectAndScrapFromTradeRow(self):
-        options = []
-        for i in range(6):
-            if self.game.tradeRow[i][0] != 'none':
-                options.append(('rowscrap', i, self.game.tradeRow[i]))
+        options = [('rowscrap', i, tradeCard) for i, tradeCard in enumerate(self.game.tradeRow) if tradeCard[0] != 'none']
         options.append(('noRowScrap',))
         decision = self.sendChoice(options)
         if options[decision][0] == 'rowscrap':
@@ -515,27 +503,23 @@ class Player:
         self.removeCardFromPlay(faction, position)
     
     def scrapAny(self, type, required=False):
-        options = []
-        totalScrapped = 0
-        for i in range(len(self.hand)):
-            options.append(('scrapFromHand' + type, i, self.hand[i]))
-        for i in range(len(self.discardPile)):
-            options.append(('scrapFromDiscard' + type, i, self.discardPile[i]))
+        scrap_from_hand = 'scrapFromHand' + type
+        scrap_from_discard = 'scrapFromDiscard' + type
+        options = [(scrap_from_hand, i, card) for i, card in enumerate(self.hand)]
+        options.extend((scrap_from_discard, i, card) for i, card in enumerate(self.discardPile))
         if required == False:
             options.append(('noScrapFromHand',))
         decision = self.sendChoice(options)
-        if options[decision][0] == 'scrapFromHand' + type:
+        if options[decision][0] == scrap_from_hand:
             self.hand.pop(options[decision][1])
-            totalScrapped += 1
-        elif options[decision][0] == 'scrapFromDiscard' + type:
+            return 1
+        if options[decision][0] == scrap_from_discard:
             self.discardPile.pop(options[decision][1])
-            totalScrapped += 1
-        return totalScrapped
+            return 1
+        return 0
     
     def mustScrapFromHand(self):
-        options = []
-        for i in range(len(self.hand)):
-            options.append(('scrapFromHandNormal', i, self.hand[i]))
+        options = [('scrapFromHandNormal', i, card) for i, card in enumerate(self.hand)]
         if len(options) > 0:
             self.hand.pop(self.sendChoice(options))
 

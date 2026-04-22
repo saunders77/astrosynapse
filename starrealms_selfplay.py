@@ -15,6 +15,7 @@ import random
 import threading
 import time
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -64,6 +65,11 @@ NOOP_ACTIONS = {"endTurn", "nodiscard", "nokill", "noRowScrap", "noScrapFromHand
 def _normalize_ability(raw_ability: Any) -> str:
     if not isinstance(raw_ability, str) or raw_ability == "":
         return "none"
+    return _normalize_ability_cached(raw_ability)
+
+
+@lru_cache(maxsize=None)
+def _normalize_ability_cached(raw_ability: str) -> str:
     if raw_ability == "none":
         return "none"
     if raw_ability[0] == "-":
@@ -334,95 +340,151 @@ def _iter_zone_cards(zone: Any) -> List[Any]:
             cards.extend(items)
         return cards
     if isinstance(zone, list):
-        return list(zone)
+        return zone
     return []
+
+
+@lru_cache(maxsize=None)
+def _cached_card_feature_updates(card: Tuple[Any, ...]) -> Tuple[Tuple[int, float], ...]:
+    updates: List[Tuple[int, float]] = [
+        (0, 1.0),
+        (1, card[1] / 8.0),
+        (2, card[2] / 8.0),
+        (3, card[3] / 8.0),
+        (4, card[4] / 8.0),
+        (5, card[12] / 8.0),
+        (6, card[9] / 5.0),
+        (7, card[11] / 5.0),
+    ]
+
+    faction_offset = 8
+    faction_index = FACTION_TO_INDEX.get(card[5])
+    if faction_index is not None:
+        updates.append((faction_offset + faction_index, 1.0))
+
+    type_offset = faction_offset + len(factions)
+    card_type_index = CARD_TYPE_TO_INDEX.get(card[6])
+    if card_type_index is not None:
+        updates.append((type_offset + card_type_index, 1.0))
+
+    ability_offset = type_offset + len(CARD_TYPE_TO_INDEX)
+    for raw_ability in (card[7], card[8], card[10]):
+        ability_index = ABILITY_TO_INDEX.get(_normalize_ability(raw_ability))
+        if ability_index is not None:
+            updates.append((ability_offset + ability_index, 1.0))
+
+    option_offset = ability_offset + len(ABILITY_FAMILIES)
+    if isinstance(card[7], str) and card[7].startswith("-"):
+        updates.append((option_offset, 1.0))
+    if isinstance(card[8], str) and card[8].startswith("-"):
+        updates.append((option_offset + 1, 1.0))
+    return tuple(updates)
+
+
+@lru_cache(maxsize=None)
+def _cached_card_feature_vector(card: Tuple[Any, ...]) -> Tuple[float, ...]:
+    features = _zero_vector(CARD_FEATURE_SIZE)
+    for index, value in _cached_card_feature_updates(card):
+        features[index] += value
+    return tuple(features)
 
 
 def _add_single_card_features(features: List[float], card: Tuple[Any, ...], scale: float) -> None:
     if card is None:
         return
-    features[0] += 1.0 * scale
-    features[1] += (card[1] / 8.0) * scale
-    features[2] += (card[2] / 8.0) * scale
-    features[3] += (card[3] / 8.0) * scale
-    features[4] += (card[4] / 8.0) * scale
-    features[5] += (card[12] / 8.0) * scale
-    features[6] += (card[9] / 5.0) * scale
-    features[7] += (card[11] / 5.0) * scale
-
-    faction_offset = 8
-    if card[5] in FACTION_TO_INDEX:
-        features[faction_offset + FACTION_TO_INDEX[card[5]]] += scale
-
-    type_offset = faction_offset + len(factions)
-    if card[6] in CARD_TYPE_TO_INDEX:
-        features[type_offset + CARD_TYPE_TO_INDEX[card[6]]] += scale
-
-    ability_offset = type_offset + len(CARD_TYPE_TO_INDEX)
-    for raw_ability in (card[7], card[8], card[10]):
-        ability_name = _normalize_ability(raw_ability)
-        if ability_name in ABILITY_TO_INDEX:
-            features[ability_offset + ABILITY_TO_INDEX[ability_name]] += scale
-
-    option_offset = ability_offset + len(ABILITY_FAMILIES)
-    if isinstance(card[7], str) and card[7].startswith("-"):
-        features[option_offset] += scale
-    if isinstance(card[8], str) and card[8].startswith("-"):
-        features[option_offset + 1] += scale
+    for index, value in _cached_card_feature_updates(card):
+        features[index] += value * scale
 
 
 def _single_card_features(card: Optional[Tuple[Any, ...]]) -> List[float]:
-    features = _zero_vector(CARD_FEATURE_SIZE)
-    if card is not None:
-        _add_single_card_features(features, card, 1.0)
-    return features
+    if card is None:
+        return _zero_vector(CARD_FEATURE_SIZE)
+    return list(_cached_card_feature_vector(card))
+
+
+def _zone_features_and_count(zone: Any) -> Tuple[List[float], int]:
+    features = _zero_vector(ZONE_FEATURE_SIZE)
+    count = 0
+    scale = 1.0 / CARD_ZONE_SCALE
+
+    if zone is None:
+        return features, count
+
+    if isinstance(zone, dict):
+        zone_groups = zone.values()
+    elif isinstance(zone, list):
+        zone_groups = (zone,)
+    else:
+        return features, count
+
+    for group in zone_groups:
+        for item in group:
+            count += 1
+            if isinstance(item, tuple) and len(item) >= 14 and isinstance(item[0], str):
+                if item[0] != "none":
+                    _add_single_card_features(features, item, scale)
+                continue
+            if isinstance(item, list) and len(item) >= 5:
+                card = item[0]
+                if isinstance(card, tuple) and len(card) >= 14 and isinstance(card[0], str):
+                    if card[0] != "none":
+                        _add_single_card_features(features, card, scale)
+                    option_state = item[2]
+                    if option_state not in (None, "used"):
+                        features[CARD_FEATURE_SIZE] += scale
+                    if option_state == "used":
+                        features[CARD_FEATURE_SIZE + 1] += scale
+                    if item[1]:
+                        features[CARD_FEATURE_SIZE + 2] += scale
+                    if item[4]:
+                        features[CARD_FEATURE_SIZE + 3] += scale
+    return features, count
 
 
 def _zone_features(zone: Any) -> List[float]:
-    features = _zero_vector(ZONE_FEATURE_SIZE)
-    for item in _iter_zone_cards(zone):
-        card = _extract_card(item)
-        if card is not None:
-            _add_single_card_features(features, card, 1.0 / CARD_ZONE_SCALE)
-        if _is_play_card(item):
-            option_state = item[2]
-            if option_state not in (None, "used"):
-                features[CARD_FEATURE_SIZE] += 1.0 / CARD_ZONE_SCALE
-            if option_state == "used":
-                features[CARD_FEATURE_SIZE + 1] += 1.0 / CARD_ZONE_SCALE
-            if item[1]:
-                features[CARD_FEATURE_SIZE + 2] += 1.0 / CARD_ZONE_SCALE
-            if item[4]:
-                features[CARD_FEATURE_SIZE + 3] += 1.0 / CARD_ZONE_SCALE
-    return features
+    return _zone_features_and_count(zone)[0]
 
 
 def state_to_vector(state: Dict[str, Any], legal_option_count: int = 0) -> List[float]:
-    zones = [
-        state.get("hand"),
-        state.get("discardPile"),
-        state.get("scrambleDeck"),
-        state.get("topCards"),
-        state.get("cardsInPlay"),
-        state.get("tradeRow"),
-        state.get("opponentDiscardPile"),
-        state.get("opponentScrambleDeckAndHand"),
-        state.get("opponentTopCards"),
-        state.get("opponentHandCards"),
-        state.get("opponentCardsInPlay"),
+    zone_values = {
+        "hand": state.get("hand"),
+        "discardPile": state.get("discardPile"),
+        "scrambleDeck": state.get("scrambleDeck"),
+        "topCards": state.get("topCards"),
+        "cardsInPlay": state.get("cardsInPlay"),
+        "tradeRow": state.get("tradeRow"),
+        "opponentDiscardPile": state.get("opponentDiscardPile"),
+        "opponentScrambleDeckAndHand": state.get("opponentScrambleDeckAndHand"),
+        "opponentTopCards": state.get("opponentTopCards"),
+        "opponentHandCards": state.get("opponentHandCards"),
+        "opponentCardsInPlay": state.get("opponentCardsInPlay"),
+    }
+    zone_order = [
+        "hand",
+        "discardPile",
+        "scrambleDeck",
+        "topCards",
+        "cardsInPlay",
+        "tradeRow",
+        "opponentDiscardPile",
+        "opponentScrambleDeckAndHand",
+        "opponentTopCards",
+        "opponentHandCards",
+        "opponentCardsInPlay",
     ]
+    zone_stats = {name: _zone_features_and_count(zone_values[name]) for name in zone_order}
     features: List[float] = []
-    for zone in zones:
-        features.extend(_zone_features(zone))
+    for zone_name in zone_order:
+        features.extend(zone_stats[zone_name][0])
 
-    hand_cards = _iter_zone_cards(state.get("hand"))
-    discard_cards = _iter_zone_cards(state.get("discardPile"))
-    deck_cards = _iter_zone_cards(state.get("scrambleDeck")) + _iter_zone_cards(state.get("topCards"))
-    in_play_cards = _iter_zone_cards(state.get("cardsInPlay"))
-    opponent_known_hand = _iter_zone_cards(state.get("opponentHandCards"))
-    opponent_unknown = _iter_zone_cards(state.get("opponentScrambleDeckAndHand")) + _iter_zone_cards(state.get("opponentTopCards"))
-    opponent_discard = _iter_zone_cards(state.get("opponentDiscardPile"))
-    opponent_in_play = _iter_zone_cards(state.get("opponentCardsInPlay"))
+    hand_count = zone_stats["hand"][1]
+    discard_count = zone_stats["discardPile"][1]
+    deck_count = zone_stats["scrambleDeck"][1] + zone_stats["topCards"][1]
+    in_play_count = zone_stats["cardsInPlay"][1]
+    opponent_known_hand_count = zone_stats["opponentHandCards"][1]
+    opponent_unknown_count = zone_stats["opponentScrambleDeckAndHand"][1] + zone_stats["opponentTopCards"][1]
+    opponent_discard_count = zone_stats["opponentDiscardPile"][1]
+    opponent_in_play_count = zone_stats["opponentCardsInPlay"][1]
 
     scalars = [
         state.get("authority", 0) / 50.0,
@@ -434,17 +496,17 @@ def state_to_vector(state: Dict[str, Any], legal_option_count: int = 0) -> List[
         state.get("opponentMustDiscard", 0) / 5.0,
         1.0 if state.get("nextShipTop") else 0.0,
         state.get("blobPlayCount", 0) / 10.0,
-        len(hand_cards) / 20.0,
-        len(discard_cards) / 30.0,
-        len(deck_cards) / 30.0,
-        len(in_play_cards) / 15.0,
-        len(opponent_known_hand) / 10.0,
-        len(opponent_unknown) / 30.0,
+        hand_count / 20.0,
+        discard_count / 30.0,
+        deck_count / 30.0,
+        in_play_count / 15.0,
+        opponent_known_hand_count / 10.0,
+        opponent_unknown_count / 30.0,
     ]
     scalars.extend(
         [
-            len(opponent_discard) / 30.0,
-            len(opponent_in_play) / 15.0,
+            opponent_discard_count / 30.0,
+            opponent_in_play_count / 15.0,
             legal_option_count / 30.0,
         ]
     )
@@ -533,7 +595,9 @@ def option_to_vector(option: Sequence[Any], state: Dict[str, Any]) -> List[float
             features[offset + 2 + idx] = numeric_values[idx]
     offset += 7
 
-    features[offset:] = _single_card_features(_resolve_option_card(option, state))
+    resolved_card = _resolve_option_card(option, state)
+    if resolved_card is not None:
+        features[offset:] = _cached_card_feature_vector(resolved_card)
     return features
 
 
@@ -591,10 +655,21 @@ if nn is not None and torch is not None:
             self.policy_head = nn.Linear(hidden_size, 1)
             self.value_head = nn.Linear(hidden_size, 1)
 
-        def forward(self, state_tensor: "torch.Tensor", option_tensor: "torch.Tensor") -> Tuple["torch.Tensor", "torch.Tensor"]:
-            state_hidden = torch.tanh(self.state_linear(state_tensor))
+        def _state_hidden(self, state_tensor: "torch.Tensor") -> "torch.Tensor":
+            return torch.tanh(self.state_linear(state_tensor))
+
+        def _joint_hidden(self, state_hidden: "torch.Tensor", option_tensor: "torch.Tensor") -> "torch.Tensor":
             option_hidden = torch.tanh(self.option_linear(option_tensor))
-            joint_hidden = torch.tanh(state_hidden.unsqueeze(0) + option_hidden + self.joint_bias.unsqueeze(0))
+            return torch.tanh(state_hidden.unsqueeze(0) + option_hidden + self.joint_bias.unsqueeze(0))
+
+        def policy_only(self, state_tensor: "torch.Tensor", option_tensor: "torch.Tensor") -> "torch.Tensor":
+            state_hidden = self._state_hidden(state_tensor)
+            joint_hidden = self._joint_hidden(state_hidden, option_tensor)
+            return self.policy_head(joint_hidden).squeeze(-1)
+
+        def forward(self, state_tensor: "torch.Tensor", option_tensor: "torch.Tensor") -> Tuple["torch.Tensor", "torch.Tensor"]:
+            state_hidden = self._state_hidden(state_tensor)
+            joint_hidden = self._joint_hidden(state_hidden, option_tensor)
             logits = self.policy_head(joint_hidden).squeeze(-1)
             value = self.value_head(state_hidden).squeeze(-1)
             return logits, value
@@ -618,11 +693,13 @@ if nn is not None and torch is not None:
             self.policy_head = nn.Linear(hidden_size, 1)
             self.value_head = nn.Linear(hidden_size, 1)
 
-        def forward(self, state_tensor: "torch.Tensor", option_tensor: "torch.Tensor") -> Tuple["torch.Tensor", "torch.Tensor"]:
+        def _state_hidden(self, state_tensor: "torch.Tensor") -> "torch.Tensor":
             state_hidden = torch.tanh(self.state_linear(state_tensor))
             state_hidden = state_hidden + 0.35 * torch.tanh(self.state_refine_1(state_hidden))
             state_hidden = state_hidden + 0.35 * torch.tanh(self.state_refine_2(state_hidden))
+            return state_hidden
 
+        def _joint_hidden(self, state_hidden: "torch.Tensor", option_tensor: "torch.Tensor") -> "torch.Tensor":
             option_hidden = torch.tanh(self.option_linear(option_tensor))
             option_hidden = option_hidden + 0.35 * torch.tanh(self.option_refine_1(option_hidden))
             option_hidden = option_hidden + 0.35 * torch.tanh(self.option_refine_2(option_hidden))
@@ -633,7 +710,16 @@ if nn is not None and torch is not None:
             joint_input = torch.cat([legacy_joint, state_expanded, option_hidden, interaction], dim=-1)
             joint_hidden = legacy_joint + 0.35 * torch.tanh(self.joint_mix_1(joint_input))
             joint_hidden = joint_hidden + 0.35 * torch.tanh(self.joint_mix_2(joint_hidden))
+            return joint_hidden
 
+        def policy_only(self, state_tensor: "torch.Tensor", option_tensor: "torch.Tensor") -> "torch.Tensor":
+            state_hidden = self._state_hidden(state_tensor)
+            joint_hidden = self._joint_hidden(state_hidden, option_tensor)
+            return self.policy_head(joint_hidden).squeeze(-1)
+
+        def forward(self, state_tensor: "torch.Tensor", option_tensor: "torch.Tensor") -> Tuple["torch.Tensor", "torch.Tensor"]:
+            state_hidden = self._state_hidden(state_tensor)
+            joint_hidden = self._joint_hidden(state_hidden, option_tensor)
             value_hidden = state_hidden + 0.35 * torch.tanh(self.value_refine(state_hidden))
             logits = self.policy_head(joint_hidden).squeeze(-1)
             value = self.value_head(value_hidden).squeeze(-1)
@@ -778,6 +864,9 @@ class PolicyNetwork:
     def _option_tensor(self, option_vecs: Sequence[Sequence[float]]) -> "torch.Tensor":
         return torch.tensor(option_vecs, dtype=torch.float32, device=self.device)
 
+    def _policy_logits(self, state_tensor: "torch.Tensor", option_tensor: "torch.Tensor") -> "torch.Tensor":
+        return self.model.policy_only(state_tensor, option_tensor)
+
     def select_action(
         self,
         state_vec: Sequence[float],
@@ -785,27 +874,42 @@ class PolicyNetwork:
         deterministic: bool = False,
         temperature: float = 1.0,
         epsilon_random: float = 0.0,
+        need_log_prob: bool = False,
+        need_value: bool = False,
     ) -> Dict[str, Any]:
-        self.model.eval()
+        if self.model.training:
+            self.model.eval()
         with torch.no_grad():
             state_tensor = self._state_tensor(state_vec)
             option_tensor = self._option_tensor(option_vecs)
-            logits, value = self.model(state_tensor, option_tensor)
-            logits = logits / max(temperature, 1e-3)
-            probs = torch.softmax(logits, dim=0)
+            result: Dict[str, Any] = {}
+
+            if deterministic and not need_log_prob and not need_value:
+                logits = self._policy_logits(state_tensor, option_tensor)
+                result["action_index"] = int(torch.argmax(logits).item())
+                return result
+
+            value_tensor = None
+            if need_value:
+                logits, value_tensor = self.model(state_tensor, option_tensor)
+            else:
+                logits = self._policy_logits(state_tensor, option_tensor)
+
+            scaled_logits = logits / max(temperature, 1e-3)
+            probs = torch.softmax(scaled_logits, dim=0)
             if deterministic:
-                action_index = int(torch.argmax(probs).item())
+                action_index = int(torch.argmax(scaled_logits).item())
             elif random.random() < epsilon_random:
                 action_index = random.randrange(len(option_vecs))
             else:
                 action_index = int(torch.multinomial(probs, 1).item())
-            log_prob = float(torch.log(probs[action_index].clamp_min(EPSILON)).item())
-            return {
-                "action_index": action_index,
-                "log_prob": log_prob,
-                "value": float(value.item()),
-                "probs": probs.detach().cpu().tolist(),
-            }
+
+            result["action_index"] = action_index
+            if need_log_prob:
+                result["log_prob"] = float(torch.log(probs[action_index].clamp_min(EPSILON)).item())
+            if need_value and value_tensor is not None:
+                result["value"] = float(value_tensor.item())
+            return result
 
     def train_on_samples(self, samples: List[Dict[str, Any]], config: TrainingConfig) -> Dict[str, float]:
         if not samples:
@@ -891,14 +995,17 @@ class PolicyActor:
     def choose(self, player_name: str, options: Sequence[Sequence[Any]], known_game_state: Dict[str, Any]) -> int:
         state_vec = state_to_vector(known_game_state, legal_option_count=len(options))
         option_vecs = [option_to_vector(option, known_game_state) for option in options]
+        collect_details = self.collector is not None
         selection = self.policy.select_action(
             state_vec,
             option_vecs,
             deterministic=self.deterministic,
             temperature=self.temperature,
             epsilon_random=self.epsilon_random,
+            need_log_prob=collect_details,
+            need_value=collect_details,
         )
-        if self.collector is not None:
+        if collect_details:
             self.collector.append(
                 {
                     "state_vec": state_vec,
