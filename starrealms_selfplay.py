@@ -897,10 +897,25 @@ def _default_training_state(config: TrainingConfig) -> Dict[str, Any]:
     }
 
 
-def _load_json_or_none(path: Path) -> Optional[Dict[str, Any]]:
+def _load_json_or_none(path: Path, retries: int = 6, delay_seconds: float = 0.05) -> Optional[Dict[str, Any]]:
     if not path.exists():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+
+    last_error: Optional[Exception] = None
+    for attempt in range(retries):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        except (PermissionError, OSError, json.JSONDecodeError) as exc:
+            last_error = exc
+            if attempt == retries - 1:
+                break
+            time.sleep(delay_seconds * (attempt + 1))
+
+    if last_error is not None:
+        raise last_error
+    return None
 
 
 def _load_policy_from_path(path: Path) -> Optional[PolicyNetwork]:

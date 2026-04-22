@@ -5,6 +5,7 @@ import os
 import queue
 import sys
 import threading
+import time
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -438,6 +439,8 @@ class TrainerGUI(tk.Tk):
         self.game_view = chooser_ui.GameChooserGUI(parent=self, title="Star Realms Game Viewer")
         self.game_view_bridge = GameViewBridge(self)
         self._suppress_run_events = False
+        self._last_refresh_error: Optional[str] = None
+        self._last_refresh_error_at = 0.0
 
         self.run_name_var = tk.StringVar(value=sp.LATEST_RUN_NAME)
         self.checkpoint_var = tk.StringVar(value="latest")
@@ -1203,7 +1206,16 @@ class TrainerGUI(tk.Tk):
     def _poll(self) -> None:
         self._handle_choice_requests()
         self._handle_worker_results()
-        self.refresh_data()
+        try:
+            self.refresh_data()
+            self._last_refresh_error = None
+        except Exception as exc:
+            message = f"{type(exc).__name__}: {exc}"
+            now = time.time()
+            if self._last_refresh_error != message or (now - self._last_refresh_error_at) >= 5.0:
+                self.log(f"Refresh skipped due to transient error: {message}")
+                self._last_refresh_error = message
+                self._last_refresh_error_at = now
         self.after(POLL_INTERVAL_MS, self._poll)
 
     def _on_close(self) -> None:

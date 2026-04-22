@@ -254,7 +254,7 @@ class Player:
                
             # identify acquisition targets
             if self.trade > 0:
-                for i in range(5):
+                for i in range(6):
                     if self.game.tradeRow[i][1] <= self.trade:
                         options.append(('acquire', i, self.game.tradeRow[i]))
             
@@ -412,7 +412,7 @@ class Player:
 
     def selectAndScrapFromTradeRow(self):
         options = []
-        for i in range(5):
+        for i in range(6):
             if self.game.tradeRow[i][0] != 'none':
                 options.append(('rowscrap', i, self.game.tradeRow[i]))
         options.append(('noRowScrap',))
@@ -588,7 +588,7 @@ class Game:
                 self.readyCards.append(card) #12 --> count
         random.shuffle(self.readyCards)
         self.tradeRow.append(explorer)
-        for i in range(4):
+        for i in range(5):
             self.tradeRow.append(self.readyCards.pop())
         self.nextPlayer = 0
         self.winner = None

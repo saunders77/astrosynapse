@@ -777,44 +777,49 @@ if tk is not None:
         def _render_battlefield(self, section: tk.Frame, cards_by_faction: Dict[str, Sequence[Any]]) -> None:
             self._clear(section)
 
-            any_cards = False
+            battlefield_cards = []
+            option_lookup = None
+            active_outline = None
+            hover_outline = None
+
+            if section == self.opponent_board_section:
+                option_lookup = {}
+                active_outline = ATTACK_OUTLINE
+                hover_outline = HOVER_OUTLINE
+
             for faction in FACTION_ORDER:
                 faction_cards = list((cards_by_faction or {}).get(faction) or [])
-                if not faction_cards:
-                    continue
+                for index, card in enumerate(faction_cards):
+                    flat_index = len(battlefield_cards)
+                    battlefield_cards.append(card)
+                    if option_lookup is not None:
+                        option_lookup[flat_index] = self._attack_actions.get((faction, index))
 
-                any_cards = True
-                heading = tk.Label(
-                    section,
-                    text=f"{faction.title()} ({_count_label(faction_cards)})",
-                    bg=SECTION_BG,
-                    fg=ACCENT,
-                    anchor="w",
-                    font=("Segoe UI Semibold", 10),
-                )
-                heading.pack(fill="x", pady=(0, 4))
-
-                group = tk.Frame(section, bg=SECTION_BG)
-                group.pack(fill="x", pady=(0, 4))
-                option_lookup = None
-                active_outline = None
-                hover_outline = None
-                if section == self.opponent_board_section:
-                    option_lookup = {i: self._attack_actions.get((faction, i)) for i in range(len(faction_cards))}
-                    active_outline = ATTACK_OUTLINE
-                    hover_outline = HOVER_OUTLINE
-                self._populate_cards(
-                    group,
-                    faction_cards,
-                    columns=6,
-                    in_play=True,
-                    option_lookup=option_lookup,
-                    active_outline=active_outline,
-                    hover_outline=hover_outline,
-                )
-
-            if not any_cards:
+            if not battlefield_cards:
                 self._render_empty_text(section, "No cards in play.")
+                return
+
+            heading = tk.Label(
+                section,
+                text=f"{_count_label(battlefield_cards)} in play",
+                bg=SECTION_BG,
+                fg=ACCENT,
+                anchor="w",
+                font=("Segoe UI Semibold", 10),
+            )
+            heading.pack(fill="x", pady=(0, 4))
+
+            group = tk.Frame(section, bg=SECTION_BG)
+            group.pack(fill="x", pady=(0, 4))
+            self._populate_cards(
+                group,
+                battlefield_cards,
+                columns=max(1, len(battlefield_cards)),
+                in_play=True,
+                option_lookup=option_lookup,
+                active_outline=active_outline,
+                hover_outline=hover_outline,
+            )
 
         def _render_opponent_hidden(self, state: Dict[str, Any]) -> None:
             self._clear(self.opponent_hidden_section)
