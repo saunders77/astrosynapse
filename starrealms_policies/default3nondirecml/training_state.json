@@ -1,18 +1,18 @@
 {
   "status": "training",
   "run_name": "default3nondirecml",
-  "iteration": 33,
-  "total_matches": 198,
-  "total_games": 3031,
+  "iteration": 61,
+  "total_matches": 376,
+  "total_games": 5754,
   "created_at": 1776888077.3558853,
-  "updated_at": 1776889851.8159518,
+  "updated_at": 1776894233.5035474,
   "strategy": "champion_league_v2",
   "strategy_version": 2,
-  "current_elo": 1028.282232260493,
-  "best_elo": 1028.282232260493,
-  "best_checkpoint": "champion_000024.json",
-  "latest_checkpoint": "champion_000024.json",
-  "promotions": 9,
+  "current_elo": 1053.5747223790702,
+  "best_elo": 1053.5747223790702,
+  "best_checkpoint": "champion_000061.json",
+  "latest_checkpoint": "champion_000061.json",
+  "promotions": 16,
   "config": {
     "hidden_size": 96,
     "model_architecture": "deep_v2",
@@ -20,6 +20,7 @@
     "learning_rate": 0.0015,
     "min_learning_rate": 0.0003,
     "ppo_epochs": 2,
+    "ppo_minibatch_size": 64,
     "ppo_clip": 0.2,
     "min_ppo_clip": 0.1,
     "value_coef": 0.5,
@@ -49,101 +50,101 @@
     "max_iterations": null
   },
   "last_match": {
-    "wins": 40,
-    "losses": 36,
-    "games_played": 76,
-    "return_value": 0.075,
-    "duration_seconds": 68.1973512172699,
+    "wins": 26,
+    "losses": 40,
+    "games_played": 66,
+    "return_value": -0.2291958041958042,
+    "duration_seconds": 95.6610004901886,
     "matches_played": 5,
     "opponents": [
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000024.json"
+        "checkpoint": "champion_000061.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000024.json"
+        "checkpoint": "champion_000061.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000024.json"
+        "checkpoint": "champion_000061.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000024.json"
+        "checkpoint": "champion_000061.json"
       },
       {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000014.json"
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000061.json"
       }
     ]
   },
   "last_update": {
     "samples": 1280.0,
-    "policy_loss": -0.025722675210636224,
-    "value_loss": 0.024487623647123972,
-    "clip_fraction": 0.1546875,
-    "avg_ratio": 0.9987453339388594,
-    "avg_value_prediction": 0.07088776843083906,
-    "learning_rate": 0.0014872,
-    "epsilon_random": 0.04957333333333334,
-    "train_temperature": 0.9952,
-    "ppo_clip": 0.19893333333333335,
+    "policy_loss": -0.009308299119584262,
+    "value_loss": 0.03618105761706829,
+    "clip_fraction": 0.0046875,
+    "avg_ratio": 1.0009190439945086,
+    "avg_value_prediction": 0.1850471255078446,
+    "learning_rate": 0.001476,
+    "epsilon_random": 0.0492,
+    "train_temperature": 0.991,
+    "ppo_clip": 0.198,
     "matches_collected": 5
   },
   "last_eval": {
-    "wins": 7,
-    "losses": 13,
-    "games_played": 20,
-    "score": 0.35,
-    "promoted": false,
-    "action": "reset_candidate",
-    "promoted_checkpoint": null,
-    "champion_checkpoint": "champion_000024.json",
-    "duration_seconds": 12.245002508163452
+    "wins": 13,
+    "losses": 9,
+    "games_played": 22,
+    "score": 0.5909090909090909,
+    "promoted": true,
+    "action": "promoted",
+    "promoted_checkpoint": "champion_000061.json",
+    "champion_checkpoint": "champion_000057.json",
+    "duration_seconds": 24.058370113372803
   },
   "last_rating_pass": null,
   "candidate": {
-    "base_checkpoint": "champion_000024.json",
-    "base_iteration": 33,
+    "base_checkpoint": "champion_000061.json",
+    "base_iteration": 61,
     "attempts_since_reset": 0,
-    "total_attempts": 33,
-    "resets": 15,
-    "promotions": 9,
-    "rating_pass_elo": 1028.282232260493,
-    "last_score": 0.35,
-    "last_result": "reset",
-    "last_reset_reason": "Candidate reset after score 0.350 and 1 attempt(s) since the last reset.",
+    "total_attempts": 61,
+    "resets": 17,
+    "promotions": 16,
+    "rating_pass_elo": 1053.5747223790702,
+    "last_score": 0.5909090909090909,
+    "last_result": "promoted",
+    "last_reset_reason": "Promoted to champion_000061.json",
     "last_opponents": [
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000024.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000024.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000024.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000024.json"
-      },
       {
         "label": "recent",
         "source": "recent",
-        "checkpoint": "champion_000014.json"
+        "checkpoint": "champion_000051.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000057.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000057.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000057.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000057.json"
       }
     ]
   },
@@ -1017,7 +1018,7 @@
     {
       "name": "champion_000024.json",
       "iteration": 24,
-      "elo": 1028.282232260493,
+      "elo": 1020.782232260493,
       "created_at": 1776889113.247761,
       "promoted_from": "champion_000021.json",
       "promotion_eval": {
@@ -1085,6 +1086,726 @@
             "label": "champion",
             "source": "champion",
             "checkpoint": "champion_000021.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 13,
+        "wins_b": 3,
+        "games_played": 16,
+        "return_value": 0.625,
+        "per_game_winners": [
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "duration_seconds": 18.381596088409424
+      }
+    },
+    {
+      "name": "champion_000041.json",
+      "iteration": 41,
+      "elo": 1028.282232260493,
+      "created_at": 1776891538.9027297,
+      "promoted_from": "champion_000024.json",
+      "promotion_eval": {
+        "wins_a": 13,
+        "wins_b": 3,
+        "games_played": 16,
+        "return_value": 0.625,
+        "per_game_winners": [
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "duration_seconds": 18.381596088409424
+      },
+      "training_summary": {
+        "wins": 42,
+        "losses": 35,
+        "games_played": 77,
+        "return_value": 0.09714285714285714,
+        "duration_seconds": 111.267009973526,
+        "matches_played": 5,
+        "opponents": [
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000024.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000004.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000024.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000024.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000024.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 13,
+        "wins_b": 3,
+        "games_played": 16,
+        "return_value": 0.625,
+        "per_game_winners": [
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "duration_seconds": 18.230357885360718
+      }
+    },
+    {
+      "name": "champion_000046.json",
+      "iteration": 46,
+      "elo": 1041.7170148691887,
+      "created_at": 1776892176.058871,
+      "promoted_from": "champion_000041.json",
+      "promotion_eval": {
+        "wins_a": 13,
+        "wins_b": 3,
+        "games_played": 16,
+        "return_value": 0.625,
+        "per_game_winners": [
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "duration_seconds": 18.230357885360718
+      },
+      "training_summary": {
+        "wins": 44,
+        "losses": 30,
+        "games_played": 74,
+        "return_value": 0.205,
+        "duration_seconds": 106.72925853729248,
+        "matches_played": 5,
+        "opponents": [
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000041.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000041.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000041.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 13,
+        "wins_b": 10,
+        "games_played": 23,
+        "return_value": 0.13043478260869565,
+        "per_game_winners": [
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "duration_seconds": 24.21957540512085
+      }
+    },
+    {
+      "name": "champion_000051.json",
+      "iteration": 51,
+      "elo": 1042.665631469979,
+      "created_at": 1776892805.5374086,
+      "promoted_from": "champion_000046.json",
+      "promotion_eval": {
+        "wins_a": 13,
+        "wins_b": 10,
+        "games_played": 23,
+        "return_value": 0.13043478260869565,
+        "per_game_winners": [
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "duration_seconds": 24.21957540512085
+      },
+      "training_summary": {
+        "wins": 42,
+        "losses": 28,
+        "games_played": 70,
+        "return_value": 0.22884615384615384,
+        "duration_seconds": 99.19744753837585,
+        "matches_played": 5,
+        "opponents": [
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000021.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000013.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000021.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000041.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 13,
+        "wins_b": 9,
+        "games_played": 22,
+        "return_value": 0.18181818181818182,
+        "per_game_winners": [
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "duration_seconds": 23.06964612007141
+      }
+    },
+    {
+      "name": "champion_000052.json",
+      "iteration": 52,
+      "elo": 1044.8474496517972,
+      "created_at": 1776892930.9335248,
+      "promoted_from": "champion_000051.json",
+      "promotion_eval": {
+        "wins_a": 13,
+        "wins_b": 9,
+        "games_played": 22,
+        "return_value": 0.18181818181818182,
+        "per_game_winners": [
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "duration_seconds": 23.06964612007141
+      },
+      "training_summary": {
+        "wins": 34,
+        "losses": 35,
+        "games_played": 69,
+        "return_value": -0.05093406593406594,
+        "duration_seconds": 96.1837203502655,
+        "matches_played": 5,
+        "opponents": [
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000051.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000051.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000046.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000051.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000051.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 13,
+        "wins_b": 9,
+        "games_played": 22,
+        "return_value": 0.18181818181818182,
+        "per_game_winners": [
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "duration_seconds": 23.611483812332153
+      }
+    },
+    {
+      "name": "champion_000053.json",
+      "iteration": 53,
+      "elo": 1047.0292678336154,
+      "created_at": 1776893055.663805,
+      "promoted_from": "champion_000052.json",
+      "promotion_eval": {
+        "wins_a": 13,
+        "wins_b": 9,
+        "games_played": 22,
+        "return_value": 0.18181818181818182,
+        "per_game_winners": [
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "duration_seconds": 23.611483812332153
+      },
+      "training_summary": {
+        "wins": 33,
+        "losses": 35,
+        "games_played": 68,
+        "return_value": 0.0050000000000000044,
+        "duration_seconds": 94.80792498588562,
+        "matches_played": 5,
+        "opponents": [
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000052.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000024.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000052.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000052.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 13,
+        "wins_b": 9,
+        "games_played": 22,
+        "return_value": 0.18181818181818182,
+        "per_game_winners": [
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "duration_seconds": 22.578426599502563
+      }
+    },
+    {
+      "name": "champion_000057.json",
+      "iteration": 57,
+      "elo": 1049.2110860154337,
+      "created_at": 1776893610.438559,
+      "promoted_from": "champion_000053.json",
+      "promotion_eval": {
+        "wins_a": 13,
+        "wins_b": 9,
+        "games_played": 22,
+        "return_value": 0.18181818181818182,
+        "per_game_winners": [
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "duration_seconds": 22.578426599502563
+      },
+      "training_summary": {
+        "wins": 39,
+        "losses": 38,
+        "games_played": 77,
+        "return_value": 0.017142857142857137,
+        "duration_seconds": 113.09139752388,
+        "matches_played": 5,
+        "opponents": [
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000053.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000053.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000013.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000053.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000024.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 13,
+        "wins_b": 9,
+        "games_played": 22,
+        "return_value": 0.18181818181818182,
+        "per_game_winners": [
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "duration_seconds": 24.058370113372803
+      }
+    },
+    {
+      "name": "champion_000061.json",
+      "iteration": 61,
+      "elo": 1053.5747223790702,
+      "created_at": 1776894135.2672584,
+      "promoted_from": "champion_000057.json",
+      "promotion_eval": {
+        "wins_a": 13,
+        "wins_b": 9,
+        "games_played": 22,
+        "return_value": 0.18181818181818182,
+        "per_game_winners": [
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "duration_seconds": 24.058370113372803
+      },
+      "training_summary": {
+        "wins": 41,
+        "losses": 29,
+        "games_played": 70,
+        "return_value": 0.1847802197802198,
+        "duration_seconds": 99.09950375556946,
+        "matches_played": 5,
+        "opponents": [
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000051.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000057.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000057.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000057.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000057.json"
           }
         ]
       }

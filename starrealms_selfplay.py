@@ -609,6 +609,7 @@ class TrainingConfig:
     learning_rate: float = 0.0015
     min_learning_rate: float = 0.0003
     ppo_epochs: int = 2
+    ppo_minibatch_size: int = 64
     ppo_clip: float = 0.2
     min_ppo_clip: float = 0.1
     value_coef: float = 0.5
@@ -660,7 +661,11 @@ if nn is not None and torch is not None:
 
         def _joint_hidden(self, state_hidden: "torch.Tensor", option_tensor: "torch.Tensor") -> "torch.Tensor":
             option_hidden = torch.tanh(self.option_linear(option_tensor))
-            return torch.tanh(state_hidden.unsqueeze(0) + option_hidden + self.joint_bias.unsqueeze(0))
+            expanded_state_hidden = state_hidden
+            while expanded_state_hidden.dim() < option_hidden.dim():
+                expanded_state_hidden = expanded_state_hidden.unsqueeze(-2)
+            bias_shape = [1] * (option_hidden.dim() - 1) + [-1]
+            return torch.tanh(expanded_state_hidden + option_hidden + self.joint_bias.view(*bias_shape))
 
         def policy_only(self, state_tensor: "torch.Tensor", option_tensor: "torch.Tensor") -> "torch.Tensor":
             state_hidden = self._state_hidden(state_tensor)
@@ -704,8 +709,12 @@ if nn is not None and torch is not None:
             option_hidden = option_hidden + 0.35 * torch.tanh(self.option_refine_1(option_hidden))
             option_hidden = option_hidden + 0.35 * torch.tanh(self.option_refine_2(option_hidden))
 
-            state_expanded = state_hidden.unsqueeze(0).expand(option_hidden.shape[0], -1)
-            legacy_joint = torch.tanh(state_expanded + option_hidden + self.joint_bias.unsqueeze(0))
+            expanded_state_hidden = state_hidden
+            while expanded_state_hidden.dim() < option_hidden.dim():
+                expanded_state_hidden = expanded_state_hidden.unsqueeze(-2)
+            state_expanded = expanded_state_hidden.expand_as(option_hidden)
+            bias_shape = [1] * (option_hidden.dim() - 1) + [-1]
+            legacy_joint = torch.tanh(state_expanded + option_hidden + self.joint_bias.view(*bias_shape))
             interaction = state_expanded * option_hidden
             joint_input = torch.cat([legacy_joint, state_expanded, option_hidden, interaction], dim=-1)
             joint_hidden = legacy_joint + 0.35 * torch.tanh(self.joint_mix_1(joint_input))
@@ -861,8 +870,52 @@ class PolicyNetwork:
     def _state_tensor(self, state_vec: Sequence[float]) -> "torch.Tensor":
         return torch.tensor(state_vec, dtype=torch.float32, device=self.device)
 
+    def _state_tensor_batch(self, state_vecs: Sequence[Sequence[float]]) -> "torch.Tensor":
+        return torch.tensor(state_vecs, dtype=torch.float32, device=self.device)
+
     def _option_tensor(self, option_vecs: Sequence[Sequence[float]]) -> "torch.Tensor":
         return torch.tensor(option_vecs, dtype=torch.float32, device=self.device)
+
+    def _padded_option_tensor(
+        self,
+        option_vec_batches: Sequence[Sequence[Sequence[float]]],
+    ) -> Tuple["torch.Tensor", "torch.Tensor"]:
+        if not option_vec_batches:
+            raise ValueError("At least one option batch is required.")
+
+        batch_size = len(option_vec_batches)
+        max_options = max(len(option_vecs) for option_vecs in option_vec_batches)
+        if max_options <= 0:
+            raise ValueError("Each state requires at least one legal option.")
+
+        option_tensor = torch.zeros(
+            (batch_size, max_options, self.option_size),
+            dtype=torch.float32,
+            device=self.device,
+        )
+        option_mask = torch.zeros((batch_size, max_options), dtype=torch.bool, device=self.device)
+
+        for batch_index, option_vecs in enumerate(option_vec_batches):
+            option_count = len(option_vecs)
+            if option_count <= 0:
+                raise ValueError("Each state requires at least one legal option.")
+            option_tensor[batch_index, :option_count] = torch.tensor(
+                option_vecs,
+                dtype=torch.float32,
+                device=self.device,
+            )
+            option_mask[batch_index, :option_count] = True
+
+        return option_tensor, option_mask
+
+    def _masked_logits(
+        self,
+        logits: "torch.Tensor",
+        option_mask: Optional["torch.Tensor"] = None,
+    ) -> "torch.Tensor":
+        if option_mask is None:
+            return logits
+        return logits.masked_fill(~option_mask, -1e9)
 
     def _policy_logits(self, state_tensor: "torch.Tensor", option_tensor: "torch.Tensor") -> "torch.Tensor":
         return self.model.policy_only(state_tensor, option_tensor)
@@ -911,6 +964,106 @@ class PolicyNetwork:
                 result["value"] = float(value_tensor.item())
             return result
 
+    def select_actions_batch(
+        self,
+        state_vecs: Sequence[Sequence[float]],
+        option_vec_batches: Sequence[Sequence[Sequence[float]]],
+        deterministic: bool = False,
+        temperature: float = 1.0,
+        epsilon_random: float = 0.0,
+        need_log_prob: bool = False,
+        need_value: bool = False,
+    ) -> List[Dict[str, Any]]:
+        if not state_vecs:
+            return []
+        if len(state_vecs) != len(option_vec_batches):
+            raise ValueError("state_vecs and option_vec_batches must have the same length.")
+
+        if self.model.training:
+            self.model.eval()
+
+        with torch.no_grad():
+            state_tensor = self._state_tensor_batch(state_vecs)
+            option_tensor, option_mask = self._padded_option_tensor(option_vec_batches)
+
+            if deterministic and not need_log_prob and not need_value:
+                logits = self._policy_logits(state_tensor, option_tensor)
+                masked_logits = self._masked_logits(logits, option_mask)
+                action_indices = torch.argmax(masked_logits, dim=1).detach().cpu().tolist()
+                return [{"action_index": int(action_index)} for action_index in action_indices]
+
+            value_tensor = None
+            if need_value:
+                logits, value_tensor = self.model(state_tensor, option_tensor)
+            else:
+                logits = self._policy_logits(state_tensor, option_tensor)
+
+            masked_logits = self._masked_logits(logits, option_mask)
+            scaled_logits = masked_logits / max(temperature, 1e-3)
+
+            if deterministic:
+                action_tensor = torch.argmax(scaled_logits, dim=1)
+            else:
+                probs = torch.softmax(scaled_logits, dim=1)
+                action_tensor = torch.multinomial(probs, 1).squeeze(1)
+                if epsilon_random > 0.0:
+                    action_indices = action_tensor.detach().cpu().tolist()
+                    for index, option_vecs in enumerate(option_vec_batches):
+                        if random.random() < epsilon_random:
+                            action_indices[index] = random.randrange(len(option_vecs))
+                    action_tensor = torch.tensor(action_indices, dtype=torch.int64, device=self.device)
+
+            action_indices = [int(value) for value in action_tensor.detach().cpu().tolist()]
+            results: List[Dict[str, Any]] = [{"action_index": action_index} for action_index in action_indices]
+
+            if need_log_prob:
+                log_probs = torch.log_softmax(scaled_logits, dim=1)
+                chosen_log_probs = log_probs.gather(1, action_tensor.unsqueeze(1)).squeeze(1)
+                for result, log_prob in zip(results, chosen_log_probs.detach().cpu().tolist()):
+                    result["log_prob"] = float(log_prob)
+
+            if need_value and value_tensor is not None:
+                for result, value in zip(results, value_tensor.detach().cpu().tolist()):
+                    result["value"] = float(value)
+
+            return results
+
+    def _sample_batch_tensors(
+        self,
+        samples: Sequence[Dict[str, Any]],
+    ) -> Tuple["torch.Tensor", "torch.Tensor", "torch.Tensor", "torch.Tensor", "torch.Tensor", "torch.Tensor", "torch.Tensor"]:
+        state_tensor = self._state_tensor_batch([sample["state_vec"] for sample in samples])
+        option_tensor, option_mask = self._padded_option_tensor([sample["option_vecs"] for sample in samples])
+        action_tensor = torch.tensor(
+            [int(sample["action_index"]) for sample in samples],
+            dtype=torch.int64,
+            device=self.device,
+        )
+        old_log_prob_tensor = torch.tensor(
+            [float(sample["old_log_prob"]) for sample in samples],
+            dtype=torch.float32,
+            device=self.device,
+        )
+        return_tensor = torch.tensor(
+            [float(sample["return"]) for sample in samples],
+            dtype=torch.float32,
+            device=self.device,
+        )
+        advantage_tensor = torch.tensor(
+            [float(sample["advantage"]) for sample in samples],
+            dtype=torch.float32,
+            device=self.device,
+        )
+        return (
+            state_tensor,
+            option_tensor,
+            option_mask,
+            action_tensor,
+            old_log_prob_tensor,
+            return_tensor,
+            advantage_tensor,
+        )
+
     def train_on_samples(self, samples: List[Dict[str, Any]], config: TrainingConfig) -> Dict[str, float]:
         if not samples:
             return {
@@ -930,26 +1083,32 @@ class PolicyNetwork:
         ratios: List[float] = []
         clipped: List[float] = []
         value_predictions: List[float] = []
+        minibatch_size = max(1, min(int(config.ppo_minibatch_size), len(samples)))
 
         for _ in range(config.ppo_epochs):
             random.shuffle(samples)
-            for sample in samples:
-                state_tensor = self._state_tensor(sample["state_vec"])
-                option_tensor = self._option_tensor(sample["option_vecs"])
-                action_tensor = torch.tensor(sample["action_index"], dtype=torch.int64, device=self.device)
-                old_log_prob_tensor = torch.tensor(sample["old_log_prob"], dtype=torch.float32, device=self.device)
-                return_tensor = torch.tensor(sample["return"], dtype=torch.float32, device=self.device)
-                advantage_tensor = torch.tensor(sample["advantage"], dtype=torch.float32, device=self.device)
+            for batch_start in range(0, len(samples), minibatch_size):
+                sample_batch = samples[batch_start:batch_start + minibatch_size]
+                (
+                    state_tensor,
+                    option_tensor,
+                    option_mask,
+                    action_tensor,
+                    old_log_prob_tensor,
+                    return_tensor,
+                    advantage_tensor,
+                ) = self._sample_batch_tensors(sample_batch)
 
                 logits, value = self.model(state_tensor, option_tensor)
-                log_probs = torch.log_softmax(logits, dim=0)
-                log_prob = log_probs[action_tensor]
-                ratio = torch.exp(log_prob - old_log_prob_tensor)
+                masked_logits = self._masked_logits(logits, option_mask)
+                log_probs = torch.log_softmax(masked_logits, dim=1)
+                chosen_log_probs = log_probs.gather(1, action_tensor.unsqueeze(1)).squeeze(1)
+                ratio = torch.exp(chosen_log_probs - old_log_prob_tensor)
                 clipped_ratio = torch.clamp(ratio, 1.0 - config.ppo_clip, 1.0 + config.ppo_clip)
                 surrogate_one = ratio * advantage_tensor
                 surrogate_two = clipped_ratio * advantage_tensor
-                policy_loss = -torch.min(surrogate_one, surrogate_two)
-                value_loss = 0.5 * torch.square(value - return_tensor)
+                policy_loss = -torch.min(surrogate_one, surrogate_two).mean()
+                value_loss = 0.5 * torch.square(value - return_tensor).mean()
                 loss = policy_loss + config.value_coef * value_loss
 
                 self.optimizer.zero_grad(set_to_none=True)
@@ -958,12 +1117,19 @@ class PolicyNetwork:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), config.grad_clip)
                 self.optimizer.step()
 
-                ratio_value = float(ratio.item())
-                policy_losses.append(float(policy_loss.item()))
-                value_losses.append(float(value_loss.item()))
-                ratios.append(ratio_value)
-                clipped.append(1.0 if abs(ratio_value - _clip(ratio_value, 1.0 - config.ppo_clip, 1.0 + config.ppo_clip)) > 1e-8 else 0.0)
-                value_predictions.append(float(value.item()))
+                ratio_values = ratio.detach().cpu().tolist()
+                clipped_flags = (
+                    (ratio < (1.0 - config.ppo_clip)) | (ratio > (1.0 + config.ppo_clip))
+                ).detach().cpu().tolist()
+                value_batch = value.detach().cpu().tolist()
+
+                policy_loss_value = float(policy_loss.item())
+                value_loss_value = float(value_loss.item())
+                policy_losses.extend([policy_loss_value] * len(sample_batch))
+                value_losses.extend([value_loss_value] * len(sample_batch))
+                ratios.extend(float(ratio_value) for ratio_value in ratio_values)
+                clipped.extend(1.0 if was_clipped else 0.0 for was_clipped in clipped_flags)
+                value_predictions.extend(float(prediction) for prediction in value_batch)
 
         return {
             "samples": float(len(samples)),
