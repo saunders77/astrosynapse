@@ -19,20 +19,32 @@ except ImportError as exc:  # pragma: no cover - depends on local Python install
     raise RuntimeError("Tkinter is required to run the trainer GUI.") from exc
 
 ROOT_DIR = Path(__file__).resolve().parent
-VENV_PYTHON = ROOT_DIR / ".venv" / "Scripts" / "python.exe"
+VENV_PYTHON_CANDIDATES = [
+    ROOT_DIR / ".venv" / "Scripts" / "python.exe",
+    ROOT_DIR / ".venv312" / "Scripts" / "python.exe",
+]
+
+
+def _preferred_venv_python() -> Optional[Path]:
+    for candidate in VENV_PYTHON_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def _ensure_supported_python() -> None:
-    if VENV_PYTHON.exists() and Path(sys.executable).resolve() != VENV_PYTHON.resolve():
+    preferred_python = _preferred_venv_python()
+    if preferred_python is not None and Path(sys.executable).resolve() != preferred_python.resolve():
         try:
             import torch  # type: ignore
         except Exception:
             message = (
                 "Star Realms trainer GUI must be run from the project's venv.\n\n"
                 f"Current interpreter:\n{sys.executable}\n\n"
-                f"Run this instead:\n{VENV_PYTHON} {Path(__file__).name}\n"
+                f"Run this instead:\n{preferred_python} {Path(__file__).name}\n"
                 "or activate the venv first with:\n"
-                ".\\.venv\\Scripts\\Activate.ps1"
+                f"{preferred_python.parent / 'Activate.ps1'}\n\n"
+                "DirectML training currently works best from a Python 3.12 venv with torch-directml installed."
             )
             print(message)
             raise SystemExit(1)
@@ -451,6 +463,7 @@ class TrainerGUI(tk.Tk):
         self.match_games_var = tk.StringVar(value="24")
         self.chunk_var = tk.StringVar(value="5")
         self.new_run_model_var = tk.StringVar(value=sp.MODEL_TYPE_DEEP)
+        self.new_run_device_var = tk.StringVar(value=sp.DEVICE_AUTO)
         self.new_run_matches_var = tk.StringVar(value="5")
         self.new_run_games_var = tk.StringVar(value="16")
         self.new_run_promotion_games_var = tk.StringVar(value="24")
@@ -470,6 +483,7 @@ class TrainerGUI(tk.Tk):
             "best_checkpoint": tk.StringVar(value="-"),
             "latest_checkpoint": tk.StringVar(value="-"),
             "runtime": tk.StringVar(value="-"),
+            "device": tk.StringVar(value="cpu"),
             "last_error": tk.StringVar(value=""),
         }
 
@@ -608,6 +622,15 @@ class TrainerGUI(tk.Tk):
             width=10,
         )
         new_run_model_combo.pack(side="left", padx=(6, 16))
+        ttk.Label(new_run_row, text="Device").pack(side="left")
+        new_run_device_combo = ttk.Combobox(
+            new_run_row,
+            textvariable=self.new_run_device_var,
+            values=(sp.DEVICE_AUTO, sp.DEVICE_DIRECTML, sp.DEVICE_CPU),
+            state="readonly",
+            width=10,
+        )
+        new_run_device_combo.pack(side="left", padx=(6, 16))
         ttk.Label(new_run_row, text="Matches / Iter").pack(side="left")
         ttk.Entry(new_run_row, textvariable=self.new_run_matches_var, width=8).pack(side="left", padx=(6, 16))
         ttk.Label(new_run_row, text="Games / Match").pack(side="left")
@@ -672,6 +695,7 @@ class TrainerGUI(tk.Tk):
         self._summary_pair(summary, 1, 2, "Best Checkpoint", self.status_vars["best_checkpoint"])
         self._summary_pair(summary, 1, 3, "Latest Checkpoint", self.status_vars["latest_checkpoint"])
         self._summary_pair(summary, 1, 4, "Last Error", self.status_vars["last_error"])
+        self._summary_pair(summary, 2, 0, "Device", self.status_vars["device"])
 
         body = tk.PanedWindow(self, orient="horizontal", sashrelief="flat", bg=WINDOW_BG, bd=0)
         body.pack(fill="both", expand=True, padx=12, pady=(0, 12))
@@ -859,6 +883,7 @@ class TrainerGUI(tk.Tk):
     def _selected_new_run_overrides(self) -> Dict[str, Any]:
         return sp.new_run_overrides(
             model_type=self.new_run_model_var.get().strip() or sp.MODEL_TYPE_DEEP,
+            device_preference=self.new_run_device_var.get().strip() or sp.DEVICE_AUTO,
             training_matches_per_iteration=self._new_run_training_matches(),
             training_games_per_match=self._new_run_games_per_match(),
             promotion_games=self._new_run_promotion_games(),
@@ -1035,6 +1060,7 @@ class TrainerGUI(tk.Tk):
         self.status_vars["best_checkpoint"].set(str(summary.get("best_checkpoint", "-")))
         self.status_vars["latest_checkpoint"].set(str(summary.get("latest_checkpoint", "-")))
         self.status_vars["runtime"].set(str(summary.get("runtime", "-")))
+        self.status_vars["device"].set(str(summary.get("device_backend", "cpu")))
         self.status_vars["last_error"].set(str(summary.get("last_error") or ""))
 
         checkpoints = sp.list_checkpoints(run_name)
@@ -1053,6 +1079,7 @@ class TrainerGUI(tk.Tk):
 
         config = state.get("config") or {}
         config_lines = [f"- {key}: {config[key]}" for key in sorted(config.keys())]
+        runtime_info = sp.runtime_environment()
 
         last_match = summary.get("last_match") or {}
         last_update = summary.get("last_update") or {}
@@ -1074,6 +1101,11 @@ class TrainerGUI(tk.Tk):
             f"- Latest checkpoint: {summary.get('latest_checkpoint')}",
             f"- Promotions: {summary.get('promotions', 0)}",
             f"- Runtime: {summary.get('runtime')}",
+            f"- Device backend: {summary.get('device_backend', '-')}",
+            f"- Device repr: {summary.get('device_repr', '-')}",
+            f"- Device preference: {summary.get('device_preference', '-')}",
+            f"- Python: {runtime_info.get('python_version', '-')}",
+            f"- Interpreter: {runtime_info.get('interpreter', '-')}",
             "",
             "Last Match",
             f"- Wins: {last_match.get('wins', '-')}",
@@ -1163,6 +1195,9 @@ class TrainerGUI(tk.Tk):
                 "last_rating_pass": None,
                 "last_error": None,
                 "runtime": "-",
+                "device_backend": "cpu",
+                "device_repr": "cpu",
+                "device_preference": "auto",
                 "run_dir": str((Path(sp.RUNS_DIR) / run_name).resolve()),
             }
 
@@ -1170,6 +1205,12 @@ class TrainerGUI(tk.Tk):
         runtime = "-"
         if created_at is not None:
             runtime = sp._format_seconds(sp._timestamp() - float(created_at))
+        config = state.get("config", {}) or {}
+        device_preference = str(config.get("device_preference", "auto"))
+        try:
+            device_backend = sp.resolve_device_backend(device_preference)
+        except Exception:
+            device_backend = device_preference
         return {
             "run_name": state.get("run_name", run_name),
             "status": state.get("status", "idle"),
@@ -1188,6 +1229,9 @@ class TrainerGUI(tk.Tk):
             "last_rating_pass": state.get("last_rating_pass"),
             "last_error": state.get("last_error"),
             "runtime": runtime,
+            "device_backend": device_backend,
+            "device_repr": "-",
+            "device_preference": device_preference,
             "run_dir": state.get("run_dir", str((Path(sp.RUNS_DIR) / run_name).resolve())),
         }
 
@@ -1292,6 +1336,7 @@ class TrainerGUI(tk.Tk):
             config = sp.get_run_state(run_name).get("config") or {}
             self.log(
                 f"Created run '{run_name}' with model {config.get('model_architecture')} "
+                f"on {config.get('device_preference')} "
                 f"and {config.get('training_matches_per_iteration')} match(es)/iter, "
                 f"{config.get('training_games_per_match')} game(s)/match, "
                 f"{config.get('promotion_games')} promotion game(s)."

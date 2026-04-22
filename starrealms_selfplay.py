@@ -31,6 +31,14 @@ except ImportError as exc:
 else:
     TORCH_IMPORT_ERROR = None
 
+try:
+    import torch_directml  # type: ignore
+except ImportError as exc:
+    torch_directml = None
+    TORCH_DIRECTML_IMPORT_ERROR = exc
+else:
+    TORCH_DIRECTML_IMPORT_ERROR = None
+
 
 ROOT_DIR = Path(__file__).resolve().parent
 RUNS_DIR = ROOT_DIR / "starrealms_policies"
@@ -45,6 +53,11 @@ MODEL_TYPE_DEEP = "deep"
 MODEL_TYPE_DEFAULT = "default"
 DEFAULT_MODEL_HIDDEN_SIZE = 24
 DEEP_MODEL_HIDDEN_SIZE = 96
+DEVICE_AUTO = "auto"
+DEVICE_CPU = "cpu"
+DEVICE_DIRECTML = "directml"
+DEVICE_CUDA = "cuda"
+DEVICE_MPS = "mps"
 NOOP_ACTIONS = {"endTurn", "nodiscard", "nokill", "noRowScrap", "noScrapFromHand", "nocopy"}
 
 
@@ -197,6 +210,69 @@ def _format_seconds(seconds: float) -> str:
     if minutes > 0:
         return f"{minutes}m {secs:02d}s"
     return f"{secs}s"
+
+
+def _directml_available() -> bool:
+    return torch is not None and torch_directml is not None
+
+
+def _select_torch_device(preference: str = DEVICE_AUTO) -> Tuple[Any, str]:
+    if torch is None:
+        raise RuntimeError(
+            "PyTorch is required for starrealms_selfplay.py. "
+            "Run this module from the project's training venv where torch is installed."
+        ) from TORCH_IMPORT_ERROR
+
+    normalized = str(preference or DEVICE_AUTO).strip().lower()
+    if normalized == DEVICE_DIRECTML:
+        if torch_directml is None:
+            raise RuntimeError(
+                "DirectML was requested, but torch_directml is not installed. "
+                "Use Python 3.12 in your training venv and install torch-directml."
+            ) from TORCH_DIRECTML_IMPORT_ERROR
+        return torch_directml.device(), DEVICE_DIRECTML
+
+    if normalized == DEVICE_CPU:
+        return torch.device("cpu"), DEVICE_CPU
+
+    if normalized == DEVICE_CUDA and hasattr(torch, "cuda") and torch.cuda.is_available():
+        return torch.device("cuda"), DEVICE_CUDA
+
+    if normalized == DEVICE_MPS and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps"), DEVICE_MPS
+
+    if normalized == DEVICE_AUTO:
+        if torch_directml is not None:
+            return torch_directml.device(), DEVICE_DIRECTML
+        if hasattr(torch, "cuda") and torch.cuda.is_available():
+            return torch.device("cuda"), DEVICE_CUDA
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return torch.device("mps"), DEVICE_MPS
+        return torch.device("cpu"), DEVICE_CPU
+
+    return torch.device("cpu"), DEVICE_CPU
+
+
+def runtime_environment() -> Dict[str, Any]:
+    directml_error = None
+    if TORCH_DIRECTML_IMPORT_ERROR is not None:
+        directml_error = f"{type(TORCH_DIRECTML_IMPORT_ERROR).__name__}: {TORCH_DIRECTML_IMPORT_ERROR}"
+    training_device, training_backend = _select_torch_device(DEVICE_AUTO) if torch is not None else (None, "unavailable")
+    return {
+        "python_version": ".".join(str(part) for part in os.sys.version_info[:3]),
+        "interpreter": os.sys.executable,
+        "torch_available": torch is not None,
+        "torch_version": None if torch is None else getattr(torch, "__version__", None),
+        "torch_directml_available": _directml_available(),
+        "torch_directml_error": directml_error,
+        "auto_device": training_backend,
+        "auto_device_repr": None if training_device is None else str(training_device),
+    }
+
+
+def resolve_device_backend(preference: str = DEVICE_AUTO) -> str:
+    _, backend = _select_torch_device(preference)
+    return backend
 
 
 def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
@@ -465,6 +541,7 @@ def option_to_vector(option: Sequence[Any], state: Dict[str, Any]) -> List[float
 class TrainingConfig:
     hidden_size: int = DEEP_MODEL_HIDDEN_SIZE
     model_architecture: str = CURRENT_MODEL_ARCHITECTURE
+    device_preference: str = DEVICE_AUTO
     learning_rate: float = 0.0015
     min_learning_rate: float = 0.0003
     ppo_epochs: int = 2
@@ -566,7 +643,7 @@ else:
         def __init__(self, *_: Any, **__: Any) -> None:
             raise RuntimeError(
                 "PyTorch is required for starrealms_selfplay.py. "
-                "Run this module from the project's .venv where torch is installed."
+                "Run this module from the project's training venv where torch is installed."
             ) from TORCH_IMPORT_ERROR
 
 
@@ -574,7 +651,7 @@ else:
         def __init__(self, *_: Any, **__: Any) -> None:
             raise RuntimeError(
                 "PyTorch is required for starrealms_selfplay.py. "
-                "Run this module from the project's .venv where torch is installed."
+                "Run this module from the project's training venv where torch is installed."
             ) from TORCH_IMPORT_ERROR
 
 
@@ -585,12 +662,13 @@ class PolicyNetwork:
         option_size: int = OPTION_VECTOR_SIZE,
         hidden_size: int = 96,
         architecture: str = CURRENT_MODEL_ARCHITECTURE,
+        device_preference: str = DEVICE_AUTO,
         init_seed: Optional[int] = None,
     ) -> None:
         if torch is None or nn is None:
             raise RuntimeError(
                 "PyTorch is required for starrealms_selfplay.py. "
-                "Run this module from the project's .venv where torch is installed."
+                "Run this module from the project's training venv where torch is installed."
             ) from TORCH_IMPORT_ERROR
         if init_seed is not None:
             torch.manual_seed(init_seed)
@@ -598,7 +676,8 @@ class PolicyNetwork:
         self.option_size = option_size
         self.hidden_size = hidden_size
         self.architecture = architecture
-        self.device = torch.device("cpu")
+        self.device_preference = device_preference
+        self.device, self.device_backend = _select_torch_device(device_preference)
         if architecture == LEGACY_MODEL_ARCHITECTURE:
             self.model = _LegacyTorchPolicyModule(state_size, option_size, hidden_size).to(self.device)
         elif architecture == CURRENT_MODEL_ARCHITECTURE:
@@ -613,6 +692,7 @@ class PolicyNetwork:
             option_size=self.option_size,
             hidden_size=self.hidden_size,
             architecture=self.architecture,
+            device_preference=self.device_preference,
         )
         clone.model.load_state_dict(self.model.state_dict())
         clone.optimizer = torch.optim.Adam(clone.model.parameters(), lr=self.optimizer.param_groups[0]["lr"])
@@ -629,6 +709,7 @@ class PolicyNetwork:
             "option_size": self.option_size,
             "hidden_size": self.hidden_size,
             "architecture": self.architecture,
+            "device_preference": self.device_preference,
             "state_dict": state_dict,
         }
         if include_optimizer:
@@ -649,11 +730,13 @@ class PolicyNetwork:
             else:
                 architecture = LEGACY_MODEL_ARCHITECTURE
         hidden_size = payload.get("hidden_size", 24 if architecture == LEGACY_MODEL_ARCHITECTURE else 96)
+        device_preference = payload.get("device_preference", DEVICE_AUTO)
         model = cls(
             state_size=state_size,
             option_size=option_size,
             hidden_size=hidden_size,
             architecture=architecture,
+            device_preference=device_preference,
         )
 
         if payload.get("backend") == "torch" or "state_dict" in payload:
@@ -673,6 +756,7 @@ class PolicyNetwork:
             option_size=option_size,
             hidden_size=hidden_size,
             architecture=LEGACY_MODEL_ARCHITECTURE,
+            device_preference=device_preference,
         )
         converted_state = {
             "state_linear.weight": torch.tensor(params["state_w"], dtype=torch.float32, device=model.device),
@@ -889,6 +973,7 @@ def new_run_overrides(
     training_matches_per_iteration: int = 5,
     training_games_per_match: int = 16,
     promotion_games: int = 24,
+    device_preference: str = DEVICE_AUTO,
 ) -> Dict[str, Any]:
     if int(training_matches_per_iteration) <= 0:
         raise ValueError("training_matches_per_iteration must be positive.")
@@ -900,6 +985,7 @@ def new_run_overrides(
     overrides = model_type_overrides(model_type)
     overrides.update(
         {
+            "device_preference": str(device_preference or DEVICE_AUTO).strip().lower(),
             "training_matches_per_iteration": int(training_matches_per_iteration),
             "training_games_per_match": int(training_games_per_match),
             "promotion_games": int(promotion_games),
@@ -1074,7 +1160,11 @@ def _ensure_run(run_name: str, config_overrides: Optional[Dict[str, Any]] = None
         return files
 
     config = TrainingConfig().merged(config_overrides)
-    policy = PolicyNetwork(hidden_size=config.hidden_size, architecture=config.model_architecture)
+    policy = PolicyNetwork(
+        hidden_size=config.hidden_size,
+        architecture=config.model_architecture,
+        device_preference=config.device_preference,
+    )
     state = _default_training_state(config)
     state["run_name"] = run_name
     _atomic_write_json(files.policy_file, policy.to_dict(include_optimizer=True))
@@ -1116,7 +1206,11 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
     state_payload["config"] = saved_config
     config = TrainingConfig().merged(saved_config).merged(config_overrides)
     if policy_payload is None:
-        policy = PolicyNetwork(hidden_size=config.hidden_size, architecture=config.model_architecture)
+        policy = PolicyNetwork(
+            hidden_size=config.hidden_size,
+            architecture=config.model_architecture,
+            device_preference=config.device_preference,
+        )
     else:
         policy = PolicyNetwork.from_dict(policy_payload)
     policy, state_payload, dirty = _migrate_run_state(files, policy, state_payload, config)
@@ -2037,6 +2131,9 @@ class SelfPlayTrainer:
             "last_error": self.state.get("last_error"),
             "runtime": _format_seconds(runtime),
             "run_dir": str(self.files.run_dir),
+            "device_backend": getattr(self.policy, "device_backend", DEVICE_CPU),
+            "device_repr": str(getattr(self.policy, "device", "cpu")),
+            "device_preference": self.config.device_preference,
         }
 
 
@@ -2095,6 +2192,7 @@ def summarize_training_progress(run_name: str = LATEST_RUN_NAME) -> str:
         f"Run '{summary['run_name']}' is {summary['status']}. "
         f"Iteration {summary['iteration']}, total matches {summary['total_matches']}, "
         f"Elo {summary['current_elo']} (best {summary['best_elo']}), promotions {summary.get('promotions', 0)}, "
+        f"device {summary.get('device_backend', DEVICE_CPU)}, "
         f"{match_text}.{eval_text} "
         f"Artifacts: {summary['run_dir']}."
     )
@@ -2136,6 +2234,7 @@ def train_iterations(
 def create_run(
     run_name: str,
     model_type: str = MODEL_TYPE_DEEP,
+    device_preference: str = DEVICE_AUTO,
     training_matches_per_iteration: int = 5,
     training_games_per_match: int = 16,
     promotion_games: int = 24,
@@ -2147,6 +2246,7 @@ def create_run(
 
     overrides = new_run_overrides(
         model_type=model_type,
+        device_preference=device_preference,
         training_matches_per_iteration=training_matches_per_iteration,
         training_games_per_match=training_games_per_match,
         promotion_games=promotion_games,
