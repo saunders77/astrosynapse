@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+import os
 import random
 import threading
 import time
@@ -196,9 +197,34 @@ def _format_seconds(seconds: float) -> str:
 
 def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_suffix(path.suffix + ".tmp")
-    temp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    temp_path.replace(path)
+    content = json.dumps(payload, indent=2)
+    last_error: Optional[Exception] = None
+    for attempt in range(8):
+        temp_path = path.with_suffix(path.suffix + f".{os.getpid()}.{threading.get_ident()}.{attempt}.tmp")
+        try:
+            temp_path.write_text(content, encoding="utf-8")
+            os.replace(temp_path, path)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            try:
+                if temp_path.exists():
+                    temp_path.unlink()
+            except OSError:
+                pass
+            time.sleep(0.05 * (attempt + 1))
+        except Exception:
+            try:
+                if temp_path.exists():
+                    temp_path.unlink()
+            except OSError:
+                pass
+            raise
+    if last_error is not None:
+        raise PermissionError(
+            f"Permission error while saving {path}. "
+            "Another process may still have the file open; please wait a moment and try again."
+        ) from last_error
 
 
 def _is_card_tuple(value: Any) -> bool:
