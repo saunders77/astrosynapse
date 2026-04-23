@@ -1659,13 +1659,14 @@ def _scrub_deleted_checkpoint_refs(value: Any, deleted_checkpoint: str, replacem
     return value
 
 
-def delete_checkpoint(run_name: str = LATEST_RUN_NAME, checkpoint: str = "") -> Dict[str, Any]:
+def delete_checkpoints(run_name: str = LATEST_RUN_NAME, checkpoints: Sequence[str] = ()) -> Dict[str, Any]:
     files, policy, state, _ = _load_policy_and_state(run_name)
-    checkpoint_name = _resolve_checkpoint_name(state, checkpoint)
-    if not checkpoint_name:
-        raise ValueError("A checkpoint name is required.")
-    if checkpoint_name == "candidate":
-        raise ValueError("The candidate row is not a checkpoint file. Delete a saved checkpoint instead.")
+    requested_names = [_resolve_checkpoint_name(state, checkpoint) for checkpoint in checkpoints]
+    checkpoint_names = [name for name in requested_names if name]
+    if not checkpoint_names:
+        raise ValueError("At least one checkpoint name is required.")
+    if any(name == "candidate" for name in checkpoint_names):
+        raise ValueError("The candidate row is not a checkpoint file. Delete saved checkpoints instead.")
 
     trainer = _TRAINERS.get(run_name)
     if trainer is not None and trainer.is_running:
@@ -1674,22 +1675,28 @@ def delete_checkpoint(run_name: str = LATEST_RUN_NAME, checkpoint: str = "") -> 
         raise RuntimeError(f"Run '{run_name}' is marked as running. Interrupt training before deleting checkpoints.")
 
     checkpoint_entries = list(state.get("checkpoints") or [])
-    checkpoint_names = {str(item.get("name", "")) for item in checkpoint_entries}
-    if checkpoint_name not in checkpoint_names:
-        raise FileNotFoundError(f"Checkpoint '{checkpoint_name}' was not found in run '{run_name}'.")
+    existing_names = {str(item.get("name", "")) for item in checkpoint_entries}
+    missing = [name for name in checkpoint_names if name not in existing_names]
+    if missing:
+        if len(missing) == 1:
+            raise FileNotFoundError(f"Checkpoint '{missing[0]}' was not found in run '{run_name}'.")
+        raise FileNotFoundError(f"These checkpoints were not found in run '{run_name}': {', '.join(sorted(missing))}.")
 
-    checkpoint_path = files.checkpoints_dir / checkpoint_name
-    if checkpoint_path.exists():
-        checkpoint_path.unlink()
+    unique_checkpoint_names = sorted(set(checkpoint_names))
+    deleted_set = set(unique_checkpoint_names)
+    for checkpoint_name in unique_checkpoint_names:
+        checkpoint_path = files.checkpoints_dir / checkpoint_name
+        if checkpoint_path.exists():
+            checkpoint_path.unlink()
 
     state["checkpoints"] = [
         dict(item)
         for item in checkpoint_entries
-        if str(item.get("name", "")) != checkpoint_name
+        if str(item.get("name", "")) not in deleted_set
     ]
 
-    deleted_latest = checkpoint_name == state.get("latest_checkpoint")
-    deleted_best = checkpoint_name == state.get("best_checkpoint")
+    deleted_latest = str(state.get("latest_checkpoint")) in deleted_set
+    deleted_best = str(state.get("best_checkpoint")) in deleted_set
 
     replacement_checkpoint: Optional[str] = None
     if deleted_latest or not state.get("checkpoints"):
@@ -1719,7 +1726,7 @@ def delete_checkpoint(run_name: str = LATEST_RUN_NAME, checkpoint: str = "") -> 
     if latest_entry is not None:
         state["current_elo"] = float(latest_entry.get("elo", state.get("current_elo", INITIAL_ELO)))
 
-    if deleted_best or state.get("best_checkpoint") == checkpoint_name:
+    if deleted_best or str(state.get("best_checkpoint")) in deleted_set:
         best_entry = _pick_best_checkpoint_entry(list(state.get("checkpoints") or []))
         if best_entry is not None:
             state["best_checkpoint"] = best_entry.get("name")
@@ -1736,33 +1743,34 @@ def delete_checkpoint(run_name: str = LATEST_RUN_NAME, checkpoint: str = "") -> 
             state["best_elo"] = float(best_entry.get("elo", state.get("best_elo", INITIAL_ELO)))
 
     replacement_reference = str(state.get("latest_checkpoint") or state.get("best_checkpoint") or "")
-    state["candidate"] = _scrub_deleted_checkpoint_refs(
-        state.get("candidate") or {},
-        checkpoint_name,
-        replacement_reference,
-    )
-    state["last_match"] = _scrub_deleted_checkpoint_refs(
-        state.get("last_match"),
-        checkpoint_name,
-        replacement_reference,
-    )
-    state["last_eval"] = _scrub_deleted_checkpoint_refs(
-        state.get("last_eval"),
-        checkpoint_name,
-        replacement_reference,
-    )
-    state["last_rating_pass"] = _scrub_deleted_checkpoint_refs(
-        state.get("last_rating_pass"),
-        checkpoint_name,
-        replacement_reference,
-    )
-    state["last_update"] = _scrub_deleted_checkpoint_refs(
-        state.get("last_update"),
-        checkpoint_name,
-        replacement_reference,
-    )
+    for checkpoint_name in unique_checkpoint_names:
+        state["candidate"] = _scrub_deleted_checkpoint_refs(
+            state.get("candidate") or {},
+            checkpoint_name,
+            replacement_reference,
+        )
+        state["last_match"] = _scrub_deleted_checkpoint_refs(
+            state.get("last_match"),
+            checkpoint_name,
+            replacement_reference,
+        )
+        state["last_eval"] = _scrub_deleted_checkpoint_refs(
+            state.get("last_eval"),
+            checkpoint_name,
+            replacement_reference,
+        )
+        state["last_rating_pass"] = _scrub_deleted_checkpoint_refs(
+            state.get("last_rating_pass"),
+            checkpoint_name,
+            replacement_reference,
+        )
+        state["last_update"] = _scrub_deleted_checkpoint_refs(
+            state.get("last_update"),
+            checkpoint_name,
+            replacement_reference,
+        )
+        _POLICY_CACHE.pop((run_name, checkpoint_name), None)
 
-    _POLICY_CACHE.pop((run_name, checkpoint_name), None)
     _POLICY_CACHE.pop((run_name, "best"), None)
     _POLICY_CACHE.pop((run_name, "latest"), None)
     _TRAINERS.pop(run_name, None)
@@ -1771,7 +1779,7 @@ def delete_checkpoint(run_name: str = LATEST_RUN_NAME, checkpoint: str = "") -> 
 
     return {
         "run_name": run_name,
-        "deleted_checkpoint": checkpoint_name,
+        "deleted_checkpoints": unique_checkpoint_names,
         "latest_checkpoint": state.get("latest_checkpoint"),
         "best_checkpoint": state.get("best_checkpoint"),
         "current_elo": float(state.get("current_elo", INITIAL_ELO)),
@@ -1779,6 +1787,13 @@ def delete_checkpoint(run_name: str = LATEST_RUN_NAME, checkpoint: str = "") -> 
         "checkpoint_count": len(list(state.get("checkpoints") or [])),
         "replacement_checkpoint": replacement_checkpoint,
     }
+
+
+def delete_checkpoint(run_name: str = LATEST_RUN_NAME, checkpoint: str = "") -> Dict[str, Any]:
+    result = delete_checkpoints(run_name=run_name, checkpoints=[checkpoint])
+    deleted = list(result.get("deleted_checkpoints") or [])
+    result["deleted_checkpoint"] = deleted[0] if deleted else ""
+    return result
 
 
 def _play_match(

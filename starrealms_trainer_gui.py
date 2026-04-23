@@ -718,19 +718,20 @@ class TrainerGUI(tk.Tk):
             checkpoints_frame,
             columns=("iteration", "elo", "flags"),
             headings=("Iter", "Elo", "Flags"),
+            selectmode="extended",
         )
         self.checkpoints_tree.bind("<<TreeviewSelect>>", self._on_checkpoint_tree_select)
         checkpoint_actions = tk.Frame(checkpoints_frame, bg=WINDOW_BG)
         checkpoint_actions.pack(fill="x", pady=(8, 0))
         self.delete_checkpoint_button = self._button(
             checkpoint_actions,
-            "Delete Selected Checkpoint",
-            self._delete_selected_checkpoint,
+            "Delete Selected Checkpoints",
+            self._delete_selected_checkpoints,
         )
         self.delete_checkpoint_button.pack(side="left")
         tk.Label(
             checkpoint_actions,
-            text="Deletes the selected saved checkpoint row and updates the run metadata.",
+            text="Deletes all selected saved checkpoint rows and updates the run metadata.",
             bg=WINDOW_BG,
             fg=MUTED,
             anchor="w",
@@ -788,11 +789,17 @@ class TrainerGUI(tk.Tk):
             font=("Segoe UI Semibold", 9),
         )
 
-    def _build_tree(self, parent: tk.Widget, columns: Sequence[str], headings: Sequence[str]) -> ttk.Treeview:
+    def _build_tree(
+        self,
+        parent: tk.Widget,
+        columns: Sequence[str],
+        headings: Sequence[str],
+        selectmode: str = "browse",
+    ) -> ttk.Treeview:
         frame = tk.Frame(parent, bg=WINDOW_BG)
         frame.pack(fill="both", expand=True)
 
-        tree = ttk.Treeview(frame, columns=columns, show="tree headings", selectmode="browse")
+        tree = ttk.Treeview(frame, columns=columns, show="tree headings", selectmode=selectmode)
         tree.pack(side="left", fill="both", expand=True)
         tree.heading("#0", text="Name")
         tree.column("#0", width=190, stretch=True)
@@ -1293,34 +1300,43 @@ class TrainerGUI(tk.Tk):
         selection = self.checkpoints_tree.selection()
         if not selection:
             return
-        self.checkpoint_var.set(selection[0])
+        self.checkpoint_var.set(selection[-1])
 
-    def _delete_selected_checkpoint(self) -> None:
-        selection = self.checkpoints_tree.selection()
+    def _delete_selected_checkpoints(self) -> None:
+        selection = list(self.checkpoints_tree.selection())
         if not selection:
-            messagebox.showinfo("No checkpoint selected", "Select a checkpoint in the Checkpoints table first.", parent=self)
-            return
-
-        run_name = self._selected_run_name()
-        checkpoint = selection[0]
-        if checkpoint == "candidate":
             messagebox.showinfo(
-                "Candidate cannot be deleted here",
-                "The candidate row is an in-progress policy, not a saved checkpoint file. Select a saved checkpoint row instead.",
+                "No checkpoints selected",
+                "Select one or more checkpoints in the Checkpoints table first.",
                 parent=self,
             )
             return
 
+        run_name = self._selected_run_name()
+        checkpoints = [checkpoint for checkpoint in selection if checkpoint != "candidate"]
+        if not checkpoints:
+            messagebox.showinfo(
+                "Candidate cannot be deleted here",
+                "The candidate row is an in-progress policy, not a saved checkpoint file. Select one or more saved checkpoint rows instead.",
+                parent=self,
+            )
+            return
+
+        skipped_candidate = len(checkpoints) != len(selection)
+        count = len(checkpoints)
+        selected_text = ", ".join(checkpoints[:4])
+        if count > 4:
+            selected_text += f", and {count - 4} more"
         confirm = messagebox.askyesno(
-            "Delete checkpoint",
-            f"Delete checkpoint '{checkpoint}' from run '{run_name}'?\n\nThis removes the checkpoint file and updates training_state.json to match.",
+            "Delete checkpoints",
+            f"Delete {count} checkpoint(s) from run '{run_name}'?\n\nSelected: {selected_text}\n\nThis removes the checkpoint files and updates training_state.json to match.",
             parent=self,
         )
         if not confirm:
             return
 
         def action() -> Dict[str, Any]:
-            return sp.delete_checkpoint(run_name=run_name, checkpoint=checkpoint)
+            return sp.delete_checkpoints(run_name=run_name, checkpoints=checkpoints)
 
         def on_success(result: Dict[str, Any]) -> None:
             replacement = result.get("replacement_checkpoint")
@@ -1328,13 +1344,15 @@ class TrainerGUI(tk.Tk):
                 replacement_text = f" Replaced active champion snapshot with '{replacement}'."
             else:
                 replacement_text = ""
+            skipped_text = " Candidate row was skipped." if skipped_candidate else ""
             self.log(
-                f"Deleted checkpoint '{result.get('deleted_checkpoint')}' from '{run_name}'. "
+                f"Deleted {len(result.get('deleted_checkpoints') or [])} checkpoint(s) from '{run_name}': "
+                f"{', '.join(result.get('deleted_checkpoints') or [])}. "
                 f"Latest is now '{result.get('latest_checkpoint')}', best is '{result.get('best_checkpoint')}'."
-                f"{replacement_text}"
+                f"{replacement_text}{skipped_text}"
             )
 
-        self._run_async(f"Delete checkpoint '{checkpoint}' from '{run_name}'", action, on_success=on_success)
+        self._run_async(f"Delete {count} checkpoint(s) from '{run_name}'", action, on_success=on_success)
 
     def _train_chunk(self) -> None:
         try:
