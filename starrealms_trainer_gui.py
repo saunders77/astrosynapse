@@ -1022,8 +1022,8 @@ class TrainerGUI(tk.Tk):
             current_checkpoint = "latest"
         self.checkpoint_var.set(current_checkpoint)
 
-        selected_items = self.checkpoints_tree.selection()
-        selected_checkpoint = selected_items[0] if selected_items else None
+        selected_items = list(self.checkpoints_tree.selection())
+        selected_checkpoint = selected_items[-1] if selected_items else None
 
         self.checkpoints_tree.delete(*self.checkpoints_tree.get_children())
         for checkpoint in checkpoints:
@@ -1046,7 +1046,18 @@ class TrainerGUI(tk.Tk):
                 ),
             )
 
-        if current_checkpoint not in ("latest", "best") and current_checkpoint in self.checkpoints_tree.get_children():
+        surviving_selection = [
+            checkpoint_name
+            for checkpoint_name in selected_items
+            if checkpoint_name in self.checkpoints_tree.get_children()
+        ]
+
+        if surviving_selection:
+            self.checkpoints_tree.selection_set(surviving_selection)
+            focus_checkpoint = surviving_selection[-1]
+            self.checkpoints_tree.focus(focus_checkpoint)
+            self.checkpoints_tree.see(focus_checkpoint)
+        elif current_checkpoint not in ("latest", "best") and current_checkpoint in self.checkpoints_tree.get_children():
             self.checkpoints_tree.selection_set(current_checkpoint)
             self.checkpoints_tree.focus(current_checkpoint)
             self.checkpoints_tree.see(current_checkpoint)
