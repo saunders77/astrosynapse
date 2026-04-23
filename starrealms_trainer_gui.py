@@ -467,6 +467,8 @@ class TrainerGUI(tk.Tk):
         self.new_run_matches_var = tk.StringVar(value="5")
         self.new_run_games_var = tk.StringVar(value="16")
         self.new_run_promotion_games_var = tk.StringVar(value="24")
+        self.fork_source_run_var = tk.StringVar(value=sp.LATEST_RUN_NAME)
+        self.fork_source_checkpoint_var = tk.StringVar(value="latest")
         self.rating_models_var = tk.StringVar(value="8")
         self.rating_games_var = tk.StringVar(value="12")
         self.include_candidate_var = tk.BooleanVar(value=True)
@@ -581,6 +583,12 @@ class TrainerGUI(tk.Tk):
         self.interrupt_button.pack(side="left", padx=6)
         self.create_run_button = self._button(button_row, "Create Run", self._create_run)
         self.create_run_button.pack(side="left", padx=6)
+        self.create_run_from_checkpoint_button = self._button(
+            button_row,
+            "Create Run From Checkpoint",
+            self._create_run_from_checkpoint,
+        )
+        self.create_run_from_checkpoint_button.pack(side="left", padx=6)
         self.rating_pass_button = self._button(button_row, "Run Rating Pass", self._run_rating_pass)
         self.rating_pass_button.pack(side="left", padx=6)
         self.selfplay_button = self._button(button_row, "Run Self-Play Game", self._play_self_game)
@@ -639,7 +647,7 @@ class TrainerGUI(tk.Tk):
         ttk.Entry(new_run_row, textvariable=self.new_run_promotion_games_var, width=8).pack(side="left", padx=(6, 16))
         new_run_tip = tk.Label(
             new_run_row,
-            text="These settings are used only when creating a brand-new run.",
+            text="These settings are used when creating a fresh run or forking from a checkpoint.",
             bg=WINDOW_BG,
             fg=MUTED,
             anchor="w",
@@ -647,8 +655,37 @@ class TrainerGUI(tk.Tk):
         )
         new_run_tip.pack(side="left")
 
+        fork_row = tk.Frame(controls, bg=WINDOW_BG)
+        fork_row.grid(row=4, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        ttk.Label(fork_row, text="Fork Source Run").pack(side="left")
+        self.fork_source_run_combo = ttk.Combobox(
+            fork_row,
+            textvariable=self.fork_source_run_var,
+            width=16,
+            state="readonly",
+        )
+        self.fork_source_run_combo.pack(side="left", padx=(6, 6))
+        self.fork_source_run_combo.bind("<<ComboboxSelected>>", self._on_fork_source_combo)
+        ttk.Label(fork_row, text="Source Checkpoint").pack(side="left")
+        self.fork_source_checkpoint_combo = ttk.Combobox(
+            fork_row,
+            textvariable=self.fork_source_checkpoint_var,
+            width=18,
+            state="readonly",
+        )
+        self.fork_source_checkpoint_combo.pack(side="left", padx=(6, 16))
+        fork_tip = tk.Label(
+            fork_row,
+            text="Creates a brand-new run whose initial weights come from the selected source checkpoint; the source determines architecture/hidden size, while the settings above control new training.",
+            bg=WINDOW_BG,
+            fg=MUTED,
+            anchor="w",
+            font=("Segoe UI", 9),
+        )
+        fork_tip.pack(side="left")
+
         rating_row = tk.Frame(controls, bg=WINDOW_BG)
-        rating_row.grid(row=4, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        rating_row.grid(row=5, column=0, columnspan=7, sticky="ew", pady=(10, 0))
         ttk.Label(rating_row, text="Rating Policies").pack(side="left")
         ttk.Entry(rating_row, textvariable=self.rating_models_var, width=8).pack(side="left", padx=(6, 16))
         ttk.Label(rating_row, text="Games / Pair").pack(side="left")
@@ -665,7 +702,7 @@ class TrainerGUI(tk.Tk):
         rating_tip.pack(side="left", padx=(16, 0))
 
         name_row = tk.Frame(controls, bg=WINDOW_BG)
-        name_row.grid(row=5, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        name_row.grid(row=6, column=0, columnspan=7, sticky="ew", pady=(10, 0))
         ttk.Label(name_row, text="Human Name").pack(side="left")
         ttk.Entry(name_row, textvariable=self.human_name_var, width=18).pack(side="left", padx=(6, 16))
         ttk.Label(name_row, text="Policy Display Name").pack(side="left")
@@ -961,11 +998,29 @@ class TrainerGUI(tk.Tk):
             if checkpoint_var.get().strip() not in checkpoint_values:
                 checkpoint_var.set("latest")
 
+    def _refresh_fork_source_selector(self, run_names: Sequence[str]) -> None:
+        values = list(run_names)
+        self.fork_source_run_combo.configure(values=values)
+
+        if not self.fork_source_run_var.get().strip():
+            self.fork_source_run_var.set(self._selected_run_name())
+        if values and self.fork_source_run_var.get().strip() not in values:
+            self.fork_source_run_var.set(values[0])
+
+        run_name = self.fork_source_run_var.get().strip() or sp.LATEST_RUN_NAME
+        checkpoint_values = ["latest", "best"]
+        if sp.run_exists(run_name):
+            checkpoint_values.extend(item["name"] for item in sp.list_checkpoints(run_name))
+        self.fork_source_checkpoint_combo.configure(values=checkpoint_values)
+        if self.fork_source_checkpoint_var.get().strip() not in checkpoint_values:
+            self.fork_source_checkpoint_var.set("latest")
+
     def refresh_data(self) -> None:
         runs = sp.list_runs()
         run_names = [item["run_name"] for item in runs]
         self.run_combo.configure(values=run_names)
         self._refresh_match_policy_selectors(run_names)
+        self._refresh_fork_source_selector(run_names)
 
         current_run = self._selected_run_name()
         typed_new_run = bool(current_run) and current_run not in run_names
@@ -1120,6 +1175,7 @@ class TrainerGUI(tk.Tk):
         last_eval = summary.get("last_eval") or {}
         last_rating_pass = summary.get("last_rating_pass") or {}
         candidate = summary.get("candidate") or {}
+        forked_from = state.get("forked_from") or {}
         details = [
             f"Run: {run_name}",
             f"Directory: {summary.get('run_dir', '-')}",
@@ -1134,6 +1190,7 @@ class TrainerGUI(tk.Tk):
             f"- Best checkpoint: {summary.get('best_checkpoint')}",
             f"- Latest checkpoint: {summary.get('latest_checkpoint')}",
             f"- Promotions: {summary.get('promotions', 0)}",
+            f"- Last promotion iteration: {state.get('last_promotion_iteration', 0)}",
             f"- Runtime: {summary.get('runtime')}",
             f"- Device backend: {summary.get('device_backend', '-')}",
             f"- Device repr: {summary.get('device_repr', '-')}",
@@ -1159,6 +1216,11 @@ class TrainerGUI(tk.Tk):
             f"- Epsilon random: {last_update.get('epsilon_random', '-')}",
             f"- Train temperature: {last_update.get('train_temperature', '-')}",
             f"- PPO clip: {last_update.get('ppo_clip', '-')}",
+            f"- Iterations since promotion: {last_update.get('iterations_since_promotion', '-')}",
+            f"- Promotion drought progress: {last_update.get('promotion_drought_progress', '-')}",
+            f"- Learning-rate multiplier: {last_update.get('learning_rate_multiplier', '-')}",
+            f"- Epsilon multiplier: {last_update.get('epsilon_multiplier', '-')}",
+            f"- Temperature multiplier: {last_update.get('temperature_multiplier', '-')}",
             "",
             "Last Eval",
             f"- Wins: {last_eval.get('wins', '-')}",
@@ -1187,6 +1249,13 @@ class TrainerGUI(tk.Tk):
             f"- Last score: {candidate.get('last_score', '-')}",
             f"- Last result: {candidate.get('last_result', '-')}",
             f"- Last reset reason: {candidate.get('last_reset_reason', '-')}",
+            "",
+            "Origin",
+            f"- Source run: {forked_from.get('run_name', '-')}",
+            f"- Source checkpoint: {forked_from.get('checkpoint', '-')}",
+            f"- Resolved source checkpoint: {forked_from.get('resolved_checkpoint', '-')}",
+            f"- Source architecture: {forked_from.get('source_architecture', '-')}",
+            f"- Source hidden size: {forked_from.get('source_hidden_size', '-')}",
             "",
             "Config",
             *(config_lines or ["- No saved config"]),
@@ -1306,6 +1375,9 @@ class TrainerGUI(tk.Tk):
 
     def _on_match_run_combo(self, _: Optional[tk.Event] = None) -> None:
         self._refresh_match_policy_selectors([item["run_name"] for item in sp.list_runs()])
+
+    def _on_fork_source_combo(self, _: Optional[tk.Event] = None) -> None:
+        self._refresh_fork_source_selector([item["run_name"] for item in sp.list_runs()])
 
     def _on_checkpoint_tree_select(self, _: Optional[tk.Event] = None) -> None:
         selection = self.checkpoints_tree.selection()
@@ -1430,6 +1502,47 @@ class TrainerGUI(tk.Tk):
             self.refresh_data()
 
         self._run_async(f"Create run '{run_name}'", action, on_success=on_success)
+
+    def _create_run_from_checkpoint(self) -> None:
+        run_name = self._selected_run_name()
+        source_run_name = self.fork_source_run_var.get().strip() or sp.LATEST_RUN_NAME
+        source_checkpoint = self.fork_source_checkpoint_var.get().strip() or "latest"
+        try:
+            overrides = self._selected_new_run_overrides()
+        except ValueError as exc:
+            messagebox.showerror("Invalid new run settings", str(exc), parent=self)
+            return
+
+        def action() -> Dict[str, Any]:
+            return sp.create_run_from_checkpoint(
+                run_name=run_name,
+                source_run_name=source_run_name,
+                source_checkpoint=source_checkpoint,
+                device_preference=overrides["device_preference"],
+                training_matches_per_iteration=overrides["training_matches_per_iteration"],
+                training_games_per_match=overrides["training_games_per_match"],
+                promotion_games=overrides["promotion_games"],
+            )
+
+        def on_success(result: Dict[str, Any]) -> None:
+            state = sp.get_run_state(run_name)
+            config = state.get("config") or {}
+            forked_from = state.get("forked_from") or {}
+            self.log(
+                f"Created run '{run_name}' from {forked_from.get('run_name', source_run_name)} / "
+                f"{forked_from.get('checkpoint', source_checkpoint)} "
+                f"using architecture {config.get('model_architecture')} "
+                f"and {config.get('training_matches_per_iteration')} match(es)/iter, "
+                f"{config.get('training_games_per_match')} game(s)/match, "
+                f"{config.get('promotion_games')} promotion game(s)."
+            )
+            self.refresh_data()
+
+        self._run_async(
+            f"Create run '{run_name}' from '{source_run_name}' / '{source_checkpoint}'",
+            action,
+            on_success=on_success,
+        )
 
     def _interrupt_background(self) -> None:
         run_name = self._selected_run_name()

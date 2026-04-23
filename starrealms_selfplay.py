@@ -632,6 +632,14 @@ class TrainingConfig:
     league_recent_weight: float = 0.25
     league_historical_weight: float = 0.1
     anneal_steps: int = 3000
+    plateau_start_iterations_without_promotion: int = 12
+    plateau_full_iterations_without_promotion: int = 36
+    plateau_learning_rate_boost: float = 2.0
+    plateau_epsilon_boost: float = 3.0
+    plateau_temperature_boost: float = 1.35
+    plateau_max_learning_rate: float = 0.0035
+    plateau_max_epsilon_random: float = 0.18
+    plateau_max_train_temperature: float = 1.45
     elo_k: float = 24.0
     max_training_samples_per_match: int = 256
     max_turns_per_game: int = 400
@@ -1283,6 +1291,7 @@ def _default_training_state(config: TrainingConfig) -> Dict[str, Any]:
         "best_checkpoint": "checkpoint_000000.json",
         "latest_checkpoint": "checkpoint_000000.json",
         "promotions": 0,
+        "last_promotion_iteration": 0,
         "config": asdict(config),
         "last_match": None,
         "last_update": None,
@@ -1412,6 +1421,15 @@ def _migrate_run_state(files: RunFiles, policy: PolicyNetwork, state: Dict[str, 
             float(state.get("best_elo", state.get("current_elo", INITIAL_ELO))),
         )
         state["best_elo"] = max(float(state.get("best_elo", INITIAL_ELO)), float(best_entry.get("elo", INITIAL_ELO)))
+
+    if "last_promotion_iteration" not in state or state.get("last_promotion_iteration") is None:
+        if int(state.get("promotions", 0)) > 0:
+            state["last_promotion_iteration"] = int(champion_entry.get("iteration", state.get("iteration", 0)))
+        else:
+            state["last_promotion_iteration"] = 0
+        dirty = True
+    else:
+        state["last_promotion_iteration"] = max(0, int(state.get("last_promotion_iteration", 0)))
 
     if not files.policy_file.exists() or migrated_to_v2:
         _atomic_write_json(files.policy_file, policy.to_dict(include_optimizer=True))
@@ -1951,7 +1969,7 @@ class SelfPlayTrainer:
     def _scheduled_training_config(self) -> TrainingConfig:
         anneal_steps = max(1, int(self.config.anneal_steps))
         progress = _clip(float(self.state.get("iteration", 0)) / float(anneal_steps), 0.0, 1.0)
-        return self.config.merged(
+        scheduled = self.config.merged(
             {
                 "learning_rate": _lerp(self.config.learning_rate, self.config.min_learning_rate, progress),
                 "epsilon_random": _lerp(self.config.epsilon_random, self.config.min_epsilon_random, progress),
@@ -1959,6 +1977,54 @@ class SelfPlayTrainer:
                 "ppo_clip": _lerp(self.config.ppo_clip, self.config.min_ppo_clip, progress),
             }
         )
+        boost = self._promotion_drought_boost()
+        if boost["progress"] <= 0.0:
+            return scheduled
+        return scheduled.merged(
+            {
+                "learning_rate": min(
+                    float(self.config.plateau_max_learning_rate),
+                    float(scheduled.learning_rate) * float(boost["learning_rate_multiplier"]),
+                ),
+                "epsilon_random": min(
+                    float(self.config.plateau_max_epsilon_random),
+                    float(scheduled.epsilon_random) * float(boost["epsilon_multiplier"]),
+                ),
+                "train_temperature": min(
+                    float(self.config.plateau_max_train_temperature),
+                    float(scheduled.train_temperature) * float(boost["temperature_multiplier"]),
+                ),
+            }
+        )
+
+    def _last_promotion_iteration(self) -> int:
+        latest_name = self.state.get("latest_checkpoint")
+        latest_entry = self._find_checkpoint_entry(str(latest_name)) if latest_name else None
+        derived_iteration = int(latest_entry.get("iteration", 0)) if latest_entry is not None else 0
+        stored_iteration = int(self.state.get("last_promotion_iteration", derived_iteration) or 0)
+        return max(0, stored_iteration)
+
+    def _iterations_since_promotion(self) -> int:
+        return max(0, int(self.state.get("iteration", 0)) - self._last_promotion_iteration())
+
+    def _promotion_drought_boost(self) -> Dict[str, float]:
+        iterations_since_promotion = self._iterations_since_promotion()
+        start = max(0, int(self.config.plateau_start_iterations_without_promotion))
+        full = max(start + 1, int(self.config.plateau_full_iterations_without_promotion))
+        progress = 0.0
+        if iterations_since_promotion > start:
+            progress = _clip(
+                float(iterations_since_promotion - start) / float(max(1, full - start)),
+                0.0,
+                1.0,
+            )
+        return {
+            "iterations_since_promotion": float(iterations_since_promotion),
+            "progress": progress,
+            "learning_rate_multiplier": _lerp(1.0, self.config.plateau_learning_rate_boost, progress),
+            "epsilon_multiplier": _lerp(1.0, self.config.plateau_epsilon_boost, progress),
+            "temperature_multiplier": _lerp(1.0, self.config.plateau_temperature_boost, progress),
+        }
 
     def _rating_pass_pool(self, max_policies: int, include_candidate: bool) -> List[Dict[str, Any]]:
         checkpoints = self._checkpoint_entries_sorted()
@@ -2391,6 +2457,7 @@ class SelfPlayTrainer:
         self.policy = self.candidate_policy.clone()
         self.state["latest_checkpoint"] = checkpoint_name
         self.state["current_elo"] = new_candidate_elo
+        self.state["last_promotion_iteration"] = int(iteration)
         if new_candidate_elo >= float(self.state.get("best_elo", INITIAL_ELO)):
             self.state["best_elo"] = new_candidate_elo
             self.state["best_checkpoint"] = checkpoint_name
@@ -2398,6 +2465,7 @@ class SelfPlayTrainer:
 
     def train_iteration(self) -> Dict[str, Any]:
         scheduled_config = self._scheduled_training_config()
+        drought_boost = self._promotion_drought_boost()
         candidate_state = self._candidate_state()
         training_matches: List[Dict[str, Any]] = []
         training_samples: List[Dict[str, Any]] = []
@@ -2455,6 +2523,11 @@ class SelfPlayTrainer:
             "epsilon_random": scheduled_config.epsilon_random,
             "train_temperature": scheduled_config.train_temperature,
             "ppo_clip": scheduled_config.ppo_clip,
+            "iterations_since_promotion": int(drought_boost["iterations_since_promotion"]),
+            "promotion_drought_progress": round(float(drought_boost["progress"]), 4),
+            "learning_rate_multiplier": round(float(drought_boost["learning_rate_multiplier"]), 4),
+            "epsilon_multiplier": round(float(drought_boost["epsilon_multiplier"]), 4),
+            "temperature_multiplier": round(float(drought_boost["temperature_multiplier"]), 4),
             "matches_collected": len(training_matches),
         }
 
@@ -2580,6 +2653,8 @@ class SelfPlayTrainer:
         runtime = 0.0
         if "created_at" in self.state and self.state["created_at"] is not None:
             runtime = _timestamp() - float(self.state["created_at"])
+        drought_boost = self._promotion_drought_boost()
+        scheduled_config = self._scheduled_training_config()
         return {
             "run_name": self.run_name,
             "status": self.state.get("status", "idle"),
@@ -2602,6 +2677,15 @@ class SelfPlayTrainer:
             "device_backend": getattr(self.policy, "device_backend", DEVICE_CPU),
             "device_repr": str(getattr(self.policy, "device", "cpu")),
             "device_preference": self.config.device_preference,
+            "last_promotion_iteration": self._last_promotion_iteration(),
+            "iterations_since_promotion": int(drought_boost["iterations_since_promotion"]),
+            "promotion_drought_progress": round(float(drought_boost["progress"]), 4),
+            "learning_rate_multiplier": round(float(drought_boost["learning_rate_multiplier"]), 4),
+            "epsilon_multiplier": round(float(drought_boost["epsilon_multiplier"]), 4),
+            "temperature_multiplier": round(float(drought_boost["temperature_multiplier"]), 4),
+            "scheduled_learning_rate": float(scheduled_config.learning_rate),
+            "scheduled_epsilon_random": float(scheduled_config.epsilon_random),
+            "scheduled_train_temperature": float(scheduled_config.train_temperature),
         }
 
 
@@ -2656,12 +2740,19 @@ def summarize_training_progress(run_name: str = LATEST_RUN_NAME) -> str:
             f" Last eval {last_eval.get('wins', 0)}-{last_eval.get('losses', 0)} "
             f"({last_eval.get('action', 'keep_training')})."
         )
+    boost_text = ""
+    if float(summary.get("promotion_drought_progress", 0.0)) > 0.0:
+        boost_text = (
+            f" Exploration boost active after {summary.get('iterations_since_promotion', 0)} "
+            f"non-promotion iteration(s): lr x{summary.get('learning_rate_multiplier', 1.0)}, "
+            f"eps x{summary.get('epsilon_multiplier', 1.0)}, temp x{summary.get('temperature_multiplier', 1.0)}."
+        )
     return (
         f"Run '{summary['run_name']}' is {summary['status']}. "
         f"Iteration {summary['iteration']}, total matches {summary['total_matches']}, "
         f"Elo {summary['current_elo']} (best {summary['best_elo']}), promotions {summary.get('promotions', 0)}, "
         f"device {summary.get('device_backend', DEVICE_CPU)}, "
-        f"{match_text}.{eval_text} "
+        f"{match_text}.{eval_text}{boost_text} "
         f"Artifacts: {summary['run_dir']}."
     )
 
@@ -2721,6 +2812,77 @@ def create_run(
     )
     _ensure_run(run_name, config_overrides=overrides)
     trainer = _get_trainer(run_name, overrides)
+    return trainer.progress_summary()
+
+
+def create_run_from_checkpoint(
+    run_name: str,
+    source_run_name: str,
+    source_checkpoint: str = "latest",
+    device_preference: str = DEVICE_AUTO,
+    training_matches_per_iteration: int = 5,
+    training_games_per_match: int = 16,
+    promotion_games: int = 24,
+) -> Dict[str, Any]:
+    if not str(run_name).strip():
+        raise ValueError("run_name is required.")
+    if run_exists(run_name):
+        raise ValueError(f"Run '{run_name}' already exists.")
+    if not run_exists(source_run_name):
+        raise ValueError(f"Source run '{source_run_name}' does not exist.")
+
+    source_policy = load_policy(source_run_name, source_checkpoint)
+    source_state = get_run_state(source_run_name)
+    resolved_source_checkpoint = _resolve_checkpoint_name(source_state, source_checkpoint) or source_checkpoint
+
+    config = TrainingConfig().merged(
+        {
+            "hidden_size": int(source_policy.hidden_size),
+            "model_architecture": str(source_policy.architecture),
+            "device_preference": str(device_preference or DEVICE_AUTO).strip().lower(),
+            "training_matches_per_iteration": int(training_matches_per_iteration),
+            "training_games_per_match": int(training_games_per_match),
+            "promotion_games": int(promotion_games),
+        }
+    )
+
+    if config.training_matches_per_iteration <= 0:
+        raise ValueError("training_matches_per_iteration must be positive.")
+    if config.training_games_per_match <= 0:
+        raise ValueError("training_games_per_match must be positive.")
+    if config.promotion_games <= 0:
+        raise ValueError("promotion_games must be positive.")
+
+    files = RunFiles(run_name)
+    files.run_dir.mkdir(parents=True, exist_ok=True)
+    files.checkpoints_dir.mkdir(parents=True, exist_ok=True)
+
+    payload = source_policy.to_dict(include_optimizer=False)
+    payload["device_preference"] = config.device_preference
+    fork_policy = PolicyNetwork.from_dict(payload)
+    fork_policy.optimizer = torch.optim.Adam(fork_policy.model.parameters(), lr=config.learning_rate)
+
+    state = _default_training_state(config)
+    state["run_name"] = run_name
+    state["forked_from"] = {
+        "run_name": source_run_name,
+        "checkpoint": source_checkpoint,
+        "resolved_checkpoint": resolved_source_checkpoint,
+        "source_architecture": source_policy.architecture,
+        "source_hidden_size": int(source_policy.hidden_size),
+        "created_at": _timestamp(),
+    }
+    if state.get("checkpoints"):
+        state["checkpoints"][0]["note"] = f"forked from {source_run_name}/{source_checkpoint}"
+        state["checkpoints"][0]["source_checkpoint"] = resolved_source_checkpoint
+
+    _atomic_write_json(files.policy_file, fork_policy.to_dict(include_optimizer=True))
+    _atomic_write_json(files.candidate_policy_file, fork_policy.to_dict(include_optimizer=True))
+    _atomic_write_json(files.training_state_file, state)
+    _atomic_write_json(files.checkpoints_dir / "checkpoint_000000.json", fork_policy.to_dict(include_optimizer=False))
+
+    trainer = SelfPlayTrainer(run_name)
+    _TRAINERS[run_name] = trainer
     return trainer.progress_summary()
 
 
