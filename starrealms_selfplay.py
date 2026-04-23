@@ -1601,6 +1601,186 @@ def get_run_state(run_name: str = LATEST_RUN_NAME) -> Dict[str, Any]:
     return state
 
 
+def _checkpoint_sort_key(item: Dict[str, Any]) -> Tuple[int, str]:
+    return int(item.get("iteration", 0)), str(item.get("name", ""))
+
+
+def _resolve_checkpoint_name(state: Dict[str, Any], checkpoint: str) -> str:
+    checkpoint_name = str(checkpoint or "").strip()
+    if checkpoint_name == "latest":
+        checkpoint_name = str(state.get("latest_checkpoint") or "")
+    elif checkpoint_name == "best":
+        checkpoint_name = str(state.get("best_checkpoint") or state.get("latest_checkpoint") or "")
+    return checkpoint_name
+
+
+def _pick_latest_checkpoint_entry(checkpoints: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not checkpoints:
+        return None
+    return max(checkpoints, key=_checkpoint_sort_key)
+
+
+def _pick_best_checkpoint_entry(checkpoints: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not checkpoints:
+        return None
+    return max(
+        checkpoints,
+        key=lambda item: (
+            float(item.get("elo", INITIAL_ELO)),
+            int(item.get("iteration", 0)),
+            str(item.get("name", "")),
+        ),
+    )
+
+
+def _scrub_deleted_checkpoint_refs(value: Any, deleted_checkpoint: str, replacement_checkpoint: Optional[str]) -> Any:
+    if isinstance(value, dict):
+        cleaned: Dict[str, Any] = {}
+        for key, nested_value in value.items():
+            if key == "checkpoint" and nested_value == deleted_checkpoint:
+                cleaned[key] = replacement_checkpoint
+            elif key in {"base_checkpoint", "best_checkpoint", "latest_checkpoint", "champion_checkpoint"} and nested_value == deleted_checkpoint:
+                cleaned[key] = replacement_checkpoint
+            elif key == "promoted_checkpoint" and nested_value == deleted_checkpoint:
+                cleaned[key] = None
+            elif key == "name" and nested_value == deleted_checkpoint and value.get("kind") == "checkpoint":
+                continue
+            else:
+                cleaned[key] = _scrub_deleted_checkpoint_refs(nested_value, deleted_checkpoint, replacement_checkpoint)
+        return cleaned
+    if isinstance(value, list):
+        cleaned_list: List[Any] = []
+        for item in value:
+            cleaned_item = _scrub_deleted_checkpoint_refs(item, deleted_checkpoint, replacement_checkpoint)
+            if isinstance(cleaned_item, dict) and cleaned_item.get("kind") == "checkpoint" and cleaned_item.get("name") is None:
+                continue
+            cleaned_list.append(cleaned_item)
+        return cleaned_list
+    return value
+
+
+def delete_checkpoint(run_name: str = LATEST_RUN_NAME, checkpoint: str = "") -> Dict[str, Any]:
+    files, policy, state, _ = _load_policy_and_state(run_name)
+    checkpoint_name = _resolve_checkpoint_name(state, checkpoint)
+    if not checkpoint_name:
+        raise ValueError("A checkpoint name is required.")
+    if checkpoint_name == "candidate":
+        raise ValueError("The candidate row is not a checkpoint file. Delete a saved checkpoint instead.")
+
+    trainer = _TRAINERS.get(run_name)
+    if trainer is not None and trainer.is_running:
+        raise RuntimeError(f"Run '{run_name}' is currently training. Interrupt it before deleting checkpoints.")
+    if str(state.get("status", "idle")).lower() == "running":
+        raise RuntimeError(f"Run '{run_name}' is marked as running. Interrupt training before deleting checkpoints.")
+
+    checkpoint_entries = list(state.get("checkpoints") or [])
+    checkpoint_names = {str(item.get("name", "")) for item in checkpoint_entries}
+    if checkpoint_name not in checkpoint_names:
+        raise FileNotFoundError(f"Checkpoint '{checkpoint_name}' was not found in run '{run_name}'.")
+
+    checkpoint_path = files.checkpoints_dir / checkpoint_name
+    if checkpoint_path.exists():
+        checkpoint_path.unlink()
+
+    state["checkpoints"] = [
+        dict(item)
+        for item in checkpoint_entries
+        if str(item.get("name", "")) != checkpoint_name
+    ]
+
+    deleted_latest = checkpoint_name == state.get("latest_checkpoint")
+    deleted_best = checkpoint_name == state.get("best_checkpoint")
+
+    replacement_checkpoint: Optional[str] = None
+    if deleted_latest or not state.get("checkpoints"):
+        replacement_checkpoint = "champion_current.json"
+        replacement_path = files.checkpoints_dir / replacement_checkpoint
+        _atomic_write_json(replacement_path, policy.to_dict(include_optimizer=False))
+        replacement_entry = _ensure_checkpoint_entry(
+            state,
+            replacement_checkpoint,
+            int(state.get("iteration", 0)),
+            float(state.get("current_elo", INITIAL_ELO)),
+        )
+        replacement_entry["iteration"] = int(state.get("iteration", 0))
+        replacement_entry["elo"] = float(state.get("current_elo", INITIAL_ELO))
+        replacement_entry["created_at"] = replacement_entry.get("created_at", _timestamp())
+        replacement_entry["note"] = "synthetic current champion snapshot"
+        state["latest_checkpoint"] = replacement_checkpoint
+    else:
+        latest_entry = _pick_latest_checkpoint_entry(list(state.get("checkpoints") or []))
+        if latest_entry is not None:
+            state["latest_checkpoint"] = latest_entry.get("name")
+
+    latest_entry = next(
+        (item for item in state.get("checkpoints", []) if item.get("name") == state.get("latest_checkpoint")),
+        None,
+    )
+    if latest_entry is not None:
+        state["current_elo"] = float(latest_entry.get("elo", state.get("current_elo", INITIAL_ELO)))
+
+    if deleted_best or state.get("best_checkpoint") == checkpoint_name:
+        best_entry = _pick_best_checkpoint_entry(list(state.get("checkpoints") or []))
+        if best_entry is not None:
+            state["best_checkpoint"] = best_entry.get("name")
+            state["best_elo"] = float(best_entry.get("elo", state.get("current_elo", INITIAL_ELO)))
+        else:
+            state["best_checkpoint"] = state.get("latest_checkpoint")
+            state["best_elo"] = float(state.get("current_elo", INITIAL_ELO))
+    else:
+        best_entry = next(
+            (item for item in state.get("checkpoints", []) if item.get("name") == state.get("best_checkpoint")),
+            None,
+        )
+        if best_entry is not None:
+            state["best_elo"] = float(best_entry.get("elo", state.get("best_elo", INITIAL_ELO)))
+
+    replacement_reference = str(state.get("latest_checkpoint") or state.get("best_checkpoint") or "")
+    state["candidate"] = _scrub_deleted_checkpoint_refs(
+        state.get("candidate") or {},
+        checkpoint_name,
+        replacement_reference,
+    )
+    state["last_match"] = _scrub_deleted_checkpoint_refs(
+        state.get("last_match"),
+        checkpoint_name,
+        replacement_reference,
+    )
+    state["last_eval"] = _scrub_deleted_checkpoint_refs(
+        state.get("last_eval"),
+        checkpoint_name,
+        replacement_reference,
+    )
+    state["last_rating_pass"] = _scrub_deleted_checkpoint_refs(
+        state.get("last_rating_pass"),
+        checkpoint_name,
+        replacement_reference,
+    )
+    state["last_update"] = _scrub_deleted_checkpoint_refs(
+        state.get("last_update"),
+        checkpoint_name,
+        replacement_reference,
+    )
+
+    _POLICY_CACHE.pop((run_name, checkpoint_name), None)
+    _POLICY_CACHE.pop((run_name, "best"), None)
+    _POLICY_CACHE.pop((run_name, "latest"), None)
+    _TRAINERS.pop(run_name, None)
+
+    _save_policy_and_state(files, policy, state)
+
+    return {
+        "run_name": run_name,
+        "deleted_checkpoint": checkpoint_name,
+        "latest_checkpoint": state.get("latest_checkpoint"),
+        "best_checkpoint": state.get("best_checkpoint"),
+        "current_elo": float(state.get("current_elo", INITIAL_ELO)),
+        "best_elo": float(state.get("best_elo", INITIAL_ELO)),
+        "checkpoint_count": len(list(state.get("checkpoints") or [])),
+        "replacement_checkpoint": replacement_checkpoint,
+    }
+
+
 def _play_match(
     policy_a: PolicyNetwork,
     policy_b: PolicyNetwork,
