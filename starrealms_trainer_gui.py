@@ -466,6 +466,7 @@ class TrainerGUI(tk.Tk):
         self.new_run_device_var = tk.StringVar(value=sp.DEVICE_AUTO)
         self.new_run_matches_var = tk.StringVar(value="5")
         self.new_run_games_var = tk.StringVar(value="16")
+        self.new_run_decisions_var = tk.StringVar(value=sp.TRAINING_DECISIONS_PER_GAME_ALL)
         self.new_run_promotion_games_var = tk.StringVar(value="24")
         self.fork_source_run_var = tk.StringVar(value=sp.LATEST_RUN_NAME)
         self.fork_source_checkpoint_var = tk.StringVar(value="latest")
@@ -643,6 +644,14 @@ class TrainerGUI(tk.Tk):
         ttk.Entry(new_run_row, textvariable=self.new_run_matches_var, width=8).pack(side="left", padx=(6, 16))
         ttk.Label(new_run_row, text="Games / Match").pack(side="left")
         ttk.Entry(new_run_row, textvariable=self.new_run_games_var, width=8).pack(side="left", padx=(6, 16))
+        ttk.Label(new_run_row, text="Decisions / Game").pack(side="left")
+        ttk.Combobox(
+            new_run_row,
+            textvariable=self.new_run_decisions_var,
+            values=sp.TRAINING_DECISIONS_PER_GAME_OPTIONS,
+            state="readonly",
+            width=6,
+        ).pack(side="left", padx=(6, 16))
         ttk.Label(new_run_row, text="Promotion Games").pack(side="left")
         ttk.Entry(new_run_row, textvariable=self.new_run_promotion_games_var, width=8).pack(side="left", padx=(6, 16))
         new_run_tip = tk.Label(
@@ -931,6 +940,12 @@ class TrainerGUI(tk.Tk):
             raise ValueError("New run games per match must be positive.")
         return value
 
+    def _new_run_decisions_per_game(self) -> str:
+        try:
+            return sp.normalize_training_decisions_per_game(self.new_run_decisions_var.get().strip())
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
     def _new_run_promotion_games(self) -> int:
         try:
             value = int(self.new_run_promotion_games_var.get().strip())
@@ -946,6 +961,7 @@ class TrainerGUI(tk.Tk):
             device_preference=self.new_run_device_var.get().strip() or sp.DEVICE_AUTO,
             training_matches_per_iteration=self._new_run_training_matches(),
             training_games_per_match=self._new_run_games_per_match(),
+            training_decisions_per_game=self._new_run_decisions_per_game(),
             promotion_games=self._new_run_promotion_games(),
         )
 
@@ -1497,6 +1513,7 @@ class TrainerGUI(tk.Tk):
                 f"on {config.get('device_preference')} "
                 f"and {config.get('training_matches_per_iteration')} match(es)/iter, "
                 f"{config.get('training_games_per_match')} game(s)/match, "
+                f"{config.get('training_decisions_per_game')} decision(s)/game, "
                 f"{config.get('promotion_games')} promotion game(s)."
             )
             self.refresh_data()
@@ -1521,6 +1538,7 @@ class TrainerGUI(tk.Tk):
                 device_preference=overrides["device_preference"],
                 training_matches_per_iteration=overrides["training_matches_per_iteration"],
                 training_games_per_match=overrides["training_games_per_match"],
+                training_decisions_per_game=overrides["training_decisions_per_game"],
                 promotion_games=overrides["promotion_games"],
             )
 
@@ -1534,6 +1552,7 @@ class TrainerGUI(tk.Tk):
                 f"using architecture {config.get('model_architecture')} "
                 f"and {config.get('training_matches_per_iteration')} match(es)/iter, "
                 f"{config.get('training_games_per_match')} game(s)/match, "
+                f"{config.get('training_decisions_per_game')} decision(s)/game, "
                 f"{config.get('promotion_games')} promotion game(s)."
             )
             self.refresh_data()

@@ -179,23 +179,23 @@
   "config": {
     "hidden_size": 24,
     "model_architecture": "legacy_v1",
-    "learning_rate": 0.0015,
-    "min_learning_rate": 0.0003,
+    "learning_rate": 0.0019,
+    "min_learning_rate": 0.0004,
     "ppo_epochs": 1,
     "ppo_clip": 0.2,
     "min_ppo_clip": 0.1,
     "value_coef": 0.5,
     "grad_clip": 1.0,
-    "epsilon_random": 0.05,
-    "min_epsilon_random": 0.01,
-    "train_temperature": 1.0,
-    "min_train_temperature": 0.55,
+    "epsilon_random": 0.07,
+    "min_epsilon_random": 0.015,
+    "train_temperature": 1.1,
+    "min_train_temperature": 0.62,
     "eval_temperature": 0.35,
     "checkpoint_interval": 5,
     "training_matches_per_iteration": 3,
     "training_games_per_match": 24,
     "promotion_games": 24,
-    "promotion_score_threshold": 0.55,
+    "promotion_score_threshold": 0.6,
     "candidate_patience": 8,
     "candidate_reset_threshold": 0.35,
     "league_recent_window": 10,
@@ -208,7 +208,14 @@
     "max_training_samples_per_match": 256,
     "max_turns_per_game": 400,
     "max_actions_per_turn": 200,
-    "max_iterations": null
+    "max_iterations": null,
+    "training_decisions_per_game": "ALL",
+    "plateau_learning_rate_boost": 1.7,
+    "plateau_epsilon_boost": 2.4,
+    "plateau_temperature_boost": 1.28,
+    "plateau_max_learning_rate": 0.0033,
+    "plateau_max_epsilon_random": 0.16,
+    "plateau_max_train_temperature": 1.35
   },
   "created_at": 1776710984.0338745,
   "current_elo": 3744.9214723133064,
@@ -271,7 +278,7 @@
   "strategy_version": 2,
   "total_games": 220001,
   "total_matches": 10810,
-  "updated_at": 1776884338.5789413,
+  "updated_at": 1777054135.6927648,
   "last_rating_pass": {
     "status": "completed",
     "participant_count": 2,
@@ -321,5 +328,6 @@
     ],
     "duration_seconds": 0.500154972076416,
     "completed_at": 1776884338.578895
-  }
+  },
+  "last_promotion_iteration": 3135
 }

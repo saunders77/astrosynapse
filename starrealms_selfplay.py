@@ -60,6 +60,14 @@ DEVICE_DIRECTML = "directml"
 DEVICE_CUDA = "cuda"
 DEVICE_MPS = "mps"
 NOOP_ACTIONS = {"endTurn", "nodiscard", "nokill", "noRowScrap", "noScrapFromHand", "nocopy"}
+TRAINING_DECISIONS_PER_GAME_ALL = "ALL"
+TRAINING_DECISIONS_PER_GAME_1 = "1"
+TRAINING_DECISIONS_PER_GAME_5 = "5"
+TRAINING_DECISIONS_PER_GAME_OPTIONS = (
+    TRAINING_DECISIONS_PER_GAME_1,
+    TRAINING_DECISIONS_PER_GAME_5,
+    TRAINING_DECISIONS_PER_GAME_ALL,
+)
 
 
 def _normalize_ability(raw_ability: Any) -> str:
@@ -606,24 +614,25 @@ class TrainingConfig:
     hidden_size: int = DEEP_MODEL_HIDDEN_SIZE
     model_architecture: str = CURRENT_MODEL_ARCHITECTURE
     device_preference: str = DEVICE_AUTO
-    learning_rate: float = 0.0015
-    min_learning_rate: float = 0.0003
+    learning_rate: float = 0.0019
+    min_learning_rate: float = 0.0004
     ppo_epochs: int = 2
     ppo_minibatch_size: int = 64
     ppo_clip: float = 0.2
     min_ppo_clip: float = 0.1
     value_coef: float = 0.5
     grad_clip: float = 1.0
-    epsilon_random: float = 0.05
-    min_epsilon_random: float = 0.01
-    train_temperature: float = 1.0
-    min_train_temperature: float = 0.55
+    epsilon_random: float = 0.07
+    min_epsilon_random: float = 0.015
+    train_temperature: float = 1.1
+    min_train_temperature: float = 0.62
     eval_temperature: float = 0.35
     checkpoint_interval: int = 1
     training_matches_per_iteration: int = 5
     training_games_per_match: int = 16
+    training_decisions_per_game: str = TRAINING_DECISIONS_PER_GAME_ALL
     promotion_games: int = 24
-    promotion_score_threshold: float = 0.55
+    promotion_score_threshold: float = 0.6
     candidate_patience: int = 8
     candidate_reset_threshold: float = 0.35
     league_recent_window: int = 10
@@ -634,12 +643,12 @@ class TrainingConfig:
     anneal_steps: int = 3000
     plateau_start_iterations_without_promotion: int = 12
     plateau_full_iterations_without_promotion: int = 36
-    plateau_learning_rate_boost: float = 2.0
-    plateau_epsilon_boost: float = 3.0
-    plateau_temperature_boost: float = 1.35
-    plateau_max_learning_rate: float = 0.0035
-    plateau_max_epsilon_random: float = 0.18
-    plateau_max_train_temperature: float = 1.45
+    plateau_learning_rate_boost: float = 1.7
+    plateau_epsilon_boost: float = 2.4
+    plateau_temperature_boost: float = 1.28
+    plateau_max_learning_rate: float = 0.0033
+    plateau_max_epsilon_random: float = 0.16
+    plateau_max_train_temperature: float = 1.35
     elo_k: float = 24.0
     max_training_samples_per_match: int = 256
     max_turns_per_game: int = 400
@@ -1249,10 +1258,29 @@ def model_type_overrides(model_type: str) -> Dict[str, Any]:
     raise ValueError(f"Unknown model type '{model_type}'. Expected 'deep' or 'default'.")
 
 
+def normalize_training_decisions_per_game(value: Any) -> str:
+    normalized = str(value if value is not None else TRAINING_DECISIONS_PER_GAME_ALL).strip().upper()
+    if normalized not in TRAINING_DECISIONS_PER_GAME_OPTIONS:
+        raise ValueError(
+            "training_decisions_per_game must be one of: "
+            + ", ".join(TRAINING_DECISIONS_PER_GAME_OPTIONS)
+            + "."
+        )
+    return normalized
+
+
+def training_decisions_per_game_limit(value: Any) -> Optional[int]:
+    normalized = normalize_training_decisions_per_game(value)
+    if normalized == TRAINING_DECISIONS_PER_GAME_ALL:
+        return None
+    return int(normalized)
+
+
 def new_run_overrides(
     model_type: str = MODEL_TYPE_DEEP,
     training_matches_per_iteration: int = 5,
     training_games_per_match: int = 16,
+    training_decisions_per_game: str = TRAINING_DECISIONS_PER_GAME_ALL,
     promotion_games: int = 24,
     device_preference: str = DEVICE_AUTO,
 ) -> Dict[str, Any]:
@@ -1269,6 +1297,7 @@ def new_run_overrides(
             "device_preference": str(device_preference or DEVICE_AUTO).strip().lower(),
             "training_matches_per_iteration": int(training_matches_per_iteration),
             "training_games_per_match": int(training_games_per_match),
+            "training_decisions_per_game": normalize_training_decisions_per_game(training_decisions_per_game),
             "promotion_games": int(promotion_games),
         }
     )
@@ -1481,8 +1510,40 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
     saved_config = dict(original_saved_config)
     if "training_games_per_match" not in saved_config:
         saved_config["training_games_per_match"] = 24
+    if "training_decisions_per_game" not in saved_config:
+        saved_config["training_decisions_per_game"] = TRAINING_DECISIONS_PER_GAME_ALL
+    else:
+        saved_config["training_decisions_per_game"] = normalize_training_decisions_per_game(
+            saved_config.get("training_decisions_per_game")
+        )
     if saved_config.get("promotion_games") == 13:
         saved_config["promotion_games"] = 24
+    legacy_default_updates = {
+        "promotion_score_threshold": ((0.55,), 0.6),
+        "learning_rate": ((0.0015,), 0.0019),
+        "min_learning_rate": ((0.0003,), 0.0004),
+        "epsilon_random": ((0.05,), 0.07),
+        "min_epsilon_random": ((0.01,), 0.015),
+        "train_temperature": ((1.0,), 1.1),
+        "min_train_temperature": ((0.55,), 0.62),
+        "plateau_learning_rate_boost": ((2.0, 2.15), 1.7),
+        "plateau_epsilon_boost": ((3.0, 3.2), 2.4),
+        "plateau_temperature_boost": ((1.35, 1.45), 1.28),
+        "plateau_max_learning_rate": ((0.0035, 0.0042), 0.0033),
+        "plateau_max_epsilon_random": ((0.18, 0.22), 0.16),
+        "plateau_max_train_temperature": ((1.45, 1.6), 1.35),
+    }
+    for key, (old_values, new_value) in legacy_default_updates.items():
+        current_value = saved_config.get(key)
+        if current_value is None:
+            saved_config[key] = new_value
+            continue
+        try:
+            numeric_value = float(current_value)
+        except (TypeError, ValueError):
+            continue
+        if any(abs(numeric_value - float(old_value)) <= 1e-12 for old_value in old_values):
+            saved_config[key] = new_value
     if policy_payload is not None:
         payload_architecture = policy_payload.get("architecture")
         if payload_architecture is None:
@@ -1824,6 +1885,7 @@ def _play_match(
     games_per_match: int = 24,
 ) -> Dict[str, Any]:
     collector: Optional[List[Dict[str, Any]]] = [] if collect_a else None
+    trajectory_by_game: Optional[List[List[Dict[str, Any]]]] = [] if collect_a else None
     wins_a = 0
     wins_b = 0
     per_game_winners: List[str] = []
@@ -1831,12 +1893,13 @@ def _play_match(
     started_at = _timestamp()
 
     while wins_a < majority and wins_b < majority and len(per_game_winners) < games_per_match:
+        game_collector: Optional[List[Dict[str, Any]]] = [] if collect_a else None
         actor_a = PolicyActor(
             policy_a,
             deterministic=deterministic_a,
             temperature=config.eval_temperature if deterministic_a else config.train_temperature,
             epsilon_random=0.0 if deterministic_a else config.epsilon_random,
-            collector=collector,
+            collector=game_collector,
         )
         actor_b = PolicyActor(
             policy_b,
@@ -1859,6 +1922,9 @@ def _play_match(
             wins_a += 1
         else:
             wins_b += 1
+        if collect_a and collector is not None and trajectory_by_game is not None and game_collector is not None:
+            collector.extend(game_collector)
+            trajectory_by_game.append(game_collector)
 
     games_played = len(per_game_winners)
     return_value = (wins_a - wins_b) / max(games_played, 1)
@@ -1869,6 +1935,7 @@ def _play_match(
         "return_value": return_value,
         "per_game_winners": per_game_winners,
         "trajectory": collector or [],
+        "trajectory_by_game": trajectory_by_game or [],
         "duration_seconds": _timestamp() - started_at,
     }
 
@@ -2341,22 +2408,40 @@ class SelfPlayTrainer:
         return _cached_policy(self.run_name, checkpoint_name), selected
 
     def _match_to_training_samples(self, match_summary: Dict[str, Any]) -> List[Dict[str, Any]]:
-        trajectory = match_summary["trajectory"]
-        if not trajectory:
+        trajectory_by_game = list(match_summary.get("trajectory_by_game") or [])
+        if not trajectory_by_game:
+            flat_trajectory = list(match_summary.get("trajectory") or [])
+            if flat_trajectory:
+                trajectory_by_game = [flat_trajectory]
+        if not trajectory_by_game:
             return []
         return_value = match_summary["return_value"]
-        for step in trajectory:
-            step["return"] = return_value
-            step["advantage"] = return_value - step["value"]
-        advantages = [step["advantage"] for step in trajectory]
+        decisions_per_game_limit = training_decisions_per_game_limit(self.config.training_decisions_per_game)
+        selected_trajectory: List[Dict[str, Any]] = []
+
+        for game_trajectory in trajectory_by_game:
+            if not game_trajectory:
+                continue
+            for step in game_trajectory:
+                step["return"] = return_value
+                step["advantage"] = return_value - step["value"]
+            if decisions_per_game_limit is None or len(game_trajectory) <= decisions_per_game_limit:
+                selected_trajectory.extend(game_trajectory)
+            else:
+                selected_trajectory.extend(random.sample(game_trajectory, decisions_per_game_limit))
+
+        if not selected_trajectory:
+            return []
+
+        advantages = [step["advantage"] for step in selected_trajectory]
         advantage_mean = _mean(advantages)
         advantage_std = _std(advantages)
         if advantage_std > 1e-6:
-            for step in trajectory:
+            for step in selected_trajectory:
                 step["advantage"] = (step["advantage"] - advantage_mean) / advantage_std
-        if len(trajectory) > self.config.max_training_samples_per_match:
-            trajectory = random.sample(trajectory, self.config.max_training_samples_per_match)
-        return trajectory
+        if len(selected_trajectory) > self.config.max_training_samples_per_match:
+            selected_trajectory = random.sample(selected_trajectory, self.config.max_training_samples_per_match)
+        return selected_trajectory
 
     def _summarize_training_matches(self, match_summaries: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         if not match_summaries:
@@ -2796,6 +2881,7 @@ def create_run(
     device_preference: str = DEVICE_AUTO,
     training_matches_per_iteration: int = 5,
     training_games_per_match: int = 16,
+    training_decisions_per_game: str = TRAINING_DECISIONS_PER_GAME_ALL,
     promotion_games: int = 24,
 ) -> Dict[str, Any]:
     if not str(run_name).strip():
@@ -2808,6 +2894,7 @@ def create_run(
         device_preference=device_preference,
         training_matches_per_iteration=training_matches_per_iteration,
         training_games_per_match=training_games_per_match,
+        training_decisions_per_game=training_decisions_per_game,
         promotion_games=promotion_games,
     )
     _ensure_run(run_name, config_overrides=overrides)
@@ -2822,6 +2909,7 @@ def create_run_from_checkpoint(
     device_preference: str = DEVICE_AUTO,
     training_matches_per_iteration: int = 5,
     training_games_per_match: int = 16,
+    training_decisions_per_game: str = TRAINING_DECISIONS_PER_GAME_ALL,
     promotion_games: int = 24,
 ) -> Dict[str, Any]:
     if not str(run_name).strip():
@@ -2842,6 +2930,7 @@ def create_run_from_checkpoint(
             "device_preference": str(device_preference or DEVICE_AUTO).strip().lower(),
             "training_matches_per_iteration": int(training_matches_per_iteration),
             "training_games_per_match": int(training_games_per_match),
+            "training_decisions_per_game": normalize_training_decisions_per_game(training_decisions_per_game),
             "promotion_games": int(promotion_games),
         }
     )
