@@ -1,0 +1,266 @@
+{
+  "run_name": "d1000m-1g500p-5dec-basedon1",
+  "checkpoint": "checkpoint_000000.json",
+  "resolved_checkpoint": "checkpoint_000000.json",
+  "games": 200,
+  "deterministic": true,
+  "k_factor": 24.0,
+  "ended_by_limit_games": 0,
+  "turn_summaries": 5157,
+  "eligible_single_acquire_turns": 2469,
+  "scored_decisions": 1963,
+  "pairwise_comparisons": 4435,
+  "normalization_factor": 6.37637845845441,
+  "explorer_raw_elo": 1275.275691690882,
+  "leaderboard": [
+    {
+      "card_name": "Blob Destroyer",
+      "elo": 213.0534,
+      "raw_elo": 1358.5089
+    },
+    {
+      "card_name": "Embassy Yacht",
+      "elo": 206.0924,
+      "raw_elo": 1314.1234
+    },
+    {
+      "card_name": "Blob Wheel",
+      "elo": 205.5059,
+      "raw_elo": 1310.3836
+    },
+    {
+      "card_name": "Explorer",
+      "elo": 200.0,
+      "raw_elo": 1275.2757
+    },
+    {
+      "card_name": "The Hive",
+      "elo": 198.6314,
+      "raw_elo": 1266.5488
+    },
+    {
+      "card_name": "Blob Carrier",
+      "elo": 196.9313,
+      "raw_elo": 1255.7087
+    },
+    {
+      "card_name": "Port of Call",
+      "elo": 195.2133,
+      "raw_elo": 1244.7539
+    },
+    {
+      "card_name": "Trade Escort",
+      "elo": 192.6173,
+      "raw_elo": 1228.201
+    },
+    {
+      "card_name": "Battle Station",
+      "elo": 192.0466,
+      "raw_elo": 1224.5619
+    },
+    {
+      "card_name": "Mech World",
+      "elo": 191.2057,
+      "raw_elo": 1219.1996
+    },
+    {
+      "card_name": "Central Office",
+      "elo": 185.9949,
+      "raw_elo": 1185.9738
+    },
+    {
+      "card_name": "Royal Redoubt",
+      "elo": 185.653,
+      "raw_elo": 1183.7936
+    },
+    {
+      "card_name": "Barter World",
+      "elo": 183.7231,
+      "raw_elo": 1171.4879
+    },
+    {
+      "card_name": "War World",
+      "elo": 183.2356,
+      "raw_elo": 1168.3798
+    },
+    {
+      "card_name": "Blob World",
+      "elo": 182.7756,
+      "raw_elo": 1165.4463
+    },
+    {
+      "card_name": "Fleet HQ",
+      "elo": 179.3246,
+      "raw_elo": 1143.4416
+    },
+    {
+      "card_name": "Freighter",
+      "elo": 177.0076,
+      "raw_elo": 1128.6673
+    },
+    {
+      "card_name": "Junkyard",
+      "elo": 175.8107,
+      "raw_elo": 1121.0354
+    },
+    {
+      "card_name": "Defense Center",
+      "elo": 175.558,
+      "raw_elo": 1119.4242
+    },
+    {
+      "card_name": "Machine Base",
+      "elo": 170.981,
+      "raw_elo": 1090.2395
+    },
+    {
+      "card_name": "Battle Blob",
+      "elo": 165.9525,
+      "raw_elo": 1058.1762
+    },
+    {
+      "card_name": "Command Ship",
+      "elo": 162.3804,
+      "raw_elo": 1035.3991
+    },
+    {
+      "card_name": "Stealth Needle",
+      "elo": 160.5883,
+      "raw_elo": 1023.9719
+    },
+    {
+      "card_name": "Brain World",
+      "elo": 159.5514,
+      "raw_elo": 1017.3604
+    },
+    {
+      "card_name": "Scout",
+      "elo": 156.8288,
+      "raw_elo": 1000.0
+    },
+    {
+      "card_name": "Viper",
+      "elo": 156.8288,
+      "raw_elo": 1000.0
+    },
+    {
+      "card_name": "Survey Ship",
+      "elo": 156.2188,
+      "raw_elo": 996.1101
+    },
+    {
+      "card_name": "Missile Mech",
+      "elo": 155.6841,
+      "raw_elo": 992.7011
+    },
+    {
+      "card_name": "Mothership",
+      "elo": 155.632,
+      "raw_elo": 992.3686
+    },
+    {
+      "card_name": "Trade Pod",
+      "elo": 149.6032,
+      "raw_elo": 953.9267
+    },
+    {
+      "card_name": "Cutter",
+      "elo": 149.5267,
+      "raw_elo": 953.4389
+    },
+    {
+      "card_name": "Blob Fighter",
+      "elo": 149.3294,
+      "raw_elo": 952.1809
+    },
+    {
+      "card_name": "Flagship",
+      "elo": 149.0114,
+      "raw_elo": 950.1528
+    },
+    {
+      "card_name": "Trading Post",
+      "elo": 148.9928,
+      "raw_elo": 950.0345
+    },
+    {
+      "card_name": "Federation Shuttle",
+      "elo": 146.1637,
+      "raw_elo": 931.9953
+    },
+    {
+      "card_name": "Battle Mech",
+      "elo": 144.3345,
+      "raw_elo": 920.3315
+    },
+    {
+      "card_name": "Battle Pod",
+      "elo": 144.1171,
+      "raw_elo": 918.9454
+    },
+    {
+      "card_name": "Dreadnaught",
+      "elo": 140.7698,
+      "raw_elo": 897.6017
+    },
+    {
+      "card_name": "Imperial Fighter",
+      "elo": 138.8944,
+      "raw_elo": 885.6435
+    },
+    {
+      "card_name": "Supply Bot",
+      "elo": 133.5665,
+      "raw_elo": 851.6707
+    },
+    {
+      "card_name": "Trade Bot",
+      "elo": 128.9124,
+      "raw_elo": 821.9944
+    },
+    {
+      "card_name": "Space Station",
+      "elo": 121.9636,
+      "raw_elo": 777.6863
+    },
+    {
+      "card_name": "Corvette",
+      "elo": 121.2965,
+      "raw_elo": 773.4322
+    },
+    {
+      "card_name": "Battlecruiser",
+      "elo": 119.399,
+      "raw_elo": 761.3334
+    },
+    {
+      "card_name": "Missile Bot",
+      "elo": 108.1981,
+      "raw_elo": 689.9118
+    },
+    {
+      "card_name": "Ram",
+      "elo": 91.4826,
+      "raw_elo": 583.3275
+    },
+    {
+      "card_name": "Recycling Station",
+      "elo": 78.2611,
+      "raw_elo": 499.0223
+    },
+    {
+      "card_name": "Patrol Mech",
+      "elo": 72.6754,
+      "raw_elo": 463.4056
+    },
+    {
+      "card_name": "Imperial Frigate",
+      "elo": 27.0879,
+      "raw_elo": 172.7226
+    }
+  ],
+  "duration_seconds": 92.79136824607849,
+  "report_text": "Card Acquire Elo Test for d1000m-1g500p-5dec-basedon1/checkpoint_000000.json\nResolved checkpoint: checkpoint_000000.json\nGames: 200\nDeterministic: True\nEnded by limit: 0 game(s)\nTurn summaries: 5157\nEligible single-acquire turns: 2469\nScored decisions: 1963\nPairwise comparisons: 4435\nExplorer raw Elo: 1275.2757\nNormalization factor: 6.376378\nDuration: 1m 32s\n\nCard Rankings\n 1. Blob Destroyer         213.05\n 2. Embassy Yacht          206.09\n 3. Blob Wheel             205.51\n 4. Explorer               200.00\n 5. The Hive               198.63\n 6. Blob Carrier           196.93\n 7. Port of Call           195.21\n 8. Trade Escort           192.62\n 9. Battle Station         192.05\n10. Mech World             191.21\n11. Central Office         185.99\n12. Royal Redoubt          185.65\n13. Barter World           183.72\n14. War World              183.24\n15. Blob World             182.78\n16. Fleet HQ               179.32\n17. Freighter              177.01\n18. Junkyard               175.81\n19. Defense Center         175.56\n20. Machine Base           170.98\n21. Battle Blob            165.95\n22. Command Ship           162.38\n23. Stealth Needle         160.59\n24. Brain World            159.55\n25. Scout                  156.83\n26. Viper                  156.83\n27. Survey Ship            156.22\n28. Missile Mech           155.68\n29. Mothership             155.63\n30. Trade Pod              149.60\n31. Cutter                 149.53\n32. Blob Fighter           149.33\n33. Flagship               149.01\n34. Trading Post           148.99\n35. Federation Shuttle     146.16\n36. Battle Mech            144.33\n37. Battle Pod             144.12\n38. Dreadnaught            140.77\n39. Imperial Fighter       138.89\n40. Supply Bot             133.57\n41. Trade Bot              128.91\n42. Space Station          121.96\n43. Corvette               121.30\n44. Battlecruiser          119.40\n45. Missile Bot            108.20\n46. Ram                     91.48\n47. Recycling Station       78.26\n48. Patrol Mech             72.68\n49. Imperial Frigate        27.09",
+  "report_path": "C:\\Users\\micha\\Documents\\GitHub\\astrosynapse\\starrealms_policies\\d1000m-1g500p-5dec-basedon1\\analysis\\card_acquire_elo_checkpoint_000000_json_20260427-123623.txt",
+  "json_path": "C:\\Users\\micha\\Documents\\GitHub\\astrosynapse\\starrealms_policies\\d1000m-1g500p-5dec-basedon1\\analysis\\card_acquire_elo_checkpoint_000000_json_20260427-123623.json"
+}

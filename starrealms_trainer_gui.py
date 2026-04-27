@@ -64,7 +64,11 @@ SUBTEXT = "#c3d3ea"
 MUTED = "#87a0c2"
 BUTTON_BG = "#25476a"
 BUTTON_ACTIVE = "#356796"
-POLL_INTERVAL_MS = 100
+POLL_INTERVAL_MS = 50
+REFRESH_INTERVAL_COMMAND_MS = 200
+REFRESH_INTERVAL_ACTIVE_MS = 350
+REFRESH_INTERVAL_IDLE_MS = 1000
+REFRESH_INTERVAL_ERROR_MS = 500
 
 
 @dataclass
@@ -453,6 +457,13 @@ class TrainerGUI(tk.Tk):
         self._suppress_run_events = False
         self._last_refresh_error: Optional[str] = None
         self._last_refresh_error_at = 0.0
+        self._runtime_info = sp.runtime_environment()
+        self._device_backend_cache: Dict[str, str] = {}
+        self._refresh_requested = True
+        self._next_refresh_at = 0.0
+        self._known_run_names: tuple[str, ...] = ()
+        self._last_runs_tree_key: Optional[tuple[tuple[Any, ...], ...]] = None
+        self._last_checkpoint_tree_key: Optional[tuple[Any, ...]] = None
 
         self.run_name_var = tk.StringVar(value=sp.LATEST_RUN_NAME)
         self.checkpoint_var = tk.StringVar(value="latest")
@@ -518,6 +529,23 @@ class TrainerGUI(tk.Tk):
             self.focus_force()
         except tk.TclError:
             pass
+
+    def _request_refresh(self, immediate: bool = False) -> None:
+        self._refresh_requested = True
+        if immediate:
+            self._next_refresh_at = 0.0
+
+    def _refresh_interval_ms(self) -> int:
+        if self.command_thread is not None and self.command_thread.is_alive():
+            return REFRESH_INTERVAL_COMMAND_MS
+        status = self.status_vars["status"].get().strip().lower()
+        if status in {"training", "stop_requested"}:
+            return REFRESH_INTERVAL_ACTIVE_MS
+        return REFRESH_INTERVAL_IDLE_MS
+
+    def _schedule_next_refresh(self, delay_ms: Optional[int] = None) -> None:
+        interval_ms = self._refresh_interval_ms() if delay_ms is None else max(0, int(delay_ms))
+        self._next_refresh_at = time.monotonic() + (interval_ms / 1000.0)
 
     def _build_style(self) -> None:
         style = ttk.Style(self)
@@ -1050,10 +1078,37 @@ class TrainerGUI(tk.Tk):
         self.command_thread = threading.Thread(target=worker, name="trainer-gui-command", daemon=True)
         self.command_thread.start()
 
-    def _refresh_match_policy_selectors(self, run_names: Sequence[str]) -> None:
-        values = list(run_names)
-        self.match_run_a_combo.configure(values=values)
-        self.match_run_b_combo.configure(values=values)
+    def _checkpoint_values_for_run(
+        self,
+        run_name: str,
+        run_names: set[str],
+        checkpoint_cache: Dict[str, List[Dict[str, Any]]],
+    ) -> tuple[str, ...]:
+        checkpoint_values = ["latest", "best"]
+        if run_name in run_names:
+            checkpoints = checkpoint_cache.get(run_name)
+            if checkpoints is None:
+                checkpoints = sp.list_checkpoints(run_name)
+                checkpoint_cache[run_name] = checkpoints
+            checkpoint_values.extend(item["name"] for item in checkpoints)
+        return tuple(checkpoint_values)
+
+    def _refresh_match_policy_selectors(
+        self,
+        run_names: Sequence[str],
+        run_name_set: Optional[set[str]] = None,
+        checkpoint_cache: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    ) -> None:
+        values = tuple(run_names)
+        if tuple(self.match_run_a_combo["values"]) != values:
+            self.match_run_a_combo.configure(values=values)
+        if tuple(self.match_run_b_combo["values"]) != values:
+            self.match_run_b_combo.configure(values=values)
+
+        if run_name_set is None:
+            run_name_set = set(run_names)
+        if checkpoint_cache is None:
+            checkpoint_cache = {}
 
         if not self.match_run_a_var.get().strip():
             self.match_run_a_var.set(self._selected_run_name())
@@ -1065,16 +1120,26 @@ class TrainerGUI(tk.Tk):
             (self.match_run_b_var, self.match_checkpoint_b_var, self.match_checkpoint_b_combo),
         ]:
             run_name = run_var.get().strip() or sp.LATEST_RUN_NAME
-            checkpoint_values = ["latest", "best"]
-            if sp.run_exists(run_name):
-                checkpoint_values.extend(item["name"] for item in sp.list_checkpoints(run_name))
-            checkpoint_combo.configure(values=checkpoint_values)
+            checkpoint_values = self._checkpoint_values_for_run(run_name, run_name_set, checkpoint_cache)
+            if tuple(checkpoint_combo["values"]) != checkpoint_values:
+                checkpoint_combo.configure(values=checkpoint_values)
             if checkpoint_var.get().strip() not in checkpoint_values:
                 checkpoint_var.set("latest")
 
-    def _refresh_fork_source_selector(self, run_names: Sequence[str]) -> None:
-        values = list(run_names)
-        self.fork_source_run_combo.configure(values=values)
+    def _refresh_fork_source_selector(
+        self,
+        run_names: Sequence[str],
+        run_name_set: Optional[set[str]] = None,
+        checkpoint_cache: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    ) -> None:
+        values = tuple(run_names)
+        if tuple(self.fork_source_run_combo["values"]) != values:
+            self.fork_source_run_combo.configure(values=values)
+
+        if run_name_set is None:
+            run_name_set = set(run_names)
+        if checkpoint_cache is None:
+            checkpoint_cache = {}
 
         if not self.fork_source_run_var.get().strip():
             self.fork_source_run_var.set(self._selected_run_name())
@@ -1082,10 +1147,9 @@ class TrainerGUI(tk.Tk):
             self.fork_source_run_var.set(values[0])
 
         run_name = self.fork_source_run_var.get().strip() or sp.LATEST_RUN_NAME
-        checkpoint_values = ["latest", "best"]
-        if sp.run_exists(run_name):
-            checkpoint_values.extend(item["name"] for item in sp.list_checkpoints(run_name))
-        self.fork_source_checkpoint_combo.configure(values=checkpoint_values)
+        checkpoint_values = self._checkpoint_values_for_run(run_name, run_name_set, checkpoint_cache)
+        if tuple(self.fork_source_checkpoint_combo["values"]) != checkpoint_values:
+            self.fork_source_checkpoint_combo.configure(values=checkpoint_values)
         if self.fork_source_checkpoint_var.get().strip() not in checkpoint_values:
             self.fork_source_checkpoint_var.set("latest")
 
@@ -1104,9 +1168,14 @@ class TrainerGUI(tk.Tk):
     def refresh_data(self) -> None:
         runs = sp.list_runs()
         run_names = [item["run_name"] for item in runs]
-        self.run_combo.configure(values=run_names)
-        self._refresh_match_policy_selectors(run_names)
-        self._refresh_fork_source_selector(run_names)
+        run_name_set = set(run_names)
+        checkpoint_cache: Dict[str, List[Dict[str, Any]]] = {}
+        self._known_run_names = tuple(run_names)
+
+        if tuple(self.run_combo["values"]) != self._known_run_names:
+            self.run_combo.configure(values=self._known_run_names)
+        self._refresh_match_policy_selectors(self._known_run_names, run_name_set, checkpoint_cache)
+        self._refresh_fork_source_selector(self._known_run_names, run_name_set, checkpoint_cache)
 
         current_run = self._selected_run_name()
         typed_new_run = bool(current_run) and current_run not in run_names
@@ -1118,25 +1187,40 @@ class TrainerGUI(tk.Tk):
         if selected_items:
             current_run_selection = selected_items[0]
 
+        runs_tree_key = tuple(
+            (
+                run["run_name"],
+                str(run["status"]),
+                int(run["iteration"]),
+                f"{float(run['current_elo']):.1f}",
+                f"{float(run['best_elo']):.1f}",
+                int(run["total_matches"]),
+                int(run["total_games"]),
+            )
+            for run in runs
+        )
+
         self._suppress_run_events = True
         try:
-            self.runs_tree.delete(*self.runs_tree.get_children())
-            for run in runs:
-                iid = run["run_name"]
-                self.runs_tree.insert(
-                    "",
-                    "end",
-                    iid=iid,
-                    text=run["run_name"],
-                    values=(
-                        run["status"],
-                        run["iteration"],
-                        f"{run['current_elo']:.1f}",
-                        f"{run['best_elo']:.1f}",
-                        run["total_matches"],
-                        run["total_games"],
-                    ),
-                )
+            if runs_tree_key != self._last_runs_tree_key:
+                self.runs_tree.delete(*self.runs_tree.get_children())
+                for run in runs:
+                    iid = run["run_name"]
+                    self.runs_tree.insert(
+                        "",
+                        "end",
+                        iid=iid,
+                        text=run["run_name"],
+                        values=(
+                            run["status"],
+                            run["iteration"],
+                            f"{run['current_elo']:.1f}",
+                            f"{run['best_elo']:.1f}",
+                            run["total_matches"],
+                            run["total_games"],
+                        ),
+                    )
+                self._last_runs_tree_key = runs_tree_key
 
             if typed_new_run:
                 self.runs_tree.selection_remove(self.runs_tree.selection())
@@ -1150,13 +1234,30 @@ class TrainerGUI(tk.Tk):
         finally:
             self._suppress_run_events = False
 
-        self._refresh_checkpoint_selector(selected_run)
-        self._refresh_summary(selected_run)
+        selected_state: Dict[str, Any] = {}
+        selected_checkpoints: List[Dict[str, Any]] = []
+        if selected_run in run_name_set:
+            selected_state = sp.get_run_state(selected_run)
+            selected_checkpoints = checkpoint_cache.get(selected_run)
+            if selected_checkpoints is None:
+                selected_checkpoints = sp.list_checkpoints(selected_run)
+                checkpoint_cache[selected_run] = selected_checkpoints
 
-    def _refresh_checkpoint_selector(self, run_name: str) -> None:
-        checkpoints = sp.list_checkpoints(run_name)
+        self._refresh_checkpoint_selector(selected_run, selected_checkpoints)
+        self._refresh_summary(
+            selected_run,
+            run_names=self._known_run_names,
+            state=selected_state,
+            checkpoints=selected_checkpoints,
+        )
+        self._refresh_requested = False
+        self._schedule_next_refresh()
+
+    def _refresh_checkpoint_selector(self, run_name: str, checkpoints: Optional[Sequence[Dict[str, Any]]] = None) -> None:
+        checkpoints = list(checkpoints or [])
         checkpoint_values = ["latest", "best"] + [item["name"] for item in checkpoints]
-        self.checkpoint_combo.configure(values=checkpoint_values)
+        if tuple(self.checkpoint_combo["values"]) != tuple(checkpoint_values):
+            self.checkpoint_combo.configure(values=checkpoint_values)
 
         current_checkpoint = self._selected_checkpoint()
         if current_checkpoint not in checkpoint_values:
@@ -1166,26 +1267,42 @@ class TrainerGUI(tk.Tk):
         selected_items = list(self.checkpoints_tree.selection())
         selected_checkpoint = selected_items[-1] if selected_items else None
 
-        self.checkpoints_tree.delete(*self.checkpoints_tree.get_children())
-        for checkpoint in checkpoints:
-            flags = []
-            if checkpoint.get("is_latest"):
-                flags.append("latest")
-            if checkpoint.get("is_best"):
-                flags.append("best")
-            if checkpoint.get("is_candidate"):
-                flags.append("candidate")
-            self.checkpoints_tree.insert(
-                "",
-                "end",
-                iid=checkpoint["name"],
-                text=checkpoint["name"],
-                values=(
-                    checkpoint.get("iteration", 0),
+        checkpoint_tree_key = (
+            run_name,
+            tuple(
+                (
+                    checkpoint["name"],
+                    int(checkpoint.get("iteration", 0)),
                     f"{float(checkpoint.get('elo', sp.INITIAL_ELO)):.1f}",
-                    ", ".join(flags) or "-",
-                ),
-            )
+                    bool(checkpoint.get("is_latest")),
+                    bool(checkpoint.get("is_best")),
+                    bool(checkpoint.get("is_candidate")),
+                )
+                for checkpoint in checkpoints
+            ),
+        )
+        if checkpoint_tree_key != self._last_checkpoint_tree_key:
+            self.checkpoints_tree.delete(*self.checkpoints_tree.get_children())
+            for checkpoint in checkpoints:
+                flags = []
+                if checkpoint.get("is_latest"):
+                    flags.append("latest")
+                if checkpoint.get("is_best"):
+                    flags.append("best")
+                if checkpoint.get("is_candidate"):
+                    flags.append("candidate")
+                self.checkpoints_tree.insert(
+                    "",
+                    "end",
+                    iid=checkpoint["name"],
+                    text=checkpoint["name"],
+                    values=(
+                        checkpoint.get("iteration", 0),
+                        f"{float(checkpoint.get('elo', sp.INITIAL_ELO)):.1f}",
+                        ", ".join(flags) or "-",
+                    ),
+                )
+            self._last_checkpoint_tree_key = checkpoint_tree_key
 
         surviving_selection = [
             checkpoint_name
@@ -1205,9 +1322,15 @@ class TrainerGUI(tk.Tk):
         elif selected_checkpoint in self.checkpoints_tree.get_children():
             self.checkpoints_tree.selection_set(selected_checkpoint)
 
-    def _refresh_summary(self, run_name: str) -> None:
-        run_names = {item["run_name"] for item in sp.list_runs()}
-        if run_name not in run_names:
+    def _refresh_summary(
+        self,
+        run_name: str,
+        run_names: Optional[Sequence[str]] = None,
+        state: Optional[Dict[str, Any]] = None,
+        checkpoints: Optional[Sequence[Dict[str, Any]]] = None,
+    ) -> None:
+        run_name_set = set(run_names or self._known_run_names)
+        if run_name not in run_name_set:
             for key, value in self.status_vars.items():
                 value.set("" if key == "last_error" else "-")
             self.status_vars["status"].set("new run")
@@ -1223,7 +1346,8 @@ class TrainerGUI(tk.Tk):
             )
             return
 
-        state = sp.get_run_state(run_name)
+        if state is None:
+            state = sp.get_run_state(run_name)
         summary = self._summary_from_state(run_name, state)
         self._load_selected_run_settings(run_name, state)
 
@@ -1239,7 +1363,7 @@ class TrainerGUI(tk.Tk):
         self.status_vars["device"].set(str(summary.get("device_backend", "cpu")))
         self.status_vars["last_error"].set(str(summary.get("last_error") or ""))
 
-        checkpoints = sp.list_checkpoints(run_name)
+        checkpoints = list(checkpoints or [])
         checkpoint_lines = []
         for checkpoint in checkpoints:
             flags = []
@@ -1255,7 +1379,7 @@ class TrainerGUI(tk.Tk):
 
         config = state.get("config") or {}
         config_lines = [f"- {key}: {config[key]}" for key in sorted(config.keys())]
-        runtime_info = sp.runtime_environment()
+        runtime_info = self._runtime_info
 
         last_match = summary.get("last_match") or {}
         last_update = summary.get("last_update") or {}
@@ -1397,10 +1521,13 @@ class TrainerGUI(tk.Tk):
             runtime = sp._format_seconds(sp._timestamp() - float(created_at))
         config = state.get("config", {}) or {}
         device_preference = str(config.get("device_preference", "auto"))
-        try:
-            device_backend = sp.resolve_device_backend(device_preference)
-        except Exception:
-            device_backend = device_preference
+        device_backend = self._device_backend_cache.get(device_preference)
+        if device_backend is None:
+            try:
+                device_backend = sp.resolve_device_backend(device_preference)
+            except Exception:
+                device_backend = device_preference
+            self._device_backend_cache[device_preference] = device_backend
         return {
             "run_name": state.get("run_name", run_name),
             "status": state.get("status", "idle"),
@@ -1487,17 +1614,16 @@ class TrainerGUI(tk.Tk):
             return
         run_name = selection[0]
         self.run_name_var.set(run_name)
-        self._refresh_checkpoint_selector(run_name)
-        self._refresh_summary(run_name)
+        self.refresh_data()
 
     def _on_run_combo(self, _: Optional[tk.Event] = None) -> None:
         self.refresh_data()
 
     def _on_match_run_combo(self, _: Optional[tk.Event] = None) -> None:
-        self._refresh_match_policy_selectors([item["run_name"] for item in sp.list_runs()])
+        self.refresh_data()
 
     def _on_fork_source_combo(self, _: Optional[tk.Event] = None) -> None:
-        self._refresh_fork_source_selector([item["run_name"] for item in sp.list_runs()])
+        self.refresh_data()
 
     def _on_checkpoint_tree_select(self, _: Optional[tk.Event] = None) -> None:
         selection = self.checkpoints_tree.selection()
@@ -1937,12 +2063,15 @@ class TrainerGUI(tk.Tk):
             finally:
                 request.event.set()
 
-    def _handle_worker_results(self) -> None:
+    def _handle_worker_results(self) -> bool:
+        handled_result = False
         while True:
             try:
                 status, label, payload, callback = self.result_queue.get_nowait()
             except queue.Empty:
                 break
+
+            handled_result = True
 
             if status == "success":
                 self.log(f"{label} finished.")
@@ -1951,22 +2080,24 @@ class TrainerGUI(tk.Tk):
             else:
                 self.log(f"{label} failed.\n{payload}")
                 messagebox.showerror("Command failed", payload, parent=self)
-
-            self.refresh_data()
+        return handled_result
 
     def _poll(self) -> None:
         self._handle_choice_requests()
-        self._handle_worker_results()
-        try:
-            self.refresh_data()
-            self._last_refresh_error = None
-        except Exception as exc:
-            message = f"{type(exc).__name__}: {exc}"
-            now = time.time()
-            if self._last_refresh_error != message or (now - self._last_refresh_error_at) >= 5.0:
-                self.log(f"Refresh skipped due to transient error: {message}")
-                self._last_refresh_error = message
-                self._last_refresh_error_at = now
+        if self._handle_worker_results():
+            self._request_refresh(immediate=True)
+        if self._refresh_requested or time.monotonic() >= self._next_refresh_at:
+            try:
+                self.refresh_data()
+                self._last_refresh_error = None
+            except Exception as exc:
+                message = f"{type(exc).__name__}: {exc}"
+                now = time.time()
+                if self._last_refresh_error != message or (now - self._last_refresh_error_at) >= 5.0:
+                    self.log(f"Refresh skipped due to transient error: {message}")
+                    self._last_refresh_error = message
+                    self._last_refresh_error_at = now
+                self._schedule_next_refresh(REFRESH_INTERVAL_ERROR_MS)
         self.after(POLL_INTERVAL_MS, self._poll)
 
     def _on_close(self) -> None:

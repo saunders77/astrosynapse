@@ -1,0 +1,63 @@
+Card Acquire Elo Test for d1000m-1g500p-5dec-basedon1/checkpoint_000000.json
+Resolved checkpoint: checkpoint_000000.json
+Games: 200
+Deterministic: True
+Ended by limit: 0 game(s)
+Turn summaries: 5157
+Eligible single-acquire turns: 2469
+Scored decisions: 1963
+Pairwise comparisons: 4435
+Explorer raw Elo: 1275.2757
+Normalization factor: 6.376378
+Duration: 1m 32s
+
+Card Rankings
+ 1. Blob Destroyer         213.05
+ 2. Embassy Yacht          206.09
+ 3. Blob Wheel             205.51
+ 4. Explorer               200.00
+ 5. The Hive               198.63
+ 6. Blob Carrier           196.93
+ 7. Port of Call           195.21
+ 8. Trade Escort           192.62
+ 9. Battle Station         192.05
+10. Mech World             191.21
+11. Central Office         185.99
+12. Royal Redoubt          185.65
+13. Barter World           183.72
+14. War World              183.24
+15. Blob World             182.78
+16. Fleet HQ               179.32
+17. Freighter              177.01
+18. Junkyard               175.81
+19. Defense Center         175.56
+20. Machine Base           170.98
+21. Battle Blob            165.95
+22. Command Ship           162.38
+23. Stealth Needle         160.59
+24. Brain World            159.55
+25. Scout                  156.83
+26. Viper                  156.83
+27. Survey Ship            156.22
+28. Missile Mech           155.68
+29. Mothership             155.63
+30. Trade Pod              149.60
+31. Cutter                 149.53
+32. Blob Fighter           149.33
+33. Flagship               149.01
+34. Trading Post           148.99
+35. Federation Shuttle     146.16
+36. Battle Mech            144.33
+37. Battle Pod             144.12
+38. Dreadnaught            140.77
+39. Imperial Fighter       138.89
+40. Supply Bot             133.57
+41. Trade Bot              128.91
+42. Space Station          121.96
+43. Corvette               121.30
+44. Battlecruiser          119.40
+45. Missile Bot            108.20
+46. Ram                     91.48
+47. Recycling Station       78.26
+48. Patrol Mech             72.68
+49. Imperial Frigate        27.09

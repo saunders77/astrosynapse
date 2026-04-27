@@ -313,6 +313,7 @@ def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
         try:
             temp_path.write_text(content, encoding="utf-8")
             os.replace(temp_path, path)
+            _invalidate_json_cache(path)
             return
         except PermissionError as exc:
             last_error = exc
@@ -1417,6 +1418,49 @@ def _load_json_or_none(path: Path, retries: int = 6, delay_seconds: float = 0.05
     return None
 
 
+_JSON_CACHE_LOCK = threading.Lock()
+_JSON_CACHE: Dict[str, Tuple[Tuple[int, int], Optional[Dict[str, Any]]]] = {}
+
+
+def _json_cache_path_key(path: Path) -> str:
+    return str(path)
+
+
+def _invalidate_json_cache(path: Path) -> None:
+    with _JSON_CACHE_LOCK:
+        _JSON_CACHE.pop(_json_cache_path_key(path), None)
+
+
+def _load_cached_json_or_none(path: Path, retries: int = 6, delay_seconds: float = 0.05) -> Optional[Dict[str, Any]]:
+    cache_key = _json_cache_path_key(path)
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        with _JSON_CACHE_LOCK:
+            _JSON_CACHE.pop(cache_key, None)
+        return None
+
+    signature = (stat.st_mtime_ns, stat.st_size)
+    with _JSON_CACHE_LOCK:
+        cached = _JSON_CACHE.get(cache_key)
+        if cached is not None and cached[0] == signature:
+            payload = cached[1]
+            return None if payload is None else dict(payload)
+
+    payload = _load_json_or_none(path, retries=retries, delay_seconds=delay_seconds)
+    try:
+        refreshed_stat = path.stat()
+    except FileNotFoundError:
+        with _JSON_CACHE_LOCK:
+            _JSON_CACHE.pop(cache_key, None)
+        return None if payload is None else dict(payload)
+
+    refreshed_signature = (refreshed_stat.st_mtime_ns, refreshed_stat.st_size)
+    with _JSON_CACHE_LOCK:
+        _JSON_CACHE[cache_key] = (refreshed_signature, payload)
+    return None if payload is None else dict(payload)
+
+
 def _load_policy_from_path(path: Path) -> Optional[PolicyNetwork]:
     payload = _load_json_or_none(path)
     if payload is None:
@@ -1664,7 +1708,7 @@ def list_runs() -> List[Dict[str, Any]]:
         if not run_dir.is_dir():
             continue
         state_path = run_dir / "training_state.json"
-        state = _load_json_or_none(state_path) or {}
+        state = _load_cached_json_or_none(state_path) or {}
         checkpoints = list(state.get("checkpoints") or [])
         runs.append(
             {
@@ -1694,7 +1738,7 @@ def list_runs() -> List[Dict[str, Any]]:
 
 def list_checkpoints(run_name: str = LATEST_RUN_NAME) -> List[Dict[str, Any]]:
     files = RunFiles(run_name)
-    state = _load_json_or_none(files.training_state_file) or {}
+    state = _load_cached_json_or_none(files.training_state_file) or {}
     best_name = state.get("best_checkpoint")
     latest_name = state.get("latest_checkpoint")
     checkpoints = []
@@ -1728,7 +1772,7 @@ def list_checkpoints(run_name: str = LATEST_RUN_NAME) -> List[Dict[str, Any]]:
 
 def get_run_state(run_name: str = LATEST_RUN_NAME) -> Dict[str, Any]:
     files = RunFiles(run_name)
-    state = _load_json_or_none(files.training_state_file) or {}
+    state = _load_cached_json_or_none(files.training_state_file) or {}
     if not state:
         return {}
     state["run_name"] = state.get("run_name", run_name)
