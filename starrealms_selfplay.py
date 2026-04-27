@@ -68,6 +68,8 @@ TRAINING_DECISIONS_PER_GAME_OPTIONS = (
     TRAINING_DECISIONS_PER_GAME_5,
     TRAINING_DECISIONS_PER_GAME_ALL,
 )
+DEFAULT_MIN_TRAIN_TEMPERATURE_RATIO = 0.5 / 0.9
+DEFAULT_PLATEAU_MAX_TRAIN_TEMPERATURE_RATIO = 1.15 / 0.9
 
 
 def _normalize_ability(raw_ability: Any) -> str:
@@ -624,8 +626,8 @@ class TrainingConfig:
     grad_clip: float = 1.0
     epsilon_random: float = 0.07
     min_epsilon_random: float = 0.015
-    train_temperature: float = 1.1
-    min_train_temperature: float = 0.62
+    train_temperature: float = 0.9
+    min_train_temperature: float = 0.5
     eval_temperature: float = 0.35
     checkpoint_interval: int = 1
     training_matches_per_iteration: int = 5
@@ -645,10 +647,10 @@ class TrainingConfig:
     plateau_full_iterations_without_promotion: int = 36
     plateau_learning_rate_boost: float = 1.7
     plateau_epsilon_boost: float = 2.4
-    plateau_temperature_boost: float = 1.28
+    plateau_temperature_boost: float = 1.22
     plateau_max_learning_rate: float = 0.0033
     plateau_max_epsilon_random: float = 0.16
-    plateau_max_train_temperature: float = 1.35
+    plateau_max_train_temperature: float = 1.15
     elo_k: float = 24.0
     max_training_samples_per_match: int = 256
     max_turns_per_game: int = 400
@@ -1276,12 +1278,51 @@ def training_decisions_per_game_limit(value: Any) -> Optional[int]:
     return int(normalized)
 
 
+def normalize_train_temperature(value: Any) -> float:
+    try:
+        temperature = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("train_temperature must be a number.")
+    if not math.isfinite(temperature) or temperature <= 0.0:
+        raise ValueError("train_temperature must be greater than 0.")
+    return temperature
+
+
+def derive_temperature_schedule_overrides(train_temperature: float) -> Dict[str, float]:
+    normalized_temperature = normalize_train_temperature(train_temperature)
+    min_temperature = min(
+        normalized_temperature,
+        max(0.35, normalized_temperature * DEFAULT_MIN_TRAIN_TEMPERATURE_RATIO),
+    )
+    plateau_max_temperature = max(
+        normalized_temperature,
+        normalized_temperature * DEFAULT_PLATEAU_MAX_TRAIN_TEMPERATURE_RATIO,
+    )
+    return {
+        "train_temperature": round(normalized_temperature, 6),
+        "min_train_temperature": round(min_temperature, 6),
+        "plateau_max_train_temperature": round(plateau_max_temperature, 6),
+    }
+
+
+def normalize_promotion_score_threshold(value: Any) -> float:
+    try:
+        threshold = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("promotion_score_threshold must be a number.")
+    if not math.isfinite(threshold) or threshold < 0.5 or threshold > 1.0:
+        raise ValueError("promotion_score_threshold must be between 0.5 and 1.0.")
+    return threshold
+
+
 def new_run_overrides(
     model_type: str = MODEL_TYPE_DEEP,
     training_matches_per_iteration: int = 5,
     training_games_per_match: int = 16,
     training_decisions_per_game: str = TRAINING_DECISIONS_PER_GAME_ALL,
+    train_temperature: float = 0.9,
     promotion_games: int = 24,
+    promotion_score_threshold: float = 0.6,
     device_preference: str = DEVICE_AUTO,
 ) -> Dict[str, Any]:
     if int(training_matches_per_iteration) <= 0:
@@ -1292,6 +1333,7 @@ def new_run_overrides(
         raise ValueError("promotion_games must be positive.")
 
     overrides = model_type_overrides(model_type)
+    overrides.update(derive_temperature_schedule_overrides(train_temperature))
     overrides.update(
         {
             "device_preference": str(device_preference or DEVICE_AUTO).strip().lower(),
@@ -1299,6 +1341,7 @@ def new_run_overrides(
             "training_games_per_match": int(training_games_per_match),
             "training_decisions_per_game": normalize_training_decisions_per_game(training_decisions_per_game),
             "promotion_games": int(promotion_games),
+            "promotion_score_threshold": normalize_promotion_score_threshold(promotion_score_threshold),
         }
     )
     return overrides
@@ -1524,14 +1567,14 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
         "min_learning_rate": ((0.0003,), 0.0004),
         "epsilon_random": ((0.05,), 0.07),
         "min_epsilon_random": ((0.01,), 0.015),
-        "train_temperature": ((1.0,), 1.1),
-        "min_train_temperature": ((0.55,), 0.62),
+        "train_temperature": ((1.0, 1.1), 0.9),
+        "min_train_temperature": ((0.55, 0.62), 0.5),
         "plateau_learning_rate_boost": ((2.0, 2.15), 1.7),
         "plateau_epsilon_boost": ((3.0, 3.2), 2.4),
-        "plateau_temperature_boost": ((1.35, 1.45), 1.28),
+        "plateau_temperature_boost": ((1.35, 1.45, 1.28), 1.22),
         "plateau_max_learning_rate": ((0.0035, 0.0042), 0.0033),
         "plateau_max_epsilon_random": ((0.18, 0.22), 0.16),
-        "plateau_max_train_temperature": ((1.45, 1.6), 1.35),
+        "plateau_max_train_temperature": ((1.45, 1.6, 1.35), 1.15),
     }
     for key, (old_values, new_value) in legacy_default_updates.items():
         current_value = saved_config.get(key)
@@ -2882,7 +2925,9 @@ def create_run(
     training_matches_per_iteration: int = 5,
     training_games_per_match: int = 16,
     training_decisions_per_game: str = TRAINING_DECISIONS_PER_GAME_ALL,
+    train_temperature: float = 0.9,
     promotion_games: int = 24,
+    promotion_score_threshold: float = 0.6,
 ) -> Dict[str, Any]:
     if not str(run_name).strip():
         raise ValueError("run_name is required.")
@@ -2895,7 +2940,9 @@ def create_run(
         training_matches_per_iteration=training_matches_per_iteration,
         training_games_per_match=training_games_per_match,
         training_decisions_per_game=training_decisions_per_game,
+        train_temperature=train_temperature,
         promotion_games=promotion_games,
+        promotion_score_threshold=promotion_score_threshold,
     )
     _ensure_run(run_name, config_overrides=overrides)
     trainer = _get_trainer(run_name, overrides)
@@ -2910,7 +2957,9 @@ def create_run_from_checkpoint(
     training_matches_per_iteration: int = 5,
     training_games_per_match: int = 16,
     training_decisions_per_game: str = TRAINING_DECISIONS_PER_GAME_ALL,
+    train_temperature: float = 0.9,
     promotion_games: int = 24,
+    promotion_score_threshold: float = 0.6,
 ) -> Dict[str, Any]:
     if not str(run_name).strip():
         raise ValueError("run_name is required.")
@@ -2932,8 +2981,10 @@ def create_run_from_checkpoint(
             "training_games_per_match": int(training_games_per_match),
             "training_decisions_per_game": normalize_training_decisions_per_game(training_decisions_per_game),
             "promotion_games": int(promotion_games),
+            "promotion_score_threshold": normalize_promotion_score_threshold(promotion_score_threshold),
         }
     )
+    config = config.merged(derive_temperature_schedule_overrides(train_temperature))
 
     if config.training_matches_per_iteration <= 0:
         raise ValueError("training_matches_per_iteration must be positive.")
@@ -2972,6 +3023,31 @@ def create_run_from_checkpoint(
 
     trainer = SelfPlayTrainer(run_name)
     _TRAINERS[run_name] = trainer
+    return trainer.progress_summary()
+
+
+def update_run_config(
+    run_name: str,
+    train_temperature: Optional[float] = None,
+    promotion_score_threshold: Optional[float] = None,
+) -> Dict[str, Any]:
+    if not run_exists(run_name):
+        raise ValueError(f"Run '{run_name}' does not exist.")
+
+    trainer = _get_trainer(run_name)
+    if trainer.is_running or str(trainer.state.get("status", "idle")).lower() == "running":
+        raise RuntimeError(f"Run '{run_name}' is currently training. Interrupt it before changing run settings.")
+
+    overrides: Dict[str, Any] = {}
+    if train_temperature is not None:
+        overrides.update(derive_temperature_schedule_overrides(train_temperature))
+    if promotion_score_threshold is not None:
+        overrides["promotion_score_threshold"] = normalize_promotion_score_threshold(promotion_score_threshold)
+    if not overrides:
+        return trainer.progress_summary()
+
+    trainer.config = trainer.config.merged(overrides)
+    trainer._save()
     return trainer.progress_summary()
 
 

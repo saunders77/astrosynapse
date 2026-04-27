@@ -467,7 +467,9 @@ class TrainerGUI(tk.Tk):
         self.new_run_matches_var = tk.StringVar(value="5")
         self.new_run_games_var = tk.StringVar(value="16")
         self.new_run_decisions_var = tk.StringVar(value=sp.TRAINING_DECISIONS_PER_GAME_ALL)
+        self.new_run_train_temperature_var = tk.StringVar(value="0.9")
         self.new_run_promotion_games_var = tk.StringVar(value="24")
+        self.new_run_promotion_threshold_var = tk.StringVar(value="0.6")
         self.fork_source_run_var = tk.StringVar(value=sp.LATEST_RUN_NAME)
         self.fork_source_checkpoint_var = tk.StringVar(value="latest")
         self.rating_models_var = tk.StringVar(value="8")
@@ -475,6 +477,9 @@ class TrainerGUI(tk.Tk):
         self.include_candidate_var = tk.BooleanVar(value=True)
         self.human_name_var = tk.StringVar(value="Human")
         self.policy_name_var = tk.StringVar(value="Policy")
+        self.run_train_temperature_var = tk.StringVar(value="0.9")
+        self.run_promotion_threshold_var = tk.StringVar(value="0.6")
+        self._loaded_run_settings_run_name: Optional[str] = None
 
         self.status_vars = {
             "status": tk.StringVar(value="idle"),
@@ -652,8 +657,12 @@ class TrainerGUI(tk.Tk):
             state="readonly",
             width=6,
         ).pack(side="left", padx=(6, 16))
+        ttk.Label(new_run_row, text="Train Temp").pack(side="left")
+        ttk.Entry(new_run_row, textvariable=self.new_run_train_temperature_var, width=6).pack(side="left", padx=(6, 16))
         ttk.Label(new_run_row, text="Promotion Games").pack(side="left")
         ttk.Entry(new_run_row, textvariable=self.new_run_promotion_games_var, width=8).pack(side="left", padx=(6, 16))
+        ttk.Label(new_run_row, text="Promote Win %").pack(side="left")
+        ttk.Entry(new_run_row, textvariable=self.new_run_promotion_threshold_var, width=6).pack(side="left", padx=(6, 16))
         new_run_tip = tk.Label(
             new_run_row,
             text="These settings are used when creating a fresh run or forking from a checkpoint.",
@@ -693,8 +702,25 @@ class TrainerGUI(tk.Tk):
         )
         fork_tip.pack(side="left")
 
+        run_config_row = tk.Frame(controls, bg=WINDOW_BG)
+        run_config_row.grid(row=5, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        ttk.Label(run_config_row, text="Selected Run Train Temp").pack(side="left")
+        ttk.Entry(run_config_row, textvariable=self.run_train_temperature_var, width=6).pack(side="left", padx=(6, 16))
+        ttk.Label(run_config_row, text="Selected Run Promote Win %").pack(side="left")
+        ttk.Entry(run_config_row, textvariable=self.run_promotion_threshold_var, width=6).pack(side="left", padx=(6, 16))
+        self.apply_run_settings_button = self._button(run_config_row, "Apply Run Settings", self._apply_run_settings)
+        self.apply_run_settings_button.pack(side="left", padx=(6, 12))
+        tk.Label(
+            run_config_row,
+            text="Applies these two settings to the currently selected existing run.",
+            bg=WINDOW_BG,
+            fg=MUTED,
+            anchor="w",
+            font=("Segoe UI", 9),
+        ).pack(side="left")
+
         rating_row = tk.Frame(controls, bg=WINDOW_BG)
-        rating_row.grid(row=5, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        rating_row.grid(row=6, column=0, columnspan=7, sticky="ew", pady=(10, 0))
         ttk.Label(rating_row, text="Rating Policies").pack(side="left")
         ttk.Entry(rating_row, textvariable=self.rating_models_var, width=8).pack(side="left", padx=(6, 16))
         ttk.Label(rating_row, text="Games / Pair").pack(side="left")
@@ -711,7 +737,7 @@ class TrainerGUI(tk.Tk):
         rating_tip.pack(side="left", padx=(16, 0))
 
         name_row = tk.Frame(controls, bg=WINDOW_BG)
-        name_row.grid(row=6, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        name_row.grid(row=7, column=0, columnspan=7, sticky="ew", pady=(10, 0))
         ttk.Label(name_row, text="Human Name").pack(side="left")
         ttk.Entry(name_row, textvariable=self.human_name_var, width=18).pack(side="left", padx=(6, 16))
         ttk.Label(name_row, text="Policy Display Name").pack(side="left")
@@ -946,6 +972,12 @@ class TrainerGUI(tk.Tk):
         except ValueError as exc:
             raise ValueError(str(exc))
 
+    def _new_run_train_temperature(self) -> float:
+        try:
+            return sp.normalize_train_temperature(self.new_run_train_temperature_var.get().strip())
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
     def _new_run_promotion_games(self) -> int:
         try:
             value = int(self.new_run_promotion_games_var.get().strip())
@@ -955,6 +987,24 @@ class TrainerGUI(tk.Tk):
             raise ValueError("New run promotion games must be positive.")
         return value
 
+    def _new_run_promotion_threshold(self) -> float:
+        try:
+            return sp.normalize_promotion_score_threshold(self.new_run_promotion_threshold_var.get().strip())
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
+    def _selected_run_train_temperature(self) -> float:
+        try:
+            return sp.normalize_train_temperature(self.run_train_temperature_var.get().strip())
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
+    def _selected_run_promotion_threshold(self) -> float:
+        try:
+            return sp.normalize_promotion_score_threshold(self.run_promotion_threshold_var.get().strip())
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
     def _selected_new_run_overrides(self) -> Dict[str, Any]:
         return sp.new_run_overrides(
             model_type=self.new_run_model_var.get().strip() or sp.MODEL_TYPE_DEEP,
@@ -962,7 +1012,9 @@ class TrainerGUI(tk.Tk):
             training_matches_per_iteration=self._new_run_training_matches(),
             training_games_per_match=self._new_run_games_per_match(),
             training_decisions_per_game=self._new_run_decisions_per_game(),
+            train_temperature=self._new_run_train_temperature(),
             promotion_games=self._new_run_promotion_games(),
+            promotion_score_threshold=self._new_run_promotion_threshold(),
         )
 
     def _new_run_overrides_for(self, run_name: str) -> Optional[Dict[str, Any]]:
@@ -1030,6 +1082,18 @@ class TrainerGUI(tk.Tk):
         self.fork_source_checkpoint_combo.configure(values=checkpoint_values)
         if self.fork_source_checkpoint_var.get().strip() not in checkpoint_values:
             self.fork_source_checkpoint_var.set("latest")
+
+    def _load_selected_run_settings(self, run_name: str, state: Dict[str, Any]) -> None:
+        if self._loaded_run_settings_run_name == run_name:
+            return
+        config = state.get("config") or {}
+        if config:
+            self.run_train_temperature_var.set(str(config.get("train_temperature", 0.9)))
+            self.run_promotion_threshold_var.set(str(config.get("promotion_score_threshold", 0.6)))
+        else:
+            self.run_train_temperature_var.set("0.9")
+            self.run_promotion_threshold_var.set("0.6")
+        self._loaded_run_settings_run_name = run_name
 
     def refresh_data(self) -> None:
         runs = sp.list_runs()
@@ -1155,6 +1219,7 @@ class TrainerGUI(tk.Tk):
 
         state = sp.get_run_state(run_name)
         summary = self._summary_from_state(run_name, state)
+        self._load_selected_run_settings(run_name, state)
 
         self.status_vars["status"].set(str(summary.get("status", "idle")))
         self.status_vars["iteration"].set(str(summary.get("iteration", 0)))
@@ -1514,6 +1579,8 @@ class TrainerGUI(tk.Tk):
                 f"and {config.get('training_matches_per_iteration')} match(es)/iter, "
                 f"{config.get('training_games_per_match')} game(s)/match, "
                 f"{config.get('training_decisions_per_game')} decision(s)/game, "
+                f"train_temperature={config.get('train_temperature')}, "
+                f"promotion_threshold={config.get('promotion_score_threshold')}, "
                 f"{config.get('promotion_games')} promotion game(s)."
             )
             self.refresh_data()
@@ -1539,7 +1606,9 @@ class TrainerGUI(tk.Tk):
                 training_matches_per_iteration=overrides["training_matches_per_iteration"],
                 training_games_per_match=overrides["training_games_per_match"],
                 training_decisions_per_game=overrides["training_decisions_per_game"],
+                train_temperature=overrides["train_temperature"],
                 promotion_games=overrides["promotion_games"],
+                promotion_score_threshold=overrides["promotion_score_threshold"],
             )
 
         def on_success(result: Dict[str, Any]) -> None:
@@ -1553,6 +1622,8 @@ class TrainerGUI(tk.Tk):
                 f"and {config.get('training_matches_per_iteration')} match(es)/iter, "
                 f"{config.get('training_games_per_match')} game(s)/match, "
                 f"{config.get('training_decisions_per_game')} decision(s)/game, "
+                f"train_temperature={config.get('train_temperature')}, "
+                f"promotion_threshold={config.get('promotion_score_threshold')}, "
                 f"{config.get('promotion_games')} promotion game(s)."
             )
             self.refresh_data()
@@ -1562,6 +1633,38 @@ class TrainerGUI(tk.Tk):
             action,
             on_success=on_success,
         )
+
+    def _apply_run_settings(self) -> None:
+        run_name = self._selected_run_name()
+        if not sp.run_exists(run_name):
+            messagebox.showerror("Run does not exist", f"Run '{run_name}' does not exist yet.", parent=self)
+            return
+        try:
+            train_temperature = self._selected_run_train_temperature()
+            promotion_threshold = self._selected_run_promotion_threshold()
+        except ValueError as exc:
+            messagebox.showerror("Invalid run settings", str(exc), parent=self)
+            return
+
+        def action() -> Dict[str, Any]:
+            return sp.update_run_config(
+                run_name=run_name,
+                train_temperature=train_temperature,
+                promotion_score_threshold=promotion_threshold,
+            )
+
+        def on_success(result: Dict[str, Any]) -> None:
+            state = sp.get_run_state(run_name)
+            config = state.get("config") or {}
+            self._loaded_run_settings_run_name = None
+            self.log(
+                f"Updated run settings for '{run_name}': "
+                f"train_temperature={config.get('train_temperature')}, "
+                f"promotion_score_threshold={config.get('promotion_score_threshold')}."
+            )
+            self.refresh_data()
+
+        self._run_async(f"Apply run settings for '{run_name}'", action, on_success=on_success)
 
     def _interrupt_background(self) -> None:
         run_name = self._selected_run_name()
