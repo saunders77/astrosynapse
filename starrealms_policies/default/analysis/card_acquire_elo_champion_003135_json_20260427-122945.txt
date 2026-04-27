@@ -1,0 +1,63 @@
+Card Acquire Elo Test for default/latest
+Resolved checkpoint: champion_003135.json
+Games: 2
+Deterministic: True
+Ended by limit: 0 game(s)
+Turn summaries: 135
+Eligible single-acquire turns: 13
+Scored decisions: 12
+Pairwise comparisons: 29
+Explorer raw Elo: 1023.6106
+Normalization factor: 5.118053
+Duration: 0s
+
+Card Rankings
+ 1. Blob Wheel             201.86
+ 2. Explorer               200.00
+ 3. Barter World           199.76
+ 4. Blob World             197.69
+ 5. Cutter                 197.65
+ 6. Survey Ship            196.02
+ 7. Battle Blob            195.39
+ 8. Battle Mech            195.39
+ 9. Battle Pod             195.39
+10. Battlecruiser          195.39
+11. Blob Destroyer         195.39
+12. Blob Fighter           195.39
+13. Brain World            195.39
+14. Central Office         195.39
+15. Command Ship           195.39
+16. Defense Center         195.39
+17. Dreadnaught            195.39
+18. Embassy Yacht          195.39
+19. Flagship               195.39
+20. Fleet HQ               195.39
+21. Freighter              195.39
+22. Imperial Frigate       195.39
+23. Junkyard               195.39
+24. Missile Mech           195.39
+25. Mothership             195.39
+26. Patrol Mech            195.39
+27. Port of Call           195.39
+28. Ram                    195.39
+29. Royal Redoubt          195.39
+30. Scout                  195.39
+31. Space Station          195.39
+32. Stealth Needle         195.39
+33. Supply Bot             195.39
+34. The Hive               195.39
+35. Trade Bot              195.39
+36. Trade Escort           195.39
+37. Trade Pod              195.39
+38. Trading Post           195.39
+39. Viper                  195.39
+40. War World              195.39
+41. Recycling Station      195.30
+42. Machine Base           194.82
+43. Mech World             194.78
+44. Battle Station         194.62
+45. Federation Shuttle     194.61
+46. Blob Carrier           194.20
+47. Corvette               193.31
+48. Imperial Fighter       193.31
+49. Missile Bot            182.89

@@ -597,6 +597,12 @@ class TrainerGUI(tk.Tk):
         self.create_run_from_checkpoint_button.pack(side="left", padx=6)
         self.rating_pass_button = self._button(button_row, "Run Rating Pass", self._run_rating_pass)
         self.rating_pass_button.pack(side="left", padx=6)
+        self.card_acquire_elo_button = self._button(
+            button_row,
+            "Run Acquire Elo Test",
+            self._run_card_acquire_elo_test,
+        )
+        self.card_acquire_elo_button.pack(side="left", padx=6)
         self.selfplay_button = self._button(button_row, "Run Self-Play Game", self._play_self_game)
         self.selfplay_button.pack(side="left", padx=6)
         self.human_button = self._button(button_row, "Play Against Selected Policy", self._play_human_game)
@@ -1440,6 +1446,39 @@ class TrainerGUI(tk.Tk):
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
 
+    def _show_text_report(self, title: str, text: str) -> None:
+        window = tk.Toplevel(self, bg=WINDOW_BG)
+        window.title(title)
+        window.geometry("860x980")
+        window.minsize(680, 540)
+
+        header = tk.Frame(window, bg=WINDOW_BG, padx=12, pady=10)
+        header.pack(fill="x")
+        tk.Label(
+            header,
+            text=title,
+            bg=WINDOW_BG,
+            fg=TEXT,
+            anchor="w",
+            font=("Segoe UI Semibold", 14),
+        ).pack(fill="x")
+
+        body = ScrolledText(
+            window,
+            wrap="none",
+            bg=PANEL_BG,
+            fg=TEXT,
+            insertbackground=TEXT,
+            relief="flat",
+            bd=0,
+            padx=12,
+            pady=12,
+            font=("Consolas", 11),
+        )
+        body.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        body.insert("1.0", text)
+        body.configure(state="disabled")
+
     def _on_run_tree_select(self, _: Optional[tk.Event] = None) -> None:
         if self._suppress_run_events:
             return
@@ -1707,6 +1746,42 @@ class TrainerGUI(tk.Tk):
             )
 
         self._run_async(f"Run rating pass for '{run_name}'", action, on_success=on_success)
+
+    def _run_card_acquire_elo_test(self) -> None:
+        run_name = self._selected_run_name()
+        checkpoint = self._selected_checkpoint()
+        if not sp.run_exists(run_name):
+            messagebox.showerror("Run does not exist", f"Run '{run_name}' does not exist yet.", parent=self)
+            return
+
+        def action() -> Dict[str, Any]:
+            return sp.run_card_acquire_elo_test(
+                run_name=run_name,
+                checkpoint=checkpoint,
+                games=sp.CARD_ACQUIRE_ELO_TEST_GAMES,
+            )
+
+        def on_success(result: Dict[str, Any]) -> None:
+            leaderboard = list(result.get("leaderboard") or [])
+            top_entry = leaderboard[0] if leaderboard else {}
+            self.log(
+                f"Acquire Elo test finished for '{run_name}' / '{checkpoint}': "
+                f"{result.get('scored_decisions', 0)} scored decision(s) from "
+                f"{result.get('eligible_single_acquire_turns', 0)} eligible single-acquire turn(s) across "
+                f"{result.get('games', 0)} game(s). "
+                f"Top card: {top_entry.get('card_name', '-')} at {round(float(top_entry.get('elo', 0.0)), 2)}. "
+                f"Report saved to {result.get('report_path', '-')}"
+            )
+            self._show_text_report(
+                f"Acquire Elo Test: {run_name} / {result.get('resolved_checkpoint', checkpoint)}",
+                str(result.get("report_text") or ""),
+            )
+
+        self._run_async(
+            f"Run acquire Elo test for '{run_name}' / '{checkpoint}'",
+            action,
+            on_success=on_success,
+        )
 
     def _play_self_game(self) -> None:
         run_name = self._selected_run_name()

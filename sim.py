@@ -61,10 +61,11 @@ import random
 from chooser import choose as default_choose
 
 class Player:
-    def __init__(self, game, name, chooser_fn=None):
+    def __init__(self, game, name, chooser_fn=None, turn_summary_callback=None):
         self.name = name
         self.game = game
         self.chooser_fn = chooser_fn or default_choose
+        self.turn_summary_callback = turn_summary_callback
         self.opponent = None
         self.deck = [scout, scout, scout, scout, scout, scout, scout, scout, viper, viper]
         random.shuffle(self.deck)
@@ -169,6 +170,7 @@ class Player:
 
         self.attack = 0
         self.trade = 0
+        self.turnAcquisitionEvents = []
         self.allAllied = False # for Mech World
         self.fleetActive = False # for FleetHQ
         self.nextShipTop = False # for several cards
@@ -267,7 +269,9 @@ class Player:
                     if self.opponent.authority <= 0:
                         mainPhase = False
                         self.game.winner = self
-                case 'acquire': self.acquire(options[decision][1], options[decision][2][1])
+                case 'acquire':
+                    self.recordAcquisitionEvent('acquire', options[decision][2], self.game.tradeRow, options[decision][2][1])
+                    self.acquire(options[decision][1], options[decision][2][1])
                 case 'endTurn': mainPhase = False
         
         # remove stuff from play area
@@ -284,8 +288,30 @@ class Player:
                     i += 1
         
         self.opponentKnownHandCards = []
+        self.finishTurnSummary()
         # draw for my next turn
         self.draw(5)
+
+    def recordAcquisitionEvent(self, acquisitionType, card, tradeRowSnapshot, cost):
+        self.turnAcquisitionEvents.append({
+            'type': acquisitionType,
+            'cardName': card[0],
+            'cardCost': card[1],
+            'costPaid': cost,
+            'tradeRowSnapshot': list(tradeRowSnapshot),
+        })
+
+    def finishTurnSummary(self):
+        if self.turn_summary_callback is None:
+            return
+        total_trade_gained = self.trade + sum(event['costPaid'] for event in self.turnAcquisitionEvents)
+        self.turn_summary_callback({
+            'playerName': self.name,
+            'acquisitionEvents': list(self.turnAcquisitionEvents),
+            'totalAcquisitions': len(self.turnAcquisitionEvents),
+            'remainingTrade': self.trade,
+            'totalTradeGained': total_trade_gained,
+        })
 
     def useAbility(self, abilityName, n = None):
         match abilityName:
@@ -374,6 +400,7 @@ class Player:
                 if len(options) > 0:
                     self.nextShipTop = True
                     decision = self.sendChoice(options)
+                    self.recordAcquisitionEvent('freeAcquire', options[decision][2], self.game.tradeRow, 0)
                     self.acquire(options[decision][1], 0)
             case 'destroyscrap':
                 self.selectAndDestroyBase()
@@ -550,12 +577,15 @@ class Player:
 
 
 class Game:
-    def __init__(self, p1name, p2name, p1_choose=None, p2_choose=None, verbose=True, max_turns=400, max_actions_per_turn=200):
+    def __init__(self, p1name, p2name, p1_choose=None, p2_choose=None, verbose=True, max_turns=400, max_actions_per_turn=200, turn_summary_callback=None):
         self.verbose = verbose
         self.max_turns = max_turns
         self.max_actions_per_turn = max_actions_per_turn
         self.tradeRow = []
-        self.players = [Player(self, p1name, p1_choose), Player(self, p2name, p2_choose)]
+        self.players = [
+            Player(self, p1name, p1_choose, turn_summary_callback=turn_summary_callback),
+            Player(self, p2name, p2_choose, turn_summary_callback=turn_summary_callback),
+        ]
         self.players[0].opponent = self.players[1]
         self.players[1].opponent = self.players[0]
         self.players[0].knownGameState['opponentDiscardPile'] = self.players[1].discardPile

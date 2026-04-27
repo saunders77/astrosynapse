@@ -1,0 +1,7621 @@
+{
+  "status": "training",
+  "run_name": "d1000m-1g500p-5dec-basedon1",
+  "iteration": 2,
+  "total_matches": 2501,
+  "total_games": 3212,
+  "created_at": 1777312585.3893864,
+  "updated_at": 1777318292.2773166,
+  "strategy": "champion_league_v2",
+  "strategy_version": 2,
+  "current_elo": 1000.0,
+  "best_elo": 1000.0,
+  "best_checkpoint": "checkpoint_000000.json",
+  "latest_checkpoint": "checkpoint_000000.json",
+  "promotions": 0,
+  "last_promotion_iteration": 0,
+  "config": {
+    "hidden_size": 96,
+    "model_architecture": "deep_v2",
+    "device_preference": "cpu",
+    "learning_rate": 0.0019,
+    "min_learning_rate": 0.0004,
+    "ppo_epochs": 2,
+    "ppo_minibatch_size": 64,
+    "ppo_clip": 0.2,
+    "min_ppo_clip": 0.1,
+    "value_coef": 0.5,
+    "grad_clip": 1.0,
+    "epsilon_random": 0.07,
+    "min_epsilon_random": 0.015,
+    "train_temperature": 0.95,
+    "min_train_temperature": 0.527778,
+    "eval_temperature": 0.35,
+    "checkpoint_interval": 1,
+    "training_matches_per_iteration": 1000,
+    "training_games_per_match": 1,
+    "training_decisions_per_game": "5",
+    "promotion_games": 500,
+    "promotion_score_threshold": 0.54,
+    "candidate_patience": 8,
+    "candidate_reset_threshold": 0.35,
+    "league_recent_window": 10,
+    "league_champion_weight": 0.45,
+    "league_best_weight": 0.2,
+    "league_recent_weight": 0.25,
+    "league_historical_weight": 0.1,
+    "anneal_steps": 3000,
+    "plateau_start_iterations_without_promotion": 12,
+    "plateau_full_iterations_without_promotion": 36,
+    "plateau_learning_rate_boost": 1.7,
+    "plateau_epsilon_boost": 2.4,
+    "plateau_temperature_boost": 1.22,
+    "plateau_max_learning_rate": 0.0033,
+    "plateau_max_epsilon_random": 0.16,
+    "plateau_max_train_temperature": 1.213889,
+    "elo_k": 24.0,
+    "max_training_samples_per_match": 256,
+    "max_turns_per_game": 400,
+    "max_actions_per_turn": 200,
+    "max_iterations": null
+  },
+  "last_match": {
+    "wins": 272,
+    "losses": 227,
+    "games_played": 499,
+    "return_value": 0.09018036072144289,
+    "duration_seconds": 800.8190703392029,
+    "matches_played": 499,
+    "opponents": [
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      }
+    ]
+  },
+  "last_update": {
+    "samples": 5000.0,
+    "policy_loss": -0.0014139395236968993,
+    "value_loss": 0.3713507985949516,
+    "clip_fraction": 0.0496,
+    "avg_ratio": 1.0008607019484044,
+    "avg_value_prediction": -0.03591753236092627,
+    "learning_rate": 0.0018995,
+    "epsilon_random": 0.06998166666666668,
+    "train_temperature": 0.9498592593333333,
+    "ppo_clip": 0.19996666666666668,
+    "iterations_since_promotion": 1,
+    "promotion_drought_progress": 0.0,
+    "learning_rate_multiplier": 1.0,
+    "epsilon_multiplier": 1.0,
+    "temperature_multiplier": 1.0,
+    "matches_collected": 1000
+  },
+  "last_eval": {
+    "wins": 152,
+    "losses": 251,
+    "games_played": 403,
+    "score": 0.3771712158808933,
+    "promoted": false,
+    "action": "keep_training",
+    "promoted_checkpoint": null,
+    "champion_checkpoint": "checkpoint_000000.json",
+    "duration_seconds": 528.1073231697083
+  },
+  "last_rating_pass": null,
+  "candidate": {
+    "base_checkpoint": "checkpoint_000000.json",
+    "base_iteration": 1,
+    "attempts_since_reset": 1,
+    "total_attempts": 2,
+    "resets": 1,
+    "promotions": 0,
+    "rating_pass_elo": 1000.0,
+    "last_score": 0.3771712158808933,
+    "last_result": "keep_training",
+    "last_reset_reason": "Candidate reset after score 0.190 and 1 attempt(s) since the last reset.",
+    "last_opponents": [
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "checkpoint_000000.json"
+      }
+    ]
+  },
+  "checkpoints": [
+    {
+      "name": "checkpoint_000000.json",
+      "iteration": 0,
+      "elo": 1000.0,
+      "created_at": 1777312585.3893864,
+      "note": "initial random policy"
+    }
+  ],
+  "last_error": null
+}

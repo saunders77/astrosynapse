@@ -45,6 +45,8 @@ ROOT_DIR = Path(__file__).resolve().parent
 RUNS_DIR = ROOT_DIR / "starrealms_policies"
 LATEST_RUN_NAME = "default"
 INITIAL_ELO = 1000.0
+CARD_ACQUIRE_ELO_TEST_GAMES = 200
+CARD_ACQUIRE_ELO_K_FACTOR = 24.0
 CARD_ZONE_SCALE = 15.0
 NUMERIC_OPTION_SCALE = 10.0
 EPSILON = 1e-12
@@ -134,6 +136,9 @@ ACTION_TYPES = [
     "other",
 ]
 ACTION_TO_INDEX = {name: idx for idx, name in enumerate(ACTION_TYPES)}
+CARD_NAME_ORDER = [str(card[0]) for card in cardDetails]
+CARD_BY_NAME = {str(card[0]): card for card in cardDetails}
+CARD_COST_BY_NAME = {str(card[0]): int(card[1]) for card in cardDetails}
 
 CARD_FEATURE_SIZE = 8 + len(factions) + len(CARD_TYPE_TO_INDEX) + len(ABILITY_FAMILIES) + 2
 ZONE_FEATURE_SIZE = CARD_FEATURE_SIZE + 4
@@ -226,6 +231,14 @@ def _format_seconds(seconds: float) -> str:
     if minutes > 0:
         return f"{minutes}m {secs:02d}s"
     return f"{secs}s"
+
+
+def _safe_slug(text: Any) -> str:
+    raw = str(text or "").strip()
+    if not raw:
+        return "item"
+    cleaned = "".join(character if character.isalnum() or character in {"-", "_"} else "_" for character in raw)
+    return cleaned.strip("_") or "item"
 
 
 def _directml_available() -> bool:
@@ -1223,6 +1236,7 @@ class RunFiles:
     def __init__(self, run_name: str) -> None:
         self.run_name = run_name
         self.run_dir = RUNS_DIR / run_name
+        self.analysis_dir = self.run_dir / "analysis"
         self.policy_file = self.run_dir / "latest_policy.json"
         self.candidate_policy_file = self.run_dir / "candidate_policy.json"
         self.training_state_file = self.run_dir / "training_state.json"
@@ -3083,6 +3097,236 @@ def summarize_rating_pass(
         f"and {summary.get('pairings_played', 0)} pairings. "
         f"Top rated: {top_entry.get('name', '-')} at {round(float(top_entry.get('elo', INITIAL_ELO)), 2)} Elo."
     )
+
+
+def _initial_card_elo_ratings() -> Dict[str, float]:
+    return {card_name: INITIAL_ELO for card_name in CARD_NAME_ORDER}
+
+
+def _apply_card_acquire_elo_result(
+    ratings: Dict[str, float],
+    winner_name: str,
+    loser_names: Sequence[str],
+    k_factor: float,
+) -> int:
+    winner_name = str(winner_name or "").strip()
+    if not winner_name:
+        return 0
+
+    unique_losers: List[str] = []
+    seen_losers = set()
+    for loser_name in loser_names:
+        normalized_name = str(loser_name or "").strip()
+        if not normalized_name or normalized_name == winner_name or normalized_name in seen_losers:
+            continue
+        seen_losers.add(normalized_name)
+        unique_losers.append(normalized_name)
+
+    if not unique_losers:
+        return 0
+
+    ratings.setdefault(winner_name, INITIAL_ELO)
+    winner_rating = float(ratings[winner_name])
+    pair_k = float(k_factor) / max(len(unique_losers), 1)
+    winner_delta = 0.0
+    loser_deltas: Dict[str, float] = {}
+
+    for loser_name in unique_losers:
+        ratings.setdefault(loser_name, INITIAL_ELO)
+        loser_rating = float(ratings[loser_name])
+        expected_winner = _elo_expected(winner_rating, loser_rating)
+        delta = pair_k * (1.0 - expected_winner)
+        winner_delta += delta
+        loser_deltas[loser_name] = loser_deltas.get(loser_name, 0.0) - delta
+
+    ratings[winner_name] = winner_rating + winner_delta
+    for loser_name, delta in loser_deltas.items():
+        ratings[loser_name] = float(ratings[loser_name]) + delta
+
+    return len(unique_losers)
+
+
+def _normalized_card_elo_ratings(raw_ratings: Dict[str, float]) -> Tuple[Dict[str, float], float, float]:
+    explorer_rating = float(raw_ratings.get("Explorer", INITIAL_ELO))
+    if abs(explorer_rating) <= 1e-9:
+        normalization_factor = 1.0
+    else:
+        normalization_factor = explorer_rating / 200.0
+    normalized = {
+        card_name: float(rating) / normalization_factor
+        for card_name, rating in raw_ratings.items()
+    }
+    return normalized, normalization_factor, explorer_rating
+
+
+def format_card_acquire_elo_test_report(result: Dict[str, Any]) -> str:
+    leaderboard = list(result.get("leaderboard") or [])
+    lines = [
+        f"Card Acquire Elo Test for {result.get('run_name', '-')}/{result.get('checkpoint', '-')}",
+        f"Resolved checkpoint: {result.get('resolved_checkpoint', '-')}",
+        f"Games: {result.get('games', 0)}",
+        f"Deterministic: {result.get('deterministic', True)}",
+        f"Ended by limit: {result.get('ended_by_limit_games', 0)} game(s)",
+        f"Turn summaries: {result.get('turn_summaries', 0)}",
+        f"Eligible single-acquire turns: {result.get('eligible_single_acquire_turns', 0)}",
+        f"Scored decisions: {result.get('scored_decisions', 0)}",
+        f"Pairwise comparisons: {result.get('pairwise_comparisons', 0)}",
+        f"Explorer raw Elo: {round(float(result.get('explorer_raw_elo', INITIAL_ELO)), 4)}",
+        f"Normalization factor: {round(float(result.get('normalization_factor', 1.0)), 6)}",
+        f"Duration: {_format_seconds(float(result.get('duration_seconds', 0.0)))}",
+        "",
+        "Card Rankings",
+    ]
+    for index, entry in enumerate(leaderboard, start=1):
+        lines.append(f"{index:>2}. {entry.get('card_name', '-'):<20} {float(entry.get('elo', 0.0)):>8.2f}")
+    return "\n".join(lines)
+
+
+def run_card_acquire_elo_test(
+    run_name: str = LATEST_RUN_NAME,
+    checkpoint: str = "latest",
+    games: int = CARD_ACQUIRE_ELO_TEST_GAMES,
+    deterministic: bool = True,
+    k_factor: float = CARD_ACQUIRE_ELO_K_FACTOR,
+) -> Dict[str, Any]:
+    if games <= 0:
+        raise ValueError("games must be positive.")
+    if not math.isfinite(float(k_factor)) or float(k_factor) <= 0.0:
+        raise ValueError("k_factor must be greater than 0.")
+
+    trainer = _get_trainer(run_name)
+    config = trainer.config
+    state = trainer.state
+    resolved_checkpoint = _resolve_checkpoint_name(state, checkpoint) or str(checkpoint or "latest")
+    policy = load_policy(run_name, checkpoint)
+    temperature = config.eval_temperature if deterministic else config.train_temperature
+    epsilon_random = 0.0 if deterministic else config.epsilon_random
+    start_time = time.time()
+
+    ratings = _initial_card_elo_ratings()
+    turn_summaries = 0
+    eligible_single_acquire_turns = 0
+    scored_decisions = 0
+    pairwise_comparisons = 0
+    ended_by_limit_games = 0
+
+    for _ in range(int(games)):
+        actor_a = PolicyActor(
+            policy,
+            deterministic=deterministic,
+            temperature=temperature,
+            epsilon_random=epsilon_random,
+        )
+        actor_b = PolicyActor(
+            policy,
+            deterministic=deterministic,
+            temperature=temperature,
+            epsilon_random=epsilon_random,
+        )
+        game_turn_summaries: List[Dict[str, Any]] = []
+
+        def capture_turn_summary(summary: Dict[str, Any]) -> None:
+            game_turn_summaries.append(_copy_nested(summary))
+
+        game = Game(
+            "policy_a",
+            "policy_b",
+            p1_choose=actor_a.choose,
+            p2_choose=actor_b.choose,
+            verbose=False,
+            max_turns=config.max_turns_per_game,
+            max_actions_per_turn=config.max_actions_per_turn,
+            turn_summary_callback=capture_turn_summary,
+        )
+        if game.ended_by_limit:
+            ended_by_limit_games += 1
+
+        for turn_summary in game_turn_summaries:
+            turn_summaries += 1
+            acquisition_events = list(turn_summary.get("acquisitionEvents") or [])
+            total_acquisitions = int(turn_summary.get("totalAcquisitions", len(acquisition_events)))
+            if total_acquisitions != 1 or len(acquisition_events) != 1:
+                continue
+
+            event = acquisition_events[0]
+            if str(event.get("type", "")) != "acquire":
+                continue
+
+            eligible_single_acquire_turns += 1
+            winner_name = str(event.get("cardName", "")).strip()
+            if not winner_name:
+                continue
+
+            total_trade_gained = float(turn_summary.get("totalTradeGained", 0.0))
+            loser_names: List[str] = []
+            seen_losers = set()
+            for trade_card in list(event.get("tradeRowSnapshot") or []):
+                if not isinstance(trade_card, (list, tuple)) or len(trade_card) < 2:
+                    continue
+                card_name = str(trade_card[0] or "").strip()
+                if not card_name or card_name == winner_name or card_name in seen_losers:
+                    continue
+                card_cost = CARD_COST_BY_NAME.get(card_name)
+                if card_cost is None:
+                    try:
+                        card_cost = int(trade_card[1])
+                    except (TypeError, ValueError):
+                        continue
+                if float(card_cost) > total_trade_gained:
+                    continue
+                seen_losers.add(card_name)
+                loser_names.append(card_name)
+
+            comparisons = _apply_card_acquire_elo_result(ratings, winner_name, loser_names, float(k_factor))
+            if comparisons <= 0:
+                continue
+            scored_decisions += 1
+            pairwise_comparisons += comparisons
+
+    normalized_ratings, normalization_factor, explorer_raw_elo = _normalized_card_elo_ratings(ratings)
+    leaderboard = [
+        {
+            "card_name": card_name,
+            "elo": round(float(normalized_ratings.get(card_name, 0.0)), 4),
+            "raw_elo": round(float(ratings.get(card_name, INITIAL_ELO)), 4),
+        }
+        for card_name in ratings.keys()
+    ]
+    leaderboard.sort(key=lambda entry: (-float(entry["elo"]), str(entry["card_name"])))
+
+    duration_seconds = time.time() - start_time
+    result: Dict[str, Any] = {
+        "run_name": run_name,
+        "checkpoint": checkpoint,
+        "resolved_checkpoint": resolved_checkpoint,
+        "games": int(games),
+        "deterministic": bool(deterministic),
+        "k_factor": float(k_factor),
+        "ended_by_limit_games": ended_by_limit_games,
+        "turn_summaries": turn_summaries,
+        "eligible_single_acquire_turns": eligible_single_acquire_turns,
+        "scored_decisions": scored_decisions,
+        "pairwise_comparisons": pairwise_comparisons,
+        "normalization_factor": normalization_factor,
+        "explorer_raw_elo": explorer_raw_elo,
+        "leaderboard": leaderboard,
+        "duration_seconds": duration_seconds,
+    }
+    report_text = format_card_acquire_elo_test_report(result)
+    result["report_text"] = report_text
+
+    files = trainer.files
+    files.analysis_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_slug = _safe_slug(resolved_checkpoint)
+    timestamp_slug = time.strftime("%Y%m%d-%H%M%S")
+    report_stem = f"card_acquire_elo_{checkpoint_slug}_{timestamp_slug}"
+    report_path = files.analysis_dir / f"{report_stem}.txt"
+    json_path = files.analysis_dir / f"{report_stem}.json"
+    result["report_path"] = str(report_path.resolve())
+    result["json_path"] = str(json_path.resolve())
+    report_path.write_text(report_text, encoding="utf-8")
+    _atomic_write_json(json_path, result)
+    return result
 
 
 def play_self_game(
