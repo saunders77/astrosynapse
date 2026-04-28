@@ -57,6 +57,25 @@ viper = cardDetails [1]
 explorer = cardDetails[2]
 factions = ('red','green','blue','yellow','none')
 
+def isFirstEqualOrBetter(first, second):
+    if first == second: return True
+    
+    if first[2] < second[2]: return False # attack must be greater or equal
+    if first[3] < second[3]: return False # authority
+    if first[4] < second[4]: return False # trade
+    if first[9] < second[9]: return False # ally N
+    if first[11] < second[11]: return False # scrap N
+    if first[12] < second[12]: return False # shield
+    if second[5] != 'none' and first[5] != second[5]: return False # colours
+    if first[6] != second[6] and (first[6] != 'outp' or second[6] != 'base'): return False 
+    if second[7] != 'none' and first[7] != second[7]: return False # ability
+    if second[8] != 'none' and first[8] != second[8]: return False # ally ability
+    if second[10] != 'none' and first[10] != second[10]: return False #scrap
+
+    return True
+
+
+
 import random
 from chooser import choose as default_choose
 
@@ -156,7 +175,16 @@ class Player:
     
     def discard(self, type, required):
         discard_action = 'discard' + type
-        options = [(discard_action, i, card) for i, card in enumerate(self.hand)]
+        options = []
+        for i in range(len(self.hand)):
+            discardCandidate = True
+            j = 0
+            while discardCandidate == True and j < len(self.hand):
+                if i != j and isFirstEqualOrBetter(self.hand[i], self.hand[j]) == True and self.hand[i] != self.hand[j]: # j must be worse. so don't discard i
+                    discardCandidate = False
+                j += 1
+            if discardCandidate == True:
+                options.append((discard_action, i, self.hand[i]))
         if required == False:
             options.append(('nodiscard',))
         decision = self.sendChoice(options)
@@ -365,7 +393,12 @@ class Player:
                             if self.cardsInPlay[faction][i][0][7] == 'copyship':
                                 copierIndex = i
                             else:
-                                options.append(('copyship', self.cardsInPlay[faction][i][0]))
+                                copyCandidate = True
+                                for j in range(len(self.cardsInPlay[faction])):
+                                    if i != j and isFirstEqualOrBetter(self.cardsInPlay[faction][j][0], self.cardsInPlay[faction][i][0]) == True and self.cardsInPlay[faction][i][0] != self.cardsInPlay[faction][j][0]: # j is strictly better than this one
+                                        copyCandidate = False
+                                if copyCandidate == True:
+                                    options.append(('copyship', self.cardsInPlay[faction][i][0]))
                 decision = self.sendChoice(options)
                 if decision > 0:
                     copiedCard = options[decision][1]
@@ -539,8 +572,28 @@ class Player:
     def scrapAny(self, type, required=False):
         scrap_from_hand = 'scrapFromHand' + type
         scrap_from_discard = 'scrapFromDiscard' + type
-        options = [(scrap_from_hand, i, card) for i, card in enumerate(self.hand)]
-        options.extend((scrap_from_discard, i, card) for i, card in enumerate(self.discardPile))
+        
+        options = []
+        for i in range(len(self.discardPile)):
+            scrapCandidate = True
+            for j in range(len(self.discardPile)):
+                if j != i and isFirstEqualOrBetter(self.discardPile[i], self.discardPile[j]) == True and self.discardPile[i] != self.discardPile[j]:
+                    scrapCandidate = False
+            if scrapCandidate == True:
+                options.append((scrap_from_discard, i, self.hand[i]))
+        comparisonOptions = options + self.hand
+        for i in range(len(self.hand)):
+            scrapCandidate = True
+            for j in range(len(options)):
+                if self.hand[i] == self.options[j][2]: scrapCandidate = False
+                if isFirstEqualOrBetter(self.hand[i], self.options[j][2]) == True: scrapCandidate = False
+            if scrapCandidate == True:
+                for j in range(len(self.hand)):
+                    if j != i and isFirstEqualOrBetter(self.hand[i], self.hand[j]) == True and self.hand[i] != self.hand[j]:
+                        scrapCandidate = False
+                if scrapCandidate == True:
+                    options.append((scrap_from_hand, i, self.hand[i]))
+
         if required == False:
             options.append(('noScrapFromHand',))
         decision = self.sendChoice(options)
@@ -553,7 +606,14 @@ class Player:
         return 0
     
     def mustScrapFromHand(self):
-        options = [('scrapFromHandNormal', i, card) for i, card in enumerate(self.hand)]
+        options = []
+        for i in range(len(self.hand)):
+            scrapCandidate = True
+            for j in range(len(self.hand)):
+                if j != i and isFirstEqualOrBetter(self.hand[i], self.hand[j]) == True and self.hand[i] != self.hand[j]:
+                    scrapCandidate = False
+            if scrapCandidate == True:
+                options.append(('scrapFromHandNormal', i, self.hand[i]))
         if len(options) > 0:
             self.hand.pop(self.sendChoice(options))
 
