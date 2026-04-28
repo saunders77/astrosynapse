@@ -1,19 +1,19 @@
 {
   "status": "training",
   "run_name": "sd-1g50m201p",
-  "iteration": 100,
-  "total_matches": 5150,
-  "total_games": 23845,
+  "iteration": 116,
+  "total_matches": 5952,
+  "total_games": 27691,
   "created_at": 1777339718.738322,
-  "updated_at": 1777346561.1840372,
+  "updated_at": 1777347723.91883,
   "strategy": "champion_league_v2",
   "strategy_version": 2,
-  "current_elo": 1011.2594358727017,
-  "best_elo": 1011.2594358727017,
-  "best_checkpoint": "champion_000079.json",
-  "latest_checkpoint": "champion_000079.json",
-  "promotions": 6,
-  "last_promotion_iteration": 79,
+  "current_elo": 1013.032163145429,
+  "best_elo": 1013.032163145429,
+  "best_checkpoint": "champion_000113.json",
+  "latest_checkpoint": "champion_000113.json",
+  "promotions": 7,
+  "last_promotion_iteration": 113,
   "config": {
     "hidden_size": 96,
     "model_architecture": "deep_v2",
@@ -60,87 +60,37 @@
     "max_iterations": null
   },
   "last_match": {
-    "wins": 29,
-    "losses": 21,
-    "games_played": 50,
-    "return_value": 0.16,
-    "duration_seconds": 10.376884698867798,
-    "matches_played": 50,
+    "wins": 20,
+    "losses": 16,
+    "games_played": 36,
+    "return_value": 0.1111111111111111,
+    "duration_seconds": 7.622891902923584,
+    "matches_played": 36,
     "opponents": [
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000021.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000070.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000016.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000070.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000064.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "recent",
@@ -150,17 +100,37 @@
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000070.json"
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "recent",
@@ -170,22 +140,82 @@
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000070.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000016.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000021.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000064.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "recent",
@@ -195,17 +225,17 @@
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "recent",
         "source": "recent",
-        "checkpoint": "champion_000070.json"
+        "checkpoint": "champion_000064.json"
       },
       {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000070.json"
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "recent",
@@ -215,211 +245,61 @@
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000064.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000064.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000021.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000016.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       }
     ]
   },
   "last_update": {
-    "samples": 7256.0,
-    "policy_loss": 7106499.6438464485,
-    "value_loss": 0.24251780537385267,
-    "clip_fraction": 0.09633406835722161,
-    "avg_ratio": 4387089.259062544,
-    "avg_value_prediction": 0.045789710735304585,
-    "learning_rate": 0.0022822833333333336,
-    "epsilon_random": 0.10000466666666667,
-    "train_temperature": 0.951832,
-    "ppo_clip": 0.1967,
-    "iterations_since_promotion": 20,
-    "promotion_drought_progress": 0.3333,
-    "learning_rate_multiplier": 1.2333,
-    "epsilon_multiplier": 1.4667,
-    "temperature_multiplier": 1.0733,
+    "samples": 7006.0,
+    "policy_loss": 9337.259233346895,
+    "value_loss": 0.18687391345998813,
+    "clip_fraction": 0.07022552098201541,
+    "avg_ratio": 202893.10694819613,
+    "avg_value_prediction": 0.3234167647825316,
+    "learning_rate": 0.0018425,
+    "epsilon_random": 0.06789166666666667,
+    "train_temperature": 0.8846666666666667,
+    "ppo_clip": 0.19616666666666668,
+    "iterations_since_promotion": 2,
+    "promotion_drought_progress": 0.0,
+    "learning_rate_multiplier": 1.0,
+    "epsilon_multiplier": 1.0,
+    "temperature_multiplier": 1.0,
     "matches_collected": 50
   },
   "last_eval": {
-    "wins": 91,
+    "wins": 83,
     "losses": 101,
-    "games_played": 192,
-    "score": 0.4739583333333333,
+    "games_played": 184,
+    "score": 0.45108695652173914,
     "promoted": false,
     "action": "keep_training",
     "promoted_checkpoint": null,
-    "champion_checkpoint": "champion_000079.json",
-    "duration_seconds": 42.800719261169434
+    "champion_checkpoint": "champion_000113.json",
+    "duration_seconds": 42.833794832229614
   },
   "last_rating_pass": null,
   "candidate": {
-    "base_checkpoint": "champion_000079.json",
-    "base_iteration": 95,
-    "attempts_since_reset": 5,
-    "total_attempts": 100,
-    "resets": 9,
-    "promotions": 6,
-    "rating_pass_elo": 1011.2594358727017,
-    "last_score": 0.4739583333333333,
+    "base_checkpoint": "champion_000113.json",
+    "base_iteration": 113,
+    "attempts_since_reset": 3,
+    "total_attempts": 116,
+    "resets": 11,
+    "promotions": 7,
+    "rating_pass_elo": 1013.032163145429,
+    "last_score": 0.45108695652173914,
     "last_result": "keep_training",
-    "last_reset_reason": "Candidate reset after score 0.487 and 8 attempt(s) since the last reset.",
+    "last_reset_reason": "Promoted to champion_000113.json",
     "last_opponents": [
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "checkpoint_000000.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000016.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000064.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "recent",
@@ -429,52 +309,47 @@
       {
         "label": "recent",
         "source": "recent",
+        "checkpoint": "champion_000079.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000019.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
         "checkpoint": "champion_000070.json"
       },
       {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "checkpoint_000000.json"
-      },
-      {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000016.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000016.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "recent",
@@ -484,67 +359,67 @@
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "recent",
         "source": "recent",
-        "checkpoint": "checkpoint_000000.json"
+        "checkpoint": "champion_000070.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000021.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "checkpoint_000000.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "recent",
@@ -554,17 +429,22 @@
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "recent",
         "source": "recent",
-        "checkpoint": "champion_000070.json"
+        "checkpoint": "champion_000079.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000064.json"
       },
       {
         "label": "recent",
@@ -572,19 +452,44 @@
         "checkpoint": "checkpoint_000000.json"
       },
       {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000070.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000079.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000064.json"
+      },
+      {
         "label": "champion",
         "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
         "checkpoint": "champion_000079.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "recent",
@@ -594,22 +499,47 @@
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_000079.json"
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000019.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000113.json"
       }
     ]
   },
@@ -4001,7 +3931,7 @@
     {
       "name": "champion_000079.json",
       "iteration": 79,
-      "elo": 1011.2594358727017,
+      "elo": 1009.4867085999745,
       "created_at": 1777344951.6047268,
       "promoted_from": "champion_000070.json",
       "promotion_eval": {
@@ -4450,6 +4380,647 @@
             "label": "champion",
             "source": "champion",
             "checkpoint": "champion_000070.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 101,
+        "wins_b": 75,
+        "games_played": 176,
+        "return_value": 0.14772727272727273,
+        "per_game_winners": [
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 41.03285026550293
+      }
+    },
+    {
+      "name": "champion_000113.json",
+      "iteration": 113,
+      "elo": 1013.032163145429,
+      "created_at": 1777347494.8502932,
+      "promoted_from": "champion_000079.json",
+      "promotion_eval": {
+        "wins_a": 101,
+        "wins_b": 75,
+        "games_played": 176,
+        "return_value": 0.14772727272727273,
+        "per_game_winners": [
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 41.03285026550293
+      },
+      "training_summary": {
+        "wins": 28,
+        "losses": 22,
+        "games_played": 50,
+        "return_value": 0.12,
+        "duration_seconds": 9.647653341293335,
+        "matches_played": 50,
+        "opponents": [
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000021.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000019.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000070.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000070.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000019.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000021.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000019.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000070.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000079.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000064.json"
           }
         ]
       }
