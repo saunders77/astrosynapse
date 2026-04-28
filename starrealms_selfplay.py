@@ -1275,6 +1275,75 @@ def model_type_overrides(model_type: str) -> Dict[str, Any]:
     raise ValueError(f"Unknown model type '{model_type}'. Expected 'deep' or 'default'.")
 
 
+def _convert_policy_architecture(
+    source_policy: PolicyNetwork,
+    target_architecture: str,
+    target_hidden_size: int,
+    target_device_preference: str,
+) -> Tuple[PolicyNetwork, str]:
+    requested_architecture = str(target_architecture or source_policy.architecture).strip()
+    requested_hidden_size = int(target_hidden_size)
+    requested_device_preference = str(target_device_preference or DEVICE_AUTO).strip().lower()
+
+    if requested_hidden_size <= 0:
+        raise ValueError("target_hidden_size must be positive.")
+
+    if (
+        source_policy.architecture == requested_architecture
+        and int(source_policy.hidden_size) == requested_hidden_size
+        and str(source_policy.device_preference).strip().lower() == requested_device_preference
+    ):
+        return PolicyNetwork.from_dict(source_policy.to_dict(include_optimizer=False) | {"device_preference": requested_device_preference}), "cloned_exact"
+
+    if (
+        source_policy.architecture == requested_architecture
+        and int(source_policy.hidden_size) == requested_hidden_size
+    ):
+        payload = source_policy.to_dict(include_optimizer=False)
+        payload["device_preference"] = requested_device_preference
+        return PolicyNetwork.from_dict(payload), "cloned_device"
+
+    if (
+        source_policy.architecture == LEGACY_MODEL_ARCHITECTURE
+        and requested_architecture == CURRENT_MODEL_ARCHITECTURE
+        and requested_hidden_size >= int(source_policy.hidden_size)
+    ):
+        converted = PolicyNetwork(
+            state_size=source_policy.state_size,
+            option_size=source_policy.option_size,
+            hidden_size=requested_hidden_size,
+            architecture=requested_architecture,
+            device_preference=requested_device_preference,
+        )
+        source_model = source_policy.model
+        target_model = converted.model
+        source_hidden_size = int(source_policy.hidden_size)
+
+        with torch.no_grad():
+            for parameter in target_model.parameters():
+                parameter.zero_()
+
+            target_model.state_linear.weight[:source_hidden_size, :] = source_model.state_linear.weight.detach().to(converted.device)
+            target_model.state_linear.bias[:source_hidden_size] = source_model.state_linear.bias.detach().to(converted.device)
+            target_model.option_linear.weight[:source_hidden_size, :] = source_model.option_linear.weight.detach().to(converted.device)
+            target_model.option_linear.bias[:source_hidden_size] = source_model.option_linear.bias.detach().to(converted.device)
+            target_model.joint_bias[:source_hidden_size] = source_model.joint_bias.detach().to(converted.device)
+
+            target_model.policy_head.weight[:, :source_hidden_size] = source_model.policy_head.weight.detach().to(converted.device)
+            target_model.policy_head.bias.copy_(source_model.policy_head.bias.detach().to(converted.device))
+            target_model.value_head.weight[:, :source_hidden_size] = source_model.value_head.weight.detach().to(converted.device)
+            target_model.value_head.bias.copy_(source_model.value_head.bias.detach().to(converted.device))
+
+        return converted, "legacy_to_deep_exact_embed"
+
+    raise ValueError(
+        "Unsupported checkpoint architecture conversion: "
+        f"{source_policy.architecture}/{source_policy.hidden_size} -> "
+        f"{requested_architecture}/{requested_hidden_size}. "
+        "Currently supported conversions are same-architecture clones and legacy_v1 -> deep_v2 embedding."
+    )
+
+
 def normalize_training_decisions_per_game(value: Any) -> str:
     normalized = str(value if value is not None else TRAINING_DECISIONS_PER_GAME_ALL).strip().upper()
     if normalized not in TRAINING_DECISIONS_PER_GAME_OPTIONS:
@@ -3011,6 +3080,7 @@ def create_run_from_checkpoint(
     run_name: str,
     source_run_name: str,
     source_checkpoint: str = "latest",
+    model_type: str = MODEL_TYPE_DEEP,
     device_preference: str = DEVICE_AUTO,
     training_matches_per_iteration: int = 5,
     training_games_per_match: int = 16,
@@ -3029,11 +3099,12 @@ def create_run_from_checkpoint(
     source_policy = load_policy(source_run_name, source_checkpoint)
     source_state = get_run_state(source_run_name)
     resolved_source_checkpoint = _resolve_checkpoint_name(source_state, source_checkpoint) or source_checkpoint
+    target_model = model_type_overrides(model_type)
 
     config = TrainingConfig().merged(
         {
-            "hidden_size": int(source_policy.hidden_size),
-            "model_architecture": str(source_policy.architecture),
+            "hidden_size": int(target_model["hidden_size"]),
+            "model_architecture": str(target_model["model_architecture"]),
             "device_preference": str(device_preference or DEVICE_AUTO).strip().lower(),
             "training_matches_per_iteration": int(training_matches_per_iteration),
             "training_games_per_match": int(training_games_per_match),
@@ -3055,9 +3126,12 @@ def create_run_from_checkpoint(
     files.run_dir.mkdir(parents=True, exist_ok=True)
     files.checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
-    payload = source_policy.to_dict(include_optimizer=False)
-    payload["device_preference"] = config.device_preference
-    fork_policy = PolicyNetwork.from_dict(payload)
+    fork_policy, conversion_mode = _convert_policy_architecture(
+        source_policy,
+        target_architecture=config.model_architecture,
+        target_hidden_size=config.hidden_size,
+        target_device_preference=config.device_preference,
+    )
     fork_policy.optimizer = torch.optim.Adam(fork_policy.model.parameters(), lr=config.learning_rate)
 
     state = _default_training_state(config)
@@ -3068,6 +3142,10 @@ def create_run_from_checkpoint(
         "resolved_checkpoint": resolved_source_checkpoint,
         "source_architecture": source_policy.architecture,
         "source_hidden_size": int(source_policy.hidden_size),
+        "target_architecture": config.model_architecture,
+        "target_hidden_size": int(config.hidden_size),
+        "requested_model_type": str(model_type or MODEL_TYPE_DEEP).strip().lower(),
+        "conversion_mode": conversion_mode,
         "created_at": _timestamp(),
     }
     if state.get("checkpoints"):

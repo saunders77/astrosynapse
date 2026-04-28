@@ -1,0 +1,63 @@
+Card Acquire Elo Test for s-1g7m64p/champion_002262.json
+Resolved checkpoint: champion_002262.json
+Games: 200
+Deterministic: True
+Ended by limit: 2 game(s)
+Turn summaries: 7571
+Eligible single-acquire turns: 1734
+Scored decisions: 1639
+Pairwise comparisons: 4507
+Explorer raw Elo: 783.6544
+Normalization factor: 3.918272
+Duration: 21s
+
+Card Rankings
+ 1. Recycling Station      336.76
+ 2. Embassy Yacht          322.16
+ 3. Blob Destroyer         311.66
+ 4. War World              309.60
+ 5. Blob Wheel             307.03
+ 6. Space Station          304.17
+ 7. Imperial Frigate       294.65
+ 8. The Hive               293.89
+ 9. Royal Redoubt          291.73
+10. Trade Escort           290.61
+11. Port of Call           290.55
+12. Defense Center         290.26
+13. Flagship               290.05
+14. Survey Ship            286.46
+15. Mech World             284.72
+16. Cutter                 284.52
+17. Trading Post           283.06
+18. Mothership             282.83
+19. Blob Fighter           281.80
+20. Ram                    281.34
+21. Battlecruiser          279.61
+22. Battle Pod             279.57
+23. Blob Carrier           279.09
+24. Corvette               278.91
+25. Battle Blob            278.62
+26. Fleet HQ               275.34
+27. Trade Pod              272.72
+28. Federation Shuttle     271.55
+29. Dreadnaught            268.67
+30. Blob World             265.58
+31. Command Ship           263.37
+32. Central Office         262.05
+33. Brain World            261.41
+34. Missile Mech           258.71
+35. Scout                  255.21
+36. Viper                  255.21
+37. Imperial Fighter       253.85
+38. Machine Base           250.88
+39. Freighter              234.99
+40. Battle Mech            211.64
+41. Junkyard               205.84
+42. Explorer               200.00
+43. Stealth Needle         184.77
+44. Barter World           164.08
+45. Patrol Mech            159.04
+46. Battle Station         135.07
+47. Trade Bot               96.27
+48. Supply Bot              94.66
+49. Missile Bot             90.92

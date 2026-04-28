@@ -728,7 +728,7 @@ class TrainerGUI(tk.Tk):
         self.fork_source_checkpoint_combo.pack(side="left", padx=(6, 16))
         fork_tip = tk.Label(
             fork_row,
-            text="Creates a brand-new run whose initial weights come from the selected source checkpoint; the source determines architecture/hidden size, while the settings above control new training.",
+            text="Creates a brand-new run whose initial weights come from the selected source checkpoint; if the model type above differs from the source, the checkpoint is converted into that architecture when supported.",
             bg=WINDOW_BG,
             fg=MUTED,
             anchor="w",
@@ -1226,11 +1226,13 @@ class TrainerGUI(tk.Tk):
                 self.runs_tree.selection_remove(self.runs_tree.selection())
                 self.runs_tree.focus("")
             elif selected_run in self.runs_tree.get_children():
-                self.runs_tree.selection_set(selected_run)
+                if tuple(self.runs_tree.selection()) != (selected_run,):
+                    self.runs_tree.selection_set(selected_run)
                 self.runs_tree.focus(selected_run)
                 self.runs_tree.see(selected_run)
             elif current_run_selection in self.runs_tree.get_children():
-                self.runs_tree.selection_set(current_run_selection)
+                if tuple(self.runs_tree.selection()) != (current_run_selection,):
+                    self.runs_tree.selection_set(current_run_selection)
         finally:
             self._suppress_run_events = False
 
@@ -1467,6 +1469,10 @@ class TrainerGUI(tk.Tk):
             f"- Resolved source checkpoint: {forked_from.get('resolved_checkpoint', '-')}",
             f"- Source architecture: {forked_from.get('source_architecture', '-')}",
             f"- Source hidden size: {forked_from.get('source_hidden_size', '-')}",
+            f"- Target architecture: {forked_from.get('target_architecture', '-')}",
+            f"- Target hidden size: {forked_from.get('target_hidden_size', '-')}",
+            f"- Requested model type: {forked_from.get('requested_model_type', '-')}",
+            f"- Conversion mode: {forked_from.get('conversion_mode', '-')}",
             "",
             "Config",
             *(config_lines or ["- No saved config"]),
@@ -1614,7 +1620,15 @@ class TrainerGUI(tk.Tk):
             return
         run_name = selection[0]
         self.run_name_var.set(run_name)
-        self.refresh_data()
+        checkpoints = sp.list_checkpoints(run_name)
+        state = sp.get_run_state(run_name)
+        self._refresh_checkpoint_selector(run_name, checkpoints)
+        self._refresh_summary(
+            run_name,
+            run_names=self._known_run_names,
+            state=state,
+            checkpoints=checkpoints,
+        )
 
     def _on_run_combo(self, _: Optional[tk.Event] = None) -> None:
         self.refresh_data()
@@ -1767,6 +1781,7 @@ class TrainerGUI(tk.Tk):
                 run_name=run_name,
                 source_run_name=source_run_name,
                 source_checkpoint=source_checkpoint,
+                model_type=self.new_run_model_var.get().strip() or sp.MODEL_TYPE_DEEP,
                 device_preference=overrides["device_preference"],
                 training_matches_per_iteration=overrides["training_matches_per_iteration"],
                 training_games_per_match=overrides["training_games_per_match"],
@@ -1784,6 +1799,7 @@ class TrainerGUI(tk.Tk):
                 f"Created run '{run_name}' from {forked_from.get('run_name', source_run_name)} / "
                 f"{forked_from.get('checkpoint', source_checkpoint)} "
                 f"using architecture {config.get('model_architecture')} "
+                f"(conversion={forked_from.get('conversion_mode', 'cloned')}) "
                 f"and {config.get('training_matches_per_iteration')} match(es)/iter, "
                 f"{config.get('training_games_per_match')} game(s)/match, "
                 f"{config.get('training_decisions_per_game')} decision(s)/game, "

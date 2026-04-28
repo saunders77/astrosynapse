@@ -1,11 +1,11 @@
 {
-  "status": "training",
+  "status": "idle",
   "run_name": "d1000m-1g500p-5dec-basedon1",
   "iteration": 2,
   "total_matches": 2606,
   "total_games": 3317,
   "created_at": 1777312585.3893864,
-  "updated_at": 1777318439.9299283,
+  "updated_at": 1777332791.8552468,
   "strategy": "champion_league_v2",
   "strategy_version": 2,
   "current_elo": 1000.0,
