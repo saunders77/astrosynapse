@@ -45,8 +45,10 @@ ROOT_DIR = Path(__file__).resolve().parent
 RUNS_DIR = ROOT_DIR / "starrealms_policies"
 LATEST_RUN_NAME = "default"
 INITIAL_ELO = 1000.0
+CONFIG_DEFAULTS_VERSION = 2
 CARD_ACQUIRE_ELO_TEST_GAMES = 200
 CARD_ACQUIRE_ELO_K_FACTOR = 24.0
+ELO_LOGISTIC_SCALE = math.log(10.0) / 400.0
 CARD_ZONE_SCALE = 15.0
 NUMERIC_OPTION_SCALE = 10.0
 EPSILON = 1e-12
@@ -1435,6 +1437,7 @@ def _default_training_state(config: TrainingConfig) -> Dict[str, Any]:
     return {
         "status": "idle",
         "run_name": LATEST_RUN_NAME,
+        "config_defaults_version": CONFIG_DEFAULTS_VERSION,
         "iteration": 0,
         "total_matches": 0,
         "total_games": 0,
@@ -1675,6 +1678,7 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
     if state_payload is None:
         state_payload = _default_training_state(TrainingConfig())
         state_payload["run_name"] = run_name
+    config_defaults_version = int(state_payload.get("config_defaults_version", 0) or 0)
     policy_payload = _load_json_or_none(files.policy_file)
     original_saved_config = dict(state_payload.get("config", {}) or {})
     saved_config = dict(original_saved_config)
@@ -1688,32 +1692,34 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
         )
     if saved_config.get("promotion_games") == 13:
         saved_config["promotion_games"] = 24
-    legacy_default_updates = {
-        "promotion_score_threshold": ((0.55,), 0.6),
-        "learning_rate": ((0.0015,), 0.0019),
-        "min_learning_rate": ((0.0003,), 0.0004),
-        "epsilon_random": ((0.05,), 0.07),
-        "min_epsilon_random": ((0.01,), 0.015),
-        "train_temperature": ((1.0, 1.1), 0.9),
-        "min_train_temperature": ((0.55, 0.62), 0.5),
-        "plateau_learning_rate_boost": ((2.0, 2.15), 1.7),
-        "plateau_epsilon_boost": ((3.0, 3.2), 2.4),
-        "plateau_temperature_boost": ((1.35, 1.45, 1.28), 1.22),
-        "plateau_max_learning_rate": ((0.0035, 0.0042), 0.0033),
-        "plateau_max_epsilon_random": ((0.18, 0.22), 0.16),
-        "plateau_max_train_temperature": ((1.45, 1.6, 1.35), 1.15),
-    }
-    for key, (old_values, new_value) in legacy_default_updates.items():
-        current_value = saved_config.get(key)
-        if current_value is None:
-            saved_config[key] = new_value
-            continue
-        try:
-            numeric_value = float(current_value)
-        except (TypeError, ValueError):
-            continue
-        if any(abs(numeric_value - float(old_value)) <= 1e-12 for old_value in old_values):
-            saved_config[key] = new_value
+    if config_defaults_version < CONFIG_DEFAULTS_VERSION:
+        legacy_default_updates = {
+            "promotion_score_threshold": ((0.55,), 0.6),
+            "learning_rate": ((0.0015,), 0.0019),
+            "min_learning_rate": ((0.0003,), 0.0004),
+            "epsilon_random": ((0.05,), 0.07),
+            "min_epsilon_random": ((0.01,), 0.015),
+            "train_temperature": ((1.0, 1.1), 0.9),
+            "min_train_temperature": ((0.55, 0.62), 0.5),
+            "plateau_learning_rate_boost": ((2.0, 2.15), 1.7),
+            "plateau_epsilon_boost": ((3.0, 3.2), 2.4),
+            "plateau_temperature_boost": ((1.35, 1.45, 1.28), 1.22),
+            "plateau_max_learning_rate": ((0.0035, 0.0042), 0.0033),
+            "plateau_max_epsilon_random": ((0.18, 0.22), 0.16),
+            "plateau_max_train_temperature": ((1.45, 1.6, 1.35), 1.15),
+        }
+        for key, (old_values, new_value) in legacy_default_updates.items():
+            current_value = saved_config.get(key)
+            if current_value is None:
+                saved_config[key] = new_value
+                continue
+            try:
+                numeric_value = float(current_value)
+            except (TypeError, ValueError):
+                continue
+            if any(abs(numeric_value - float(old_value)) <= 1e-12 for old_value in old_values):
+                saved_config[key] = new_value
+        state_payload["config_defaults_version"] = CONFIG_DEFAULTS_VERSION
     if policy_payload is not None:
         payload_architecture = policy_payload.get("architecture")
         if payload_architecture is None:
@@ -3221,12 +3227,39 @@ def summarize_rating_pass(
     )
 
 
-def _initial_card_elo_ratings() -> Dict[str, float]:
-    return {card_name: INITIAL_ELO for card_name in CARD_NAME_ORDER}
+def _initial_card_choice_rating_state() -> Dict[str, Dict[str, Any]]:
+    return {
+        "ratings": {card_name: INITIAL_ELO for card_name in CARD_NAME_ORDER},
+        "decision_counts": {card_name: 0 for card_name in CARD_NAME_ORDER},
+        "pairwise_counts": {card_name: 0 for card_name in CARD_NAME_ORDER},
+        "win_counts": {card_name: 0 for card_name in CARD_NAME_ORDER},
+        "loss_counts": {card_name: 0 for card_name in CARD_NAME_ORDER},
+        "information": {card_name: 0.0 for card_name in CARD_NAME_ORDER},
+    }
 
 
-def _apply_card_acquire_elo_result(
+def _card_choice_probabilities(
     ratings: Dict[str, float],
+    card_names: Sequence[str],
+) -> Dict[str, float]:
+    unique_names = [str(card_name) for card_name in card_names]
+    if not unique_names:
+        return {}
+    max_rating = max(float(ratings.get(card_name, INITIAL_ELO)) for card_name in unique_names)
+    weights: Dict[str, float] = {}
+    total_weight = 0.0
+    for card_name in unique_names:
+        weight = math.exp((float(ratings.get(card_name, INITIAL_ELO)) - max_rating) * ELO_LOGISTIC_SCALE)
+        weights[card_name] = weight
+        total_weight += weight
+    if total_weight <= 0.0:
+        uniform_probability = 1.0 / len(unique_names)
+        return {card_name: uniform_probability for card_name in unique_names}
+    return {card_name: weights[card_name] / total_weight for card_name in unique_names}
+
+
+def _apply_card_acquire_choice_result(
+    rating_state: Dict[str, Dict[str, Any]],
     winner_name: str,
     loser_names: Sequence[str],
     k_factor: float,
@@ -3247,42 +3280,79 @@ def _apply_card_acquire_elo_result(
     if not unique_losers:
         return 0
 
-    ratings.setdefault(winner_name, INITIAL_ELO)
-    winner_rating = float(ratings[winner_name])
-    pair_k = float(k_factor) / max(len(unique_losers), 1)
-    winner_delta = 0.0
-    loser_deltas: Dict[str, float] = {}
+    participant_names = [winner_name, *unique_losers]
+    ratings = rating_state["ratings"]
+    decision_counts = rating_state["decision_counts"]
+    pairwise_counts = rating_state["pairwise_counts"]
+    win_counts = rating_state["win_counts"]
+    loss_counts = rating_state["loss_counts"]
+    information = rating_state["information"]
 
-    for loser_name in unique_losers:
-        ratings.setdefault(loser_name, INITIAL_ELO)
-        loser_rating = float(ratings[loser_name])
-        expected_winner = _elo_expected(winner_rating, loser_rating)
-        delta = pair_k * (1.0 - expected_winner)
-        winner_delta += delta
-        loser_deltas[loser_name] = loser_deltas.get(loser_name, 0.0) - delta
+    probabilities = _card_choice_probabilities(ratings, participant_names)
+    deltas: Dict[str, float] = {}
+    participant_count = len(participant_names)
+    for card_name in participant_names:
+        expected_probability = float(probabilities.get(card_name, 0.0))
+        actual_score = 1.0 if card_name == winner_name else 0.0
+        deltas[card_name] = float(k_factor) * (actual_score - expected_probability)
+        decision_counts[card_name] = int(decision_counts.get(card_name, 0)) + 1
+        pairwise_counts[card_name] = int(pairwise_counts.get(card_name, 0)) + max(participant_count - 1, 0)
+        information[card_name] = float(information.get(card_name, 0.0)) + expected_probability * (1.0 - expected_probability)
+        if card_name == winner_name:
+            win_counts[card_name] = int(win_counts.get(card_name, 0)) + 1
+        else:
+            loss_counts[card_name] = int(loss_counts.get(card_name, 0)) + 1
 
-    ratings[winner_name] = winner_rating + winner_delta
-    for loser_name, delta in loser_deltas.items():
-        ratings[loser_name] = float(ratings[loser_name]) + delta
+    for card_name, delta in deltas.items():
+        ratings[card_name] = float(ratings.get(card_name, INITIAL_ELO)) + delta
 
     return len(unique_losers)
 
 
-def _normalized_card_elo_ratings(raw_ratings: Dict[str, float]) -> Tuple[Dict[str, float], float, float]:
-    explorer_rating = float(raw_ratings.get("Explorer", INITIAL_ELO))
+def _card_rating_uncertainty_from_information(information_value: float) -> Optional[float]:
+    info = float(information_value)
+    if not math.isfinite(info) or info <= 0.0:
+        return None
+    return 1.0 / (ELO_LOGISTIC_SCALE * math.sqrt(info))
+
+
+def _normalized_card_choice_leaderboard(
+    rating_state: Dict[str, Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], float, float]:
+    ratings = rating_state["ratings"]
+    explorer_rating = float(ratings.get("Explorer", INITIAL_ELO))
     if abs(explorer_rating) <= 1e-9:
         normalization_factor = 1.0
     else:
         normalization_factor = explorer_rating / 200.0
-    normalized = {
-        card_name: float(rating) / normalization_factor
-        for card_name, rating in raw_ratings.items()
-    }
-    return normalized, normalization_factor, explorer_rating
+    leaderboard: List[Dict[str, Any]] = []
+    for card_name in CARD_NAME_ORDER:
+        raw_rating = float(ratings.get(card_name, INITIAL_ELO))
+        raw_uncertainty = _card_rating_uncertainty_from_information(float(rating_state["information"].get(card_name, 0.0)))
+        normalized_rating = raw_rating / normalization_factor
+        normalized_uncertainty = None if raw_uncertainty is None else raw_uncertainty / normalization_factor
+        leaderboard.append(
+            {
+                "card_name": card_name,
+                "elo": round(normalized_rating, 4),
+                "raw_elo": round(raw_rating, 4),
+                "uncertainty": None if normalized_uncertainty is None else round(normalized_uncertainty, 4),
+                "raw_uncertainty": None if raw_uncertainty is None else round(raw_uncertainty, 4),
+                "decision_count": int(rating_state["decision_counts"].get(card_name, 0)),
+                "pairwise_comparisons": int(rating_state["pairwise_counts"].get(card_name, 0)),
+                "wins": int(rating_state["win_counts"].get(card_name, 0)),
+                "losses": int(rating_state["loss_counts"].get(card_name, 0)),
+            }
+        )
+    leaderboard.sort(key=lambda entry: (-float(entry["elo"]), str(entry["card_name"])))
+    return leaderboard, normalization_factor, explorer_rating
 
 
 def format_card_acquire_elo_test_report(result: Dict[str, Any]) -> str:
-    leaderboard = list(result.get("leaderboard") or [])
+    future_trade = dict(result.get("future_trade") or {})
+    immediate_trade = dict(result.get("immediate_trade") or {})
+    future_leaderboard = list(future_trade.get("leaderboard") or [])
+    immediate_leaderboard = list(immediate_trade.get("leaderboard") or [])
     lines = [
         f"Card Acquire Elo Test for {result.get('run_name', '-')}/{result.get('checkpoint', '-')}",
         f"Resolved checkpoint: {result.get('resolved_checkpoint', '-')}",
@@ -3291,16 +3361,42 @@ def format_card_acquire_elo_test_report(result: Dict[str, Any]) -> str:
         f"Ended by limit: {result.get('ended_by_limit_games', 0)} game(s)",
         f"Turn summaries: {result.get('turn_summaries', 0)}",
         f"Eligible single-acquire turns: {result.get('eligible_single_acquire_turns', 0)}",
-        f"Scored decisions: {result.get('scored_decisions', 0)}",
-        f"Pairwise comparisons: {result.get('pairwise_comparisons', 0)}",
-        f"Explorer raw Elo: {round(float(result.get('explorer_raw_elo', INITIAL_ELO)), 4)}",
-        f"Normalization factor: {round(float(result.get('normalization_factor', 1.0)), 6)}",
+        f"Future-trade scored decisions: {future_trade.get('scored_decisions', 0)}",
+        f"Future-trade pairwise comparisons: {future_trade.get('pairwise_comparisons', 0)}",
+        f"Immediate-trade scored decisions: {immediate_trade.get('scored_decisions', 0)}",
+        f"Immediate-trade pairwise comparisons: {immediate_trade.get('pairwise_comparisons', 0)}",
+        f"Future-trade Explorer raw Elo: {round(float(future_trade.get('explorer_raw_elo', INITIAL_ELO)), 4)}",
+        f"Future-trade normalization factor: {round(float(future_trade.get('normalization_factor', 1.0)), 6)}",
+        f"Immediate-trade Explorer raw Elo: {round(float(immediate_trade.get('explorer_raw_elo', INITIAL_ELO)), 4)}",
+        f"Immediate-trade normalization factor: {round(float(immediate_trade.get('normalization_factor', 1.0)), 6)}",
+        "Rating update model: multinomial Elo / Plackett-Luce choice update (per decision, updates sum to zero).",
+        "Uncertainty: approximate 1-sigma Elo standard error from diagonal Fisher information of the same choice model.",
         f"Duration: {_format_seconds(float(result.get('duration_seconds', 0.0)))}",
         "",
-        "Card Rankings",
+        "Future-Trade-Aware Rankings",
     ]
-    for index, entry in enumerate(leaderboard, start=1):
-        lines.append(f"{index:>2}. {entry.get('card_name', '-'):<20} {float(entry.get('elo', 0.0)):>8.2f}")
+    for index, entry in enumerate(future_leaderboard, start=1):
+        uncertainty = entry.get("uncertainty")
+        uncertainty_text = "-" if uncertainty is None else f"{float(uncertainty):.2f}"
+        lines.append(
+            f"{index:>2}. {entry.get('card_name', '-'):<20} "
+            f"Elo {float(entry.get('elo', 0.0)):>8.2f}  "
+            f"+/- {uncertainty_text:>8}  "
+            f"dec {int(entry.get('decision_count', 0)):>4}  "
+            f"cmp {int(entry.get('pairwise_comparisons', 0)):>5}"
+        )
+    lines.append("")
+    lines.append("Immediate-Trade-Only Rankings")
+    for index, entry in enumerate(immediate_leaderboard, start=1):
+        uncertainty = entry.get("uncertainty")
+        uncertainty_text = "-" if uncertainty is None else f"{float(uncertainty):.2f}"
+        lines.append(
+            f"{index:>2}. {entry.get('card_name', '-'):<20} "
+            f"Elo {float(entry.get('elo', 0.0)):>8.2f}  "
+            f"+/- {uncertainty_text:>8}  "
+            f"dec {int(entry.get('decision_count', 0)):>4}  "
+            f"cmp {int(entry.get('pairwise_comparisons', 0)):>5}"
+        )
     return "\n".join(lines)
 
 
@@ -3325,11 +3421,14 @@ def run_card_acquire_elo_test(
     epsilon_random = 0.0 if deterministic else config.epsilon_random
     start_time = time.time()
 
-    ratings = _initial_card_elo_ratings()
+    future_trade_state = _initial_card_choice_rating_state()
+    immediate_trade_state = _initial_card_choice_rating_state()
     turn_summaries = 0
     eligible_single_acquire_turns = 0
-    scored_decisions = 0
-    pairwise_comparisons = 0
+    future_trade_scored_decisions = 0
+    future_trade_pairwise_comparisons = 0
+    immediate_trade_scored_decisions = 0
+    immediate_trade_pairwise_comparisons = 0
     ended_by_limit_games = 0
 
     for _ in range(int(games)):
@@ -3380,13 +3479,16 @@ def run_card_acquire_elo_test(
                 continue
 
             total_trade_gained = float(turn_summary.get("totalTradeGained", 0.0))
-            loser_names: List[str] = []
-            seen_losers = set()
+            available_trade = float(event.get("tradeAvailable", 0.0))
+            future_trade_loser_names: List[str] = []
+            immediate_trade_loser_names: List[str] = []
+            seen_future_trade_losers = set()
+            seen_immediate_trade_losers = set()
             for trade_card in list(event.get("tradeRowSnapshot") or []):
                 if not isinstance(trade_card, (list, tuple)) or len(trade_card) < 2:
                     continue
                 card_name = str(trade_card[0] or "").strip()
-                if not card_name or card_name == winner_name or card_name in seen_losers:
+                if not card_name or card_name == winner_name:
                     continue
                 card_cost = CARD_COST_BY_NAME.get(card_name)
                 if card_cost is None:
@@ -3394,27 +3496,39 @@ def run_card_acquire_elo_test(
                         card_cost = int(trade_card[1])
                     except (TypeError, ValueError):
                         continue
-                if float(card_cost) > total_trade_gained:
-                    continue
-                seen_losers.add(card_name)
-                loser_names.append(card_name)
+                if float(card_cost) <= total_trade_gained and card_name not in seen_future_trade_losers:
+                    seen_future_trade_losers.add(card_name)
+                    future_trade_loser_names.append(card_name)
+                if float(card_cost) <= available_trade and card_name not in seen_immediate_trade_losers:
+                    seen_immediate_trade_losers.add(card_name)
+                    immediate_trade_loser_names.append(card_name)
 
-            comparisons = _apply_card_acquire_elo_result(ratings, winner_name, loser_names, float(k_factor))
-            if comparisons <= 0:
-                continue
-            scored_decisions += 1
-            pairwise_comparisons += comparisons
+            future_trade_comparisons = _apply_card_acquire_choice_result(
+                future_trade_state,
+                winner_name,
+                future_trade_loser_names,
+                float(k_factor),
+            )
+            if future_trade_comparisons > 0:
+                future_trade_scored_decisions += 1
+                future_trade_pairwise_comparisons += future_trade_comparisons
 
-    normalized_ratings, normalization_factor, explorer_raw_elo = _normalized_card_elo_ratings(ratings)
-    leaderboard = [
-        {
-            "card_name": card_name,
-            "elo": round(float(normalized_ratings.get(card_name, 0.0)), 4),
-            "raw_elo": round(float(ratings.get(card_name, INITIAL_ELO)), 4),
-        }
-        for card_name in ratings.keys()
-    ]
-    leaderboard.sort(key=lambda entry: (-float(entry["elo"]), str(entry["card_name"])))
+            immediate_trade_comparisons = _apply_card_acquire_choice_result(
+                immediate_trade_state,
+                winner_name,
+                immediate_trade_loser_names,
+                float(k_factor),
+            )
+            if immediate_trade_comparisons > 0:
+                immediate_trade_scored_decisions += 1
+                immediate_trade_pairwise_comparisons += immediate_trade_comparisons
+
+    future_trade_leaderboard, future_trade_normalization_factor, future_trade_explorer_raw_elo = _normalized_card_choice_leaderboard(
+        future_trade_state
+    )
+    immediate_trade_leaderboard, immediate_trade_normalization_factor, immediate_trade_explorer_raw_elo = _normalized_card_choice_leaderboard(
+        immediate_trade_state
+    )
 
     duration_seconds = time.time() - start_time
     result: Dict[str, Any] = {
@@ -3427,11 +3541,26 @@ def run_card_acquire_elo_test(
         "ended_by_limit_games": ended_by_limit_games,
         "turn_summaries": turn_summaries,
         "eligible_single_acquire_turns": eligible_single_acquire_turns,
-        "scored_decisions": scored_decisions,
-        "pairwise_comparisons": pairwise_comparisons,
-        "normalization_factor": normalization_factor,
-        "explorer_raw_elo": explorer_raw_elo,
-        "leaderboard": leaderboard,
+        "rating_model": "multinomial_elo_plackett_luce",
+        "future_trade": {
+            "scored_decisions": future_trade_scored_decisions,
+            "pairwise_comparisons": future_trade_pairwise_comparisons,
+            "normalization_factor": future_trade_normalization_factor,
+            "explorer_raw_elo": future_trade_explorer_raw_elo,
+            "leaderboard": future_trade_leaderboard,
+        },
+        "immediate_trade": {
+            "scored_decisions": immediate_trade_scored_decisions,
+            "pairwise_comparisons": immediate_trade_pairwise_comparisons,
+            "normalization_factor": immediate_trade_normalization_factor,
+            "explorer_raw_elo": immediate_trade_explorer_raw_elo,
+            "leaderboard": immediate_trade_leaderboard,
+        },
+        "scored_decisions": future_trade_scored_decisions,
+        "pairwise_comparisons": future_trade_pairwise_comparisons,
+        "normalization_factor": future_trade_normalization_factor,
+        "explorer_raw_elo": future_trade_explorer_raw_elo,
+        "leaderboard": future_trade_leaderboard,
         "duration_seconds": duration_seconds,
     }
     report_text = format_card_acquire_elo_test_report(result)

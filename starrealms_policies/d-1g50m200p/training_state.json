@@ -1,0 +1,6243 @@
+{
+  "status": "idle",
+  "run_name": "d-1g50m200p",
+  "iteration": 52,
+  "total_matches": 2652,
+  "total_games": 12236,
+  "created_at": 1777336071.3033664,
+  "updated_at": 1777339527.1191342,
+  "strategy": "champion_league_v2",
+  "strategy_version": 2,
+  "current_elo": 1023.7352987537136,
+  "best_elo": 1023.7352987537136,
+  "best_checkpoint": "champion_000045.json",
+  "latest_checkpoint": "champion_000045.json",
+  "promotions": 9,
+  "last_promotion_iteration": 45,
+  "config": {
+    "hidden_size": 96,
+    "model_architecture": "deep_v2",
+    "device_preference": "cpu",
+    "learning_rate": 0.0019,
+    "min_learning_rate": 0.0004,
+    "ppo_epochs": 2,
+    "ppo_minibatch_size": 64,
+    "ppo_clip": 0.2,
+    "min_ppo_clip": 0.1,
+    "value_coef": 0.5,
+    "grad_clip": 1.0,
+    "epsilon_random": 0.07,
+    "min_epsilon_random": 0.015,
+    "train_temperature": 0.9,
+    "min_train_temperature": 0.5,
+    "eval_temperature": 0.35,
+    "checkpoint_interval": 1,
+    "training_matches_per_iteration": 50,
+    "training_games_per_match": 1,
+    "training_decisions_per_game": "ALL",
+    "promotion_games": 200,
+    "promotion_score_threshold": 0.55,
+    "candidate_patience": 8,
+    "candidate_reset_threshold": 0.35,
+    "league_recent_window": 10,
+    "league_champion_weight": 0.45,
+    "league_best_weight": 0.2,
+    "league_recent_weight": 0.25,
+    "league_historical_weight": 0.1,
+    "anneal_steps": 3000,
+    "plateau_start_iterations_without_promotion": 12,
+    "plateau_full_iterations_without_promotion": 36,
+    "plateau_learning_rate_boost": 1.7,
+    "plateau_epsilon_boost": 2.4,
+    "plateau_temperature_boost": 1.22,
+    "plateau_max_learning_rate": 0.0033,
+    "plateau_max_epsilon_random": 0.16,
+    "plateau_max_train_temperature": 1.15,
+    "elo_k": 24.0,
+    "max_training_samples_per_match": 256,
+    "max_turns_per_game": 400,
+    "max_actions_per_turn": 200,
+    "max_iterations": null
+  },
+  "last_match": {
+    "wins": 29,
+    "losses": 21,
+    "games_played": 50,
+    "return_value": 0.16,
+    "duration_seconds": 10.370326042175293,
+    "matches_played": 50,
+    "opponents": [
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000042.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000003.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000011.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000030.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000011.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000006.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000003.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000042.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000018.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000006.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000018.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000030.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000042.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      }
+    ]
+  },
+  "last_update": {
+    "samples": 6848.0,
+    "policy_loss": 0.8202922696891789,
+    "value_loss": 0.18425319441289545,
+    "clip_fraction": 0.0923627336448598,
+    "avg_ratio": 153.67057169839276,
+    "avg_value_prediction": 0.2576522107141432,
+    "learning_rate": 0.0018745,
+    "epsilon_random": 0.069065,
+    "train_temperature": 0.8932,
+    "ppo_clip": 0.1983,
+    "iterations_since_promotion": 6,
+    "promotion_drought_progress": 0.0,
+    "learning_rate_multiplier": 1.0,
+    "epsilon_multiplier": 1.0,
+    "temperature_multiplier": 1.0,
+    "matches_collected": 50
+  },
+  "last_eval": {
+    "wins": 101,
+    "losses": 83,
+    "games_played": 184,
+    "score": 0.5489130434782609,
+    "promoted": false,
+    "action": "keep_training",
+    "promoted_checkpoint": null,
+    "champion_checkpoint": "champion_000045.json",
+    "duration_seconds": 29.839211463928223
+  },
+  "last_rating_pass": null,
+  "candidate": {
+    "base_checkpoint": "champion_000045.json",
+    "base_iteration": 45,
+    "attempts_since_reset": 7,
+    "total_attempts": 52,
+    "resets": 3,
+    "promotions": 9,
+    "rating_pass_elo": 1023.7352987537136,
+    "last_score": 0.5489130434782609,
+    "last_result": "keep_training",
+    "last_reset_reason": "Promoted to champion_000045.json",
+    "last_opponents": [
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000042.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000003.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000011.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000030.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000011.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000006.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000003.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000042.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000018.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000006.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000018.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000030.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000042.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000045.json"
+      }
+    ]
+  },
+  "checkpoints": [
+    {
+      "name": "checkpoint_000000.json",
+      "iteration": 0,
+      "elo": 994.4347826086956,
+      "created_at": 1777336071.3033664,
+      "note": "initial random policy",
+      "last_defense": {
+        "wins_a": 101,
+        "wins_b": 37,
+        "games_played": 138,
+        "return_value": 0.463768115942029,
+        "per_game_winners": [
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 27.45236086845398
+      }
+    },
+    {
+      "name": "champion_000003.json",
+      "iteration": 3,
+      "elo": 999.6096618357489,
+      "created_at": 1777336271.4214668,
+      "promoted_from": "checkpoint_000000.json",
+      "promotion_eval": {
+        "wins_a": 101,
+        "wins_b": 37,
+        "games_played": 138,
+        "return_value": 0.463768115942029,
+        "per_game_winners": [
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 27.45236086845398
+      },
+      "training_summary": {
+        "wins": 24,
+        "losses": 26,
+        "games_played": 50,
+        "return_value": -0.04,
+        "duration_seconds": 13.161276817321777,
+        "matches_played": 50,
+        "opponents": [
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "checkpoint_000000.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 101,
+        "wins_b": 34,
+        "games_played": 135,
+        "return_value": 0.4962962962962963,
+        "per_game_winners": [
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 20.811922550201416
+      }
+    },
+    {
+      "name": "champion_000006.json",
+      "iteration": 6,
+      "elo": 1009.9788735055191,
+      "created_at": 1777336475.10944,
+      "promoted_from": "champion_000003.json",
+      "promotion_eval": {
+        "wins_a": 101,
+        "wins_b": 34,
+        "games_played": 135,
+        "return_value": 0.4962962962962963,
+        "per_game_winners": [
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 20.811922550201416
+      },
+      "training_summary": {
+        "wins": 31,
+        "losses": 19,
+        "games_played": 50,
+        "return_value": 0.24,
+        "duration_seconds": 12.136148452758789,
+        "matches_played": 50,
+        "opponents": [
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000003.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 101,
+        "wins_b": 78,
+        "games_played": 179,
+        "return_value": 0.12849162011173185,
+        "per_game_winners": [
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 27.375936269760132
+      }
+    },
+    {
+      "name": "champion_000011.json",
+      "iteration": 11,
+      "elo": 1011.1316379054421,
+      "created_at": 1777336794.3544092,
+      "promoted_from": "champion_000006.json",
+      "promotion_eval": {
+        "wins_a": 101,
+        "wins_b": 78,
+        "games_played": 179,
+        "return_value": 0.12849162011173185,
+        "per_game_winners": [
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 27.375936269760132
+      },
+      "training_summary": {
+        "wins": 41,
+        "losses": 9,
+        "games_played": 50,
+        "return_value": 0.64,
+        "duration_seconds": 10.382044792175293,
+        "matches_played": 50,
+        "opponents": [
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 101,
+        "wins_b": 73,
+        "games_played": 174,
+        "return_value": 0.16091954022988506,
+        "per_game_winners": [
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 27.382564544677734
+      }
+    },
+    {
+      "name": "champion_000017.json",
+      "iteration": 17,
+      "elo": 1013.2987916167219,
+      "created_at": 1777337176.3035314,
+      "promoted_from": "champion_000011.json",
+      "promotion_eval": {
+        "wins_a": 101,
+        "wins_b": 73,
+        "games_played": 174,
+        "return_value": 0.16091954022988506,
+        "per_game_winners": [
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 27.382564544677734
+      },
+      "training_summary": {
+        "wins": 39,
+        "losses": 11,
+        "games_played": 50,
+        "return_value": 0.56,
+        "duration_seconds": 9.212871074676514,
+        "matches_played": 50,
+        "opponents": [
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000011.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 101,
+        "wins_b": 76,
+        "games_played": 177,
+        "return_value": 0.14124293785310735,
+        "per_game_winners": [
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 28.08424711227417
+      }
+    },
+    {
+      "name": "champion_000018.json",
+      "iteration": 18,
+      "elo": 1014.3454268589244,
+      "created_at": 1777337238.150637,
+      "promoted_from": "champion_000017.json",
+      "promotion_eval": {
+        "wins_a": 101,
+        "wins_b": 76,
+        "games_played": 177,
+        "return_value": 0.14124293785310735,
+        "per_game_winners": [
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 28.08424711227417
+      },
+      "training_summary": {
+        "wins": 31,
+        "losses": 19,
+        "games_played": 50,
+        "return_value": 0.24,
+        "duration_seconds": 9.000942707061768,
+        "matches_played": 50,
+        "opponents": [
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000017.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 101,
+        "wins_b": 68,
+        "games_played": 169,
+        "return_value": 0.1952662721893491,
+        "per_game_winners": [
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 26.019611597061157
+      }
+    },
+    {
+      "name": "champion_000030.json",
+      "iteration": 30,
+      "elo": 1017.4899179501281,
+      "created_at": 1777338013.7403321,
+      "promoted_from": "champion_000018.json",
+      "promotion_eval": {
+        "wins_a": 101,
+        "wins_b": 68,
+        "games_played": 169,
+        "return_value": 0.1952662721893491,
+        "per_game_winners": [
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 26.019611597061157
+      },
+      "training_summary": {
+        "wins": 33,
+        "losses": 17,
+        "games_played": 50,
+        "return_value": 0.32,
+        "duration_seconds": 9.193029642105103,
+        "matches_played": 50,
+        "opponents": [
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 101,
+        "wins_b": 78,
+        "games_played": 179,
+        "return_value": 0.12849162011173185,
+        "per_game_winners": [
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 31.220656633377075
+      }
+    },
+    {
+      "name": "champion_000035.json",
+      "iteration": 35,
+      "elo": 1018.8788015785724,
+      "created_at": 1777338339.2019806,
+      "promoted_from": "champion_000030.json",
+      "promotion_eval": {
+        "wins_a": 101,
+        "wins_b": 78,
+        "games_played": 179,
+        "return_value": 0.12849162011173185,
+        "per_game_winners": [
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 31.220656633377075
+      },
+      "training_summary": {
+        "wins": 29,
+        "losses": 21,
+        "games_played": 50,
+        "return_value": 0.16,
+        "duration_seconds": 10.800781726837158,
+        "matches_played": 50,
+        "opponents": [
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000018.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 101,
+        "wins_b": 76,
+        "games_played": 177,
+        "return_value": 0.14124293785310735,
+        "per_game_winners": [
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 30.881523370742798
+      }
+    },
+    {
+      "name": "champion_000042.json",
+      "iteration": 42,
+      "elo": 1020.8019654203802,
+      "created_at": 1777338829.7755842,
+      "promoted_from": "champion_000035.json",
+      "promotion_eval": {
+        "wins_a": 101,
+        "wins_b": 76,
+        "games_played": 177,
+        "return_value": 0.14124293785310735,
+        "per_game_winners": [
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 30.881523370742798
+      },
+      "training_summary": {
+        "wins": 34,
+        "losses": 16,
+        "games_played": 50,
+        "return_value": 0.36,
+        "duration_seconds": 10.008801221847534,
+        "matches_played": 50,
+        "opponents": [
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000035.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 101,
+        "wins_b": 79,
+        "games_played": 180,
+        "return_value": 0.12222222222222222,
+        "per_game_winners": [
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 30.62661123275757
+      }
+    },
+    {
+      "name": "champion_000045.json",
+      "iteration": 45,
+      "elo": 1023.7352987537136,
+      "created_at": 1777339043.4550326,
+      "promoted_from": "champion_000042.json",
+      "promotion_eval": {
+        "wins_a": 101,
+        "wins_b": 79,
+        "games_played": 180,
+        "return_value": 0.12222222222222222,
+        "per_game_winners": [
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "duration_seconds": 30.62661123275757
+      },
+      "training_summary": {
+        "wins": 32,
+        "losses": 18,
+        "games_played": 50,
+        "return_value": 0.28,
+        "duration_seconds": 9.915767669677734,
+        "matches_played": 50,
+        "opponents": [
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000035.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000017.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000018.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000003.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000030.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_000042.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000011.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000006.json"
+          }
+        ]
+      }
+    }
+  ],
+  "last_error": null
+}

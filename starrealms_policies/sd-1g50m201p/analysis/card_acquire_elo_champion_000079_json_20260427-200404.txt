@@ -1,0 +1,63 @@
+Card Acquire Elo Test for sd-1g50m201p/champion_000079.json
+Resolved checkpoint: champion_000079.json
+Games: 200
+Deterministic: True
+Ended by limit: 1 game(s)
+Turn summaries: 6583
+Eligible single-acquire turns: 2173
+Scored decisions: 2060
+Pairwise comparisons: 5320
+Explorer raw Elo: 802.6914
+Normalization factor: 4.013457
+Duration: 1m 39s
+
+Card Rankings
+ 1. Recycling Station      318.23
+ 2. Embassy Yacht          312.19
+ 3. Trading Post           306.56
+ 4. Blob Destroyer         305.27
+ 5. Blob Wheel             302.27
+ 6. Space Station          298.28
+ 7. Defense Center         297.07
+ 8. Trade Escort           295.14
+ 9. Royal Redoubt          294.19
+10. The Hive               293.49
+11. War World              291.92
+12. Ram                    286.89
+13. Cutter                 285.69
+14. Flagship               284.97
+15. Imperial Frigate       280.06
+16. Port of Call           280.00
+17. Battle Pod             279.85
+18. Blob Carrier           279.67
+19. Battle Blob            279.36
+20. Mothership             277.80
+21. Mech World             270.26
+22. Command Ship           270.10
+23. Blob Fighter           269.03
+24. Fleet HQ               266.57
+25. Corvette               265.51
+26. Battlecruiser          264.90
+27. Blob World             263.48
+28. Imperial Fighter       259.47
+29. Dreadnaught            258.60
+30. Federation Shuttle     258.37
+31. Trade Pod              257.40
+32. Missile Mech           254.05
+33. Barter World           251.50
+34. Scout                  249.16
+35. Viper                  249.16
+36. Brain World            248.62
+37. Central Office         247.40
+38. Machine Base           239.60
+39. Freighter              236.34
+40. Survey Ship            232.93
+41. Junkyard               205.12
+42. Explorer               200.00
+43. Battle Mech            178.14
+44. Battle Station         157.93
+45. Stealth Needle         156.97
+46. Patrol Mech            121.34
+47. Supply Bot              79.15
+48. Missile Bot             77.10
+49. Trade Bot               71.82

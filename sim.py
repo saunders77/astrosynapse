@@ -270,7 +270,13 @@ class Player:
                         mainPhase = False
                         self.game.winner = self
                 case 'acquire':
-                    self.recordAcquisitionEvent('acquire', options[decision][2], self.game.tradeRow, options[decision][2][1])
+                    self.recordAcquisitionEvent(
+                        'acquire',
+                        options[decision][2],
+                        self.game.tradeRow,
+                        options[decision][2][1],
+                        current_trade,
+                    )
                     self.acquire(options[decision][1], options[decision][2][1])
                 case 'endTurn': mainPhase = False
         
@@ -292,12 +298,13 @@ class Player:
         # draw for my next turn
         self.draw(5)
 
-    def recordAcquisitionEvent(self, acquisitionType, card, tradeRowSnapshot, cost):
+    def recordAcquisitionEvent(self, acquisitionType, card, tradeRowSnapshot, cost, tradeAvailable):
         self.turnAcquisitionEvents.append({
             'type': acquisitionType,
             'cardName': card[0],
             'cardCost': card[1],
             'costPaid': cost,
+            'tradeAvailable': tradeAvailable,
             'tradeRowSnapshot': list(tradeRowSnapshot),
         })
 
@@ -400,7 +407,7 @@ class Player:
                 if len(options) > 0:
                     self.nextShipTop = True
                     decision = self.sendChoice(options)
-                    self.recordAcquisitionEvent('freeAcquire', options[decision][2], self.game.tradeRow, 0)
+                    self.recordAcquisitionEvent('freeAcquire', options[decision][2], self.game.tradeRow, 0, self.trade)
                     self.acquire(options[decision][1], 0)
             case 'destroyscrap':
                 self.selectAndDestroyBase()

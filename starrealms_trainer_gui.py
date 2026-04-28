@@ -1078,6 +1078,9 @@ class TrainerGUI(tk.Tk):
         self.command_thread = threading.Thread(target=worker, name="trainer-gui-command", daemon=True)
         self.command_thread.start()
 
+    def _has_active_command(self) -> bool:
+        return self.command_thread is not None and self.command_thread.is_alive()
+
     def _checkpoint_values_for_run(
         self,
         run_name: str,
@@ -1718,6 +1721,9 @@ class TrainerGUI(tk.Tk):
         self._run_async(f"Train {iterations} iteration(s) for '{run_name}'", action, on_success=on_success)
 
     def _start_background(self) -> None:
+        if self._has_active_command():
+            messagebox.showinfo("Busy", "Another command is still running. Wait for it to finish first.", parent=self)
+            return
         run_name = self._selected_run_name()
         try:
             overrides = self._new_run_overrides_for(run_name)
@@ -1729,6 +1735,9 @@ class TrainerGUI(tk.Tk):
         self.refresh_data()
 
     def _continue_background(self) -> None:
+        if self._has_active_command():
+            messagebox.showinfo("Busy", "Another command is still running. Wait for it to finish first.", parent=self)
+            return
         run_name = self._selected_run_name()
         try:
             overrides = self._new_run_overrides_for(run_name)
