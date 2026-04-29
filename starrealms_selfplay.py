@@ -3120,6 +3120,7 @@ class SelfPlayTrainer:
         max_policies: int = 8,
         games_per_pair: int = 12,
         include_candidate: bool = True,
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         ) -> Dict[str, Any]:
         if max_policies < 2:
             raise ValueError("Rating pass needs at least 2 policies.")
@@ -3165,8 +3166,45 @@ class SelfPlayTrainer:
                             "participant_b": participants[index_b],
                         }
                     )
+            pairings_total = len(pairing_specs)
+            games_total = pairings_total * int(games_per_pair)
+            last_progress_save_at = 0.0
+            active_pairing_games_completed = 0
+
+            def emit_rating_progress(force_persist: bool = False) -> None:
+                nonlocal last_progress_save_at
+                games_completed = min(
+                    games_total,
+                    len(pairings) * int(games_per_pair) + int(active_pairing_games_completed),
+                )
+                payload = {
+                    "pairings_completed": len(pairings),
+                    "pairings_total": pairings_total,
+                    "games_completed": games_completed,
+                    "games_target": games_total,
+                    "duration_seconds": _timestamp() - started_at,
+                }
+                if progress_callback is not None:
+                    try:
+                        progress_callback(payload)
+                    except Exception:
+                        pass
+                now = _timestamp()
+                if force_persist or (now - last_progress_save_at) >= LIVE_PROGRESS_SAVE_INTERVAL_SECONDS:
+                    last_progress_save_at = now
+                    self.state["last_rating_pass"] = {
+                        **dict(self.state.get("last_rating_pass") or {}),
+                        "status": "running",
+                        "pairings_played": len(pairings),
+                        "pairings_total": pairings_total,
+                        "games_completed": games_completed,
+                        "games_target": games_total,
+                        "duration_seconds": _timestamp() - started_at,
+                    }
+                    self._save_state_only()
 
             def record_pairing_result(spec: Dict[str, Any], match_summary: Dict[str, Any]) -> None:
+                nonlocal active_pairing_games_completed
                 participant_a = spec["participant_a"]
                 participant_b = spec["participant_b"]
                 name_a = str(participant_a["name"])
@@ -3197,19 +3235,30 @@ class SelfPlayTrainer:
                         "duration_seconds": float(match_summary.get("duration_seconds", 0.0)),
                     }
                 )
+                active_pairing_games_completed = 0
+                emit_rating_progress()
 
             worker_count = resolve_simulation_workers(
                 self.config.simulation_workers,
                 max(1, len(pairing_specs) * int(games_per_pair)),
             )
+            emit_rating_progress(force_persist=True)
             parallel_pairings = len(pairing_specs) >= max(2, worker_count // 2)
             if worker_count <= 1 or not parallel_pairings:
                 for spec in pairing_specs:
+                    active_pairing_games_completed = 0
+
+                    def pairing_progress(progress: Dict[str, Any]) -> None:
+                        nonlocal active_pairing_games_completed
+                        active_pairing_games_completed = int(progress.get("games_completed", 0))
+                        emit_rating_progress()
+
                     match_summary = _play_balanced_match(
                         self._policy_for_rating_participant(spec["participant_a"]),
                         self._policy_for_rating_participant(spec["participant_b"]),
                         self.config,
                         games_per_match=games_per_pair,
+                        game_progress_callback=pairing_progress,
                     )
                     record_pairing_result(spec, match_summary)
             else:
@@ -3296,11 +3345,27 @@ class SelfPlayTrainer:
                 "simulation_workers": int(self.config.simulation_workers),
                 "resolved_simulation_workers": worker_count,
                 "pairings_played": len(pairings),
+                "pairings_total": pairings_total,
+                "games_completed": len(pairings) * int(games_per_pair),
+                "games_target": games_total,
                 "pairings": pairings,
                 "leaderboard": leaderboard,
                 "duration_seconds": _timestamp() - started_at,
                 "completed_at": _timestamp(),
             }
+            if progress_callback is not None:
+                try:
+                    progress_callback(
+                        {
+                            "pairings_completed": len(pairings),
+                            "pairings_total": pairings_total,
+                            "games_completed": len(pairings) * int(games_per_pair),
+                            "games_target": games_total,
+                            "duration_seconds": summary["duration_seconds"],
+                        }
+                    )
+                except Exception:
+                    pass
             self.state["last_rating_pass"] = summary
             self.state["status"] = "idle"
             self.state["last_error"] = None
@@ -4197,12 +4262,14 @@ def run_rating_pass(
     max_policies: int = 8,
     games_per_pair: int = 12,
     include_candidate: bool = True,
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     trainer = _get_trainer(run_name)
     return trainer.run_rating_pass(
         max_policies=max_policies,
         games_per_pair=games_per_pair,
         include_candidate=include_candidate,
+        progress_callback=progress_callback,
     )
 
 

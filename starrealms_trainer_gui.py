@@ -521,10 +521,12 @@ class TrainerGUI(tk.Tk):
         self.activity_progress_value_vars = {
             "acquire_elo": tk.DoubleVar(value=0.0),
             "policy_match": tk.DoubleVar(value=0.0),
+            "rating_pass": tk.DoubleVar(value=0.0),
         }
         self.activity_progress_text_vars = {
             "acquire_elo": tk.StringVar(value="Idle"),
             "policy_match": tk.StringVar(value="Idle"),
+            "rating_pass": tk.StringVar(value="Idle"),
         }
 
         self._build_style()
@@ -592,6 +594,7 @@ class TrainerGUI(tk.Tk):
             "SummaryPromotion.Horizontal.TProgressbar": "#7bd389",
             "ActivityAcquire.Horizontal.TProgressbar": "#f08a5d",
             "ActivityPolicy.Horizontal.TProgressbar": "#5aa9e6",
+            "ActivityRating.Horizontal.TProgressbar": "#7bd389",
         }
         for style_name, color in progressbar_styles.items():
             style.configure(
@@ -947,6 +950,13 @@ class TrainerGUI(tk.Tk):
             "policy_match",
             "ActivityPolicy.Horizontal.TProgressbar",
         )
+        self._activity_progress_row(
+            activity_progress,
+            2,
+            "Rating Pass",
+            "rating_pass",
+            "ActivityRating.Horizontal.TProgressbar",
+        )
 
         self.log_text = ScrolledText(
             log_tab,
@@ -1118,6 +1128,8 @@ class TrainerGUI(tk.Tk):
         label = str(payload.get("label", "")).strip()
         completed = max(0, int(payload.get("games_completed", 0)))
         total = max(0, int(payload.get("games_target", 0)))
+        pairings_completed = payload.get("pairings_completed")
+        pairings_total = payload.get("pairings_total")
         duration_seconds = payload.get("duration_seconds")
         duration_text = ""
         if duration_seconds is not None:
@@ -1138,6 +1150,11 @@ class TrainerGUI(tk.Tk):
         else:
             value_var.set(self._progress_value(completed, total))
             detail = f"{completed} / {total} scheduled games{duration_text}"
+        if pairings_completed is not None and pairings_total is not None:
+            try:
+                detail += f" | {int(pairings_completed)} / {int(pairings_total)} pairings"
+            except (TypeError, ValueError):
+                pass
         text_var.set(f"{label}: {detail}" if label else detail)
 
     def _selected_run_name(self) -> str:
@@ -1747,6 +1764,9 @@ class TrainerGUI(tk.Tk):
             f"- Status: {last_rating_pass.get('status', '-')}",
             f"- Participant count: {last_rating_pass.get('participant_count', '-')}",
             f"- Pairings played: {last_rating_pass.get('pairings_played', '-')}",
+            f"- Pairings total: {last_rating_pass.get('pairings_total', '-')}",
+            f"- Games completed: {last_rating_pass.get('games_completed', '-')}",
+            f"- Games target: {last_rating_pass.get('games_target', '-')}",
             f"- Games per pair: {last_rating_pass.get('games_per_pair', '-')}",
             f"- Included candidate: {last_rating_pass.get('include_candidate', '-')}",
             f"- Duration seconds: {last_rating_pass.get('duration_seconds', '-')}",
@@ -2213,14 +2233,53 @@ class TrainerGUI(tk.Tk):
             messagebox.showerror("Invalid rating pass settings", str(exc), parent=self)
             return
         include_candidate = bool(self.include_candidate_var.get())
+        pairings_total = max_policies * (max_policies - 1) // 2
+        games_target = pairings_total * games_per_pair
+        activity_label = f"{run_name}: {max_policies} policies"
+        self._set_activity_progress(
+            "rating_pass",
+            {
+                "status": "running",
+                "label": activity_label,
+                "games_completed": 0,
+                "games_target": games_target,
+                "pairings_completed": 0,
+                "pairings_total": pairings_total,
+            },
+        )
 
         def action() -> Dict[str, Any]:
-            return sp.run_rating_pass(
-                run_name=run_name,
-                max_policies=max_policies,
-                games_per_pair=games_per_pair,
-                include_candidate=include_candidate,
-            )
+            def progress_callback(progress: Dict[str, Any]) -> None:
+                self.progress_queue.put(
+                    (
+                        "rating_pass",
+                        {
+                            "status": "running",
+                            "label": activity_label,
+                            **progress,
+                        },
+                    )
+                )
+
+            try:
+                return sp.run_rating_pass(
+                    run_name=run_name,
+                    max_policies=max_policies,
+                    games_per_pair=games_per_pair,
+                    include_candidate=include_candidate,
+                    progress_callback=progress_callback,
+                )
+            except Exception:
+                self.progress_queue.put(
+                    (
+                        "rating_pass",
+                        {
+                            "status": "failed",
+                            "label": activity_label,
+                        },
+                    )
+                )
+                raise
 
         def on_success(result: Dict[str, Any]) -> None:
             leaderboard = list(result.get("leaderboard") or [])
@@ -2228,6 +2287,18 @@ class TrainerGUI(tk.Tk):
             if leaderboard:
                 top_entry = leaderboard[0]
                 top_line = f"{top_entry.get('name')} at {round(float(top_entry.get('elo', sp.INITIAL_ELO)), 2)}"
+            self._set_activity_progress(
+                "rating_pass",
+                {
+                    "status": "completed",
+                    "label": activity_label,
+                    "games_completed": int(result.get("games_completed", result.get("pairings_played", 0) * games_per_pair)),
+                    "games_target": int(result.get("games_target", games_target)),
+                    "pairings_completed": int(result.get("pairings_played", 0)),
+                    "pairings_total": int(result.get("pairings_total", pairings_total)),
+                    "duration_seconds": result.get("duration_seconds"),
+                },
+            )
             self.log(
                 f"Rating pass finished for '{run_name}': {result.get('participant_count', 0)} models, "
                 f"{result.get('pairings_played', 0)} pairings, top rated {top_line}."
