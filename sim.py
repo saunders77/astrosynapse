@@ -189,7 +189,7 @@ class Player:
             options.append(('nodiscard',))
         decision = self.sendChoice(options)
         if options[decision] != ('nodiscard',):
-            self.discardPile.append(self.hand.pop(decision)) 
+            self.discardPile.append(self.hand.pop(options[decision][1]))
             return 1
         return 0
    
@@ -580,13 +580,12 @@ class Player:
                 if j != i and isFirstEqualOrBetter(self.discardPile[i], self.discardPile[j]) == True and self.discardPile[i] != self.discardPile[j]:
                     scrapCandidate = False
             if scrapCandidate == True:
-                options.append((scrap_from_discard, i, self.hand[i]))
-        comparisonOptions = options + self.hand
+                options.append((scrap_from_discard, i, self.discardPile[i]))
         for i in range(len(self.hand)):
             scrapCandidate = True
             for j in range(len(options)):
-                if self.hand[i] == self.options[j][2]: scrapCandidate = False
-                if isFirstEqualOrBetter(self.hand[i], self.options[j][2]) == True: scrapCandidate = False
+                if self.hand[i] == options[j][2]: scrapCandidate = False
+                if isFirstEqualOrBetter(self.hand[i], options[j][2]) == True: scrapCandidate = False
             if scrapCandidate == True:
                 for j in range(len(self.hand)):
                     if j != i and isFirstEqualOrBetter(self.hand[i], self.hand[j]) == True and self.hand[i] != self.hand[j]:
@@ -615,7 +614,7 @@ class Player:
             if scrapCandidate == True:
                 options.append(('scrapFromHandNormal', i, self.hand[i]))
         if len(options) > 0:
-            self.hand.pop(self.sendChoice(options))
+            self.hand.pop(options[self.sendChoice(options)][1])
 
     def removeFromTradeRow(self, i):
         if i == 0: #explorer

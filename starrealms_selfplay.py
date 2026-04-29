@@ -17,7 +17,7 @@ import time
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from chooser import choose as human_choose
 from sim import Game, cardDetails, factions
@@ -74,6 +74,7 @@ TRAINING_DECISIONS_PER_GAME_OPTIONS = (
 )
 DEFAULT_MIN_TRAIN_TEMPERATURE_RATIO = 0.5 / 0.9
 DEFAULT_PLATEAU_MAX_TRAIN_TEMPERATURE_RATIO = 1.15 / 0.9
+LIVE_PROGRESS_SAVE_INTERVAL_SECONDS = 0.4
 
 
 def _normalize_ability(raw_ability: Any) -> str:
@@ -1456,6 +1457,7 @@ def _default_training_state(config: TrainingConfig) -> Dict[str, Any]:
         "last_update": None,
         "last_eval": None,
         "last_rating_pass": None,
+        "live_progress": None,
         "candidate": _default_candidate_state("checkpoint_000000.json", 0),
         "checkpoints": [
             {
@@ -2059,6 +2061,7 @@ def _play_match(
     deterministic_a: bool = False,
     deterministic_b: bool = False,
     games_per_match: int = 24,
+    game_progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     collector: Optional[List[Dict[str, Any]]] = [] if collect_a else None
     trajectory_by_game: Optional[List[List[Dict[str, Any]]]] = [] if collect_a else None
@@ -2098,6 +2101,19 @@ def _play_match(
             wins_a += 1
         else:
             wins_b += 1
+        if game_progress_callback is not None:
+            try:
+                game_progress_callback(
+                    {
+                        "games_completed": len(per_game_winners),
+                        "games_target": int(games_per_match),
+                        "wins_a": wins_a,
+                        "wins_b": wins_b,
+                        "duration_seconds": _timestamp() - started_at,
+                    }
+                )
+            except Exception:
+                pass
         if collect_a and collector is not None and trajectory_by_game is not None and game_collector is not None:
             collector.extend(game_collector)
             trajectory_by_game.append(game_collector)
@@ -2121,6 +2137,7 @@ def _play_balanced_match(
     policy_b: PolicyNetwork,
     config: TrainingConfig,
     games_per_match: int,
+    game_progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     if games_per_match <= 1:
         return _play_match(
@@ -2131,11 +2148,28 @@ def _play_balanced_match(
             deterministic_a=True,
             deterministic_b=True,
             games_per_match=1,
+            game_progress_callback=game_progress_callback,
         )
 
     games_as_first = max(1, games_per_match // 2)
     games_as_second = max(1, games_per_match - games_as_first)
     started_at = _timestamp()
+
+    def emit_progress(games_completed: int, wins_a: int, wins_b: int) -> None:
+        if game_progress_callback is None:
+            return
+        try:
+            game_progress_callback(
+                {
+                    "games_completed": int(games_completed),
+                    "games_target": int(games_per_match),
+                    "wins_a": int(wins_a),
+                    "wins_b": int(wins_b),
+                    "duration_seconds": _timestamp() - started_at,
+                }
+            )
+        except Exception:
+            pass
 
     first_seat = _play_match(
         policy_a,
@@ -2145,7 +2179,19 @@ def _play_balanced_match(
         deterministic_a=True,
         deterministic_b=True,
         games_per_match=games_as_first,
+        game_progress_callback=(
+            None
+            if game_progress_callback is None
+            else lambda progress: emit_progress(
+                int(progress.get("games_completed", 0)),
+                int(progress.get("wins_a", 0)),
+                int(progress.get("wins_b", 0)),
+            )
+        ),
     )
+    first_games_played = int(first_seat.get("games_played", 0))
+    first_wins_a = int(first_seat.get("wins_a", 0))
+    first_wins_b = int(first_seat.get("wins_b", 0))
     second_seat = _play_match(
         policy_b,
         policy_a,
@@ -2154,6 +2200,15 @@ def _play_balanced_match(
         deterministic_a=True,
         deterministic_b=True,
         games_per_match=games_as_second,
+        game_progress_callback=(
+            None
+            if game_progress_callback is None
+            else lambda progress: emit_progress(
+                first_games_played + int(progress.get("games_completed", 0)),
+                first_wins_a + int(progress.get("wins_b", 0)),
+                first_wins_b + int(progress.get("wins_a", 0)),
+            )
+        ),
     )
 
     wins_a = int(first_seat.get("wins_a", 0)) + int(second_seat.get("wins_b", 0))
@@ -2187,6 +2242,7 @@ class SelfPlayTrainer:
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._last_live_progress_save_at = 0.0
 
     @property
     def is_running(self) -> bool:
@@ -2198,6 +2254,54 @@ class SelfPlayTrainer:
         self.state["config"] = config_payload
         _save_policy_and_state(self.files, self.policy, self.state)
         _atomic_write_json(self.files.candidate_policy_file, self.candidate_policy.to_dict(include_optimizer=True))
+
+    def _save_state_only(self) -> None:
+        config_payload = asdict(self.config)
+        config_payload["max_iterations"] = None
+        self.state["config"] = config_payload
+        self.state["updated_at"] = _timestamp()
+        _atomic_write_json(self.files.training_state_file, self.state)
+
+    def _build_training_live_progress(
+        self,
+        scheduled_config: TrainingConfig,
+        *,
+        stage: str,
+        iteration_number: int,
+        training_games_completed: int,
+        promotion_games_completed: int,
+        training_matches_completed: int,
+        training_stage_complete: bool,
+        promotion_stage_complete: bool,
+    ) -> Dict[str, Any]:
+        training_matches_total = max(1, int(scheduled_config.training_matches_per_iteration))
+        training_games_per_match = max(1, int(scheduled_config.training_games_per_match))
+        training_games_total = training_matches_total * training_games_per_match
+        promotion_games_total = max(1, int(scheduled_config.promotion_games))
+        return {
+            "kind": "training_iteration",
+            "stage": str(stage),
+            "iteration_number": int(iteration_number),
+            "training_matches_completed": int(training_matches_completed),
+            "training_matches_total": int(training_matches_total),
+            "training_games_completed": max(0, int(training_games_completed)),
+            "training_games_total": int(training_games_total),
+            "promotion_games_completed": max(0, int(promotion_games_completed)),
+            "promotion_games_total": int(promotion_games_total),
+            "iteration_games_completed": max(0, int(training_games_completed) + int(promotion_games_completed)),
+            "iteration_games_total": int(training_games_total + promotion_games_total),
+            "training_stage_complete": bool(training_stage_complete),
+            "promotion_stage_complete": bool(promotion_stage_complete),
+            "iteration_complete": bool(training_stage_complete and promotion_stage_complete),
+            "updated_at": _timestamp(),
+        }
+
+    def _set_live_progress(self, payload: Optional[Dict[str, Any]], *, force_persist: bool = False) -> None:
+        self.state["live_progress"] = None if payload is None else _copy_nested(payload)
+        now = _timestamp()
+        if force_persist or (now - self._last_live_progress_save_at) >= LIVE_PROGRESS_SAVE_INTERVAL_SECONDS:
+            self._last_live_progress_save_at = now
+            self._save_state_only()
 
     def _candidate_state(self) -> Dict[str, Any]:
         candidate_state = self.state.get("candidate")
@@ -2650,6 +2754,7 @@ class SelfPlayTrainer:
         self.state["total_games"] = int(self.state.get("total_games", 0)) + int(match_summary.get("games_played", 0))
         if kind == "training":
             self.state["last_match"] = self._summarize_training_matches(completed_training_matches)
+            self._save_state_only()
         else:
             self.state["last_eval"] = {
                 "wins": match_summary.get("wins_a", 0),
@@ -2662,7 +2767,7 @@ class SelfPlayTrainer:
                 "champion_checkpoint": self.state.get("latest_checkpoint"),
                 "duration_seconds": match_summary.get("duration_seconds", 0.0),
             }
-        self._save()
+            self._save()
 
     def _reseed_candidate(
         self,
@@ -2728,11 +2833,27 @@ class SelfPlayTrainer:
         scheduled_config = self._scheduled_training_config()
         drought_boost = self._promotion_drought_boost()
         candidate_state = self._candidate_state()
+        next_iteration = int(self.state.get("iteration", 0)) + 1
         training_matches: List[Dict[str, Any]] = []
         training_samples: List[Dict[str, Any]] = []
         opponent_summaries: List[Dict[str, Any]] = []
+        training_games_completed = 0
 
-        for _ in range(max(1, int(scheduled_config.training_matches_per_iteration))):
+        self._set_live_progress(
+            self._build_training_live_progress(
+                scheduled_config,
+                stage="training",
+                iteration_number=next_iteration,
+                training_games_completed=0,
+                promotion_games_completed=0,
+                training_matches_completed=0,
+                training_stage_complete=False,
+                promotion_stage_complete=False,
+            ),
+            force_persist=True,
+        )
+
+        for match_index in range(max(1, int(scheduled_config.training_matches_per_iteration))):
             opponent_policy, opponent_meta = self._sample_league_opponent()
             match_summary = _play_match(
                 self.candidate_policy,
@@ -2742,15 +2863,54 @@ class SelfPlayTrainer:
                 deterministic_a=False,
                 deterministic_b=False,
                 games_per_match=max(1, int(scheduled_config.training_games_per_match)),
+                game_progress_callback=lambda progress, match_index=match_index, training_games_completed=training_games_completed: self._set_live_progress(
+                    self._build_training_live_progress(
+                        scheduled_config,
+                        stage="training",
+                        iteration_number=next_iteration,
+                        training_games_completed=training_games_completed + int(progress.get("games_completed", 0)),
+                        promotion_games_completed=0,
+                        training_matches_completed=match_index,
+                        training_stage_complete=False,
+                        promotion_stage_complete=False,
+                    )
+                ),
             )
             match_summary["opponent"] = opponent_meta
             training_matches.append(match_summary)
             opponent_summaries.append(opponent_meta)
             training_samples.extend(self._match_to_training_samples(match_summary))
+            training_games_completed += int(match_summary.get("games_played", 0))
             self._record_live_match_progress(match_summary, "training", training_matches)
 
+        self._set_live_progress(
+            self._build_training_live_progress(
+                scheduled_config,
+                stage="optimizing",
+                iteration_number=next_iteration,
+                training_games_completed=training_games_completed,
+                promotion_games_completed=0,
+                training_matches_completed=len(training_matches),
+                training_stage_complete=True,
+                promotion_stage_complete=False,
+            ),
+            force_persist=True,
+        )
         update_stats = self.candidate_policy.train_on_samples(training_samples, scheduled_config)
         training_summary = self._summarize_training_matches(training_matches)
+        self._set_live_progress(
+            self._build_training_live_progress(
+                scheduled_config,
+                stage="promotion",
+                iteration_number=next_iteration,
+                training_games_completed=training_games_completed,
+                promotion_games_completed=0,
+                training_matches_completed=len(training_matches),
+                training_stage_complete=True,
+                promotion_stage_complete=False,
+            ),
+            force_persist=True,
+        )
         eval_summary = _play_match(
             self.candidate_policy,
             self.policy,
@@ -2759,6 +2919,18 @@ class SelfPlayTrainer:
             deterministic_a=True,
             deterministic_b=True,
             games_per_match=max(1, int(scheduled_config.promotion_games)),
+            game_progress_callback=lambda progress: self._set_live_progress(
+                self._build_training_live_progress(
+                    scheduled_config,
+                    stage="promotion",
+                    iteration_number=next_iteration,
+                    training_games_completed=training_games_completed,
+                    promotion_games_completed=int(progress.get("games_completed", 0)),
+                    training_matches_completed=len(training_matches),
+                    training_stage_complete=True,
+                    promotion_stage_complete=False,
+                )
+            ),
         )
         self._record_live_match_progress(eval_summary, "evaluation", training_matches)
         candidate_score = float(eval_summary["wins_a"]) / max(int(eval_summary["games_played"]), 1)
@@ -2767,8 +2939,6 @@ class SelfPlayTrainer:
             and candidate_score >= float(scheduled_config.promotion_score_threshold)
         )
         defending_champion = self.state.get("latest_checkpoint")
-
-        next_iteration = int(self.state.get("iteration", 0)) + 1
         total_attempts = int(candidate_state.get("total_attempts", 0)) + 1
         total_resets = int(candidate_state.get("resets", 0))
         total_promotions = int(candidate_state.get("promotions", 0))
@@ -2849,6 +3019,19 @@ class SelfPlayTrainer:
             "duration_seconds": eval_summary["duration_seconds"],
         }
         self.state["last_error"] = None
+        self._set_live_progress(
+            self._build_training_live_progress(
+                scheduled_config,
+                stage="complete",
+                iteration_number=next_iteration,
+                training_games_completed=training_games_completed,
+                promotion_games_completed=int(eval_summary.get("games_played", 0)),
+                training_matches_completed=len(training_matches),
+                training_stage_complete=True,
+                promotion_stage_complete=True,
+            ),
+            force_persist=True,
+        )
         self._save()
         return {
             "match": training_summary,
@@ -2932,6 +3115,7 @@ class SelfPlayTrainer:
             "last_update": self.state.get("last_update"),
             "last_eval": self.state.get("last_eval"),
             "last_rating_pass": self.state.get("last_rating_pass"),
+            "live_progress": self.state.get("live_progress"),
             "last_error": self.state.get("last_error"),
             "runtime": _format_seconds(runtime),
             "run_dir": str(self.files.run_dir),
@@ -3406,6 +3590,7 @@ def run_card_acquire_elo_test(
     games: int = CARD_ACQUIRE_ELO_TEST_GAMES,
     deterministic: bool = True,
     k_factor: float = CARD_ACQUIRE_ELO_K_FACTOR,
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     if games <= 0:
         raise ValueError("games must be positive.")
@@ -3431,7 +3616,7 @@ def run_card_acquire_elo_test(
     immediate_trade_pairwise_comparisons = 0
     ended_by_limit_games = 0
 
-    for _ in range(int(games)):
+    for game_index in range(int(games)):
         actor_a = PolicyActor(
             policy,
             deterministic=deterministic,
@@ -3522,6 +3707,18 @@ def run_card_acquire_elo_test(
             if immediate_trade_comparisons > 0:
                 immediate_trade_scored_decisions += 1
                 immediate_trade_pairwise_comparisons += immediate_trade_comparisons
+
+        if progress_callback is not None:
+            try:
+                progress_callback(
+                    {
+                        "games_completed": game_index + 1,
+                        "games_target": int(games),
+                        "duration_seconds": time.time() - start_time,
+                    }
+                )
+            except Exception:
+                pass
 
     future_trade_leaderboard, future_trade_normalization_factor, future_trade_explorer_raw_elo = _normalized_card_choice_leaderboard(
         future_trade_state
@@ -3634,6 +3831,7 @@ def play_policy_match(
     checkpoint_b: str = "latest",
     games_per_match: int = 24,
     deterministic: bool = True,
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     if not str(run_name_a).strip():
         raise ValueError("run_name_a is required.")
@@ -3657,6 +3855,7 @@ def play_policy_match(
         policy_b,
         config,
         games_per_match=max(1, int(games_per_match)),
+        game_progress_callback=progress_callback,
     )
     wins_a = int(summary.get("wins_a", 0))
     wins_b = int(summary.get("wins_b", 0))

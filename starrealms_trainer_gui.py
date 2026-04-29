@@ -451,6 +451,7 @@ class TrainerGUI(tk.Tk):
 
         self.choice_queue: "queue.Queue[Any]" = queue.Queue()
         self.result_queue: "queue.Queue[tuple[str, str, Any, Optional[Callable[[Any], None]]]]" = queue.Queue()
+        self.progress_queue: "queue.Queue[tuple[str, Dict[str, Any]]]" = queue.Queue()
         self.command_thread: Optional[threading.Thread] = None
         self.game_view = chooser_ui.GameChooserGUI(parent=self, title="Star Realms Game Viewer")
         self.game_view_bridge = GameViewBridge(self)
@@ -504,6 +505,24 @@ class TrainerGUI(tk.Tk):
             "runtime": tk.StringVar(value="-"),
             "device": tk.StringVar(value="cpu"),
             "last_error": tk.StringVar(value=""),
+        }
+        self.summary_progress_value_vars = {
+            "iteration": tk.DoubleVar(value=0.0),
+            "training": tk.DoubleVar(value=0.0),
+            "promotion": tk.DoubleVar(value=0.0),
+        }
+        self.summary_progress_text_vars = {
+            "iteration": tk.StringVar(value="Idle"),
+            "training": tk.StringVar(value="Idle"),
+            "promotion": tk.StringVar(value="Idle"),
+        }
+        self.activity_progress_value_vars = {
+            "acquire_elo": tk.DoubleVar(value=0.0),
+            "policy_match": tk.DoubleVar(value=0.0),
+        }
+        self.activity_progress_text_vars = {
+            "acquire_elo": tk.StringVar(value="Idle"),
+            "policy_match": tk.StringVar(value="Idle"),
         }
 
         self._build_style()
@@ -565,6 +584,22 @@ class TrainerGUI(tk.Tk):
         style.map("TButton", background=[("active", BUTTON_ACTIVE)])
         style.configure("TEntry", fieldbackground="#102034", foreground=TEXT)
         style.configure("TCombobox", fieldbackground="#102034", foreground=TEXT)
+        progressbar_styles = {
+            "SummaryIteration.Horizontal.TProgressbar": ACCENT,
+            "SummaryTraining.Horizontal.TProgressbar": "#5aa9e6",
+            "SummaryPromotion.Horizontal.TProgressbar": "#7bd389",
+            "ActivityAcquire.Horizontal.TProgressbar": "#f08a5d",
+            "ActivityPolicy.Horizontal.TProgressbar": "#5aa9e6",
+        }
+        for style_name, color in progressbar_styles.items():
+            style.configure(
+                style_name,
+                troughcolor="#102034",
+                background=color,
+                bordercolor="#102034",
+                lightcolor=color,
+                darkcolor=color,
+            )
 
     def _build_layout(self) -> None:
         top = tk.Frame(self, bg=WINDOW_BG, padx=12, pady=10)
@@ -802,6 +837,31 @@ class TrainerGUI(tk.Tk):
         self._summary_pair(summary, 1, 3, "Latest Checkpoint", self.status_vars["latest_checkpoint"])
         self._summary_pair(summary, 1, 4, "Last Error", self.status_vars["last_error"])
         self._summary_pair(summary, 2, 0, "Device", self.status_vars["device"])
+        summary_progress = tk.Frame(summary, bg=WINDOW_BG)
+        summary_progress.grid(row=3, column=0, columnspan=5, sticky="ew", padx=6, pady=(8, 2))
+        for column in range(3):
+            summary_progress.grid_columnconfigure(column, weight=1)
+        self._summary_progress_card(
+            summary_progress,
+            0,
+            "Iteration Progress",
+            "iteration",
+            "SummaryIteration.Horizontal.TProgressbar",
+        )
+        self._summary_progress_card(
+            summary_progress,
+            1,
+            "Training Stage",
+            "training",
+            "SummaryTraining.Horizontal.TProgressbar",
+        )
+        self._summary_progress_card(
+            summary_progress,
+            2,
+            "Promotion Stage",
+            "promotion",
+            "SummaryPromotion.Horizontal.TProgressbar",
+        )
 
         body = tk.PanedWindow(self, orient="horizontal", sashrelief="flat", bg=WINDOW_BG, bd=0)
         body.pack(fill="both", expand=True, padx=12, pady=(0, 12))
@@ -864,6 +924,23 @@ class TrainerGUI(tk.Tk):
             pady=8,
         )
         self.details_text.pack(fill="both", expand=True)
+
+        activity_progress = tk.Frame(log_tab, bg=WINDOW_BG)
+        activity_progress.pack(fill="x", pady=(0, 8))
+        self._activity_progress_row(
+            activity_progress,
+            0,
+            "Acquire Elo Test",
+            "acquire_elo",
+            "ActivityAcquire.Horizontal.TProgressbar",
+        )
+        self._activity_progress_row(
+            activity_progress,
+            1,
+            "Policy Match",
+            "policy_match",
+            "ActivityPolicy.Horizontal.TProgressbar",
+        )
 
         self.log_text = ScrolledText(
             log_tab,
@@ -937,6 +1014,125 @@ class TrainerGUI(tk.Tk):
             anchor="w",
             font=("Segoe UI Semibold", 11),
         ).pack(fill="x")
+
+    def _summary_progress_card(
+        self,
+        parent: tk.Widget,
+        column: int,
+        label: str,
+        key: str,
+        style_name: str,
+    ) -> None:
+        wrapper = tk.Frame(parent, bg=WINDOW_BG)
+        wrapper.grid(row=0, column=column, sticky="ew", padx=6, pady=2)
+        tk.Label(
+            wrapper,
+            text=label,
+            bg=WINDOW_BG,
+            fg=MUTED,
+            anchor="w",
+            font=("Segoe UI", 9),
+        ).pack(fill="x")
+        ttk.Progressbar(
+            wrapper,
+            variable=self.summary_progress_value_vars[key],
+            maximum=100.0,
+            mode="determinate",
+            style=style_name,
+        ).pack(fill="x", pady=(4, 4))
+        tk.Label(
+            wrapper,
+            textvariable=self.summary_progress_text_vars[key],
+            bg=WINDOW_BG,
+            fg=SUBTEXT,
+            anchor="w",
+            font=("Segoe UI", 9),
+        ).pack(fill="x")
+
+    def _activity_progress_row(
+        self,
+        parent: tk.Widget,
+        row: int,
+        label: str,
+        key: str,
+        style_name: str,
+    ) -> None:
+        wrapper = tk.Frame(parent, bg=WINDOW_BG)
+        wrapper.pack(fill="x", pady=(0 if row == 0 else 4, 0))
+        tk.Label(
+            wrapper,
+            text=label,
+            bg=WINDOW_BG,
+            fg=ACCENT,
+            anchor="w",
+            font=("Segoe UI Semibold", 10),
+        ).pack(fill="x")
+        ttk.Progressbar(
+            wrapper,
+            variable=self.activity_progress_value_vars[key],
+            maximum=100.0,
+            mode="determinate",
+            style=style_name,
+        ).pack(fill="x", pady=(4, 4))
+        tk.Label(
+            wrapper,
+            textvariable=self.activity_progress_text_vars[key],
+            bg=WINDOW_BG,
+            fg=SUBTEXT,
+            anchor="w",
+            font=("Segoe UI", 9),
+        ).pack(fill="x")
+
+    def _progress_value(self, completed: int, total: int, *, complete: bool = False) -> float:
+        if total <= 0:
+            return 100.0 if complete else 0.0
+        if complete:
+            return 100.0
+        return max(0.0, min(100.0, (100.0 * float(completed)) / float(total)))
+
+    def _stage_label(self, stage: str) -> str:
+        labels = {
+            "training": "Training",
+            "optimizing": "Policy Update",
+            "promotion": "Promotion",
+            "complete": "Complete",
+            "idle": "Idle",
+        }
+        return labels.get(str(stage or "").strip().lower(), str(stage or "Idle"))
+
+    def _set_summary_progress_defaults(self, detail: str = "Idle") -> None:
+        for key, value_var in self.summary_progress_value_vars.items():
+            value_var.set(0.0)
+            self.summary_progress_text_vars[key].set(detail)
+
+    def _set_activity_progress(self, key: str, payload: Dict[str, Any]) -> None:
+        value_var = self.activity_progress_value_vars[key]
+        text_var = self.activity_progress_text_vars[key]
+        status = str(payload.get("status", "running"))
+        label = str(payload.get("label", "")).strip()
+        completed = max(0, int(payload.get("games_completed", 0)))
+        total = max(0, int(payload.get("games_target", 0)))
+        duration_seconds = payload.get("duration_seconds")
+        duration_text = ""
+        if duration_seconds is not None:
+            try:
+                duration_text = f" in {sp._format_seconds(float(duration_seconds))}"
+            except (TypeError, ValueError):
+                duration_text = ""
+        if status == "idle":
+            value_var.set(0.0)
+            text_var.set("Idle")
+            return
+        if status == "failed":
+            value_var.set(self._progress_value(completed, total))
+            detail = f"Failed at {completed} / {total} scheduled games"
+        elif status == "completed":
+            value_var.set(100.0)
+            detail = f"Completed {completed} / {total} scheduled games{duration_text}"
+        else:
+            value_var.set(self._progress_value(completed, total))
+            detail = f"{completed} / {total} scheduled games{duration_text}"
+        text_var.set(f"{label}: {detail}" if label else detail)
 
     def _selected_run_name(self) -> str:
         run_name = self.run_name_var.get().strip()
@@ -1327,6 +1523,76 @@ class TrainerGUI(tk.Tk):
         elif selected_checkpoint in self.checkpoints_tree.get_children():
             self.checkpoints_tree.selection_set(selected_checkpoint)
 
+    def _refresh_summary_progress(self, summary: Dict[str, Any], state: Dict[str, Any]) -> None:
+        config = state.get("config") or {}
+        training_matches = max(1, int(config.get("training_matches_per_iteration", 1) or 1))
+        training_games_per_match = max(1, int(config.get("training_games_per_match", 1) or 1))
+        promotion_games = max(1, int(config.get("promotion_games", 1) or 1))
+        training_total = training_matches * training_games_per_match
+        iteration_total = training_total + promotion_games
+        live_progress = summary.get("live_progress") or state.get("live_progress") or {}
+        if live_progress.get("kind") == "training_iteration":
+            stage = self._stage_label(str(live_progress.get("stage", "idle")))
+            iteration_number = int(live_progress.get("iteration_number", int(summary.get("iteration", 0)) + 1))
+            training_completed = max(0, int(live_progress.get("training_games_completed", 0)))
+            promotion_completed = max(0, int(live_progress.get("promotion_games_completed", 0)))
+            iteration_completed = max(
+                0,
+                int(live_progress.get("iteration_games_completed", training_completed + promotion_completed)),
+            )
+            matches_completed = max(0, int(live_progress.get("training_matches_completed", 0)))
+            training_total = max(1, int(live_progress.get("training_games_total", training_total)))
+            promotion_games = max(1, int(live_progress.get("promotion_games_total", promotion_games)))
+            iteration_total = max(1, int(live_progress.get("iteration_games_total", training_total + promotion_games)))
+            training_complete = bool(live_progress.get("training_stage_complete"))
+            promotion_complete = bool(live_progress.get("promotion_stage_complete"))
+            self.summary_progress_value_vars["iteration"].set(
+                self._progress_value(
+                    iteration_completed,
+                    iteration_total,
+                    complete=bool(live_progress.get("iteration_complete")),
+                )
+            )
+            self.summary_progress_text_vars["iteration"].set(
+                f"Iteration {iteration_number}: {iteration_completed} / {iteration_total} scheduled games | {stage}"
+            )
+            self.summary_progress_value_vars["training"].set(
+                self._progress_value(training_completed, training_total, complete=training_complete)
+            )
+            self.summary_progress_text_vars["training"].set(
+                f"{training_completed} / {training_total} games | {matches_completed} / {training_matches} matches"
+                + (" | complete" if training_complete else "")
+            )
+            self.summary_progress_value_vars["promotion"].set(
+                self._progress_value(promotion_completed, promotion_games, complete=promotion_complete)
+            )
+            self.summary_progress_text_vars["promotion"].set(
+                f"{promotion_completed} / {promotion_games} games"
+                + (" | complete" if promotion_complete else f" | {stage}")
+            )
+            return
+
+        last_match = summary.get("last_match") or {}
+        last_eval = summary.get("last_eval") or {}
+        if int(summary.get("iteration", 0)) > 0 and last_eval:
+            training_completed = max(0, int(last_match.get("games_played", 0)))
+            promotion_completed = max(0, int(last_eval.get("games_played", 0)))
+            self.summary_progress_value_vars["iteration"].set(100.0)
+            self.summary_progress_text_vars["iteration"].set(
+                f"Last completed iteration: {training_completed + promotion_completed} / {iteration_total} scheduled games"
+            )
+            self.summary_progress_value_vars["training"].set(100.0)
+            self.summary_progress_text_vars["training"].set(
+                f"{training_completed} / {training_total} games | {training_matches} / {training_matches} matches | complete"
+            )
+            self.summary_progress_value_vars["promotion"].set(100.0)
+            self.summary_progress_text_vars["promotion"].set(
+                f"{promotion_completed} / {promotion_games} games | complete"
+            )
+            return
+
+        self._set_summary_progress_defaults("Not running")
+
     def _refresh_summary(
         self,
         run_name: str,
@@ -1340,6 +1606,7 @@ class TrainerGUI(tk.Tk):
                 value.set("" if key == "last_error" else "-")
             self.status_vars["status"].set("new run")
             self.status_vars["last_error"].set("")
+            self._set_summary_progress_defaults("New run")
             self._write_details(
                 "\n".join(
                     [
@@ -1367,6 +1634,7 @@ class TrainerGUI(tk.Tk):
         self.status_vars["runtime"].set(str(summary.get("runtime", "-")))
         self.status_vars["device"].set(str(summary.get("device_backend", "cpu")))
         self.status_vars["last_error"].set(str(summary.get("last_error") or ""))
+        self._refresh_summary_progress(summary, state)
 
         checkpoints = list(checkpoints or [])
         checkpoint_lines = []
@@ -1515,7 +1783,9 @@ class TrainerGUI(tk.Tk):
                 "latest_checkpoint": "-",
                 "last_match": None,
                 "last_update": None,
+                "last_eval": None,
                 "last_rating_pass": None,
+                "live_progress": None,
                 "last_error": None,
                 "runtime": "-",
                 "device_backend": "cpu",
@@ -1553,6 +1823,7 @@ class TrainerGUI(tk.Tk):
             "last_update": state.get("last_update"),
             "last_eval": state.get("last_eval"),
             "last_rating_pass": state.get("last_rating_pass"),
+            "live_progress": state.get("live_progress"),
             "last_error": state.get("last_error"),
             "runtime": runtime,
             "device_backend": device_backend,
@@ -1904,17 +2175,62 @@ class TrainerGUI(tk.Tk):
         if not sp.run_exists(run_name):
             messagebox.showerror("Run does not exist", f"Run '{run_name}' does not exist yet.", parent=self)
             return
+        activity_label = f"{run_name} / {checkpoint}"
+        self._set_activity_progress(
+            "acquire_elo",
+            {
+                "status": "running",
+                "label": activity_label,
+                "games_completed": 0,
+                "games_target": sp.CARD_ACQUIRE_ELO_TEST_GAMES,
+            },
+        )
 
         def action() -> Dict[str, Any]:
-            return sp.run_card_acquire_elo_test(
-                run_name=run_name,
-                checkpoint=checkpoint,
-                games=sp.CARD_ACQUIRE_ELO_TEST_GAMES,
-            )
+            def progress_callback(progress: Dict[str, Any]) -> None:
+                self.progress_queue.put(
+                    (
+                        "acquire_elo",
+                        {
+                            "status": "running",
+                            "label": activity_label,
+                            **progress,
+                        },
+                    )
+                )
+
+            try:
+                return sp.run_card_acquire_elo_test(
+                    run_name=run_name,
+                    checkpoint=checkpoint,
+                    games=sp.CARD_ACQUIRE_ELO_TEST_GAMES,
+                    progress_callback=progress_callback,
+                )
+            except Exception:
+                self.progress_queue.put(
+                    (
+                        "acquire_elo",
+                        {
+                            "status": "failed",
+                            "label": activity_label,
+                        },
+                    )
+                )
+                raise
 
         def on_success(result: Dict[str, Any]) -> None:
             leaderboard = list(result.get("leaderboard") or [])
             top_entry = leaderboard[0] if leaderboard else {}
+            self._set_activity_progress(
+                "acquire_elo",
+                {
+                    "status": "completed",
+                    "label": f"{run_name} / {result.get('resolved_checkpoint', checkpoint)}",
+                    "games_completed": int(result.get("games", 0)),
+                    "games_target": sp.CARD_ACQUIRE_ELO_TEST_GAMES,
+                    "duration_seconds": result.get("duration_seconds"),
+                },
+            )
             self.log(
                 f"Acquire Elo test finished for '{run_name}' / '{checkpoint}': "
                 f"{result.get('scored_decisions', 0)} scored decision(s) from "
@@ -1965,15 +2281,50 @@ class TrainerGUI(tk.Tk):
         except ValueError as exc:
             messagebox.showerror("Invalid match settings", str(exc), parent=self)
             return
+        activity_label = f"{run_name_a} / {checkpoint_a} vs {run_name_b} / {checkpoint_b}"
+        self._set_activity_progress(
+            "policy_match",
+            {
+                "status": "running",
+                "label": activity_label,
+                "games_completed": 0,
+                "games_target": games_per_match,
+            },
+        )
 
         def action() -> Dict[str, Any]:
-            return sp.play_policy_match(
-                run_name_a=run_name_a,
-                checkpoint_a=checkpoint_a,
-                run_name_b=run_name_b,
-                checkpoint_b=checkpoint_b,
-                games_per_match=games_per_match,
-            )
+            def progress_callback(progress: Dict[str, Any]) -> None:
+                self.progress_queue.put(
+                    (
+                        "policy_match",
+                        {
+                            "status": "running",
+                            "label": activity_label,
+                            **progress,
+                        },
+                    )
+                )
+
+            try:
+                return sp.play_policy_match(
+                    run_name_a=run_name_a,
+                    checkpoint_a=checkpoint_a,
+                    run_name_b=run_name_b,
+                    checkpoint_b=checkpoint_b,
+                    games_per_match=games_per_match,
+                    progress_callback=progress_callback,
+                )
+            except Exception:
+                self.progress_queue.put(
+                    (
+                        "policy_match",
+                        {
+                            "status": "failed",
+                            "label": activity_label,
+                        },
+                    )
+                )
+                raise
 
         def on_success(result: Dict[str, Any]) -> None:
             policy_a = result.get("policy_a") or {}
@@ -1985,6 +2336,16 @@ class TrainerGUI(tk.Tk):
                 winner_text = f"{policy_b.get('run_name')} / {policy_b.get('checkpoint')}"
             else:
                 winner_text = "draw"
+            self._set_activity_progress(
+                "policy_match",
+                {
+                    "status": "completed",
+                    "label": activity_label,
+                    "games_completed": int(result.get("games_played", 0)),
+                    "games_target": games_per_match,
+                    "duration_seconds": result.get("duration_seconds"),
+                },
+            )
             self.log(
                 "Policy match finished: "
                 f"{policy_a.get('run_name')} / {policy_a.get('checkpoint')} "
@@ -2107,8 +2468,18 @@ class TrainerGUI(tk.Tk):
                 messagebox.showerror("Command failed", payload, parent=self)
         return handled_result
 
+    def _handle_progress_updates(self) -> None:
+        while True:
+            try:
+                kind, payload = self.progress_queue.get_nowait()
+            except queue.Empty:
+                break
+            if kind in self.activity_progress_value_vars:
+                self._set_activity_progress(kind, payload)
+
     def _poll(self) -> None:
         self._handle_choice_requests()
+        self._handle_progress_updates()
         if self._handle_worker_results():
             self._request_refresh(immediate=True)
         if self._refresh_requested or time.monotonic() >= self._next_refresh_at:
