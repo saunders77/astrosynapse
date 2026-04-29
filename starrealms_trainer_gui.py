@@ -1679,6 +1679,8 @@ class TrainerGUI(tk.Tk):
             f"- Device backend: {summary.get('device_backend', '-')}",
             f"- Device repr: {summary.get('device_repr', '-')}",
             f"- Device preference: {summary.get('device_preference', '-')}",
+            f"- Device requested backend: {summary.get('device_requested_backend', '-')}",
+            f"- Device reason: {summary.get('device_reason', '-')}",
             f"- Python: {runtime_info.get('python_version', '-')}",
             f"- Interpreter: {runtime_info.get('interpreter', '-')}",
             "",
@@ -1764,6 +1766,21 @@ class TrainerGUI(tk.Tk):
                     ],
                 ]
             )
+        device_benchmark = summary.get("device_benchmark") or {}
+        if device_benchmark:
+            details.extend(
+                [
+                    "",
+                    "Device Benchmark",
+                    f"- Preferred backend: {device_benchmark.get('preferred_backend', '-')}",
+                    f"- CPU inference ms: {device_benchmark.get('cpu_inference_ms', '-')}",
+                    f"- DirectML inference ms: {device_benchmark.get('directml_inference_ms', '-')}",
+                    f"- CPU training ms: {device_benchmark.get('cpu_training_ms', '-')}",
+                    f"- DirectML training ms: {device_benchmark.get('directml_training_ms', '-')}",
+                    f"- Benchmark sample count: {device_benchmark.get('sample_count', '-')}",
+                    f"- Benchmark minibatch size: {device_benchmark.get('minibatch_size', '-')}",
+                ]
+            )
         if summary.get("last_error"):
             details.extend(["", "Last Error", str(summary.get("last_error"))])
 
@@ -1791,6 +1808,9 @@ class TrainerGUI(tk.Tk):
                 "device_backend": "cpu",
                 "device_repr": "cpu",
                 "device_preference": "auto",
+                "device_requested_backend": "auto",
+                "device_reason": "",
+                "device_benchmark": None,
                 "run_dir": str((Path(sp.RUNS_DIR) / run_name).resolve()),
             }
 
@@ -1800,13 +1820,16 @@ class TrainerGUI(tk.Tk):
             runtime = sp._format_seconds(sp._timestamp() - float(created_at))
         config = state.get("config", {}) or {}
         device_preference = str(config.get("device_preference", "auto"))
-        device_backend = self._device_backend_cache.get(device_preference)
-        if device_backend is None:
-            try:
-                device_backend = sp.resolve_device_backend(device_preference)
-            except Exception:
-                device_backend = device_preference
-            self._device_backend_cache[device_preference] = device_backend
+        device_plan = dict(state.get("device_plan") or {})
+        device_backend = device_plan.get("backend")
+        if not device_backend:
+            device_backend = self._device_backend_cache.get(device_preference)
+            if device_backend is None:
+                try:
+                    device_backend = sp.resolve_device_backend(device_preference)
+                except Exception:
+                    device_backend = device_preference
+                self._device_backend_cache[device_preference] = device_backend
         return {
             "run_name": state.get("run_name", run_name),
             "status": state.get("status", "idle"),
@@ -1827,8 +1850,11 @@ class TrainerGUI(tk.Tk):
             "last_error": state.get("last_error"),
             "runtime": runtime,
             "device_backend": device_backend,
-            "device_repr": "-",
+            "device_repr": device_plan.get("repr", "-"),
             "device_preference": device_preference,
+            "device_requested_backend": device_plan.get("requested_backend", device_preference),
+            "device_reason": device_plan.get("reason", ""),
+            "device_benchmark": device_plan.get("benchmark"),
             "run_dir": state.get("run_dir", str((Path(sp.RUNS_DIR) / run_name).resolve())),
         }
 

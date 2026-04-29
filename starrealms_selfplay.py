@@ -14,6 +14,7 @@ import os
 import random
 import threading
 import time
+import warnings
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -75,6 +76,10 @@ TRAINING_DECISIONS_PER_GAME_OPTIONS = (
 DEFAULT_MIN_TRAIN_TEMPERATURE_RATIO = 0.5 / 0.9
 DEFAULT_PLATEAU_MAX_TRAIN_TEMPERATURE_RATIO = 1.15 / 0.9
 LIVE_PROGRESS_SAVE_INTERVAL_SECONDS = 0.4
+DIRECTML_BENCHMARK_INFERENCE_REPEATS = 10
+DIRECTML_BENCHMARK_TRAINING_SAMPLE_COUNT = 256
+DIRECTML_BENCHMARK_MINIBATCH_SIZE = 64
+DIRECTML_BENCHMARK_MARGIN = 0.95
 
 
 def _normalize_ability(raw_ability: Any) -> str:
@@ -283,6 +288,224 @@ def _select_torch_device(preference: str = DEVICE_AUTO) -> Tuple[Any, str]:
         return torch.device("cpu"), DEVICE_CPU
 
     return torch.device("cpu"), DEVICE_CPU
+
+
+def _device_from_backend(backend: str) -> Any:
+    normalized = str(backend or DEVICE_CPU).strip().lower()
+    if normalized == DEVICE_DIRECTML:
+        if torch_directml is None:
+            raise RuntimeError(
+                "DirectML was requested, but torch_directml is not installed. "
+                "Use Python 3.12 in your training venv and install torch-directml."
+            ) from TORCH_DIRECTML_IMPORT_ERROR
+        return torch_directml.device()
+    if normalized == DEVICE_CPU:
+        return torch.device("cpu")
+    return _select_torch_device(normalized)[0]
+
+
+def _synthetic_float(index: int) -> float:
+    return ((index % 23) - 11) / 11.0
+
+
+def _synthetic_state_vectors(batch_size: int, state_size: int) -> List[List[float]]:
+    return [
+        [_synthetic_float(row_index * 17 + feature_index * 3) for feature_index in range(state_size)]
+        for row_index in range(batch_size)
+    ]
+
+
+def _synthetic_option_batches(
+    batch_size: int,
+    option_size: int,
+    option_count: int,
+) -> List[List[List[float]]]:
+    return [
+        [
+            [_synthetic_float(row_index * 29 + option_index * 11 + feature_index) for feature_index in range(option_size)]
+            for option_index in range(option_count)
+        ]
+        for row_index in range(batch_size)
+    ]
+
+
+def _build_policy_module(
+    state_size: int,
+    option_size: int,
+    hidden_size: int,
+    architecture: str,
+) -> "nn.Module":
+    if nn is None:
+        raise RuntimeError(
+            "PyTorch is required for starrealms_selfplay.py. "
+            "Run this module from the project's training venv where torch is installed."
+        ) from TORCH_IMPORT_ERROR
+    if architecture == LEGACY_MODEL_ARCHITECTURE:
+        return _LegacyTorchPolicyModule(state_size, option_size, hidden_size)
+    if architecture == CURRENT_MODEL_ARCHITECTURE:
+        return _DeepTorchPolicyModule(state_size, option_size, hidden_size)
+    raise ValueError(f"Unknown policy architecture: {architecture}")
+
+
+_DIRECTML_POLICY_BENCHMARK_CACHE: Dict[Tuple[int, int, int, str], Dict[str, Any]] = {}
+
+
+def _benchmark_directml_policy_shape(
+    state_size: int,
+    option_size: int,
+    hidden_size: int,
+    architecture: str,
+) -> Dict[str, Any]:
+    if torch is None or nn is None or torch_directml is None:
+        raise RuntimeError("DirectML benchmarking requires torch and torch_directml.")
+
+    cache_key = (int(state_size), int(option_size), int(hidden_size), str(architecture))
+    cached = _DIRECTML_POLICY_BENCHMARK_CACHE.get(cache_key)
+    if cached is not None:
+        return _copy_nested(cached)
+
+    inference_option_count = 12
+    training_sample_count = DIRECTML_BENCHMARK_TRAINING_SAMPLE_COUNT
+    training_minibatch_size = min(DIRECTML_BENCHMARK_MINIBATCH_SIZE, training_sample_count)
+    training_option_count = 12
+
+    inference_state_vecs = _synthetic_state_vectors(1, state_size)
+    inference_option_batches = _synthetic_option_batches(1, option_size, inference_option_count)
+    training_state_vecs = _synthetic_state_vectors(training_sample_count, state_size)
+    training_option_batches = _synthetic_option_batches(training_sample_count, option_size, training_option_count)
+    training_actions = [sample_index % training_option_count for sample_index in range(training_sample_count)]
+    training_old_log_probs = [_synthetic_float(sample_index) * 0.2 for sample_index in range(training_sample_count)]
+    training_returns = [_synthetic_float(sample_index * 5) * 0.4 for sample_index in range(training_sample_count)]
+    training_advantages = [_synthetic_float(sample_index * 7) * 0.3 for sample_index in range(training_sample_count)]
+
+    timings: Dict[str, Dict[str, float]] = {}
+    for backend in (DEVICE_CPU, DEVICE_DIRECTML):
+        device = _device_from_backend(backend)
+        model = _build_policy_module(state_size, option_size, hidden_size, architecture).to(device)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="The operator 'aten::lerp\\.Scalar_out' is not currently supported on the DML backend.*",
+                category=UserWarning,
+            )
+            optimizer = torch.optim.Adam(model.parameters(), lr=0.0015)
+
+            inference_state_tensor = torch.tensor(inference_state_vecs, dtype=torch.float32, device=device)
+            inference_option_tensor = torch.tensor(inference_option_batches, dtype=torch.float32, device=device)
+            model.eval()
+            with torch.no_grad():
+                for _ in range(2):
+                    model(inference_state_tensor, inference_option_tensor)
+                started_at = time.perf_counter()
+                for _ in range(DIRECTML_BENCHMARK_INFERENCE_REPEATS):
+                    logits, values = model(inference_state_tensor, inference_option_tensor)
+                inference_anchor = float(logits.reshape(-1)[0].item()) + float(values.reshape(-1)[0].item())
+                inference_seconds = (time.perf_counter() - started_at) / DIRECTML_BENCHMARK_INFERENCE_REPEATS
+
+            state_tensor = torch.tensor(training_state_vecs, dtype=torch.float32, device=device)
+            option_tensor = torch.tensor(training_option_batches, dtype=torch.float32, device=device)
+            action_tensor = torch.tensor(training_actions, dtype=torch.int64, device=device)
+            old_log_prob_tensor = torch.tensor(training_old_log_probs, dtype=torch.float32, device=device)
+            return_tensor = torch.tensor(training_returns, dtype=torch.float32, device=device)
+            advantage_tensor = torch.tensor(training_advantages, dtype=torch.float32, device=device)
+
+            model.train()
+            started_at = time.perf_counter()
+            training_anchor = 0.0
+            for _ in range(2):
+                for batch_start in range(0, training_sample_count, training_minibatch_size):
+                    batch_end = batch_start + training_minibatch_size
+                    logits, value = model(
+                        state_tensor[batch_start:batch_end],
+                        option_tensor[batch_start:batch_end],
+                    )
+                    log_probs = torch.log_softmax(logits, dim=1)
+                    batch_actions = action_tensor[batch_start:batch_end]
+                    chosen_log_probs = log_probs.gather(1, batch_actions.unsqueeze(1)).squeeze(1)
+                    batch_old_log_probs = old_log_prob_tensor[batch_start:batch_end]
+                    batch_returns = return_tensor[batch_start:batch_end]
+                    batch_advantages = advantage_tensor[batch_start:batch_end]
+                    ratio = torch.exp(chosen_log_probs - batch_old_log_probs)
+                    clipped_ratio = torch.clamp(ratio, 0.8, 1.2)
+                    policy_loss = -torch.min(ratio * batch_advantages, clipped_ratio * batch_advantages).mean()
+                    value_loss = 0.5 * torch.square(value - batch_returns).mean()
+                    loss = policy_loss + 0.5 * value_loss
+                    optimizer.zero_grad(set_to_none=True)
+                    loss.backward()
+                    optimizer.step()
+                    training_anchor += float(loss.item())
+            training_seconds = time.perf_counter() - started_at
+
+        timings[backend] = {
+            "inference_seconds": inference_seconds + (inference_anchor * 0.0),
+            "training_seconds": training_seconds + (training_anchor * 0.0),
+        }
+
+    cpu_inference = float(timings[DEVICE_CPU]["inference_seconds"])
+    directml_inference = float(timings[DEVICE_DIRECTML]["inference_seconds"])
+    cpu_training = float(timings[DEVICE_CPU]["training_seconds"])
+    directml_training = float(timings[DEVICE_DIRECTML]["training_seconds"])
+    directml_wins = (
+        directml_inference <= cpu_inference * DIRECTML_BENCHMARK_MARGIN
+        and directml_training <= cpu_training * DIRECTML_BENCHMARK_MARGIN
+    )
+    preferred_backend = DEVICE_DIRECTML if directml_wins else DEVICE_CPU
+    benchmark = {
+        "preferred_backend": preferred_backend,
+        "cpu_inference_ms": round(cpu_inference * 1000.0, 3),
+        "directml_inference_ms": round(directml_inference * 1000.0, 3),
+        "cpu_training_ms": round(cpu_training * 1000.0, 3),
+        "directml_training_ms": round(directml_training * 1000.0, 3),
+        "sample_count": int(training_sample_count),
+        "minibatch_size": int(training_minibatch_size),
+        "reason": (
+            "DirectML won the synthetic policy-shape benchmark."
+            if directml_wins
+            else "CPU won the synthetic policy-shape benchmark, so DirectML would likely slow this run down."
+        ),
+    }
+    _DIRECTML_POLICY_BENCHMARK_CACHE[cache_key] = _copy_nested(benchmark)
+    return benchmark
+
+
+def _resolve_policy_device(
+    preference: str,
+    state_size: int,
+    option_size: int,
+    hidden_size: int,
+    architecture: str,
+) -> Dict[str, Any]:
+    normalized = str(preference or DEVICE_AUTO).strip().lower()
+    if normalized == DEVICE_DIRECTML:
+        if torch_directml is None:
+            raise RuntimeError(
+                "DirectML was requested, but torch_directml is not installed. "
+                "Use Python 3.12 in your training venv and install torch-directml."
+            ) from TORCH_DIRECTML_IMPORT_ERROR
+        benchmark = _benchmark_directml_policy_shape(
+            state_size=state_size,
+            option_size=option_size,
+            hidden_size=hidden_size,
+            architecture=architecture,
+        )
+        backend = str(benchmark.get("preferred_backend", DEVICE_CPU))
+        device = _device_from_backend(backend)
+        return {
+            "requested_backend": DEVICE_DIRECTML,
+            "backend": backend,
+            "device": device,
+            "reason": str(benchmark.get("reason", "")),
+            "benchmark": benchmark,
+        }
+
+    device, backend = _select_torch_device(normalized)
+    return {
+        "requested_backend": normalized,
+        "backend": backend,
+        "device": device,
+        "reason": "",
+        "benchmark": None,
+    }
 
 
 def runtime_environment() -> Dict[str, Any]:
@@ -807,15 +1030,33 @@ class PolicyNetwork:
         self.option_size = option_size
         self.hidden_size = hidden_size
         self.architecture = architecture
-        self.device_preference = device_preference
-        self.device, self.device_backend = _select_torch_device(device_preference)
-        if architecture == LEGACY_MODEL_ARCHITECTURE:
-            self.model = _LegacyTorchPolicyModule(state_size, option_size, hidden_size).to(self.device)
-        elif architecture == CURRENT_MODEL_ARCHITECTURE:
-            self.model = _DeepTorchPolicyModule(state_size, option_size, hidden_size).to(self.device)
-        else:
-            raise ValueError(f"Unknown policy architecture: {architecture}")
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.0015)
+        self.device_preference = str(device_preference or DEVICE_AUTO).strip().lower()
+        device_resolution = _resolve_policy_device(
+            self.device_preference,
+            state_size=state_size,
+            option_size=option_size,
+            hidden_size=hidden_size,
+            architecture=architecture,
+        )
+        self.device_requested_backend = str(device_resolution.get("requested_backend", self.device_preference))
+        self.device_backend = str(device_resolution.get("backend", DEVICE_CPU))
+        self.device = device_resolution.get("device")
+        self.device_reason = str(device_resolution.get("reason", ""))
+        self.device_benchmark = _copy_nested(device_resolution.get("benchmark"))
+        self.model = _build_policy_module(state_size, option_size, hidden_size, architecture).to(self.device)
+        self._reset_optimizer(0.0015)
+
+    def _reset_optimizer(self, learning_rate: float) -> None:
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=float(learning_rate))
+
+    def device_summary(self) -> Dict[str, Any]:
+        return {
+            "requested_backend": self.device_requested_backend,
+            "backend": self.device_backend,
+            "repr": str(self.device),
+            "reason": self.device_reason,
+            "benchmark": _copy_nested(self.device_benchmark),
+        }
 
     def clone(self) -> "PolicyNetwork":
         clone = PolicyNetwork(
@@ -826,7 +1067,7 @@ class PolicyNetwork:
             device_preference=self.device_preference,
         )
         clone.model.load_state_dict(self.model.state_dict())
-        clone.optimizer = torch.optim.Adam(clone.model.parameters(), lr=self.optimizer.param_groups[0]["lr"])
+        clone._reset_optimizer(self.optimizer.param_groups[0]["lr"])
         return clone
 
     def to_dict(self, include_optimizer: bool = True) -> Dict[str, Any]:
@@ -878,7 +1119,7 @@ class PolicyNetwork:
             model.model.load_state_dict(tensor_state)
             optimizer_state = payload.get("optimizer") or {}
             learning_rate = float(optimizer_state.get("learning_rate", 0.0015))
-            model.optimizer = torch.optim.Adam(model.model.parameters(), lr=learning_rate)
+            model._reset_optimizer(learning_rate)
             return model
 
         params = payload["params"]
@@ -1458,6 +1699,7 @@ def _default_training_state(config: TrainingConfig) -> Dict[str, Any]:
         "last_eval": None,
         "last_rating_pass": None,
         "live_progress": None,
+        "device_plan": None,
         "candidate": _default_candidate_state("checkpoint_000000.json", 0),
         "checkpoints": [
             {
@@ -1662,6 +1904,7 @@ def _ensure_run(run_name: str, config_overrides: Optional[Dict[str, Any]] = None
     )
     state = _default_training_state(config)
     state["run_name"] = run_name
+    state["device_plan"] = policy.device_summary()
     _atomic_write_json(files.policy_file, policy.to_dict(include_optimizer=True))
     _atomic_write_json(files.candidate_policy_file, policy.to_dict(include_optimizer=True))
     _atomic_write_json(files.training_state_file, state)
@@ -1744,6 +1987,10 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
     else:
         policy = PolicyNetwork.from_dict(policy_payload)
     policy, state_payload, dirty = _migrate_run_state(files, policy, state_payload, config)
+    device_plan = policy.device_summary()
+    if state_payload.get("device_plan") != device_plan:
+        state_payload["device_plan"] = device_plan
+        dirty = True
     dirty = dirty or (saved_config != original_saved_config)
     if dirty:
         _save_policy_and_state(files, policy, state_payload)
@@ -1752,6 +1999,7 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
 
 def _save_policy_and_state(files: RunFiles, policy: PolicyNetwork, state: Dict[str, Any]) -> None:
     state["updated_at"] = _timestamp()
+    state["device_plan"] = policy.device_summary()
     _atomic_write_json(files.policy_file, policy.to_dict(include_optimizer=True))
     _atomic_write_json(files.training_state_file, state)
 
@@ -2252,6 +2500,7 @@ class SelfPlayTrainer:
         config_payload = asdict(self.config)
         config_payload["max_iterations"] = None
         self.state["config"] = config_payload
+        self.state["device_plan"] = self.policy.device_summary()
         _save_policy_and_state(self.files, self.policy, self.state)
         _atomic_write_json(self.files.candidate_policy_file, self.candidate_policy.to_dict(include_optimizer=True))
 
@@ -2259,6 +2508,7 @@ class SelfPlayTrainer:
         config_payload = asdict(self.config)
         config_payload["max_iterations"] = None
         self.state["config"] = config_payload
+        self.state["device_plan"] = self.policy.device_summary()
         self.state["updated_at"] = _timestamp()
         _atomic_write_json(self.files.training_state_file, self.state)
 
@@ -3099,6 +3349,7 @@ class SelfPlayTrainer:
             runtime = _timestamp() - float(self.state["created_at"])
         drought_boost = self._promotion_drought_boost()
         scheduled_config = self._scheduled_training_config()
+        device_plan = self.policy.device_summary()
         return {
             "run_name": self.run_name,
             "status": self.state.get("status", "idle"),
@@ -3119,9 +3370,12 @@ class SelfPlayTrainer:
             "last_error": self.state.get("last_error"),
             "runtime": _format_seconds(runtime),
             "run_dir": str(self.files.run_dir),
-            "device_backend": getattr(self.policy, "device_backend", DEVICE_CPU),
-            "device_repr": str(getattr(self.policy, "device", "cpu")),
+            "device_backend": str(device_plan.get("backend", DEVICE_CPU)),
+            "device_repr": str(device_plan.get("repr", "cpu")),
             "device_preference": self.config.device_preference,
+            "device_requested_backend": str(device_plan.get("requested_backend", self.config.device_preference)),
+            "device_reason": str(device_plan.get("reason", "")),
+            "device_benchmark": _copy_nested(device_plan.get("benchmark")),
             "last_promotion_iteration": self._last_promotion_iteration(),
             "iterations_since_promotion": int(drought_boost["iterations_since_promotion"]),
             "promotion_drought_progress": round(float(drought_boost["progress"]), 4),
@@ -3322,7 +3576,7 @@ def create_run_from_checkpoint(
         target_hidden_size=config.hidden_size,
         target_device_preference=config.device_preference,
     )
-    fork_policy.optimizer = torch.optim.Adam(fork_policy.model.parameters(), lr=config.learning_rate)
+    fork_policy._reset_optimizer(config.learning_rate)
 
     state = _default_training_state(config)
     state["run_name"] = run_name
@@ -3341,6 +3595,7 @@ def create_run_from_checkpoint(
     if state.get("checkpoints"):
         state["checkpoints"][0]["note"] = f"forked from {source_run_name}/{source_checkpoint}"
         state["checkpoints"][0]["source_checkpoint"] = resolved_source_checkpoint
+    state["device_plan"] = fork_policy.device_summary()
 
     _atomic_write_json(files.policy_file, fork_policy.to_dict(include_optimizer=True))
     _atomic_write_json(files.candidate_policy_file, fork_policy.to_dict(include_optimizer=True))
