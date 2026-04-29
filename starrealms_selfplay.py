@@ -8,6 +8,7 @@ state) -> int` interface used by `sim.py`.
 from __future__ import annotations
 
 import copy
+import concurrent.futures
 import json
 import math
 import os
@@ -80,6 +81,10 @@ DIRECTML_BENCHMARK_INFERENCE_REPEATS = 10
 DIRECTML_BENCHMARK_TRAINING_SAMPLE_COUNT = 256
 DIRECTML_BENCHMARK_MINIBATCH_SIZE = 64
 DIRECTML_BENCHMARK_MARGIN = 0.95
+SIMULATION_WORKERS_AUTO = 0
+SIMULATION_TASKS_PER_WORKER = 3
+SIMULATION_WORKER_CPU_RESERVE = 2
+SIMULATION_WORKER_TORCH_THREADS = 1
 
 
 def _normalize_ability(raw_ability: Any) -> str:
@@ -239,6 +244,51 @@ def _format_seconds(seconds: float) -> str:
     if minutes > 0:
         return f"{minutes}m {secs:02d}s"
     return f"{secs}s"
+
+
+def default_simulation_workers(cpu_count: Optional[int] = None) -> int:
+    logical_cpus = max(1, int(cpu_count or os.cpu_count() or 1))
+    if logical_cpus <= 2:
+        return 1
+    return max(1, logical_cpus - SIMULATION_WORKER_CPU_RESERVE)
+
+
+def normalize_simulation_workers(value: Any) -> int:
+    try:
+        workers = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("simulation_workers must be an integer. Use 0 for auto.")
+    if workers < 0:
+        raise ValueError("simulation_workers must be 0 for auto or a positive integer.")
+    return workers
+
+
+def resolve_simulation_workers(value: Any = SIMULATION_WORKERS_AUTO, work_items: int = 0) -> int:
+    requested = normalize_simulation_workers(value)
+    workers = default_simulation_workers() if requested == SIMULATION_WORKERS_AUTO else requested
+    if work_items > 0:
+        workers = min(workers, max(1, int(work_items)))
+    return max(1, workers)
+
+
+def _simulation_chunk_sizes(total_items: int, worker_count: int) -> List[int]:
+    total = max(0, int(total_items))
+    if total <= 0:
+        return []
+    workers = max(1, min(int(worker_count), total))
+    target_tasks = min(total, max(workers, workers * SIMULATION_TASKS_PER_WORKER))
+    chunk_size = max(1, math.ceil(total / max(1, target_tasks)))
+    sizes: List[int] = []
+    remaining = total
+    while remaining > 0:
+        size = min(chunk_size, remaining)
+        sizes.append(size)
+        remaining -= size
+    return sizes
+
+
+def _random_seed() -> int:
+    return random.randrange(1, 2**63 - 1)
 
 
 def _safe_slug(text: Any) -> str:
@@ -513,9 +563,12 @@ def runtime_environment() -> Dict[str, Any]:
     if TORCH_DIRECTML_IMPORT_ERROR is not None:
         directml_error = f"{type(TORCH_DIRECTML_IMPORT_ERROR).__name__}: {TORCH_DIRECTML_IMPORT_ERROR}"
     training_device, training_backend = _select_torch_device(DEVICE_AUTO) if torch is not None else (None, "unavailable")
+    cpu_count = os.cpu_count() or 1
     return {
         "python_version": ".".join(str(part) for part in os.sys.version_info[:3]),
         "interpreter": os.sys.executable,
+        "cpu_count": int(cpu_count),
+        "default_simulation_workers": default_simulation_workers(cpu_count),
         "torch_available": torch is not None,
         "torch_version": None if torch is None else getattr(torch, "__version__", None),
         "torch_directml_available": _directml_available(),
@@ -875,6 +928,7 @@ class TrainingConfig:
     training_decisions_per_game: str = TRAINING_DECISIONS_PER_GAME_ALL
     promotion_games: int = 24
     promotion_score_threshold: float = 0.6
+    simulation_workers: int = SIMULATION_WORKERS_AUTO
     candidate_patience: int = 8
     candidate_reset_threshold: float = 0.35
     league_recent_window: int = 10
@@ -1464,6 +1518,342 @@ class PolicyActor:
         return selection["action_index"]
 
 
+_SIMULATION_WORKER_POLICY_A: Optional[PolicyNetwork] = None
+_SIMULATION_WORKER_POLICY_B: Optional[PolicyNetwork] = None
+_SIMULATION_WORKER_CONFIG: Optional[TrainingConfig] = None
+
+
+def _configure_simulation_worker_runtime() -> None:
+    os.environ.setdefault("OMP_NUM_THREADS", str(SIMULATION_WORKER_TORCH_THREADS))
+    os.environ.setdefault("MKL_NUM_THREADS", str(SIMULATION_WORKER_TORCH_THREADS))
+    if torch is None:
+        return
+    try:
+        torch.set_num_threads(SIMULATION_WORKER_TORCH_THREADS)
+    except Exception:
+        pass
+    try:
+        torch.set_num_interop_threads(SIMULATION_WORKER_TORCH_THREADS)
+    except Exception:
+        pass
+
+
+def _policy_payload_for_simulation(policy: PolicyNetwork) -> Dict[str, Any]:
+    payload = policy.to_dict(include_optimizer=False)
+    payload["device_preference"] = DEVICE_CPU
+    return payload
+
+
+def _config_payload_for_simulation(config: TrainingConfig) -> Dict[str, Any]:
+    payload = asdict(config)
+    payload["device_preference"] = DEVICE_CPU
+    return payload
+
+
+def _config_from_payload(payload: Dict[str, Any]) -> TrainingConfig:
+    return TrainingConfig().merged(payload)
+
+
+def _simulation_worker_init(
+    policy_a_payload: Dict[str, Any],
+    policy_b_payload: Dict[str, Any],
+    config_payload: Dict[str, Any],
+) -> None:
+    global _SIMULATION_WORKER_POLICY_A, _SIMULATION_WORKER_POLICY_B, _SIMULATION_WORKER_CONFIG
+    _configure_simulation_worker_runtime()
+    _SIMULATION_WORKER_POLICY_A = PolicyNetwork.from_dict(policy_a_payload)
+    _SIMULATION_WORKER_POLICY_B = PolicyNetwork.from_dict(policy_b_payload)
+    _SIMULATION_WORKER_CONFIG = _config_from_payload(config_payload)
+
+
+def _seed_simulation(seed: int) -> None:
+    random.seed(int(seed))
+    if torch is not None:
+        try:
+            torch.manual_seed(int(seed) % (2**31 - 1))
+        except Exception:
+            pass
+
+
+def _simulate_match_games(
+    policy_a: PolicyNetwork,
+    policy_b: PolicyNetwork,
+    config: TrainingConfig,
+    *,
+    game_count: int,
+    seed: int,
+    collect_a: bool,
+    deterministic_a: bool,
+    deterministic_b: bool,
+) -> Dict[str, Any]:
+    _seed_simulation(seed)
+    collector: Optional[List[Dict[str, Any]]] = [] if collect_a else None
+    trajectory_by_game: Optional[List[List[Dict[str, Any]]]] = [] if collect_a else None
+    wins_a = 0
+    wins_b = 0
+    per_game_winners: List[str] = []
+    ended_by_limit_games = 0
+    started_at = _timestamp()
+
+    for _ in range(max(0, int(game_count))):
+        game_collector: Optional[List[Dict[str, Any]]] = [] if collect_a else None
+        actor_a = PolicyActor(
+            policy_a,
+            deterministic=deterministic_a,
+            temperature=config.eval_temperature if deterministic_a else config.train_temperature,
+            epsilon_random=0.0 if deterministic_a else config.epsilon_random,
+            collector=game_collector,
+        )
+        actor_b = PolicyActor(
+            policy_b,
+            deterministic=deterministic_b,
+            temperature=config.eval_temperature if deterministic_b else config.train_temperature,
+            epsilon_random=0.0 if deterministic_b else config.epsilon_random,
+            collector=None,
+        )
+        game = Game(
+            "policy_a",
+            "policy_b",
+            p1_choose=actor_a.choose,
+            p2_choose=actor_b.choose,
+            verbose=False,
+            max_turns=config.max_turns_per_game,
+            max_actions_per_turn=config.max_actions_per_turn,
+        )
+        per_game_winners.append(game.winner.name)
+        if game.winner.name == "policy_a":
+            wins_a += 1
+        else:
+            wins_b += 1
+        if game.ended_by_limit:
+            ended_by_limit_games += 1
+        if collect_a and collector is not None and trajectory_by_game is not None and game_collector is not None:
+            collector.extend(game_collector)
+            trajectory_by_game.append(game_collector)
+
+    return {
+        "wins_a": wins_a,
+        "wins_b": wins_b,
+        "games_played": len(per_game_winners),
+        "per_game_winners": per_game_winners,
+        "trajectory": collector or [],
+        "trajectory_by_game": trajectory_by_game or [],
+        "ended_by_limit_games": ended_by_limit_games,
+        "worker_duration_seconds": _timestamp() - started_at,
+    }
+
+
+def _simulate_initialized_match_chunk_worker(task: Dict[str, Any]) -> Dict[str, Any]:
+    if _SIMULATION_WORKER_POLICY_A is None or _SIMULATION_WORKER_POLICY_B is None or _SIMULATION_WORKER_CONFIG is None:
+        raise RuntimeError("Simulation worker was not initialized.")
+    return _simulate_match_games(
+        _SIMULATION_WORKER_POLICY_A,
+        _SIMULATION_WORKER_POLICY_B,
+        _SIMULATION_WORKER_CONFIG,
+        game_count=int(task["game_count"]),
+        seed=int(task["seed"]),
+        collect_a=bool(task.get("collect_a", False)),
+        deterministic_a=bool(task.get("deterministic_a", False)),
+        deterministic_b=bool(task.get("deterministic_b", False)),
+    )
+
+
+def _simulate_initialized_balanced_chunk_worker(task: Dict[str, Any]) -> Dict[str, Any]:
+    if _SIMULATION_WORKER_POLICY_A is None or _SIMULATION_WORKER_POLICY_B is None or _SIMULATION_WORKER_CONFIG is None:
+        raise RuntimeError("Simulation worker was not initialized.")
+    swapped = bool(task.get("swapped", False))
+    result = _simulate_match_games(
+        _SIMULATION_WORKER_POLICY_B if swapped else _SIMULATION_WORKER_POLICY_A,
+        _SIMULATION_WORKER_POLICY_A if swapped else _SIMULATION_WORKER_POLICY_B,
+        _SIMULATION_WORKER_CONFIG,
+        game_count=int(task["game_count"]),
+        seed=int(task["seed"]),
+        collect_a=False,
+        deterministic_a=True,
+        deterministic_b=True,
+    )
+    result["swapped"] = swapped
+    return result
+
+
+def _simulate_payload_match_chunk_worker(task: Dict[str, Any]) -> Dict[str, Any]:
+    _configure_simulation_worker_runtime()
+    policy_a = PolicyNetwork.from_dict(task["policy_a_payload"])
+    policy_b = PolicyNetwork.from_dict(task["policy_b_payload"])
+    config = _config_from_payload(task["config_payload"])
+    result = _simulate_match_games(
+        policy_a,
+        policy_b,
+        config,
+        game_count=int(task["game_count"]),
+        seed=int(task["seed"]),
+        collect_a=bool(task.get("collect_a", False)),
+        deterministic_a=bool(task.get("deterministic_a", False)),
+        deterministic_b=bool(task.get("deterministic_b", False)),
+    )
+    if "match_index" in task:
+        result["match_index"] = int(task["match_index"])
+    if "opponent" in task:
+        result["opponent"] = _copy_nested(task["opponent"])
+    return result
+
+
+def _combine_match_partials(partials: Sequence[Dict[str, Any]], *, started_at: Optional[float] = None) -> Dict[str, Any]:
+    wins_a = sum(int(partial.get("wins_a", 0)) for partial in partials)
+    wins_b = sum(int(partial.get("wins_b", 0)) for partial in partials)
+    games_played = sum(int(partial.get("games_played", 0)) for partial in partials)
+    per_game_winners: List[str] = []
+    trajectory: List[Dict[str, Any]] = []
+    trajectory_by_game: List[List[Dict[str, Any]]] = []
+    ended_by_limit_games = 0
+    for partial in partials:
+        per_game_winners.extend(str(winner) for winner in partial.get("per_game_winners", []))
+        trajectory.extend(list(partial.get("trajectory") or []))
+        trajectory_by_game.extend(list(partial.get("trajectory_by_game") or []))
+        ended_by_limit_games += int(partial.get("ended_by_limit_games", 0))
+    duration_seconds = (
+        _timestamp() - float(started_at)
+        if started_at is not None
+        else sum(float(partial.get("worker_duration_seconds", 0.0)) for partial in partials)
+    )
+    return {
+        "wins_a": wins_a,
+        "wins_b": wins_b,
+        "games_played": games_played,
+        "return_value": (wins_a - wins_b) / max(games_played, 1),
+        "per_game_winners": per_game_winners,
+        "trajectory": trajectory,
+        "trajectory_by_game": trajectory_by_game,
+        "ended_by_limit_games": ended_by_limit_games,
+        "duration_seconds": duration_seconds,
+    }
+
+
+def _simulate_balanced_match_serial(
+    policy_a: PolicyNetwork,
+    policy_b: PolicyNetwork,
+    config: TrainingConfig,
+    *,
+    games_per_match: int,
+    seed: int,
+) -> Dict[str, Any]:
+    games = max(1, int(games_per_match))
+    if games <= 1:
+        return _combine_match_partials(
+            [
+                _simulate_match_games(
+                    policy_a,
+                    policy_b,
+                    config,
+                    game_count=1,
+                    seed=seed,
+                    collect_a=False,
+                    deterministic_a=True,
+                    deterministic_b=True,
+                )
+            ]
+        )
+
+    games_as_first = max(1, games // 2)
+    games_as_second = max(1, games - games_as_first)
+    started_at = _timestamp()
+    first_seat = _simulate_match_games(
+        policy_a,
+        policy_b,
+        config,
+        game_count=games_as_first,
+        seed=seed,
+        collect_a=False,
+        deterministic_a=True,
+        deterministic_b=True,
+    )
+    second_seat = _simulate_match_games(
+        policy_b,
+        policy_a,
+        config,
+        game_count=games_as_second,
+        seed=seed + 1,
+        collect_a=False,
+        deterministic_a=True,
+        deterministic_b=True,
+    )
+
+    wins_a = int(first_seat.get("wins_a", 0)) + int(second_seat.get("wins_b", 0))
+    wins_b = int(first_seat.get("wins_b", 0)) + int(second_seat.get("wins_a", 0))
+    games_played = int(first_seat.get("games_played", 0)) + int(second_seat.get("games_played", 0))
+    return {
+        "wins_a": wins_a,
+        "wins_b": wins_b,
+        "games_played": games_played,
+        "return_value": (wins_a - wins_b) / max(games_played, 1),
+        "per_game_winners": list(first_seat.get("per_game_winners", []))
+        + [("policy_a" if winner == "policy_b" else "policy_b") for winner in second_seat.get("per_game_winners", [])],
+        "trajectory": [],
+        "duration_seconds": _timestamp() - started_at,
+        "seat_results": [
+            {"seat": "a_first", **first_seat},
+            {"seat": "a_second", **second_seat},
+        ],
+    }
+
+
+def _combine_balanced_partials(partials: Sequence[Dict[str, Any]], *, started_at: Optional[float] = None) -> Dict[str, Any]:
+    wins_a = 0
+    wins_b = 0
+    games_played = 0
+    per_game_winners: List[str] = []
+    seat_results: List[Dict[str, Any]] = []
+    for partial in partials:
+        swapped = bool(partial.get("swapped", False))
+        games_played += int(partial.get("games_played", 0))
+        if swapped:
+            wins_a += int(partial.get("wins_b", 0))
+            wins_b += int(partial.get("wins_a", 0))
+            per_game_winners.extend(
+                ("policy_a" if winner == "policy_b" else "policy_b")
+                for winner in partial.get("per_game_winners", [])
+            )
+            seat_results.append({"seat": "a_second", **partial})
+        else:
+            wins_a += int(partial.get("wins_a", 0))
+            wins_b += int(partial.get("wins_b", 0))
+            per_game_winners.extend(str(winner) for winner in partial.get("per_game_winners", []))
+            seat_results.append({"seat": "a_first", **partial})
+    duration_seconds = (
+        _timestamp() - float(started_at)
+        if started_at is not None
+        else sum(float(partial.get("worker_duration_seconds", 0.0)) for partial in partials)
+    )
+    return {
+        "wins_a": wins_a,
+        "wins_b": wins_b,
+        "games_played": games_played,
+        "return_value": (wins_a - wins_b) / max(games_played, 1),
+        "per_game_winners": per_game_winners,
+        "trajectory": [],
+        "duration_seconds": duration_seconds,
+        "seat_results": seat_results,
+    }
+
+
+def _simulate_balanced_match_payload_worker(task: Dict[str, Any]) -> Dict[str, Any]:
+    _configure_simulation_worker_runtime()
+    policy_a = PolicyNetwork.from_dict(task["policy_a_payload"])
+    policy_b = PolicyNetwork.from_dict(task["policy_b_payload"])
+    config = _config_from_payload(task["config_payload"])
+    config.simulation_workers = 1
+    result = _simulate_balanced_match_serial(
+        policy_a,
+        policy_b,
+        config,
+        games_per_match=int(task["games_per_match"]),
+        seed=int(task["seed"]),
+    )
+    if "pairing_index" in task:
+        result["pairing_index"] = int(task["pairing_index"])
+    return result
+
+
 def _elo_expected(rating_a: float, rating_b: float) -> float:
     return 1.0 / (1.0 + 10.0 ** ((rating_b - rating_a) / 400.0))
 
@@ -1651,6 +2041,7 @@ def new_run_overrides(
     train_temperature: float = 0.9,
     promotion_games: int = 24,
     promotion_score_threshold: float = 0.6,
+    simulation_workers: int = SIMULATION_WORKERS_AUTO,
     device_preference: str = DEVICE_AUTO,
 ) -> Dict[str, Any]:
     if int(training_matches_per_iteration) <= 0:
@@ -1670,6 +2061,7 @@ def new_run_overrides(
             "training_decisions_per_game": normalize_training_decisions_per_game(training_decisions_per_game),
             "promotion_games": int(promotion_games),
             "promotion_score_threshold": normalize_promotion_score_threshold(promotion_score_threshold),
+            "simulation_workers": normalize_simulation_workers(simulation_workers),
         }
     )
     return overrides
@@ -1937,6 +2329,10 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
         )
     if saved_config.get("promotion_games") == 13:
         saved_config["promotion_games"] = 24
+    if "simulation_workers" not in saved_config:
+        saved_config["simulation_workers"] = SIMULATION_WORKERS_AUTO
+    else:
+        saved_config["simulation_workers"] = normalize_simulation_workers(saved_config.get("simulation_workers"))
     if config_defaults_version < CONFIG_DEFAULTS_VERSION:
         legacy_default_updates = {
             "promotion_score_threshold": ((0.55,), 0.6),
@@ -2311,73 +2707,81 @@ def _play_match(
     games_per_match: int = 24,
     game_progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
-    collector: Optional[List[Dict[str, Any]]] = [] if collect_a else None
-    trajectory_by_game: Optional[List[List[Dict[str, Any]]]] = [] if collect_a else None
-    wins_a = 0
-    wins_b = 0
-    per_game_winners: List[str] = []
-    majority = games_per_match // 2 + 1
+    total_games = max(1, int(games_per_match))
     started_at = _timestamp()
 
-    while wins_a < majority and wins_b < majority and len(per_game_winners) < games_per_match:
-        game_collector: Optional[List[Dict[str, Any]]] = [] if collect_a else None
-        actor_a = PolicyActor(
-            policy_a,
-            deterministic=deterministic_a,
-            temperature=config.eval_temperature if deterministic_a else config.train_temperature,
-            epsilon_random=0.0 if deterministic_a else config.epsilon_random,
-            collector=game_collector,
-        )
-        actor_b = PolicyActor(
-            policy_b,
-            deterministic=deterministic_b,
-            temperature=config.eval_temperature if deterministic_b else config.train_temperature,
-            epsilon_random=0.0 if deterministic_b else config.epsilon_random,
-            collector=None,
-        )
-        game = Game(
-            "policy_a",
-            "policy_b",
-            p1_choose=actor_a.choose,
-            p2_choose=actor_b.choose,
-            verbose=False,
-            max_turns=config.max_turns_per_game,
-            max_actions_per_turn=config.max_actions_per_turn,
-        )
-        per_game_winners.append(game.winner.name)
-        if game.winner.name == "policy_a":
-            wins_a += 1
-        else:
-            wins_b += 1
-        if game_progress_callback is not None:
-            try:
-                game_progress_callback(
-                    {
-                        "games_completed": len(per_game_winners),
-                        "games_target": int(games_per_match),
-                        "wins_a": wins_a,
-                        "wins_b": wins_b,
-                        "duration_seconds": _timestamp() - started_at,
-                    }
-                )
-            except Exception:
-                pass
-        if collect_a and collector is not None and trajectory_by_game is not None and game_collector is not None:
-            collector.extend(game_collector)
-            trajectory_by_game.append(game_collector)
+    def emit_progress(games_completed: int, wins_a: int, wins_b: int) -> None:
+        if game_progress_callback is None:
+            return
+        try:
+            game_progress_callback(
+                {
+                    "games_completed": int(games_completed),
+                    "games_target": int(total_games),
+                    "wins_a": int(wins_a),
+                    "wins_b": int(wins_b),
+                    "duration_seconds": _timestamp() - started_at,
+                }
+            )
+        except Exception:
+            pass
 
-    games_played = len(per_game_winners)
-    return_value = (wins_a - wins_b) / max(games_played, 1)
-    return {
-        "wins_a": wins_a,
-        "wins_b": wins_b,
-        "games_played": games_played,
-        "return_value": return_value,
-        "per_game_winners": per_game_winners,
-        "trajectory": collector or [],
-        "trajectory_by_game": trajectory_by_game or [],
-        "duration_seconds": _timestamp() - started_at,
-    }
+    worker_count = resolve_simulation_workers(config.simulation_workers, total_games)
+    chunk_sizes = _simulation_chunk_sizes(total_games, worker_count)
+    partials: List[Dict[str, Any]] = []
+    completed_games = 0
+    wins_a = 0
+    wins_b = 0
+
+    if worker_count <= 1 or total_games <= 1:
+        for chunk_size in chunk_sizes:
+            partial = _simulate_match_games(
+                policy_a,
+                policy_b,
+                config,
+                game_count=chunk_size,
+                seed=_random_seed(),
+                collect_a=collect_a,
+                deterministic_a=deterministic_a,
+                deterministic_b=deterministic_b,
+            )
+            partials.append(partial)
+            completed_games += int(partial.get("games_played", 0))
+            wins_a += int(partial.get("wins_a", 0))
+            wins_b += int(partial.get("wins_b", 0))
+            emit_progress(completed_games, wins_a, wins_b)
+        return _combine_match_partials(partials, started_at=started_at)
+
+    policy_a_payload = _policy_payload_for_simulation(policy_a)
+    policy_b_payload = _policy_payload_for_simulation(policy_b)
+    config_payload = _config_payload_for_simulation(config)
+    with concurrent.futures.ProcessPoolExecutor(
+        max_workers=worker_count,
+        initializer=_simulation_worker_init,
+        initargs=(policy_a_payload, policy_b_payload, config_payload),
+    ) as executor:
+        futures = [
+            executor.submit(
+                _simulate_initialized_match_chunk_worker,
+                {
+                    "game_count": chunk_size,
+                    "seed": _random_seed(),
+                    "collect_a": collect_a,
+                    "deterministic_a": deterministic_a,
+                    "deterministic_b": deterministic_b,
+                },
+            )
+            for chunk_size in chunk_sizes
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            partial = future.result()
+            partials.append(partial)
+            completed_games += int(partial.get("games_played", 0))
+            wins_a += int(partial.get("wins_a", 0))
+            wins_b += int(partial.get("wins_b", 0))
+            emit_progress(completed_games, wins_a, wins_b)
+
+    return _combine_match_partials(partials, started_at=started_at)
 
 
 def _play_balanced_match(
@@ -2401,6 +2805,7 @@ def _play_balanced_match(
 
     games_as_first = max(1, games_per_match // 2)
     games_as_second = max(1, games_per_match - games_as_first)
+    total_games = games_as_first + games_as_second
     started_at = _timestamp()
 
     def emit_progress(games_completed: int, wins_a: int, wins_b: int) -> None:
@@ -2419,63 +2824,63 @@ def _play_balanced_match(
         except Exception:
             pass
 
-    first_seat = _play_match(
-        policy_a,
-        policy_b,
-        config,
-        collect_a=False,
-        deterministic_a=True,
-        deterministic_b=True,
-        games_per_match=games_as_first,
-        game_progress_callback=(
-            None
-            if game_progress_callback is None
-            else lambda progress: emit_progress(
-                int(progress.get("games_completed", 0)),
-                int(progress.get("wins_a", 0)),
-                int(progress.get("wins_b", 0)),
-            )
-        ),
-    )
-    first_games_played = int(first_seat.get("games_played", 0))
-    first_wins_a = int(first_seat.get("wins_a", 0))
-    first_wins_b = int(first_seat.get("wins_b", 0))
-    second_seat = _play_match(
-        policy_b,
-        policy_a,
-        config,
-        collect_a=False,
-        deterministic_a=True,
-        deterministic_b=True,
-        games_per_match=games_as_second,
-        game_progress_callback=(
-            None
-            if game_progress_callback is None
-            else lambda progress: emit_progress(
-                first_games_played + int(progress.get("games_completed", 0)),
-                first_wins_a + int(progress.get("wins_b", 0)),
-                first_wins_b + int(progress.get("wins_a", 0)),
-            )
-        ),
-    )
+    worker_count = resolve_simulation_workers(config.simulation_workers, total_games)
+    partials: List[Dict[str, Any]] = []
+    completed_games = 0
+    wins_a = 0
+    wins_b = 0
+    tasks: List[Dict[str, Any]] = []
+    for chunk_size in _simulation_chunk_sizes(games_as_first, worker_count):
+        tasks.append({"game_count": chunk_size, "seed": _random_seed(), "swapped": False})
+    for chunk_size in _simulation_chunk_sizes(games_as_second, worker_count):
+        tasks.append({"game_count": chunk_size, "seed": _random_seed(), "swapped": True})
 
-    wins_a = int(first_seat.get("wins_a", 0)) + int(second_seat.get("wins_b", 0))
-    wins_b = int(first_seat.get("wins_b", 0)) + int(second_seat.get("wins_a", 0))
-    games_played = int(first_seat.get("games_played", 0)) + int(second_seat.get("games_played", 0))
-    return {
-        "wins_a": wins_a,
-        "wins_b": wins_b,
-        "games_played": games_played,
-        "return_value": (wins_a - wins_b) / max(games_played, 1),
-        "per_game_winners": list(first_seat.get("per_game_winners", []))
-        + [("policy_a" if winner == "policy_b" else "policy_b") for winner in second_seat.get("per_game_winners", [])],
-        "trajectory": [],
-        "duration_seconds": _timestamp() - started_at,
-        "seat_results": [
-            {"seat": "a_first", **first_seat},
-            {"seat": "a_second", **second_seat},
-        ],
-    }
+    if worker_count <= 1 or total_games <= 1:
+        for task in tasks:
+            partial = _simulate_match_games(
+                policy_b if task["swapped"] else policy_a,
+                policy_a if task["swapped"] else policy_b,
+                config,
+                game_count=int(task["game_count"]),
+                seed=int(task["seed"]),
+                collect_a=False,
+                deterministic_a=True,
+                deterministic_b=True,
+            )
+            partial["swapped"] = bool(task["swapped"])
+            partials.append(partial)
+            completed_games += int(partial.get("games_played", 0))
+            if partial["swapped"]:
+                wins_a += int(partial.get("wins_b", 0))
+                wins_b += int(partial.get("wins_a", 0))
+            else:
+                wins_a += int(partial.get("wins_a", 0))
+                wins_b += int(partial.get("wins_b", 0))
+            emit_progress(completed_games, wins_a, wins_b)
+        return _combine_balanced_partials(partials, started_at=started_at)
+
+    policy_a_payload = _policy_payload_for_simulation(policy_a)
+    policy_b_payload = _policy_payload_for_simulation(policy_b)
+    config_payload = _config_payload_for_simulation(config)
+    with concurrent.futures.ProcessPoolExecutor(
+        max_workers=worker_count,
+        initializer=_simulation_worker_init,
+        initargs=(policy_a_payload, policy_b_payload, config_payload),
+    ) as executor:
+        futures = [executor.submit(_simulate_initialized_balanced_chunk_worker, task) for task in tasks]
+        for future in concurrent.futures.as_completed(futures):
+            partial = future.result()
+            partials.append(partial)
+            completed_games += int(partial.get("games_played", 0))
+            if bool(partial.get("swapped", False)):
+                wins_a += int(partial.get("wins_b", 0))
+                wins_b += int(partial.get("wins_a", 0))
+            else:
+                wins_a += int(partial.get("wins_a", 0))
+                wins_b += int(partial.get("wins_b", 0))
+            emit_progress(completed_games, wins_a, wins_b)
+
+    return _combine_balanced_partials(partials, started_at=started_at)
 
 
 class SelfPlayTrainer:
@@ -2739,49 +3144,98 @@ class SelfPlayTrainer:
             "participant_count": len(participants),
             "games_per_pair": int(games_per_pair),
             "include_candidate": bool(include_candidate),
+            "simulation_workers": int(self.config.simulation_workers),
+            "resolved_simulation_workers": resolve_simulation_workers(
+                self.config.simulation_workers,
+                max(1, (len(participants) * (len(participants) - 1) // 2) * int(games_per_pair)),
+            ),
             "started_at": started_at,
         }
         self._save()
 
         try:
             pairings: List[Dict[str, Any]] = []
+            pairing_specs: List[Dict[str, Any]] = []
             for index_a, participant_a in enumerate(participants):
                 for index_b in range(index_a + 1, len(participants)):
-                    participant_b = participants[index_b]
-                    name_a = str(participant_a["name"])
-                    name_b = str(participant_b["name"])
-                    rating_a_before = float(rating_map[name_a])
-                    rating_b_before = float(rating_map[name_b])
+                    pairing_specs.append(
+                        {
+                            "pairing_index": len(pairing_specs),
+                            "participant_a": participant_a,
+                            "participant_b": participants[index_b],
+                        }
+                    )
+
+            def record_pairing_result(spec: Dict[str, Any], match_summary: Dict[str, Any]) -> None:
+                participant_a = spec["participant_a"]
+                participant_b = spec["participant_b"]
+                name_a = str(participant_a["name"])
+                name_b = str(participant_b["name"])
+                rating_a_before = float(rating_map[name_a])
+                rating_b_before = float(rating_map[name_b])
+                score_a = float(match_summary.get("wins_a", 0)) / max(int(match_summary.get("games_played", 0)), 1)
+                rating_a_after, rating_b_after = _elo_update(
+                    rating_a_before,
+                    rating_b_before,
+                    score_a,
+                    self.config.elo_k,
+                )
+                rating_map[name_a] = rating_a_after
+                rating_map[name_b] = rating_b_after
+                pairings.append(
+                    {
+                        "a": name_a,
+                        "b": name_b,
+                        "wins_a": int(match_summary.get("wins_a", 0)),
+                        "wins_b": int(match_summary.get("wins_b", 0)),
+                        "games_played": int(match_summary.get("games_played", 0)),
+                        "score_a": score_a,
+                        "rating_a_before": rating_a_before,
+                        "rating_b_before": rating_b_before,
+                        "rating_a_after": rating_a_after,
+                        "rating_b_after": rating_b_after,
+                        "duration_seconds": float(match_summary.get("duration_seconds", 0.0)),
+                    }
+                )
+
+            worker_count = resolve_simulation_workers(
+                self.config.simulation_workers,
+                max(1, len(pairing_specs) * int(games_per_pair)),
+            )
+            parallel_pairings = len(pairing_specs) >= max(2, worker_count // 2)
+            if worker_count <= 1 or not parallel_pairings:
+                for spec in pairing_specs:
                     match_summary = _play_balanced_match(
-                        self._policy_for_rating_participant(participant_a),
-                        self._policy_for_rating_participant(participant_b),
+                        self._policy_for_rating_participant(spec["participant_a"]),
+                        self._policy_for_rating_participant(spec["participant_b"]),
                         self.config,
                         games_per_match=games_per_pair,
                     )
-                    score_a = float(match_summary.get("wins_a", 0)) / max(int(match_summary.get("games_played", 0)), 1)
-                    rating_a_after, rating_b_after = _elo_update(
-                        rating_a_before,
-                        rating_b_before,
-                        score_a,
-                        self.config.elo_k,
-                    )
-                    rating_map[name_a] = rating_a_after
-                    rating_map[name_b] = rating_b_after
-                    pairings.append(
-                        {
-                            "a": name_a,
-                            "b": name_b,
-                            "wins_a": int(match_summary.get("wins_a", 0)),
-                            "wins_b": int(match_summary.get("wins_b", 0)),
-                            "games_played": int(match_summary.get("games_played", 0)),
-                            "score_a": score_a,
-                            "rating_a_before": rating_a_before,
-                            "rating_b_before": rating_b_before,
-                            "rating_a_after": rating_a_after,
-                            "rating_b_after": rating_b_after,
-                            "duration_seconds": float(match_summary.get("duration_seconds", 0.0)),
-                        }
-                    )
+                    record_pairing_result(spec, match_summary)
+            else:
+                config_payload = _config_payload_for_simulation(self.config)
+                spec_by_index = {int(spec["pairing_index"]): spec for spec in pairing_specs}
+                tasks = [
+                    {
+                        "pairing_index": int(spec["pairing_index"]),
+                        "policy_a_payload": _policy_payload_for_simulation(
+                            self._policy_for_rating_participant(spec["participant_a"])
+                        ),
+                        "policy_b_payload": _policy_payload_for_simulation(
+                            self._policy_for_rating_participant(spec["participant_b"])
+                        ),
+                        "config_payload": config_payload,
+                        "games_per_match": int(games_per_pair),
+                        "seed": _random_seed(),
+                    }
+                    for spec in pairing_specs
+                ]
+                with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
+                    futures = [executor.submit(_simulate_balanced_match_payload_worker, task) for task in tasks]
+                    for future in concurrent.futures.as_completed(futures):
+                        match_summary = future.result()
+                        spec = spec_by_index[int(match_summary["pairing_index"])]
+                        record_pairing_result(spec, match_summary)
 
             candidate_state = self._candidate_state()
             for participant in participants:
@@ -2839,6 +3293,8 @@ class SelfPlayTrainer:
                 ],
                 "include_candidate": bool(include_candidate),
                 "games_per_pair": int(games_per_pair),
+                "simulation_workers": int(self.config.simulation_workers),
+                "resolved_simulation_workers": worker_count,
                 "pairings_played": len(pairings),
                 "pairings": pairings,
                 "leaderboard": leaderboard,
@@ -2858,6 +3314,7 @@ class SelfPlayTrainer:
                 "participant_count": len(participants),
                 "games_per_pair": int(games_per_pair),
                 "include_candidate": bool(include_candidate),
+                "simulation_workers": int(self.config.simulation_workers),
                 "duration_seconds": _timestamp() - started_at,
                 "error": self.state["last_error"],
             }
@@ -3079,15 +3536,131 @@ class SelfPlayTrainer:
             self.state["best_checkpoint"] = checkpoint_name
         return checkpoint_name
 
+    def _play_training_matches(
+        self,
+        scheduled_config: TrainingConfig,
+        next_iteration: int,
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], int]:
+        match_count = max(1, int(scheduled_config.training_matches_per_iteration))
+        games_per_match = max(1, int(scheduled_config.training_games_per_match))
+        total_games = match_count * games_per_match
+        worker_count = resolve_simulation_workers(scheduled_config.simulation_workers, total_games)
+        training_matches: List[Dict[str, Any]] = []
+        training_samples: List[Dict[str, Any]] = []
+        opponent_summaries: List[Dict[str, Any]] = []
+        training_games_completed = 0
+
+        match_specs: List[Tuple[int, PolicyNetwork, Dict[str, Any]]] = []
+        for match_index in range(match_count):
+            opponent_policy, opponent_meta = self._sample_league_opponent()
+            match_specs.append((match_index, opponent_policy, opponent_meta))
+
+        if worker_count <= 1 or match_count <= 1:
+            for match_index, opponent_policy, opponent_meta in match_specs:
+                match_summary = _play_match(
+                    self.candidate_policy,
+                    opponent_policy,
+                    scheduled_config,
+                    collect_a=True,
+                    deterministic_a=False,
+                    deterministic_b=False,
+                    games_per_match=games_per_match,
+                    game_progress_callback=lambda progress, match_index=match_index, training_games_completed=training_games_completed: self._set_live_progress(
+                        self._build_training_live_progress(
+                            scheduled_config,
+                            stage="training",
+                            iteration_number=next_iteration,
+                            training_games_completed=training_games_completed + int(progress.get("games_completed", 0)),
+                            promotion_games_completed=0,
+                            training_matches_completed=match_index,
+                            training_stage_complete=False,
+                            promotion_stage_complete=False,
+                        )
+                    ),
+                )
+                match_summary["opponent"] = opponent_meta
+                training_matches.append(match_summary)
+                opponent_summaries.append(opponent_meta)
+                training_samples.extend(self._match_to_training_samples(match_summary))
+                training_games_completed += int(match_summary.get("games_played", 0))
+                self._record_live_match_progress(match_summary, "training", training_matches)
+            return training_matches, training_samples, opponent_summaries, training_games_completed
+
+        candidate_payload = _policy_payload_for_simulation(self.candidate_policy)
+        config_payload = _config_payload_for_simulation(scheduled_config)
+        target_tasks = min(total_games, max(worker_count, worker_count * SIMULATION_TASKS_PER_WORKER))
+        if match_count >= worker_count:
+            chunk_size = games_per_match
+        else:
+            chunk_size = max(1, math.ceil(total_games / max(1, target_tasks)))
+
+        tasks: List[Dict[str, Any]] = []
+        expected_chunks_by_match: Dict[int, int] = {}
+        opponent_by_match: Dict[int, Dict[str, Any]] = {}
+        for match_index, opponent_policy, opponent_meta in match_specs:
+            opponent_payload = _policy_payload_for_simulation(opponent_policy)
+            opponent_by_match[match_index] = opponent_meta
+            remaining_games = games_per_match
+            while remaining_games > 0:
+                games_in_chunk = min(chunk_size, remaining_games)
+                tasks.append(
+                    {
+                        "match_index": match_index,
+                        "policy_a_payload": candidate_payload,
+                        "policy_b_payload": opponent_payload,
+                        "config_payload": config_payload,
+                        "game_count": games_in_chunk,
+                        "seed": _random_seed(),
+                        "collect_a": True,
+                        "deterministic_a": False,
+                        "deterministic_b": False,
+                        "opponent": opponent_meta,
+                    }
+                )
+                expected_chunks_by_match[match_index] = expected_chunks_by_match.get(match_index, 0) + 1
+                remaining_games -= games_in_chunk
+
+        partials_by_match: Dict[int, List[Dict[str, Any]]] = {match_index: [] for match_index, _, _ in match_specs}
+        completed_matches = 0
+        with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
+            futures = [executor.submit(_simulate_payload_match_chunk_worker, task) for task in tasks]
+            for future in concurrent.futures.as_completed(futures):
+                partial = future.result()
+                match_index = int(partial["match_index"])
+                partials = partials_by_match[match_index]
+                partials.append(partial)
+                training_games_completed += int(partial.get("games_played", 0))
+
+                if len(partials) >= expected_chunks_by_match.get(match_index, 0):
+                    match_summary = _combine_match_partials(partials)
+                    opponent_meta = opponent_by_match.get(match_index, {})
+                    match_summary["opponent"] = opponent_meta
+                    training_matches.append(match_summary)
+                    opponent_summaries.append(opponent_meta)
+                    training_samples.extend(self._match_to_training_samples(match_summary))
+                    completed_matches += 1
+                    self._record_live_match_progress(match_summary, "training", training_matches)
+
+                self._set_live_progress(
+                    self._build_training_live_progress(
+                        scheduled_config,
+                        stage="training",
+                        iteration_number=next_iteration,
+                        training_games_completed=training_games_completed,
+                        promotion_games_completed=0,
+                        training_matches_completed=completed_matches,
+                        training_stage_complete=False,
+                        promotion_stage_complete=False,
+                    )
+                )
+
+        return training_matches, training_samples, opponent_summaries, training_games_completed
+
     def train_iteration(self) -> Dict[str, Any]:
         scheduled_config = self._scheduled_training_config()
         drought_boost = self._promotion_drought_boost()
         candidate_state = self._candidate_state()
         next_iteration = int(self.state.get("iteration", 0)) + 1
-        training_matches: List[Dict[str, Any]] = []
-        training_samples: List[Dict[str, Any]] = []
-        opponent_summaries: List[Dict[str, Any]] = []
-        training_games_completed = 0
 
         self._set_live_progress(
             self._build_training_live_progress(
@@ -3103,35 +3676,10 @@ class SelfPlayTrainer:
             force_persist=True,
         )
 
-        for match_index in range(max(1, int(scheduled_config.training_matches_per_iteration))):
-            opponent_policy, opponent_meta = self._sample_league_opponent()
-            match_summary = _play_match(
-                self.candidate_policy,
-                opponent_policy,
-                scheduled_config,
-                collect_a=True,
-                deterministic_a=False,
-                deterministic_b=False,
-                games_per_match=max(1, int(scheduled_config.training_games_per_match)),
-                game_progress_callback=lambda progress, match_index=match_index, training_games_completed=training_games_completed: self._set_live_progress(
-                    self._build_training_live_progress(
-                        scheduled_config,
-                        stage="training",
-                        iteration_number=next_iteration,
-                        training_games_completed=training_games_completed + int(progress.get("games_completed", 0)),
-                        promotion_games_completed=0,
-                        training_matches_completed=match_index,
-                        training_stage_complete=False,
-                        promotion_stage_complete=False,
-                    )
-                ),
-            )
-            match_summary["opponent"] = opponent_meta
-            training_matches.append(match_summary)
-            opponent_summaries.append(opponent_meta)
-            training_samples.extend(self._match_to_training_samples(match_summary))
-            training_games_completed += int(match_summary.get("games_played", 0))
-            self._record_live_match_progress(match_summary, "training", training_matches)
+        training_matches, training_samples, opponent_summaries, training_games_completed = self._play_training_matches(
+            scheduled_config,
+            next_iteration,
+        )
 
         self._set_live_progress(
             self._build_training_live_progress(
@@ -3204,6 +3752,8 @@ class SelfPlayTrainer:
             "epsilon_random": scheduled_config.epsilon_random,
             "train_temperature": scheduled_config.train_temperature,
             "ppo_clip": scheduled_config.ppo_clip,
+            "simulation_workers": int(scheduled_config.simulation_workers),
+            "resolved_simulation_workers": resolve_simulation_workers(scheduled_config.simulation_workers),
             "iterations_since_promotion": int(drought_boost["iterations_since_promotion"]),
             "promotion_drought_progress": round(float(drought_boost["progress"]), 4),
             "learning_rate_multiplier": round(float(drought_boost["learning_rate_multiplier"]), 4),
@@ -3376,6 +3926,9 @@ class SelfPlayTrainer:
             "device_requested_backend": str(device_plan.get("requested_backend", self.config.device_preference)),
             "device_reason": str(device_plan.get("reason", "")),
             "device_benchmark": _copy_nested(device_plan.get("benchmark")),
+            "simulation_workers": int(self.config.simulation_workers),
+            "resolved_simulation_workers": resolve_simulation_workers(self.config.simulation_workers),
+            "logical_processors": int(os.cpu_count() or 1),
             "last_promotion_iteration": self._last_promotion_iteration(),
             "iterations_since_promotion": int(drought_boost["iterations_since_promotion"]),
             "promotion_drought_progress": round(float(drought_boost["progress"]), 4),
@@ -3499,6 +4052,7 @@ def create_run(
     train_temperature: float = 0.9,
     promotion_games: int = 24,
     promotion_score_threshold: float = 0.6,
+    simulation_workers: int = SIMULATION_WORKERS_AUTO,
 ) -> Dict[str, Any]:
     if not str(run_name).strip():
         raise ValueError("run_name is required.")
@@ -3514,6 +4068,7 @@ def create_run(
         train_temperature=train_temperature,
         promotion_games=promotion_games,
         promotion_score_threshold=promotion_score_threshold,
+        simulation_workers=simulation_workers,
     )
     _ensure_run(run_name, config_overrides=overrides)
     trainer = _get_trainer(run_name, overrides)
@@ -3532,6 +4087,7 @@ def create_run_from_checkpoint(
     train_temperature: float = 0.9,
     promotion_games: int = 24,
     promotion_score_threshold: float = 0.6,
+    simulation_workers: int = SIMULATION_WORKERS_AUTO,
 ) -> Dict[str, Any]:
     if not str(run_name).strip():
         raise ValueError("run_name is required.")
@@ -3555,6 +4111,7 @@ def create_run_from_checkpoint(
             "training_decisions_per_game": normalize_training_decisions_per_game(training_decisions_per_game),
             "promotion_games": int(promotion_games),
             "promotion_score_threshold": normalize_promotion_score_threshold(promotion_score_threshold),
+            "simulation_workers": normalize_simulation_workers(simulation_workers),
         }
     )
     config = config.merged(derive_temperature_schedule_overrides(train_temperature))
@@ -3611,6 +4168,7 @@ def update_run_config(
     run_name: str,
     train_temperature: Optional[float] = None,
     promotion_score_threshold: Optional[float] = None,
+    simulation_workers: Optional[int] = None,
 ) -> Dict[str, Any]:
     if not run_exists(run_name):
         raise ValueError(f"Run '{run_name}' does not exist.")
@@ -3624,6 +4182,8 @@ def update_run_config(
         overrides.update(derive_temperature_schedule_overrides(train_temperature))
     if promotion_score_threshold is not None:
         overrides["promotion_score_threshold"] = normalize_promotion_score_threshold(promotion_score_threshold)
+    if simulation_workers is not None:
+        overrides["simulation_workers"] = normalize_simulation_workers(simulation_workers)
     if not overrides:
         return trainer.progress_summary()
 
@@ -3839,6 +4399,127 @@ def format_card_acquire_elo_test_report(result: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _extract_card_acquire_decisions(game_turn_summaries: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    turn_summaries = 0
+    eligible_single_acquire_turns = 0
+    decisions: List[Dict[str, Any]] = []
+
+    for turn_summary in game_turn_summaries:
+        turn_summaries += 1
+        acquisition_events = list(turn_summary.get("acquisitionEvents") or [])
+        total_acquisitions = int(turn_summary.get("totalAcquisitions", len(acquisition_events)))
+        if total_acquisitions != 1 or len(acquisition_events) != 1:
+            continue
+
+        event = acquisition_events[0]
+        if str(event.get("type", "")) != "acquire":
+            continue
+
+        eligible_single_acquire_turns += 1
+        winner_name = str(event.get("cardName", "")).strip()
+        if not winner_name:
+            continue
+
+        total_trade_gained = float(turn_summary.get("totalTradeGained", 0.0))
+        available_trade = float(event.get("tradeAvailable", 0.0))
+        future_trade_loser_names: List[str] = []
+        immediate_trade_loser_names: List[str] = []
+        seen_future_trade_losers = set()
+        seen_immediate_trade_losers = set()
+        for trade_card in list(event.get("tradeRowSnapshot") or []):
+            if not isinstance(trade_card, (list, tuple)) or len(trade_card) < 2:
+                continue
+            card_name = str(trade_card[0] or "").strip()
+            if not card_name or card_name == winner_name:
+                continue
+            card_cost = CARD_COST_BY_NAME.get(card_name)
+            if card_cost is None:
+                try:
+                    card_cost = int(trade_card[1])
+                except (TypeError, ValueError):
+                    continue
+            if float(card_cost) <= total_trade_gained and card_name not in seen_future_trade_losers:
+                seen_future_trade_losers.add(card_name)
+                future_trade_loser_names.append(card_name)
+            if float(card_cost) <= available_trade and card_name not in seen_immediate_trade_losers:
+                seen_immediate_trade_losers.add(card_name)
+                immediate_trade_loser_names.append(card_name)
+
+        decisions.append(
+            {
+                "winner_name": winner_name,
+                "future_trade_loser_names": future_trade_loser_names,
+                "immediate_trade_loser_names": immediate_trade_loser_names,
+            }
+        )
+
+    return {
+        "turn_summaries": turn_summaries,
+        "eligible_single_acquire_turns": eligible_single_acquire_turns,
+        "decisions": decisions,
+    }
+
+
+def _simulate_card_acquire_elo_chunk_worker(task: Dict[str, Any]) -> Dict[str, Any]:
+    _configure_simulation_worker_runtime()
+    policy = PolicyNetwork.from_dict(task["policy_payload"])
+    config = _config_from_payload(task["config_payload"])
+    deterministic = bool(task.get("deterministic", True))
+    temperature = config.eval_temperature if deterministic else config.train_temperature
+    epsilon_random = 0.0 if deterministic else config.epsilon_random
+    _seed_simulation(int(task["seed"]))
+
+    games_completed = 0
+    ended_by_limit_games = 0
+    turn_summaries = 0
+    eligible_single_acquire_turns = 0
+    decisions: List[Dict[str, Any]] = []
+
+    for _ in range(max(0, int(task["game_count"]))):
+        actor_a = PolicyActor(
+            policy,
+            deterministic=deterministic,
+            temperature=temperature,
+            epsilon_random=epsilon_random,
+        )
+        actor_b = PolicyActor(
+            policy,
+            deterministic=deterministic,
+            temperature=temperature,
+            epsilon_random=epsilon_random,
+        )
+        game_turn_summaries: List[Dict[str, Any]] = []
+
+        def capture_turn_summary(summary: Dict[str, Any]) -> None:
+            game_turn_summaries.append(_copy_nested(summary))
+
+        game = Game(
+            "policy_a",
+            "policy_b",
+            p1_choose=actor_a.choose,
+            p2_choose=actor_b.choose,
+            verbose=False,
+            max_turns=config.max_turns_per_game,
+            max_actions_per_turn=config.max_actions_per_turn,
+            turn_summary_callback=capture_turn_summary,
+        )
+        games_completed += 1
+        if game.ended_by_limit:
+            ended_by_limit_games += 1
+        extracted = _extract_card_acquire_decisions(game_turn_summaries)
+        turn_summaries += int(extracted.get("turn_summaries", 0))
+        eligible_single_acquire_turns += int(extracted.get("eligible_single_acquire_turns", 0))
+        decisions.extend(list(extracted.get("decisions") or []))
+
+    return {
+        "games_completed": games_completed,
+        "ended_by_limit_games": ended_by_limit_games,
+        "turn_summaries": turn_summaries,
+        "eligible_single_acquire_turns": eligible_single_acquire_turns,
+        "decisions": decisions,
+    }
+
+
 def run_card_acquire_elo_test(
     run_name: str = LATEST_RUN_NAME,
     checkpoint: str = "latest",
@@ -3871,82 +4552,26 @@ def run_card_acquire_elo_test(
     immediate_trade_pairwise_comparisons = 0
     ended_by_limit_games = 0
 
-    for game_index in range(int(games)):
-        actor_a = PolicyActor(
-            policy,
-            deterministic=deterministic,
-            temperature=temperature,
-            epsilon_random=epsilon_random,
-        )
-        actor_b = PolicyActor(
-            policy,
-            deterministic=deterministic,
-            temperature=temperature,
-            epsilon_random=epsilon_random,
-        )
-        game_turn_summaries: List[Dict[str, Any]] = []
+    def apply_chunk_result(chunk_result: Dict[str, Any]) -> None:
+        nonlocal turn_summaries
+        nonlocal eligible_single_acquire_turns
+        nonlocal future_trade_scored_decisions
+        nonlocal future_trade_pairwise_comparisons
+        nonlocal immediate_trade_scored_decisions
+        nonlocal immediate_trade_pairwise_comparisons
+        nonlocal ended_by_limit_games
 
-        def capture_turn_summary(summary: Dict[str, Any]) -> None:
-            game_turn_summaries.append(_copy_nested(summary))
-
-        game = Game(
-            "policy_a",
-            "policy_b",
-            p1_choose=actor_a.choose,
-            p2_choose=actor_b.choose,
-            verbose=False,
-            max_turns=config.max_turns_per_game,
-            max_actions_per_turn=config.max_actions_per_turn,
-            turn_summary_callback=capture_turn_summary,
-        )
-        if game.ended_by_limit:
-            ended_by_limit_games += 1
-
-        for turn_summary in game_turn_summaries:
-            turn_summaries += 1
-            acquisition_events = list(turn_summary.get("acquisitionEvents") or [])
-            total_acquisitions = int(turn_summary.get("totalAcquisitions", len(acquisition_events)))
-            if total_acquisitions != 1 or len(acquisition_events) != 1:
-                continue
-
-            event = acquisition_events[0]
-            if str(event.get("type", "")) != "acquire":
-                continue
-
-            eligible_single_acquire_turns += 1
-            winner_name = str(event.get("cardName", "")).strip()
+        ended_by_limit_games += int(chunk_result.get("ended_by_limit_games", 0))
+        turn_summaries += int(chunk_result.get("turn_summaries", 0))
+        eligible_single_acquire_turns += int(chunk_result.get("eligible_single_acquire_turns", 0))
+        for decision in list(chunk_result.get("decisions") or []):
+            winner_name = str(decision.get("winner_name", "")).strip()
             if not winner_name:
                 continue
-
-            total_trade_gained = float(turn_summary.get("totalTradeGained", 0.0))
-            available_trade = float(event.get("tradeAvailable", 0.0))
-            future_trade_loser_names: List[str] = []
-            immediate_trade_loser_names: List[str] = []
-            seen_future_trade_losers = set()
-            seen_immediate_trade_losers = set()
-            for trade_card in list(event.get("tradeRowSnapshot") or []):
-                if not isinstance(trade_card, (list, tuple)) or len(trade_card) < 2:
-                    continue
-                card_name = str(trade_card[0] or "").strip()
-                if not card_name or card_name == winner_name:
-                    continue
-                card_cost = CARD_COST_BY_NAME.get(card_name)
-                if card_cost is None:
-                    try:
-                        card_cost = int(trade_card[1])
-                    except (TypeError, ValueError):
-                        continue
-                if float(card_cost) <= total_trade_gained and card_name not in seen_future_trade_losers:
-                    seen_future_trade_losers.add(card_name)
-                    future_trade_loser_names.append(card_name)
-                if float(card_cost) <= available_trade and card_name not in seen_immediate_trade_losers:
-                    seen_immediate_trade_losers.add(card_name)
-                    immediate_trade_loser_names.append(card_name)
-
             future_trade_comparisons = _apply_card_acquire_choice_result(
                 future_trade_state,
                 winner_name,
-                future_trade_loser_names,
+                list(decision.get("future_trade_loser_names") or []),
                 float(k_factor),
             )
             if future_trade_comparisons > 0:
@@ -3956,24 +4581,92 @@ def run_card_acquire_elo_test(
             immediate_trade_comparisons = _apply_card_acquire_choice_result(
                 immediate_trade_state,
                 winner_name,
-                immediate_trade_loser_names,
+                list(decision.get("immediate_trade_loser_names") or []),
                 float(k_factor),
             )
             if immediate_trade_comparisons > 0:
                 immediate_trade_scored_decisions += 1
                 immediate_trade_pairwise_comparisons += immediate_trade_comparisons
 
-        if progress_callback is not None:
-            try:
-                progress_callback(
-                    {
-                        "games_completed": game_index + 1,
-                        "games_target": int(games),
-                        "duration_seconds": time.time() - start_time,
-                    }
+    def emit_progress(games_completed: int) -> None:
+        if progress_callback is None:
+            return
+        try:
+            progress_callback(
+                {
+                    "games_completed": int(games_completed),
+                    "games_target": int(games),
+                    "duration_seconds": time.time() - start_time,
+                }
+            )
+        except Exception:
+            pass
+
+    worker_count = resolve_simulation_workers(config.simulation_workers, int(games))
+    chunk_sizes = _simulation_chunk_sizes(int(games), worker_count)
+    games_completed = 0
+
+    if worker_count <= 1 or int(games) <= 1:
+        for chunk_size in chunk_sizes:
+            chunk_turn_summaries = []
+            chunk_ended_by_limit_games = 0
+            for _ in range(chunk_size):
+                actor_a = PolicyActor(
+                    policy,
+                    deterministic=deterministic,
+                    temperature=temperature,
+                    epsilon_random=epsilon_random,
                 )
-            except Exception:
-                pass
+                actor_b = PolicyActor(
+                    policy,
+                    deterministic=deterministic,
+                    temperature=temperature,
+                    epsilon_random=epsilon_random,
+                )
+                game_turn_summaries: List[Dict[str, Any]] = []
+
+                def capture_turn_summary(summary: Dict[str, Any]) -> None:
+                    game_turn_summaries.append(_copy_nested(summary))
+
+                game = Game(
+                    "policy_a",
+                    "policy_b",
+                    p1_choose=actor_a.choose,
+                    p2_choose=actor_b.choose,
+                    verbose=False,
+                    max_turns=config.max_turns_per_game,
+                    max_actions_per_turn=config.max_actions_per_turn,
+                    turn_summary_callback=capture_turn_summary,
+                )
+                if game.ended_by_limit:
+                    chunk_ended_by_limit_games += 1
+                chunk_turn_summaries.extend(game_turn_summaries)
+                games_completed += 1
+            extracted = _extract_card_acquire_decisions(chunk_turn_summaries)
+            extracted["games_completed"] = chunk_size
+            extracted["ended_by_limit_games"] = chunk_ended_by_limit_games
+            apply_chunk_result(extracted)
+            emit_progress(games_completed)
+    else:
+        policy_payload = _policy_payload_for_simulation(policy)
+        config_payload = _config_payload_for_simulation(config)
+        tasks = [
+            {
+                "policy_payload": policy_payload,
+                "config_payload": config_payload,
+                "game_count": chunk_size,
+                "deterministic": bool(deterministic),
+                "seed": _random_seed(),
+            }
+            for chunk_size in chunk_sizes
+        ]
+        with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
+            futures = [executor.submit(_simulate_card_acquire_elo_chunk_worker, task) for task in tasks]
+            for future in concurrent.futures.as_completed(futures):
+                chunk_result = future.result()
+                games_completed += int(chunk_result.get("games_completed", 0))
+                apply_chunk_result(chunk_result)
+                emit_progress(games_completed)
 
     future_trade_leaderboard, future_trade_normalization_factor, future_trade_explorer_raw_elo = _normalized_card_choice_leaderboard(
         future_trade_state
@@ -3990,6 +4683,8 @@ def run_card_acquire_elo_test(
         "games": int(games),
         "deterministic": bool(deterministic),
         "k_factor": float(k_factor),
+        "simulation_workers": int(config.simulation_workers),
+        "resolved_simulation_workers": resolve_simulation_workers(config.simulation_workers, int(games)),
         "ended_by_limit_games": ended_by_limit_games,
         "turn_summaries": turn_summaries,
         "eligible_single_acquire_turns": eligible_single_acquire_turns,
@@ -4125,6 +4820,8 @@ def play_policy_match(
         "policy_b": {"run_name": resolved_run_b, "checkpoint": checkpoint_b},
         "games_per_match": int(games_per_match),
         "deterministic": bool(deterministic),
+        "simulation_workers": int(config.simulation_workers),
+        "resolved_simulation_workers": resolve_simulation_workers(config.simulation_workers, int(games_per_match)),
         "wins_a": wins_a,
         "wins_b": wins_b,
         "games_played": int(summary.get("games_played", 0)),

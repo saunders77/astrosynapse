@@ -476,6 +476,7 @@ class TrainerGUI(tk.Tk):
         self.chunk_var = tk.StringVar(value="5")
         self.new_run_model_var = tk.StringVar(value=sp.MODEL_TYPE_DEEP)
         self.new_run_device_var = tk.StringVar(value=sp.DEVICE_AUTO)
+        self.new_run_workers_var = tk.StringVar(value=str(sp.SIMULATION_WORKERS_AUTO))
         self.new_run_matches_var = tk.StringVar(value="5")
         self.new_run_games_var = tk.StringVar(value="16")
         self.new_run_decisions_var = tk.StringVar(value=sp.TRAINING_DECISIONS_PER_GAME_ALL)
@@ -491,6 +492,7 @@ class TrainerGUI(tk.Tk):
         self.policy_name_var = tk.StringVar(value="Policy")
         self.run_train_temperature_var = tk.StringVar(value="0.9")
         self.run_promotion_threshold_var = tk.StringVar(value="0.6")
+        self.run_workers_var = tk.StringVar(value=str(sp.SIMULATION_WORKERS_AUTO))
         self._loaded_run_settings_run_name: Optional[str] = None
 
         self.status_vars = {
@@ -714,6 +716,8 @@ class TrainerGUI(tk.Tk):
             width=10,
         )
         new_run_device_combo.pack(side="left", padx=(6, 16))
+        ttk.Label(new_run_row, text="Workers").pack(side="left")
+        ttk.Entry(new_run_row, textvariable=self.new_run_workers_var, width=6).pack(side="left", padx=(6, 16))
         ttk.Label(new_run_row, text="Matches / Iter").pack(side="left")
         ttk.Entry(new_run_row, textvariable=self.new_run_matches_var, width=8).pack(side="left", padx=(6, 16))
         ttk.Label(new_run_row, text="Games / Match").pack(side="left")
@@ -777,11 +781,13 @@ class TrainerGUI(tk.Tk):
         ttk.Entry(run_config_row, textvariable=self.run_train_temperature_var, width=6).pack(side="left", padx=(6, 16))
         ttk.Label(run_config_row, text="Selected Run Promote Win %").pack(side="left")
         ttk.Entry(run_config_row, textvariable=self.run_promotion_threshold_var, width=6).pack(side="left", padx=(6, 16))
+        ttk.Label(run_config_row, text="Workers").pack(side="left")
+        ttk.Entry(run_config_row, textvariable=self.run_workers_var, width=6).pack(side="left", padx=(6, 16))
         self.apply_run_settings_button = self._button(run_config_row, "Apply Run Settings", self._apply_run_settings)
         self.apply_run_settings_button.pack(side="left", padx=(6, 12))
         tk.Label(
             run_config_row,
-            text="Applies these two settings to the currently selected existing run.",
+            text="Use 0 for automatic worker count.",
             bg=WINDOW_BG,
             fg=MUTED,
             anchor="w",
@@ -1223,6 +1229,12 @@ class TrainerGUI(tk.Tk):
         except ValueError as exc:
             raise ValueError(str(exc))
 
+    def _new_run_simulation_workers(self) -> int:
+        try:
+            return sp.normalize_simulation_workers(self.new_run_workers_var.get().strip())
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
     def _selected_run_train_temperature(self) -> float:
         try:
             return sp.normalize_train_temperature(self.run_train_temperature_var.get().strip())
@@ -1235,10 +1247,17 @@ class TrainerGUI(tk.Tk):
         except ValueError as exc:
             raise ValueError(str(exc))
 
+    def _selected_run_simulation_workers(self) -> int:
+        try:
+            return sp.normalize_simulation_workers(self.run_workers_var.get().strip())
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
     def _selected_new_run_overrides(self) -> Dict[str, Any]:
         return sp.new_run_overrides(
             model_type=self.new_run_model_var.get().strip() or sp.MODEL_TYPE_DEEP,
             device_preference=self.new_run_device_var.get().strip() or sp.DEVICE_AUTO,
+            simulation_workers=self._new_run_simulation_workers(),
             training_matches_per_iteration=self._new_run_training_matches(),
             training_games_per_match=self._new_run_games_per_match(),
             training_decisions_per_game=self._new_run_decisions_per_game(),
@@ -1359,9 +1378,11 @@ class TrainerGUI(tk.Tk):
         if config:
             self.run_train_temperature_var.set(str(config.get("train_temperature", 0.9)))
             self.run_promotion_threshold_var.set(str(config.get("promotion_score_threshold", 0.6)))
+            self.run_workers_var.set(str(config.get("simulation_workers", sp.SIMULATION_WORKERS_AUTO)))
         else:
             self.run_train_temperature_var.set("0.9")
             self.run_promotion_threshold_var.set("0.6")
+            self.run_workers_var.set(str(sp.SIMULATION_WORKERS_AUTO))
         self._loaded_run_settings_run_name = run_name
 
     def refresh_data(self) -> None:
@@ -1681,6 +1702,9 @@ class TrainerGUI(tk.Tk):
             f"- Device preference: {summary.get('device_preference', '-')}",
             f"- Device requested backend: {summary.get('device_requested_backend', '-')}",
             f"- Device reason: {summary.get('device_reason', '-')}",
+            f"- Simulation workers setting: {summary.get('simulation_workers', '-')}",
+            f"- Resolved simulation workers: {summary.get('resolved_simulation_workers', '-')}",
+            f"- Logical processors: {summary.get('logical_processors', '-')}",
             f"- Python: {runtime_info.get('python_version', '-')}",
             f"- Interpreter: {runtime_info.get('interpreter', '-')}",
             "",
@@ -1702,6 +1726,8 @@ class TrainerGUI(tk.Tk):
             f"- Epsilon random: {last_update.get('epsilon_random', '-')}",
             f"- Train temperature: {last_update.get('train_temperature', '-')}",
             f"- PPO clip: {last_update.get('ppo_clip', '-')}",
+            f"- Simulation workers: {last_update.get('simulation_workers', '-')}",
+            f"- Resolved simulation workers: {last_update.get('resolved_simulation_workers', '-')}",
             f"- Iterations since promotion: {last_update.get('iterations_since_promotion', '-')}",
             f"- Promotion drought progress: {last_update.get('promotion_drought_progress', '-')}",
             f"- Learning-rate multiplier: {last_update.get('learning_rate_multiplier', '-')}",
@@ -1811,6 +1837,9 @@ class TrainerGUI(tk.Tk):
                 "device_requested_backend": "auto",
                 "device_reason": "",
                 "device_benchmark": None,
+                "simulation_workers": sp.SIMULATION_WORKERS_AUTO,
+                "resolved_simulation_workers": sp.default_simulation_workers(),
+                "logical_processors": self._runtime_info.get("cpu_count", 1),
                 "run_dir": str((Path(sp.RUNS_DIR) / run_name).resolve()),
             }
 
@@ -1855,6 +1884,11 @@ class TrainerGUI(tk.Tk):
             "device_requested_backend": device_plan.get("requested_backend", device_preference),
             "device_reason": device_plan.get("reason", ""),
             "device_benchmark": device_plan.get("benchmark"),
+            "simulation_workers": int(config.get("simulation_workers", sp.SIMULATION_WORKERS_AUTO)),
+            "resolved_simulation_workers": sp.resolve_simulation_workers(
+                config.get("simulation_workers", sp.SIMULATION_WORKERS_AUTO)
+            ),
+            "logical_processors": int(self._runtime_info.get("cpu_count", 1) or 1),
             "run_dir": state.get("run_dir", str((Path(sp.RUNS_DIR) / run_name).resolve())),
         }
 
@@ -2066,7 +2100,8 @@ class TrainerGUI(tk.Tk):
                 f"{config.get('training_decisions_per_game')} decision(s)/game, "
                 f"train_temperature={config.get('train_temperature')}, "
                 f"promotion_threshold={config.get('promotion_score_threshold')}, "
-                f"{config.get('promotion_games')} promotion game(s)."
+                f"{config.get('promotion_games')} promotion game(s), "
+                f"simulation_workers={config.get('simulation_workers')}."
             )
             self.refresh_data()
 
@@ -2095,6 +2130,7 @@ class TrainerGUI(tk.Tk):
                 train_temperature=overrides["train_temperature"],
                 promotion_games=overrides["promotion_games"],
                 promotion_score_threshold=overrides["promotion_score_threshold"],
+                simulation_workers=overrides["simulation_workers"],
             )
 
         def on_success(result: Dict[str, Any]) -> None:
@@ -2111,7 +2147,8 @@ class TrainerGUI(tk.Tk):
                 f"{config.get('training_decisions_per_game')} decision(s)/game, "
                 f"train_temperature={config.get('train_temperature')}, "
                 f"promotion_threshold={config.get('promotion_score_threshold')}, "
-                f"{config.get('promotion_games')} promotion game(s)."
+                f"{config.get('promotion_games')} promotion game(s), "
+                f"simulation_workers={config.get('simulation_workers')}."
             )
             self.refresh_data()
 
@@ -2129,6 +2166,7 @@ class TrainerGUI(tk.Tk):
         try:
             train_temperature = self._selected_run_train_temperature()
             promotion_threshold = self._selected_run_promotion_threshold()
+            simulation_workers = self._selected_run_simulation_workers()
         except ValueError as exc:
             messagebox.showerror("Invalid run settings", str(exc), parent=self)
             return
@@ -2138,6 +2176,7 @@ class TrainerGUI(tk.Tk):
                 run_name=run_name,
                 train_temperature=train_temperature,
                 promotion_score_threshold=promotion_threshold,
+                simulation_workers=simulation_workers,
             )
 
         def on_success(result: Dict[str, Any]) -> None:
@@ -2147,7 +2186,8 @@ class TrainerGUI(tk.Tk):
             self.log(
                 f"Updated run settings for '{run_name}': "
                 f"train_temperature={config.get('train_temperature')}, "
-                f"promotion_score_threshold={config.get('promotion_score_threshold')}."
+                f"promotion_score_threshold={config.get('promotion_score_threshold')}, "
+                f"simulation_workers={config.get('simulation_workers')}."
             )
             self.refresh_data()
 
