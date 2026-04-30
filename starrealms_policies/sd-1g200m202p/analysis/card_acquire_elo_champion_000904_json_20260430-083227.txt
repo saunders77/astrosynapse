@@ -1,0 +1,120 @@
+Card Acquire Elo Test for sd-1g200m202p/champion_000904.json
+Resolved checkpoint: champion_000904.json
+Games: 200
+Deterministic: True
+Ended by limit: 2 game(s)
+Turn summaries: 6927
+Eligible single-acquire turns: 2046
+Future-trade scored decisions: 1946
+Future-trade pairwise comparisons: 5270
+Immediate-trade scored decisions: 1923
+Immediate-trade pairwise comparisons: 5113
+Future-trade Explorer raw Elo: 851.0835
+Future-trade normalization factor: 4.255417
+Immediate-trade Explorer raw Elo: 853.1845
+Immediate-trade normalization factor: 4.265922
+Rating update model: multinomial Elo / Plackett-Luce choice update (per decision, updates sum to zero).
+Uncertainty: approximate 1-sigma Elo standard error from diagonal Fisher information of the same choice model.
+Duration: 10s
+
+Future-Trade-Aware Rankings
+ 1. Blob Destroyer       Elo   345.92  +/-    12.23  dec   85  cmp   253
+ 2. Freighter            Elo   328.72  +/-    11.37  dec   90  cmp   290
+ 3. Embassy Yacht        Elo   325.66  +/-    12.98  dec   60  cmp   172
+ 4. Ram                  Elo   297.48  +/-    12.39  dec   71  cmp   210
+ 5. The Hive             Elo   293.94  +/-    13.32  dec   55  cmp   180
+ 6. Flagship             Elo   293.93  +/-    18.25  dec   29  cmp    96
+ 7. Blob Carrier         Elo   293.74  +/-    15.09  dec   37  cmp   129
+ 8. Trade Escort         Elo   293.53  +/-    17.04  dec   36  cmp   121
+ 9. Cutter               Elo   293.41  +/-    14.55  dec   54  cmp   137
+10. War World            Elo   290.73  +/-    15.05  dec   45  cmp   158
+11. Battle Blob          Elo   289.07  +/-    15.50  dec   37  cmp   121
+12. Barter World         Elo   287.80  +/-    10.04  dec   93  cmp   309
+13. Missile Mech         Elo   286.26  +/-    12.39  dec   59  cmp   197
+14. Federation Shuttle   Elo   286.26  +/-    19.32  dec   34  cmp    73
+15. Command Ship         Elo   282.72  +/-    21.54  dec   23  cmp    89
+16. Imperial Frigate     Elo   282.20  +/-     9.44  dec  124  cmp   353
+17. Blob Wheel           Elo   278.81  +/-     9.24  dec  132  cmp   379
+18. Space Station        Elo   277.88  +/-     9.77  dec   99  cmp   322
+19. Dreadnaught          Elo   277.16  +/-    15.93  dec   31  cmp   114
+20. Central Office       Elo   273.66  +/-    16.49  dec   30  cmp   113
+21. Mech World           Elo   272.33  +/-    14.07  dec   48  cmp   155
+22. Mothership           Elo   271.07  +/-    14.47  dec   38  cmp   140
+23. Battle Pod           Elo   264.04  +/-    16.81  dec   33  cmp    82
+24. Defense Center       Elo   262.07  +/-    14.13  dec   48  cmp   168
+25. Blob World           Elo   255.56  +/-    18.23  dec   29  cmp   111
+26. Port of Call         Elo   252.33  +/-    13.97  dec   43  cmp   159
+27. Corvette             Elo   250.16  +/-    14.66  dec   47  cmp   116
+28. Trade Pod            Elo   247.70  +/-    13.55  dec   58  cmp   155
+29. Royal Redoubt        Elo   247.11  +/-    12.70  dec   56  cmp   195
+30. Fleet HQ             Elo   247.10  +/-    19.99  dec   23  cmp    83
+31. Blob Fighter         Elo   243.64  +/-    17.30  dec   36  cmp    93
+32. Battlecruiser        Elo   242.31  +/-    12.65  dec   57  cmp   201
+33. Imperial Fighter     Elo   241.77  +/-    14.44  dec   51  cmp   119
+34. Scout                Elo   234.99  +/-        -  dec    0  cmp     0
+35. Viper                Elo   234.99  +/-        -  dec    0  cmp     0
+36. Machine Base         Elo   214.21  +/-    12.96  dec   62  cmp   221
+37. Brain World          Elo   213.98  +/-    17.68  dec   30  cmp   114
+38. Explorer             Elo   200.00  +/-     3.56  dec  999  cmp  2745
+39. Recycling Station    Elo   184.71  +/-     7.40  dec  216  cmp   674
+40. Trading Post         Elo   169.89  +/-     7.35  dec  203  cmp   625
+41. Junkyard             Elo   166.94  +/-    10.69  dec  104  cmp   340
+42. Battle Station       Elo   141.62  +/-     6.56  dec  290  cmp   880
+43. Battle Mech          Elo   126.34  +/-    10.60  dec  146  cmp   483
+44. Stealth Needle       Elo   123.73  +/-     9.70  dec  175  cmp   586
+45. Missile Bot          Elo   100.88  +/-     6.90  dec  476  cmp  1416
+46. Patrol Mech          Elo    84.38  +/-     8.62  dec  374  cmp  1239
+47. Survey Ship          Elo    52.36  +/-     7.35  dec  789  cmp  2371
+48. Supply Bot           Elo    49.04  +/-     7.51  dec  724  cmp  2139
+49. Trade Bot            Elo    40.61  +/-     7.31  dec  837  cmp  2382
+
+Immediate-Trade-Only Rankings
+ 1. Blob Destroyer       Elo   342.00  +/-    12.34  dec   85  cmp   245
+ 2. Freighter            Elo   327.10  +/-    11.34  dec   90  cmp   288
+ 3. Embassy Yacht        Elo   323.84  +/-    13.01  dec   60  cmp   170
+ 4. Cutter               Elo   298.05  +/-    15.73  dec   50  cmp   120
+ 5. Ram                  Elo   294.87  +/-    12.44  dec   71  cmp   208
+ 6. The Hive             Elo   294.57  +/-    13.54  dec   53  cmp   171
+ 7. Blob Carrier         Elo   293.67  +/-    15.02  dec   37  cmp   129
+ 8. Flagship             Elo   292.75  +/-    18.40  dec   29  cmp    95
+ 9. Trade Escort         Elo   290.27  +/-    17.45  dec   36  cmp   119
+10. War World            Elo   290.21  +/-    15.23  dec   44  cmp   154
+11. Missile Mech         Elo   289.08  +/-    12.47  dec   58  cmp   193
+12. Battle Blob          Elo   288.92  +/-    15.44  dec   37  cmp   121
+13. Barter World         Elo   284.45  +/-    10.12  dec   93  cmp   303
+14. Command Ship         Elo   282.85  +/-    21.47  dec   23  cmp    89
+15. Dreadnaught          Elo   277.24  +/-    15.87  dec   31  cmp   114
+16. Imperial Frigate     Elo   277.18  +/-     9.56  dec  124  cmp   344
+17. Space Station        Elo   276.68  +/-     9.74  dec   99  cmp   319
+18. Blob Wheel           Elo   274.96  +/-     9.30  dec  132  cmp   369
+19. Mothership           Elo   274.09  +/-    14.86  dec   36  cmp   131
+20. Central Office       Elo   273.21  +/-    16.40  dec   30  cmp   112
+21. Mech World           Elo   272.05  +/-    13.99  dec   48  cmp   155
+22. Battle Pod           Elo   265.60  +/-    17.68  dec   31  cmp    71
+23. Blob World           Elo   264.71  +/-    21.43  dec   22  cmp    83
+24. Defense Center       Elo   261.65  +/-    14.45  dec   46  cmp   158
+25. Port of Call         Elo   253.74  +/-    14.26  dec   41  cmp   151
+26. Royal Redoubt        Elo   250.54  +/-    13.06  dec   53  cmp   184
+27. Corvette             Elo   249.60  +/-    16.38  dec   40  cmp    87
+28. Fleet HQ             Elo   248.52  +/-    20.37  dec   22  cmp    79
+29. Federation Shuttle   Elo   246.87  +/-    33.90  dec   20  cmp    32
+30. Trade Pod            Elo   246.55  +/-    14.34  dec   55  cmp   136
+31. Battlecruiser        Elo   243.98  +/-    12.78  dec   55  cmp   191
+32. Imperial Fighter     Elo   238.67  +/-    14.76  dec   50  cmp   111
+33. Blob Fighter         Elo   237.67  +/-    18.49  dec   33  cmp    82
+34. Scout                Elo   234.42  +/-        -  dec    0  cmp     0
+35. Viper                Elo   234.42  +/-        -  dec    0  cmp     0
+36. Machine Base         Elo   216.84  +/-    13.29  dec   58  cmp   206
+37. Brain World          Elo   216.02  +/-    18.17  dec   28  cmp   106
+38. Explorer             Elo   200.00  +/-     3.55  dec  988  cmp  2711
+39. Recycling Station    Elo   186.23  +/-     7.41  dec  212  cmp   663
+40. Junkyard             Elo   171.80  +/-    11.06  dec   93  cmp   307
+41. Trading Post         Elo   170.22  +/-     7.33  dec  203  cmp   625
+42. Battle Station       Elo   142.14  +/-     6.54  dec  289  cmp   875
+43. Battle Mech          Elo   130.72  +/-    10.92  dec  124  cmp   415
+44. Stealth Needle       Elo   125.66  +/-     9.81  dec  167  cmp   560
+45. Missile Bot          Elo   101.32  +/-     6.89  dec  471  cmp  1381
+46. Patrol Mech          Elo    86.27  +/-     8.68  dec  359  cmp  1175
+47. Survey Ship          Elo    53.34  +/-     7.36  dec  771  cmp  2289
+48. Supply Bot           Elo    50.16  +/-     7.52  dec  702  cmp  2043
+49. Trade Bot            Elo    40.70  +/-     7.31  dec  837  cmp  2310
