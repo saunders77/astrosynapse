@@ -1,19 +1,19 @@
 {
   "status": "training",
   "run_name": "sd-1g50m201p",
-  "iteration": 2144,
-  "total_matches": 109506,
-  "total_games": 513778,
+  "iteration": 2532,
+  "total_matches": 129380,
+  "total_games": 611252,
   "created_at": 1777339718.738322,
-  "updated_at": 1777497515.6970406,
+  "updated_at": 1777510063.8750613,
   "strategy": "champion_league_v2",
   "strategy_version": 2,
-  "current_elo": 1185.3936187057611,
-  "best_elo": 1185.3936187057611,
-  "best_checkpoint": "champion_002127.json",
-  "latest_checkpoint": "champion_002127.json",
-  "promotions": 123,
-  "last_promotion_iteration": 2127,
+  "current_elo": 1226.9458575117312,
+  "best_elo": 1226.9458575117312,
+  "best_checkpoint": "champion_002532.json",
+  "latest_checkpoint": "champion_002532.json",
+  "promotions": 147,
+  "last_promotion_iteration": 2532,
   "config": {
     "hidden_size": 96,
     "model_architecture": "deep_v2",
@@ -61,112 +61,77 @@
     "max_iterations": null
   },
   "last_match": {
-    "wins": 30,
+    "wins": 16,
     "losses": 20,
-    "games_played": 50,
-    "return_value": 0.2,
-    "duration_seconds": 16.7901349067688,
-    "matches_played": 50,
+    "games_played": 36,
+    "return_value": -0.1111111111111111,
+    "duration_seconds": 20.299336194992065,
+    "matches_played": 36,
     "opponents": [
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_002127.json"
+        "checkpoint": "champion_002532.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002532.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002532.json"
       },
       {
         "label": "historical",
         "source": "historical",
-        "checkpoint": "checkpoint_000000.json"
+        "checkpoint": "champion_000113.json"
       },
       {
         "label": "recent",
         "source": "recent",
+        "checkpoint": "champion_002418.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002532.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002532.json"
+      },
+      {
+        "label": "historical",
+        "source": "historical",
+        "checkpoint": "champion_000360.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002532.json"
+      },
+      {
+        "label": "historical",
+        "source": "historical",
         "checkpoint": "champion_000016.json"
       },
       {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002532.json"
+      },
+      {
         "label": "recent",
         "source": "recent",
+        "checkpoint": "champion_002094.json"
+      },
+      {
+        "label": "historical",
+        "source": "historical",
         "checkpoint": "champion_000016.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_001320.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_002121.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "historical",
-        "source": "historical",
-        "checkpoint": "checkpoint_000000.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_001320.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_002121.json"
-      },
-      {
-        "label": "historical",
-        "source": "historical",
-        "checkpoint": "checkpoint_000000.json"
-      },
-      {
-        "label": "historical",
-        "source": "historical",
-        "checkpoint": "checkpoint_000000.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000971.json"
       },
       {
         "label": "recent",
@@ -174,109 +139,84 @@
         "checkpoint": "champion_000787.json"
       },
       {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_001320.json"
       },
       {
         "label": "recent",
         "source": "recent",
-        "checkpoint": "champion_002097.json"
+        "checkpoint": "champion_001320.json"
       },
       {
         "label": "recent",
         "source": "recent",
-        "checkpoint": "champion_002094.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_002121.json"
+        "checkpoint": "champion_000787.json"
       },
       {
         "label": "historical",
         "source": "historical",
-        "checkpoint": "checkpoint_000000.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000360.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "historical",
-        "source": "historical",
-        "checkpoint": "checkpoint_000000.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
         "checkpoint": "champion_000016.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_002127.json"
+        "checkpoint": "champion_002532.json"
       },
       {
-        "label": "recent",
-        "source": "recent",
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002532.json"
+      },
+      {
+        "label": "historical",
+        "source": "historical",
         "checkpoint": "champion_000016.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_001643.json"
+        "checkpoint": "champion_002532.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_002127.json"
+        "checkpoint": "champion_002532.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002532.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002532.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002532.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002532.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002532.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002532.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_002418.json"
       },
       {
         "label": "recent",
@@ -284,72 +224,62 @@
         "checkpoint": "champion_000971.json"
       },
       {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002532.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002532.json"
+      },
+      {
         "label": "recent",
         "source": "recent",
-        "checkpoint": "champion_002094.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_002094.json"
+        "checkpoint": "champion_002477.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "historical",
-        "source": "historical",
-        "checkpoint": "checkpoint_000000.json"
+        "checkpoint": "champion_002532.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
+        "checkpoint": "champion_002532.json"
       }
     ]
   },
   "last_update": {
-    "samples": 7202.0,
-    "policy_loss": 0.012686090125339982,
-    "value_loss": 0.22269103748703692,
-    "clip_fraction": 0.03505970563732297,
-    "avg_ratio": 292.1961758153681,
-    "avg_value_prediction": 0.11927022669884363,
-    "learning_rate": 0.0009251583333333332,
-    "epsilon_random": 0.03787772222222222,
-    "train_temperature": 0.6367897777777778,
-    "ppo_clip": 0.12856666666666666,
+    "samples": 6964.0,
+    "policy_loss": 0.007320694013411529,
+    "value_loss": 0.27348902181330115,
+    "clip_fraction": 0.02419586444572085,
+    "avg_ratio": 9.802468048652953,
+    "avg_value_prediction": 0.004846219691816484,
+    "learning_rate": 0.0006530062499999998,
+    "epsilon_random": 0.024974902777777776,
+    "train_temperature": 0.5676898888888889,
+    "ppo_clip": 0.11563333333333334,
     "simulation_workers": 0,
     "resolved_simulation_workers": 14,
-    "iterations_since_promotion": 16,
-    "promotion_drought_progress": 0.1667,
-    "learning_rate_multiplier": 1.1167,
-    "epsilon_multiplier": 1.2333,
-    "temperature_multiplier": 1.0367,
+    "iterations_since_promotion": 13,
+    "promotion_drought_progress": 0.0417,
+    "learning_rate_multiplier": 1.0292,
+    "epsilon_multiplier": 1.0583,
+    "temperature_multiplier": 1.0092,
     "matches_collected": 50
   },
   "last_eval": {
-    "wins": 97,
-    "losses": 104,
+    "wins": 113,
+    "losses": 88,
     "games_played": 201,
-    "score": 0.48258706467661694,
-    "promoted": false,
-    "action": "keep_training",
-    "promoted_checkpoint": null,
-    "champion_checkpoint": "champion_002127.json",
-    "duration_seconds": 19.734034061431885
+    "score": 0.5621890547263682,
+    "promoted": true,
+    "action": "promoted",
+    "promoted_checkpoint": "champion_002532.json",
+    "champion_checkpoint": "champion_002518.json",
+    "duration_seconds": 9.294586896896362
   },
   "last_rating_pass": {
     "status": "completed",
@@ -797,251 +727,41 @@
     "completed_at": 1777481325.090762
   },
   "candidate": {
-    "base_checkpoint": "champion_002127.json",
-    "base_iteration": 2143,
-    "attempts_since_reset": 1,
-    "total_attempts": 2144,
-    "resets": 207,
-    "promotions": 123,
-    "rating_pass_elo": 1185.3936187057611,
-    "last_score": 0.48258706467661694,
-    "last_result": "keep_training",
-    "last_reset_reason": "Candidate reset after score 0.328 and 8 attempt(s) since the last reset.",
+    "base_checkpoint": "champion_002532.json",
+    "base_iteration": 2532,
+    "attempts_since_reset": 0,
+    "total_attempts": 2532,
+    "resets": 244,
+    "promotions": 147,
+    "rating_pass_elo": 1226.9458575117312,
+    "last_score": 0.5621890547263682,
+    "last_result": "promoted",
+    "last_reset_reason": "Promoted to champion_002532.json",
     "last_opponents": [
       {
         "label": "recent",
         "source": "recent",
-        "checkpoint": "champion_001643.json"
+        "checkpoint": "champion_002477.json"
       },
       {
         "label": "recent",
         "source": "recent",
-        "checkpoint": "champion_002097.json"
+        "checkpoint": "champion_002488.json"
       },
       {
-        "label": "historical",
-        "source": "historical",
-        "checkpoint": "checkpoint_000000.json"
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
       },
       {
         "label": "recent",
         "source": "recent",
-        "checkpoint": "champion_002094.json"
+        "checkpoint": "champion_002477.json"
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000113.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_002121.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_001320.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "historical",
-        "source": "historical",
-        "checkpoint": "checkpoint_000000.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000360.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_002094.json"
-      },
-      {
-        "label": "historical",
-        "source": "historical",
-        "checkpoint": "checkpoint_000000.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000016.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000971.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000113.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_001320.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "historical",
-        "source": "historical",
-        "checkpoint": "checkpoint_000000.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000113.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_002097.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "historical",
-        "source": "historical",
-        "checkpoint": "checkpoint_000000.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_002094.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002127.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000360.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_001643.json"
+        "checkpoint": "champion_002518.json"
       },
       {
         "label": "recent",
@@ -1049,14 +769,224 @@
         "checkpoint": "champion_000787.json"
       },
       {
+        "label": "historical",
+        "source": "historical",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "historical",
+        "source": "historical",
+        "checkpoint": "champion_000016.json"
+      },
+      {
+        "label": "historical",
+        "source": "historical",
+        "checkpoint": "checkpoint_000000.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000971.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000787.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_002477.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000360.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "historical",
+        "source": "historical",
+        "checkpoint": "champion_000113.json"
+      },
+      {
         "label": "recent",
         "source": "recent",
         "checkpoint": "champion_002094.json"
       },
       {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000787.json"
+      },
+      {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_002127.json"
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_002488.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_002094.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000360.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_002094.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000971.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_002456.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_001320.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_002418.json"
+      },
+      {
+        "label": "historical",
+        "source": "historical",
+        "checkpoint": "champion_000016.json"
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002518.json"
       }
     ]
   },
@@ -6374,42 +6304,39 @@
       }
     },
     {
-      "name": "champion_002097.json",
-      "iteration": 2097,
-      "elo": 1180.3189918400894,
-      "created_at": 1777495772.4545264,
-      "promoted_from": "champion_002094.json",
+      "name": "champion_002418.json",
+      "iteration": 2418,
+      "elo": 1208.1995888550148,
+      "created_at": 1777505973.9756365,
+      "promoted_from": "champion_002400.json",
       "promotion_eval": {
-        "wins_a": 101,
-        "wins_b": 70,
-        "games_played": 171,
-        "return_value": 0.18128654970760233,
+        "wins_a": 117,
+        "wins_b": 84,
+        "games_played": 201,
+        "return_value": 0.16417910447761194,
         "per_game_winners": [
-          "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
+          "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_b",
-          "policy_a",
           "policy_a",
           "policy_a",
           "policy_a",
           "policy_a",
           "policy_b",
-          "policy_a",
+          "policy_b",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_b",
           "policy_a",
-          "policy_a",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
@@ -6418,37 +6345,38 @@
           "policy_a",
           "policy_b",
           "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
           "policy_b",
+          "policy_a",
           "policy_b",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_b",
-          "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
+          "policy_b",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_b",
+          "policy_a",
           "policy_b",
           "policy_b",
           "policy_b",
           "policy_b",
-          "policy_a",
-          "policy_a",
-          "policy_a",
           "policy_a",
           "policy_a",
-          "policy_a",
-          "policy_b",
           "policy_b",
-          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
@@ -6459,18 +6387,13 @@
           "policy_a",
           "policy_b",
           "policy_b",
-          "policy_a",
-          "policy_a",
           "policy_a",
           "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
-          "policy_b",
-          "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
@@ -6480,35 +6403,41 @@
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
+          "policy_b",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
+          "policy_b",
           "policy_b",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_b",
-          "policy_b",
+          "policy_a",
           "policy_a",
+          "policy_a",
+          "policy_a",
           "policy_b",
           "policy_b",
           "policy_b",
           "policy_b",
+          "policy_b",
           "policy_a",
+          "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_b",
-          "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
@@ -6518,61 +6447,113 @@
           "policy_b",
           "policy_b",
           "policy_b",
+          "policy_a",
           "policy_a",
+          "policy_b",
+          "policy_b",
           "policy_a",
           "policy_b",
+          "policy_a",
           "policy_a",
           "policy_a",
+          "policy_a",
           "policy_b",
+          "policy_a",
           "policy_a",
           "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
+          "policy_a",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_a",
           "policy_b",
           "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
           "policy_a",
+          "policy_b",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_b",
           "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
           "policy_a",
+          "policy_b",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_b",
+          "policy_a",
+          "policy_a",
           "policy_b",
+          "policy_a",
           "policy_a",
+          "policy_a",
+          "policy_a",
           "policy_b",
           "policy_a",
+          "policy_a",
+          "policy_a",
           "policy_b",
+          "policy_a",
           "policy_a",
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_a"
+          "policy_b"
         ],
         "trajectory": [],
         "trajectory_by_game": [],
-        "duration_seconds": 32.97386193275452
+        "ended_by_limit_games": 2,
+        "duration_seconds": 16.58480978012085
       },
       "training_summary": {
-        "wins": 23,
-        "losses": 27,
+        "wins": 28,
+        "losses": 22,
         "games_played": 50,
-        "return_value": -0.08,
-        "duration_seconds": 8.791459560394287,
+        "return_value": 0.12,
+        "duration_seconds": 12.37184739112854,
         "matches_played": 50,
         "opponents": [
           {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002378.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002259.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002334.json"
+          },
+          {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002094.json"
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
           },
           {
             "label": "historical",
@@ -6580,244 +6561,2303 @@
             "checkpoint": "champion_001643.json"
           },
           {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "checkpoint_000000.json"
           },
           {
             "label": "recent",
             "source": "recent",
-            "checkpoint": "champion_002063.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_001964.json"
+            "checkpoint": "champion_002389.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002094.json"
+            "checkpoint": "champion_002400.json"
           },
           {
             "label": "recent",
             "source": "recent",
-            "checkpoint": "champion_002058.json"
+            "checkpoint": "champion_002377.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_001987.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_002061.json"
+            "checkpoint": "champion_002400.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_002063.json"
+            "checkpoint": "champion_002400.json"
           },
           {
             "label": "historical",
             "source": "historical",
-            "checkpoint": "champion_001892.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
+            "checkpoint": "champion_000113.json"
           },
           {
             "label": "recent",
             "source": "recent",
-            "checkpoint": "champion_001969.json"
+            "checkpoint": "champion_002345.json"
           },
           {
             "label": "recent",
             "source": "recent",
-            "checkpoint": "champion_002057.json"
+            "checkpoint": "champion_002290.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_002060.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_002063.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_001987.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_002058.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_001995.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
+            "checkpoint": "champion_002400.json"
           },
           {
             "label": "historical",
             "source": "historical",
-            "checkpoint": "champion_001847.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_002063.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_002060.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_002060.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_001969.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_002063.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_002061.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
+            "checkpoint": "champion_000113.json"
           },
           {
             "label": "historical",
             "source": "historical",
-            "checkpoint": "champion_001900.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002094.json"
+            "checkpoint": "champion_002178.json"
           },
           {
             "label": "recent",
             "source": "recent",
-            "checkpoint": "champion_002057.json"
+            "checkpoint": "champion_002259.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002389.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_002239.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002334.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002259.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_002094.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002378.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002358.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002358.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002389.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002349.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002345.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002334.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_002189.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_000113.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002334.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002400.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 124,
+        "wins_b": 77,
+        "games_played": 201,
+        "return_value": 0.23383084577114427,
+        "per_game_winners": [
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "ended_by_limit_games": 6,
+        "duration_seconds": 18.560012578964233
+      }
+    },
+    {
+      "name": "champion_002456.json",
+      "iteration": 2456,
+      "elo": 1219.6025739296415,
+      "created_at": 1777507083.3111696,
+      "promoted_from": "champion_002452.json",
+      "promotion_eval": {
+        "wins_a": 115,
+        "wins_b": 86,
+        "games_played": 201,
+        "return_value": 0.14427860696517414,
+        "per_game_winners": [
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "ended_by_limit_games": 6,
+        "duration_seconds": 20.131571054458618
+      },
+      "training_summary": {
+        "wins": 26,
+        "losses": 24,
+        "games_played": 50,
+        "return_value": 0.04,
+        "duration_seconds": 13.416789054870605,
+        "matches_played": 50,
+        "opponents": [
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002440.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002389.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002362.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_002094.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002448.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_000971.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002440.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_002259.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002358.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002448.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002440.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_001320.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_000016.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002437.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002418.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002362.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002437.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002389.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_002189.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002389.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 113,
+        "wins_b": 88,
+        "games_played": 201,
+        "return_value": 0.12437810945273632,
+        "per_game_winners": [
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "ended_by_limit_games": 4,
+        "duration_seconds": 18.344534873962402
+      }
+    },
+    {
+      "name": "champion_002477.json",
+      "iteration": 2477,
+      "elo": 1221.3339172132237,
+      "created_at": 1777507701.5916631,
+      "promoted_from": "champion_002456.json",
+      "promotion_eval": {
+        "wins_a": 113,
+        "wins_b": 88,
+        "games_played": 201,
+        "return_value": 0.12437810945273632,
+        "per_game_winners": [
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "ended_by_limit_games": 4,
+        "duration_seconds": 18.344534873962402
+      },
+      "training_summary": {
+        "wins": 25,
+        "losses": 25,
+        "games_played": 50,
+        "return_value": 0.0,
+        "duration_seconds": 13.837844133377075,
+        "matches_played": 50,
+        "opponents": [
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002362.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002377.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002377.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_002349.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_000113.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_002259.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002378.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002448.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002400.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002378.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002440.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002362.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002378.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002452.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002437.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002378.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_002358.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002440.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_002259.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002418.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002456.json"
+          }
+        ]
+      },
+      "last_defense": {
+        "wins_a": 111,
+        "wins_b": 90,
+        "games_played": 201,
+        "return_value": 0.1044776119402985,
+        "per_game_winners": [
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "ended_by_limit_games": 2,
+        "duration_seconds": 5.93003249168396
+      }
+    },
+    {
+      "name": "champion_002488.json",
+      "iteration": 2488,
+      "elo": 1222.2294396012833,
+      "created_at": 1777508061.9485428,
+      "promoted_from": "champion_002477.json",
+      "promotion_eval": {
+        "wins_a": 111,
+        "wins_b": 90,
+        "games_played": 201,
+        "return_value": 0.1044776119402985,
+        "per_game_winners": [
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "ended_by_limit_games": 2,
+        "duration_seconds": 5.93003249168396
+      },
+      "training_summary": {
+        "wins": 28,
+        "losses": 22,
+        "games_played": 50,
+        "return_value": 0.12,
+        "duration_seconds": 14.711304187774658,
+        "matches_played": 50,
+        "opponents": [
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000787.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_001643.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002418.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002418.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000016.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000787.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000113.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000787.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_001320.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000016.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000787.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_001320.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_001320.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000971.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000113.json"
           }
         ]
       },
@@ -6828,12 +8868,10 @@
         "return_value": 0.13432835820895522,
         "per_game_winners": [
           "policy_a",
-          "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
-          "policy_a",
-          "policy_a",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
@@ -6844,58 +8882,57 @@
           "policy_a",
           "policy_a",
           "policy_b",
-          "policy_a",
           "policy_b",
           "policy_a",
+          "policy_b",
           "policy_b",
           "policy_a",
           "policy_b",
+          "policy_a",
+          "policy_a",
           "policy_a",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_b",
           "policy_a",
-          "policy_b",
+          "policy_a",
           "policy_b",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_a",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
           "policy_b",
           "policy_a",
-          "policy_b",
-          "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_a",
+          "policy_b",
+          "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_b",
+          "policy_a",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_b",
-          "policy_a",
           "policy_a",
           "policy_a",
           "policy_b",
-          "policy_a",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_b",
@@ -6906,15 +8943,16 @@
           "policy_a",
           "policy_b",
           "policy_a",
-          "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
+          "policy_a",
           "policy_b",
           "policy_a",
+          "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
@@ -6922,21 +8960,23 @@
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
+          "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
           "policy_b",
           "policy_b",
-          "policy_a",
-          "policy_a",
-          "policy_a",
+          "policy_b",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_b",
@@ -6945,28 +8985,39 @@
           "policy_a",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_a",
           "policy_b",
+          "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
+          "policy_a",
+          "policy_b",
           "policy_b",
           "policy_a",
+          "policy_b",
+          "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
+          "policy_b",
+          "policy_a",
           "policy_a",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
+          "policy_a",
           "policy_b",
+          "policy_a",
+          "policy_a",
           "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
           "policy_b",
           "policy_b",
           "policy_b",
@@ -6976,13 +9027,13 @@
           "policy_a",
           "policy_b",
           "policy_a",
-          "policy_b",
           "policy_a",
-          "policy_b",
+          "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
+          "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
@@ -6997,50 +9048,39 @@
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_b",
-          "policy_a",
-          "policy_a",
           "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
-          "policy_b",
-          "policy_b",
           "policy_a",
           "policy_a",
           "policy_b",
           "policy_b",
-          "policy_b",
-          "policy_a",
           "policy_a",
-          "policy_a"
+          "policy_b"
         ],
         "trajectory": [],
         "trajectory_by_game": [],
         "ended_by_limit_games": 5,
-        "duration_seconds": 19.610292434692383
+        "duration_seconds": 8.414752006530762
       }
     },
     {
-      "name": "champion_002121.json",
-      "iteration": 2121,
-      "elo": 1181.6921261684479,
-      "created_at": 1777496814.6492841,
-      "promoted_from": "champion_002097.json",
+      "name": "champion_002518.json",
+      "iteration": 2518,
+      "elo": 1223.9607828848655,
+      "created_at": 1777509734.307931,
+      "promoted_from": "champion_002488.json",
       "promotion_eval": {
         "wins_a": 114,
         "wins_b": 87,
@@ -7048,12 +9088,10 @@
         "return_value": 0.13432835820895522,
         "per_game_winners": [
           "policy_a",
-          "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
-          "policy_a",
-          "policy_a",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
@@ -7064,58 +9102,57 @@
           "policy_a",
           "policy_a",
           "policy_b",
-          "policy_a",
           "policy_b",
           "policy_a",
+          "policy_b",
           "policy_b",
           "policy_a",
           "policy_b",
+          "policy_a",
+          "policy_a",
           "policy_a",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_b",
           "policy_a",
-          "policy_b",
+          "policy_a",
           "policy_b",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_a",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
           "policy_b",
           "policy_a",
-          "policy_b",
-          "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_a",
+          "policy_b",
+          "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_b",
+          "policy_a",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_b",
-          "policy_a",
           "policy_a",
           "policy_a",
           "policy_b",
-          "policy_a",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_b",
@@ -7126,15 +9163,16 @@
           "policy_a",
           "policy_b",
           "policy_a",
-          "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
+          "policy_a",
           "policy_b",
           "policy_a",
+          "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
@@ -7142,21 +9180,23 @@
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
+          "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
           "policy_b",
           "policy_b",
-          "policy_a",
-          "policy_a",
-          "policy_a",
+          "policy_b",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_b",
@@ -7165,28 +9205,39 @@
           "policy_a",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_a",
           "policy_b",
+          "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
+          "policy_a",
+          "policy_b",
           "policy_b",
           "policy_a",
+          "policy_b",
+          "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
+          "policy_b",
+          "policy_a",
           "policy_a",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
+          "policy_a",
           "policy_b",
+          "policy_a",
+          "policy_a",
           "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
           "policy_b",
           "policy_b",
           "policy_b",
@@ -7196,13 +9247,13 @@
           "policy_a",
           "policy_b",
           "policy_a",
-          "policy_b",
           "policy_a",
-          "policy_b",
+          "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
+          "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
@@ -7217,65 +9268,49 @@
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_b",
-          "policy_a",
-          "policy_a",
           "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
-          "policy_b",
-          "policy_b",
           "policy_a",
           "policy_a",
           "policy_b",
           "policy_b",
-          "policy_b",
-          "policy_a",
           "policy_a",
-          "policy_a"
+          "policy_b"
         ],
         "trajectory": [],
         "trajectory_by_game": [],
         "ended_by_limit_games": 5,
-        "duration_seconds": 19.610292434692383
+        "duration_seconds": 8.414752006530762
       },
       "training_summary": {
-        "wins": 31,
-        "losses": 19,
+        "wins": 22,
+        "losses": 28,
         "games_played": 50,
-        "return_value": 0.24,
-        "duration_seconds": 14.451869487762451,
+        "return_value": -0.12,
+        "duration_seconds": 16.993415355682373,
         "matches_played": 50,
         "opponents": [
           {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_000113.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_000971.json"
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002097.json"
+            "checkpoint": "champion_002488.json"
           },
           {
             "label": "recent",
@@ -7285,147 +9320,42 @@
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002097.json"
+            "checkpoint": "champion_002488.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002097.json"
+            "checkpoint": "champion_002488.json"
           },
           {
             "label": "recent",
             "source": "recent",
-            "checkpoint": "checkpoint_000000.json"
+            "checkpoint": "champion_002456.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002097.json"
+            "checkpoint": "champion_002488.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
+            "checkpoint": "champion_002488.json"
           },
           {
             "label": "recent",
             "source": "recent",
-            "checkpoint": "checkpoint_000000.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_000016.json"
+            "checkpoint": "champion_002456.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002097.json"
+            "checkpoint": "champion_002488.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_001320.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_001643.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_000787.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_000016.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
+            "checkpoint": "champion_002488.json"
           },
           {
             "label": "recent",
@@ -7435,37 +9365,122 @@
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002097.json"
+            "checkpoint": "champion_002488.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002097.json"
+            "checkpoint": "champion_002488.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002097.json"
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
           },
           {
             "label": "recent",
             "source": "recent",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_000016.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002094.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
             "checkpoint": "champion_000016.json"
           },
           {
             "label": "recent",
             "source": "recent",
-            "checkpoint": "champion_001320.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_001643.json"
+            "checkpoint": "champion_002456.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002097.json"
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000113.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000971.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
           },
           {
             "label": "recent",
@@ -7473,14 +9488,44 @@
             "checkpoint": "champion_000360.json"
           },
           {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002418.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002456.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002097.json"
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
           },
           {
             "label": "recent",
@@ -7490,98 +9535,81 @@
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002097.json"
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002488.json"
           },
           {
             "label": "recent",
             "source": "recent",
-            "checkpoint": "champion_000113.json"
+            "checkpoint": "champion_002418.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002097.json"
+            "checkpoint": "champion_002488.json"
           }
         ]
       },
       "last_defense": {
-        "wins_a": 116,
-        "wins_b": 85,
+        "wins_a": 113,
+        "wins_b": 88,
         "games_played": 201,
-        "return_value": 0.15422885572139303,
+        "return_value": 0.12437810945273632,
         "per_game_winners": [
           "policy_b",
           "policy_a",
           "policy_b",
-          "policy_b",
           "policy_a",
           "policy_b",
-          "policy_a",
-          "policy_a",
-          "policy_a",
           "policy_b",
-          "policy_a",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
+          "policy_a",
+          "policy_a",
           "policy_b",
           "policy_b",
           "policy_b",
-          "policy_a",
-          "policy_a",
           "policy_a",
           "policy_a",
-          "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_b",
-          "policy_a",
-          "policy_a",
           "policy_a",
           "policy_b",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
-          "policy_a",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_b",
-          "policy_a",
           "policy_a",
           "policy_b",
-          "policy_b",
-          "policy_b",
+          "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
@@ -7593,53 +9621,51 @@
           "policy_b",
           "policy_b",
           "policy_a",
+          "policy_b",
+          "policy_b",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
-          "policy_b",
           "policy_a",
           "policy_b",
           "policy_b",
+          "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
+          "policy_a",
           "policy_b",
+          "policy_a",
           "policy_a",
           "policy_a",
+          "policy_a",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
-          "policy_a",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_b",
           "policy_b",
           "policy_a",
-          "policy_b",
-          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
@@ -7647,26 +9673,25 @@
           "policy_b",
           "policy_b",
           "policy_a",
-          "policy_b",
+          "policy_a",
           "policy_b",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_b",
-          "policy_a",
           "policy_a",
+          "policy_b",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
-          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
@@ -7678,16 +9703,23 @@
           "policy_a",
           "policy_a",
           "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
           "policy_b",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_b",
+          "policy_a",
           "policy_a",
+          "policy_b",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
@@ -7697,15 +9729,13 @@
           "policy_b",
           "policy_b",
           "policy_a",
-          "policy_a",
           "policy_b",
+          "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
@@ -7713,95 +9743,93 @@
           "policy_a",
           "policy_a",
           "policy_b",
+          "policy_a",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
           "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
           "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
           "policy_b",
-          "policy_a"
+          "policy_b"
         ],
         "trajectory": [],
         "trajectory_by_game": [],
-        "ended_by_limit_games": 2,
-        "duration_seconds": 17.321528911590576
+        "ended_by_limit_games": 3,
+        "duration_seconds": 9.294586896896362
       }
     },
     {
-      "name": "champion_002127.json",
-      "iteration": 2127,
-      "elo": 1185.3936187057611,
-      "created_at": 1777496994.3450906,
-      "promoted_from": "champion_002121.json",
+      "name": "champion_002532.json",
+      "iteration": 2532,
+      "elo": 1226.9458575117312,
+      "created_at": 1777510054.975303,
+      "promoted_from": "champion_002518.json",
       "promotion_eval": {
-        "wins_a": 116,
-        "wins_b": 85,
+        "wins_a": 113,
+        "wins_b": 88,
         "games_played": 201,
-        "return_value": 0.15422885572139303,
+        "return_value": 0.12437810945273632,
         "per_game_winners": [
           "policy_b",
           "policy_a",
           "policy_b",
-          "policy_b",
           "policy_a",
           "policy_b",
-          "policy_a",
-          "policy_a",
-          "policy_a",
           "policy_b",
-          "policy_a",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
+          "policy_a",
+          "policy_a",
           "policy_b",
           "policy_b",
           "policy_b",
-          "policy_a",
-          "policy_a",
           "policy_a",
           "policy_a",
-          "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_b",
-          "policy_a",
-          "policy_a",
           "policy_a",
           "policy_b",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
-          "policy_a",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_b",
-          "policy_a",
           "policy_a",
           "policy_b",
-          "policy_b",
-          "policy_b",
+          "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
@@ -7813,53 +9841,51 @@
           "policy_b",
           "policy_b",
           "policy_a",
+          "policy_b",
+          "policy_b",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
-          "policy_b",
           "policy_a",
           "policy_b",
           "policy_b",
+          "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
+          "policy_a",
           "policy_b",
+          "policy_a",
           "policy_a",
           "policy_a",
+          "policy_a",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
-          "policy_a",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_b",
           "policy_b",
           "policy_a",
-          "policy_b",
-          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
@@ -7867,26 +9893,25 @@
           "policy_b",
           "policy_b",
           "policy_a",
-          "policy_b",
+          "policy_a",
           "policy_b",
           "policy_b",
           "policy_b",
-          "policy_a",
           "policy_a",
           "policy_b",
           "policy_a",
           "policy_b",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_b",
-          "policy_a",
           "policy_a",
+          "policy_b",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
-          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
@@ -7898,16 +9923,23 @@
           "policy_a",
           "policy_a",
           "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
           "policy_b",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
           "policy_b",
+          "policy_b",
           "policy_a",
           "policy_b",
           "policy_b",
+          "policy_a",
           "policy_a",
+          "policy_b",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
@@ -7917,15 +9949,13 @@
           "policy_b",
           "policy_b",
           "policy_a",
-          "policy_a",
           "policy_b",
+          "policy_a",
           "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
-          "policy_b",
           "policy_a",
-          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
@@ -7933,67 +9963,62 @@
           "policy_a",
           "policy_a",
           "policy_b",
+          "policy_a",
           "policy_a",
+          "policy_b",
           "policy_a",
           "policy_a",
           "policy_a",
           "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
           "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
           "policy_b",
-          "policy_a"
+          "policy_b"
         ],
         "trajectory": [],
         "trajectory_by_game": [],
-        "ended_by_limit_games": 2,
-        "duration_seconds": 17.321528911590576
+        "ended_by_limit_games": 3,
+        "duration_seconds": 9.294586896896362
       },
       "training_summary": {
         "wins": 24,
         "losses": 26,
         "games_played": 50,
         "return_value": -0.04,
-        "duration_seconds": 15.540988206863403,
+        "duration_seconds": 19.05862593650818,
         "matches_played": 50,
         "opponents": [
           {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002477.json"
           },
           {
             "label": "recent",
             "source": "recent",
-            "checkpoint": "champion_000971.json"
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
           },
           {
             "label": "recent",
             "source": "recent",
-            "checkpoint": "champion_002094.json"
+            "checkpoint": "champion_002477.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_000360.json"
+            "checkpoint": "champion_002518.json"
           },
           {
             "label": "recent",
@@ -8001,184 +10026,144 @@
             "checkpoint": "champion_000787.json"
           },
           {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_000971.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_001643.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_000787.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_001320.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_001643.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_000360.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_001320.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_000787.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_002097.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_000113.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_001643.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_000787.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_001320.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
-            "checkpoint": "champion_000971.json"
-          },
-          {
-            "label": "champion",
-            "source": "champion",
-            "checkpoint": "champion_002121.json"
-          },
-          {
-            "label": "recent",
-            "source": "recent",
+            "label": "historical",
+            "source": "historical",
             "checkpoint": "checkpoint_000000.json"
           },
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002121.json"
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_000016.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "checkpoint_000000.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000971.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000787.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002477.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000360.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_000113.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002094.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000787.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002488.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002094.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000360.json"
           },
           {
             "label": "recent",
@@ -8193,7 +10178,47 @@
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002121.json"
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002456.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
           },
           {
             "label": "recent",
@@ -8203,7 +10228,22 @@
           {
             "label": "champion",
             "source": "champion",
-            "checkpoint": "champion_002121.json"
+            "checkpoint": "champion_002518.json"
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_002418.json"
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_000016.json"
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002518.json"
           }
         ]
       }
@@ -8225,20 +10265,20 @@
   "config_defaults_version": 2,
   "live_progress": {
     "kind": "training_iteration",
-    "stage": "promotion",
-    "iteration_number": 2145,
-    "training_matches_completed": 50,
+    "stage": "training",
+    "iteration_number": 2533,
+    "training_matches_completed": 35,
     "training_matches_total": 50,
-    "training_games_completed": 50,
+    "training_games_completed": 36,
     "training_games_total": 50,
     "promotion_games_completed": 0,
     "promotion_games_total": 201,
-    "iteration_games_completed": 50,
+    "iteration_games_completed": 36,
     "iteration_games_total": 251,
-    "training_stage_complete": true,
+    "training_stage_complete": false,
     "promotion_stage_complete": false,
     "iteration_complete": false,
-    "updated_at": 1777497515.6970406
+    "updated_at": 1777510063.8750613
   },
   "device_plan": {
     "requested_backend": "cpu",

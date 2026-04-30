@@ -5,7 +5,7 @@
   "total_matches": 18112,
   "total_games": 147446,
   "created_at": 1776922755.833662,
-  "updated_at": 1777326147.247825,
+  "updated_at": 1777499414.0749311,
   "strategy": "champion_league_v2",
   "strategy_version": 2,
   "current_elo": 1619.2652191820055,
@@ -57,7 +57,8 @@
     "max_turns_per_game": 400,
     "max_actions_per_turn": 200,
     "max_iterations": null,
-    "training_decisions_per_game": "ALL"
+    "training_decisions_per_game": "ALL",
+    "simulation_workers": 0
   },
   "last_match": {
     "wins": 1,
@@ -3184,5 +3185,13 @@
       }
     }
   ],
-  "last_error": null
+  "last_error": null,
+  "config_defaults_version": 2,
+  "device_plan": {
+    "requested_backend": "cpu",
+    "backend": "cpu",
+    "repr": "cpu",
+    "reason": "",
+    "benchmark": null
+  }
 }

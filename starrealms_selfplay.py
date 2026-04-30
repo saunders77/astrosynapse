@@ -11,7 +11,9 @@ import copy
 import concurrent.futures
 import json
 import math
+import multiprocessing
 import os
+import queue
 import random
 import threading
 import time
@@ -85,6 +87,8 @@ SIMULATION_WORKERS_AUTO = 0
 SIMULATION_TASKS_PER_WORKER = 3
 SIMULATION_WORKER_CPU_RESERVE = 2
 SIMULATION_WORKER_TORCH_THREADS = 1
+SIMULATION_PROGRESS_POLL_SECONDS = 0.25
+SIMULATION_WORKER_POLICY_CACHE_LIMIT = 32
 
 
 def _normalize_ability(raw_ability: Any) -> str:
@@ -1521,6 +1525,8 @@ class PolicyActor:
 _SIMULATION_WORKER_POLICY_A: Optional[PolicyNetwork] = None
 _SIMULATION_WORKER_POLICY_B: Optional[PolicyNetwork] = None
 _SIMULATION_WORKER_CONFIG: Optional[TrainingConfig] = None
+_SIMULATION_WORKER_PROGRESS_QUEUE: Optional[Any] = None
+_SIMULATION_WORKER_POLICY_CACHE: Dict[str, PolicyNetwork] = {}
 
 
 def _configure_simulation_worker_runtime() -> None:
@@ -1554,16 +1560,158 @@ def _config_from_payload(payload: Dict[str, Any]) -> TrainingConfig:
     return TrainingConfig().merged(payload)
 
 
+def _policy_from_simulation_payload(task: Dict[str, Any], payload_key: str, cache_key_key: str) -> PolicyNetwork:
+    cache_key = str(task.get(cache_key_key) or "")
+    if cache_key:
+        cached = _SIMULATION_WORKER_POLICY_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+    policy = PolicyNetwork.from_dict(task[payload_key])
+    if cache_key:
+        if len(_SIMULATION_WORKER_POLICY_CACHE) >= SIMULATION_WORKER_POLICY_CACHE_LIMIT:
+            _SIMULATION_WORKER_POLICY_CACHE.clear()
+        _SIMULATION_WORKER_POLICY_CACHE[cache_key] = policy
+    return policy
+
+
 def _simulation_worker_init(
     policy_a_payload: Dict[str, Any],
     policy_b_payload: Dict[str, Any],
     config_payload: Dict[str, Any],
+    progress_queue: Optional[Any] = None,
 ) -> None:
     global _SIMULATION_WORKER_POLICY_A, _SIMULATION_WORKER_POLICY_B, _SIMULATION_WORKER_CONFIG
+    global _SIMULATION_WORKER_PROGRESS_QUEUE
     _configure_simulation_worker_runtime()
     _SIMULATION_WORKER_POLICY_A = PolicyNetwork.from_dict(policy_a_payload)
     _SIMULATION_WORKER_POLICY_B = PolicyNetwork.from_dict(policy_b_payload)
     _SIMULATION_WORKER_CONFIG = _config_from_payload(config_payload)
+    _SIMULATION_WORKER_PROGRESS_QUEUE = progress_queue
+
+
+def _simulation_progress_worker_init(progress_queue: Optional[Any] = None) -> None:
+    global _SIMULATION_WORKER_PROGRESS_QUEUE
+    _configure_simulation_worker_runtime()
+    _SIMULATION_WORKER_PROGRESS_QUEUE = progress_queue
+
+
+def _create_simulation_progress_queue() -> Tuple[Any, Any]:
+    context = multiprocessing.get_context("spawn") if os.name == "nt" else multiprocessing.get_context()
+    return context, context.Queue()
+
+
+def _close_simulation_progress_queue(progress_queue: Optional[Any]) -> None:
+    if progress_queue is None:
+        return
+    try:
+        progress_queue.close()
+    except Exception:
+        pass
+    try:
+        progress_queue.join_thread()
+    except Exception:
+        pass
+
+
+def _process_pool_executor(
+    max_workers: int,
+    *,
+    initializer: Optional[Callable[..., None]] = None,
+    initargs: Tuple[Any, ...] = (),
+    mp_context: Optional[Any] = None,
+) -> concurrent.futures.ProcessPoolExecutor:
+    kwargs: Dict[str, Any] = {"max_workers": max_workers}
+    if initializer is not None:
+        kwargs["initializer"] = initializer
+        kwargs["initargs"] = initargs
+    if mp_context is not None:
+        kwargs["mp_context"] = mp_context
+    return concurrent.futures.ProcessPoolExecutor(**kwargs)
+
+
+def _warm_simulation_worker() -> int:
+    _configure_simulation_worker_runtime()
+    return os.getpid()
+
+
+class _SimulationPool:
+    def __init__(self, worker_count: int) -> None:
+        self.worker_count = max(1, int(worker_count))
+        self.progress_context, self.progress_queue = _create_simulation_progress_queue()
+        self.executor = _process_pool_executor(
+            max_workers=self.worker_count,
+            initializer=_simulation_progress_worker_init,
+            initargs=(self.progress_queue,),
+            mp_context=self.progress_context,
+        )
+        self._warm_futures = [self.executor.submit(_warm_simulation_worker) for _ in range(self.worker_count)]
+
+    def wait_until_ready(self) -> None:
+        if not self._warm_futures:
+            return
+        futures = self._warm_futures
+        self._warm_futures = []
+        concurrent.futures.wait(futures)
+        for future in futures:
+            future.result()
+
+    def close(self) -> None:
+        try:
+            try:
+                self.executor.shutdown(wait=True, cancel_futures=True)
+            except TypeError:
+                self.executor.shutdown(wait=True)
+        finally:
+            _close_simulation_progress_queue(self.progress_queue)
+
+
+def _emit_simulation_game_progress(progress_queue: Optional[Any] = None, games_completed: int = 1) -> None:
+    target_queue = progress_queue if progress_queue is not None else _SIMULATION_WORKER_PROGRESS_QUEUE
+    if target_queue is None:
+        return
+    try:
+        target_queue.put_nowait(int(games_completed))
+    except Exception:
+        pass
+
+
+def _drain_simulation_progress_queue(progress_queue: Optional[Any]) -> int:
+    if progress_queue is None:
+        return 0
+    games_completed = 0
+    while True:
+        try:
+            games_completed += int(progress_queue.get_nowait())
+        except queue.Empty:
+            break
+        except Exception:
+            break
+    return games_completed
+
+
+def _consume_simulation_futures(
+    futures: Sequence[Any],
+    progress_queue: Optional[Any],
+    progress_callback: Callable[[int], None],
+    result_callback: Callable[[Dict[str, Any]], None],
+) -> None:
+    pending = set(futures)
+    while pending:
+        done, pending = concurrent.futures.wait(
+            pending,
+            timeout=SIMULATION_PROGRESS_POLL_SECONDS,
+            return_when=concurrent.futures.FIRST_COMPLETED,
+        )
+        progress_delta = _drain_simulation_progress_queue(progress_queue)
+        if progress_delta > 0:
+            progress_callback(progress_delta)
+        for future in done:
+            result_callback(future.result())
+
+    progress_delta = _drain_simulation_progress_queue(progress_queue)
+    if progress_delta > 0:
+        progress_callback(progress_delta)
 
 
 def _seed_simulation(seed: int) -> None:
@@ -1585,6 +1733,7 @@ def _simulate_match_games(
     collect_a: bool,
     deterministic_a: bool,
     deterministic_b: bool,
+    progress_queue: Optional[Any] = None,
 ) -> Dict[str, Any]:
     _seed_simulation(seed)
     collector: Optional[List[Dict[str, Any]]] = [] if collect_a else None
@@ -1630,6 +1779,7 @@ def _simulate_match_games(
         if collect_a and collector is not None and trajectory_by_game is not None and game_collector is not None:
             collector.extend(game_collector)
             trajectory_by_game.append(game_collector)
+        _emit_simulation_game_progress(progress_queue)
 
     return {
         "wins_a": wins_a,
@@ -1678,8 +1828,8 @@ def _simulate_initialized_balanced_chunk_worker(task: Dict[str, Any]) -> Dict[st
 
 def _simulate_payload_match_chunk_worker(task: Dict[str, Any]) -> Dict[str, Any]:
     _configure_simulation_worker_runtime()
-    policy_a = PolicyNetwork.from_dict(task["policy_a_payload"])
-    policy_b = PolicyNetwork.from_dict(task["policy_b_payload"])
+    policy_a = _policy_from_simulation_payload(task, "policy_a_payload", "policy_a_cache_key")
+    policy_b = _policy_from_simulation_payload(task, "policy_b_payload", "policy_b_cache_key")
     config = _config_from_payload(task["config_payload"])
     result = _simulate_match_games(
         policy_a,
@@ -1695,6 +1845,26 @@ def _simulate_payload_match_chunk_worker(task: Dict[str, Any]) -> Dict[str, Any]
         result["match_index"] = int(task["match_index"])
     if "opponent" in task:
         result["opponent"] = _copy_nested(task["opponent"])
+    return result
+
+
+def _simulate_payload_balanced_chunk_worker(task: Dict[str, Any]) -> Dict[str, Any]:
+    _configure_simulation_worker_runtime()
+    policy_a = _policy_from_simulation_payload(task, "policy_a_payload", "policy_a_cache_key")
+    policy_b = _policy_from_simulation_payload(task, "policy_b_payload", "policy_b_cache_key")
+    config = _config_from_payload(task["config_payload"])
+    swapped = bool(task.get("swapped", False))
+    result = _simulate_match_games(
+        policy_b if swapped else policy_a,
+        policy_a if swapped else policy_b,
+        config,
+        game_count=int(task["game_count"]),
+        seed=int(task["seed"]),
+        collect_a=False,
+        deterministic_a=True,
+        deterministic_b=True,
+    )
+    result["swapped"] = swapped
     return result
 
 
@@ -1736,6 +1906,7 @@ def _simulate_balanced_match_serial(
     *,
     games_per_match: int,
     seed: int,
+    progress_queue: Optional[Any] = None,
 ) -> Dict[str, Any]:
     games = max(1, int(games_per_match))
     if games <= 1:
@@ -1750,6 +1921,7 @@ def _simulate_balanced_match_serial(
                     collect_a=False,
                     deterministic_a=True,
                     deterministic_b=True,
+                    progress_queue=progress_queue,
                 )
             ]
         )
@@ -1766,6 +1938,7 @@ def _simulate_balanced_match_serial(
         collect_a=False,
         deterministic_a=True,
         deterministic_b=True,
+        progress_queue=progress_queue,
     )
     second_seat = _simulate_match_games(
         policy_b,
@@ -1776,6 +1949,7 @@ def _simulate_balanced_match_serial(
         collect_a=False,
         deterministic_a=True,
         deterministic_b=True,
+        progress_queue=progress_queue,
     )
 
     wins_a = int(first_seat.get("wins_a", 0)) + int(second_seat.get("wins_b", 0))
@@ -1838,8 +2012,8 @@ def _combine_balanced_partials(partials: Sequence[Dict[str, Any]], *, started_at
 
 def _simulate_balanced_match_payload_worker(task: Dict[str, Any]) -> Dict[str, Any]:
     _configure_simulation_worker_runtime()
-    policy_a = PolicyNetwork.from_dict(task["policy_a_payload"])
-    policy_b = PolicyNetwork.from_dict(task["policy_b_payload"])
+    policy_a = _policy_from_simulation_payload(task, "policy_a_payload", "policy_a_cache_key")
+    policy_b = _policy_from_simulation_payload(task, "policy_b_payload", "policy_b_cache_key")
     config = _config_from_payload(task["config_payload"])
     config.simulation_workers = 1
     result = _simulate_balanced_match_serial(
@@ -1848,6 +2022,7 @@ def _simulate_balanced_match_payload_worker(task: Dict[str, Any]) -> Dict[str, A
         config,
         games_per_match=int(task["games_per_match"]),
         seed=int(task["seed"]),
+        progress_queue=_SIMULATION_WORKER_PROGRESS_QUEUE,
     )
     if "pairing_index" in task:
         result["pairing_index"] = int(task["pairing_index"])
@@ -2706,6 +2881,8 @@ def _play_match(
     deterministic_b: bool = False,
     games_per_match: int = 24,
     game_progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    simulation_pool: Optional[_SimulationPool] = None,
+    cache_key_prefix: str = "",
 ) -> Dict[str, Any]:
     total_games = max(1, int(games_per_match))
     started_at = _timestamp()
@@ -2727,6 +2904,8 @@ def _play_match(
             pass
 
     worker_count = resolve_simulation_workers(config.simulation_workers, total_games)
+    if simulation_pool is not None:
+        worker_count = min(max(1, int(simulation_pool.worker_count)), total_games)
     chunk_sizes = _simulation_chunk_sizes(total_games, worker_count)
     partials: List[Dict[str, Any]] = []
     completed_games = 0
@@ -2755,31 +2934,87 @@ def _play_match(
     policy_a_payload = _policy_payload_for_simulation(policy_a)
     policy_b_payload = _policy_payload_for_simulation(policy_b)
     config_payload = _config_payload_for_simulation(config)
-    with concurrent.futures.ProcessPoolExecutor(
-        max_workers=worker_count,
-        initializer=_simulation_worker_init,
-        initargs=(policy_a_payload, policy_b_payload, config_payload),
-    ) as executor:
-        futures = [
-            executor.submit(
-                _simulate_initialized_match_chunk_worker,
-                {
-                    "game_count": chunk_size,
-                    "seed": _random_seed(),
-                    "collect_a": collect_a,
-                    "deterministic_a": deterministic_a,
-                    "deterministic_b": deterministic_b,
-                },
-            )
+
+    if simulation_pool is not None:
+        progress_queue = simulation_pool.progress_queue
+        simulation_pool.wait_until_ready()
+        _drain_simulation_progress_queue(progress_queue)
+        prefix = cache_key_prefix or f"match:{os.getpid()}:{id(policy_a)}:{id(policy_b)}:{started_at:.6f}"
+        tasks = [
+            {
+                "policy_a_payload": policy_a_payload,
+                "policy_b_payload": policy_b_payload,
+                "policy_a_cache_key": f"{prefix}:a",
+                "policy_b_cache_key": f"{prefix}:b",
+                "config_payload": config_payload,
+                "game_count": chunk_size,
+                "seed": _random_seed(),
+                "collect_a": collect_a,
+                "deterministic_a": deterministic_a,
+                "deterministic_b": deterministic_b,
+            }
             for chunk_size in chunk_sizes
         ]
-        for future in concurrent.futures.as_completed(futures):
-            partial = future.result()
+        futures = [simulation_pool.executor.submit(_simulate_payload_match_chunk_worker, task) for task in tasks]
+
+        def on_progress(delta: int) -> None:
+            nonlocal completed_games
+            completed_games = min(total_games, completed_games + int(delta))
+            emit_progress(completed_games, wins_a, wins_b)
+
+        def on_result(partial: Dict[str, Any]) -> None:
+            nonlocal completed_games, wins_a, wins_b
             partials.append(partial)
-            completed_games += int(partial.get("games_played", 0))
             wins_a += int(partial.get("wins_a", 0))
             wins_b += int(partial.get("wins_b", 0))
+            completed_games = max(completed_games, min(total_games, sum(int(item.get("games_played", 0)) for item in partials)))
             emit_progress(completed_games, wins_a, wins_b)
+
+        _consume_simulation_futures(futures, progress_queue, on_progress, on_result)
+        _drain_simulation_progress_queue(progress_queue)
+        return _combine_match_partials(partials, started_at=started_at)
+
+    progress_context = None
+    progress_queue = None
+    if game_progress_callback is not None:
+        progress_context, progress_queue = _create_simulation_progress_queue()
+    try:
+        with _process_pool_executor(
+            max_workers=worker_count,
+            initializer=_simulation_worker_init,
+            initargs=(policy_a_payload, policy_b_payload, config_payload, progress_queue),
+            mp_context=progress_context,
+        ) as executor:
+            futures = [
+                executor.submit(
+                    _simulate_initialized_match_chunk_worker,
+                    {
+                        "game_count": chunk_size,
+                        "seed": _random_seed(),
+                        "collect_a": collect_a,
+                        "deterministic_a": deterministic_a,
+                        "deterministic_b": deterministic_b,
+                    },
+                )
+                for chunk_size in chunk_sizes
+            ]
+
+            def on_progress(delta: int) -> None:
+                nonlocal completed_games
+                completed_games = min(total_games, completed_games + int(delta))
+                emit_progress(completed_games, wins_a, wins_b)
+
+            def on_result(partial: Dict[str, Any]) -> None:
+                nonlocal completed_games, wins_a, wins_b
+                partials.append(partial)
+                wins_a += int(partial.get("wins_a", 0))
+                wins_b += int(partial.get("wins_b", 0))
+                completed_games = max(completed_games, min(total_games, sum(int(item.get("games_played", 0)) for item in partials)))
+                emit_progress(completed_games, wins_a, wins_b)
+
+            _consume_simulation_futures(futures, progress_queue, on_progress, on_result)
+    finally:
+        _close_simulation_progress_queue(progress_queue)
 
     return _combine_match_partials(partials, started_at=started_at)
 
@@ -2790,6 +3025,8 @@ def _play_balanced_match(
     config: TrainingConfig,
     games_per_match: int,
     game_progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    simulation_pool: Optional[_SimulationPool] = None,
+    cache_key_prefix: str = "",
 ) -> Dict[str, Any]:
     if games_per_match <= 1:
         return _play_match(
@@ -2825,6 +3062,8 @@ def _play_balanced_match(
             pass
 
     worker_count = resolve_simulation_workers(config.simulation_workers, total_games)
+    if simulation_pool is not None:
+        worker_count = min(max(1, int(simulation_pool.worker_count)), total_games)
     partials: List[Dict[str, Any]] = []
     completed_games = 0
     wins_a = 0
@@ -2862,23 +3101,79 @@ def _play_balanced_match(
     policy_a_payload = _policy_payload_for_simulation(policy_a)
     policy_b_payload = _policy_payload_for_simulation(policy_b)
     config_payload = _config_payload_for_simulation(config)
-    with concurrent.futures.ProcessPoolExecutor(
-        max_workers=worker_count,
-        initializer=_simulation_worker_init,
-        initargs=(policy_a_payload, policy_b_payload, config_payload),
-    ) as executor:
-        futures = [executor.submit(_simulate_initialized_balanced_chunk_worker, task) for task in tasks]
-        for future in concurrent.futures.as_completed(futures):
-            partial = future.result()
+
+    if simulation_pool is not None:
+        progress_queue = simulation_pool.progress_queue
+        simulation_pool.wait_until_ready()
+        _drain_simulation_progress_queue(progress_queue)
+        prefix = cache_key_prefix or f"balanced:{os.getpid()}:{id(policy_a)}:{id(policy_b)}:{started_at:.6f}"
+        payload_tasks = [
+            {
+                **task,
+                "policy_a_payload": policy_a_payload,
+                "policy_b_payload": policy_b_payload,
+                "policy_a_cache_key": f"{prefix}:a",
+                "policy_b_cache_key": f"{prefix}:b",
+                "config_payload": config_payload,
+            }
+            for task in tasks
+        ]
+        futures = [simulation_pool.executor.submit(_simulate_payload_balanced_chunk_worker, task) for task in payload_tasks]
+
+        def on_progress(delta: int) -> None:
+            nonlocal completed_games
+            completed_games = min(total_games, completed_games + int(delta))
+            emit_progress(completed_games, wins_a, wins_b)
+
+        def on_result(partial: Dict[str, Any]) -> None:
+            nonlocal completed_games, wins_a, wins_b
             partials.append(partial)
-            completed_games += int(partial.get("games_played", 0))
             if bool(partial.get("swapped", False)):
                 wins_a += int(partial.get("wins_b", 0))
                 wins_b += int(partial.get("wins_a", 0))
             else:
                 wins_a += int(partial.get("wins_a", 0))
                 wins_b += int(partial.get("wins_b", 0))
+            completed_games = max(completed_games, min(total_games, sum(int(item.get("games_played", 0)) for item in partials)))
             emit_progress(completed_games, wins_a, wins_b)
+
+        _consume_simulation_futures(futures, progress_queue, on_progress, on_result)
+        _drain_simulation_progress_queue(progress_queue)
+        return _combine_balanced_partials(partials, started_at=started_at)
+
+    progress_context = None
+    progress_queue = None
+    if game_progress_callback is not None:
+        progress_context, progress_queue = _create_simulation_progress_queue()
+    try:
+        with _process_pool_executor(
+            max_workers=worker_count,
+            initializer=_simulation_worker_init,
+            initargs=(policy_a_payload, policy_b_payload, config_payload, progress_queue),
+            mp_context=progress_context,
+        ) as executor:
+            futures = [executor.submit(_simulate_initialized_balanced_chunk_worker, task) for task in tasks]
+
+            def on_progress(delta: int) -> None:
+                nonlocal completed_games
+                completed_games = min(total_games, completed_games + int(delta))
+                emit_progress(completed_games, wins_a, wins_b)
+
+            def on_result(partial: Dict[str, Any]) -> None:
+                nonlocal completed_games, wins_a, wins_b
+                partials.append(partial)
+                if bool(partial.get("swapped", False)):
+                    wins_a += int(partial.get("wins_b", 0))
+                    wins_b += int(partial.get("wins_a", 0))
+                else:
+                    wins_a += int(partial.get("wins_a", 0))
+                    wins_b += int(partial.get("wins_b", 0))
+                completed_games = max(completed_games, min(total_games, sum(int(item.get("games_played", 0)) for item in partials)))
+                emit_progress(completed_games, wins_a, wins_b)
+
+            _consume_simulation_futures(futures, progress_queue, on_progress, on_result)
+    finally:
+        _close_simulation_progress_queue(progress_queue)
 
     return _combine_balanced_partials(partials, started_at=started_at)
 
@@ -2896,10 +3191,28 @@ class SelfPlayTrainer:
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_live_progress_save_at = 0.0
+        self._simulation_pool: Optional[_SimulationPool] = None
 
     @property
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
+
+    def _get_simulation_pool(self, worker_count: int) -> Optional[_SimulationPool]:
+        worker_count = max(1, int(worker_count))
+        if worker_count <= 1:
+            self._close_simulation_pool()
+            return None
+        if self._simulation_pool is not None and self._simulation_pool.worker_count == worker_count:
+            return self._simulation_pool
+        self._close_simulation_pool()
+        self._simulation_pool = _SimulationPool(worker_count)
+        return self._simulation_pool
+
+    def _close_simulation_pool(self) -> None:
+        pool = self._simulation_pool
+        self._simulation_pool = None
+        if pool is not None:
+            pool.close()
 
     def _save(self) -> None:
         config_payload = asdict(self.config)
@@ -3170,12 +3483,16 @@ class SelfPlayTrainer:
             games_total = pairings_total * int(games_per_pair)
             last_progress_save_at = 0.0
             active_pairing_games_completed = 0
+            progress_games_completed = 0
 
             def emit_rating_progress(force_persist: bool = False) -> None:
                 nonlocal last_progress_save_at
                 games_completed = min(
                     games_total,
-                    len(pairings) * int(games_per_pair) + int(active_pairing_games_completed),
+                    max(
+                        int(progress_games_completed),
+                        len(pairings) * int(games_per_pair) + int(active_pairing_games_completed),
+                    ),
                 )
                 payload = {
                     "pairings_completed": len(pairings),
@@ -3204,7 +3521,7 @@ class SelfPlayTrainer:
                     self._save_state_only()
 
             def record_pairing_result(spec: Dict[str, Any], match_summary: Dict[str, Any]) -> None:
-                nonlocal active_pairing_games_completed
+                nonlocal active_pairing_games_completed, progress_games_completed
                 participant_a = spec["participant_a"]
                 participant_b = spec["participant_b"]
                 name_a = str(participant_a["name"])
@@ -3236,6 +3553,7 @@ class SelfPlayTrainer:
                     }
                 )
                 active_pairing_games_completed = 0
+                progress_games_completed = max(progress_games_completed, len(pairings) * int(games_per_pair))
                 emit_rating_progress()
 
             worker_count = resolve_simulation_workers(
@@ -3244,7 +3562,7 @@ class SelfPlayTrainer:
             )
             emit_rating_progress(force_persist=True)
             parallel_pairings = len(pairing_specs) >= max(2, worker_count // 2)
-            if worker_count <= 1 or not parallel_pairings:
+            if worker_count <= 1:
                 for spec in pairing_specs:
                     active_pairing_games_completed = 0
 
@@ -3261,9 +3579,37 @@ class SelfPlayTrainer:
                         game_progress_callback=pairing_progress,
                     )
                     record_pairing_result(spec, match_summary)
+            elif not parallel_pairings:
+                simulation_pool = _SimulationPool(worker_count)
+                try:
+                    for spec in pairing_specs:
+                        active_pairing_games_completed = 0
+
+                        def pairing_progress(progress: Dict[str, Any]) -> None:
+                            nonlocal active_pairing_games_completed
+                            active_pairing_games_completed = int(progress.get("games_completed", 0))
+                            emit_rating_progress()
+
+                        match_summary = _play_balanced_match(
+                            self._policy_for_rating_participant(spec["participant_a"]),
+                            self._policy_for_rating_participant(spec["participant_b"]),
+                            self.config,
+                            games_per_match=games_per_pair,
+                            game_progress_callback=pairing_progress,
+                            simulation_pool=simulation_pool,
+                            cache_key_prefix=(
+                                f"{self.run_name}:rating:{started_at}:"
+                                f"pairing:{spec['pairing_index']}"
+                            ),
+                        )
+                        record_pairing_result(spec, match_summary)
+                finally:
+                    simulation_pool.close()
             else:
                 config_payload = _config_payload_for_simulation(self.config)
                 spec_by_index = {int(spec["pairing_index"]): spec for spec in pairing_specs}
+                simulation_pool = _SimulationPool(worker_count)
+                progress_queue = simulation_pool.progress_queue
                 tasks = [
                     {
                         "pairing_index": int(spec["pairing_index"]),
@@ -3273,18 +3619,34 @@ class SelfPlayTrainer:
                         "policy_b_payload": _policy_payload_for_simulation(
                             self._policy_for_rating_participant(spec["participant_b"])
                         ),
+                        "policy_a_cache_key": f"{self.run_name}:rating:{started_at}:policy:{spec['participant_a']['name']}",
+                        "policy_b_cache_key": f"{self.run_name}:rating:{started_at}:policy:{spec['participant_b']['name']}",
                         "config_payload": config_payload,
                         "games_per_match": int(games_per_pair),
                         "seed": _random_seed(),
                     }
                     for spec in pairing_specs
                 ]
-                with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
-                    futures = [executor.submit(_simulate_balanced_match_payload_worker, task) for task in tasks]
-                    for future in concurrent.futures.as_completed(futures):
-                        match_summary = future.result()
+                try:
+                    simulation_pool.wait_until_ready()
+                    _drain_simulation_progress_queue(progress_queue)
+                    futures = [
+                        simulation_pool.executor.submit(_simulate_balanced_match_payload_worker, task)
+                        for task in tasks
+                    ]
+
+                    def on_progress(delta: int) -> None:
+                        nonlocal progress_games_completed
+                        progress_games_completed = min(games_total, progress_games_completed + int(delta))
+                        emit_rating_progress()
+
+                    def on_result(match_summary: Dict[str, Any]) -> None:
                         spec = spec_by_index[int(match_summary["pairing_index"])]
                         record_pairing_result(spec, match_summary)
+
+                    _consume_simulation_futures(futures, progress_queue, on_progress, on_result)
+                finally:
+                    simulation_pool.close()
 
             candidate_state = self._candidate_state()
             for participant in participants:
@@ -3605,11 +3967,14 @@ class SelfPlayTrainer:
         self,
         scheduled_config: TrainingConfig,
         next_iteration: int,
+        simulation_pool: Optional[_SimulationPool] = None,
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], int]:
         match_count = max(1, int(scheduled_config.training_matches_per_iteration))
         games_per_match = max(1, int(scheduled_config.training_games_per_match))
         total_games = match_count * games_per_match
         worker_count = resolve_simulation_workers(scheduled_config.simulation_workers, total_games)
+        if simulation_pool is not None:
+            worker_count = min(max(1, int(simulation_pool.worker_count)), total_games)
         training_matches: List[Dict[str, Any]] = []
         training_samples: List[Dict[str, Any]] = []
         opponent_summaries: List[Dict[str, Any]] = []
@@ -3620,7 +3985,7 @@ class SelfPlayTrainer:
             opponent_policy, opponent_meta = self._sample_league_opponent()
             match_specs.append((match_index, opponent_policy, opponent_meta))
 
-        if worker_count <= 1 or match_count <= 1:
+        if worker_count <= 1:
             for match_index, opponent_policy, opponent_meta in match_specs:
                 match_summary = _play_match(
                     self.candidate_policy,
@@ -3653,6 +4018,7 @@ class SelfPlayTrainer:
 
         candidate_payload = _policy_payload_for_simulation(self.candidate_policy)
         config_payload = _config_payload_for_simulation(scheduled_config)
+        candidate_cache_key = f"{self.run_name}:iteration:{next_iteration}:candidate:training"
         target_tasks = min(total_games, max(worker_count, worker_count * SIMULATION_TASKS_PER_WORKER))
         if match_count >= worker_count:
             chunk_size = games_per_match
@@ -3664,6 +4030,7 @@ class SelfPlayTrainer:
         opponent_by_match: Dict[int, Dict[str, Any]] = {}
         for match_index, opponent_policy, opponent_meta in match_specs:
             opponent_payload = _policy_payload_for_simulation(opponent_policy)
+            opponent_cache_key = f"{self.run_name}:iteration:{next_iteration}:opponent:{match_index}"
             opponent_by_match[match_index] = opponent_meta
             remaining_games = games_per_match
             while remaining_games > 0:
@@ -3673,6 +4040,8 @@ class SelfPlayTrainer:
                         "match_index": match_index,
                         "policy_a_payload": candidate_payload,
                         "policy_b_payload": opponent_payload,
+                        "policy_a_cache_key": candidate_cache_key,
+                        "policy_b_cache_key": opponent_cache_key,
                         "config_payload": config_payload,
                         "game_count": games_in_chunk,
                         "seed": _random_seed(),
@@ -3687,37 +4056,72 @@ class SelfPlayTrainer:
 
         partials_by_match: Dict[int, List[Dict[str, Any]]] = {match_index: [] for match_index, _, _ in match_specs}
         completed_matches = 0
-        with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
-            futures = [executor.submit(_simulate_payload_match_chunk_worker, task) for task in tasks]
-            for future in concurrent.futures.as_completed(futures):
-                partial = future.result()
-                match_index = int(partial["match_index"])
-                partials = partials_by_match[match_index]
-                partials.append(partial)
-                training_games_completed += int(partial.get("games_played", 0))
+        progress_queue = simulation_pool.progress_queue if simulation_pool is not None else None
+        if progress_queue is not None:
+            _drain_simulation_progress_queue(progress_queue)
 
-                if len(partials) >= expected_chunks_by_match.get(match_index, 0):
-                    match_summary = _combine_match_partials(partials)
-                    opponent_meta = opponent_by_match.get(match_index, {})
-                    match_summary["opponent"] = opponent_meta
-                    training_matches.append(match_summary)
-                    opponent_summaries.append(opponent_meta)
-                    training_samples.extend(self._match_to_training_samples(match_summary))
-                    completed_matches += 1
-                    self._record_live_match_progress(match_summary, "training", training_matches)
-
-                self._set_live_progress(
-                    self._build_training_live_progress(
-                        scheduled_config,
-                        stage="training",
-                        iteration_number=next_iteration,
-                        training_games_completed=training_games_completed,
-                        promotion_games_completed=0,
-                        training_matches_completed=completed_matches,
-                        training_stage_complete=False,
-                        promotion_stage_complete=False,
-                    )
+        def persist_training_progress() -> None:
+            self._set_live_progress(
+                self._build_training_live_progress(
+                    scheduled_config,
+                    stage="training",
+                    iteration_number=next_iteration,
+                    training_games_completed=training_games_completed,
+                    promotion_games_completed=0,
+                    training_matches_completed=completed_matches,
+                    training_stage_complete=False,
+                    promotion_stage_complete=False,
                 )
+            )
+
+        def on_progress(delta: int) -> None:
+            nonlocal training_games_completed
+            training_games_completed = min(total_games, training_games_completed + int(delta))
+            persist_training_progress()
+
+        def on_result(partial: Dict[str, Any]) -> None:
+            nonlocal training_games_completed, completed_matches
+            match_index = int(partial["match_index"])
+            partials = partials_by_match[match_index]
+            partials.append(partial)
+            completed_from_partials = sum(
+                int(item.get("games_played", 0))
+                for match_partials in partials_by_match.values()
+                for item in match_partials
+            )
+            training_games_completed = max(training_games_completed, min(total_games, completed_from_partials))
+
+            if len(partials) >= expected_chunks_by_match.get(match_index, 0):
+                match_summary = _combine_match_partials(partials)
+                opponent_meta = opponent_by_match.get(match_index, {})
+                match_summary["opponent"] = opponent_meta
+                training_matches.append(match_summary)
+                opponent_summaries.append(opponent_meta)
+                training_samples.extend(self._match_to_training_samples(match_summary))
+                completed_matches += 1
+                self._record_live_match_progress(match_summary, "training", training_matches)
+
+            persist_training_progress()
+
+        if simulation_pool is not None:
+            simulation_pool.wait_until_ready()
+            futures = [simulation_pool.executor.submit(_simulate_payload_match_chunk_worker, task) for task in tasks]
+            _consume_simulation_futures(futures, progress_queue, on_progress, on_result)
+            _drain_simulation_progress_queue(progress_queue)
+            return training_matches, training_samples, opponent_summaries, training_games_completed
+
+        progress_context, progress_queue = _create_simulation_progress_queue()
+        try:
+            with _process_pool_executor(
+                max_workers=worker_count,
+                initializer=_simulation_progress_worker_init,
+                initargs=(progress_queue,),
+                mp_context=progress_context,
+            ) as executor:
+                futures = [executor.submit(_simulate_payload_match_chunk_worker, task) for task in tasks]
+                _consume_simulation_futures(futures, progress_queue, on_progress, on_result)
+        finally:
+            _close_simulation_progress_queue(progress_queue)
 
         return training_matches, training_samples, opponent_summaries, training_games_completed
 
@@ -3726,6 +4130,17 @@ class SelfPlayTrainer:
         drought_boost = self._promotion_drought_boost()
         candidate_state = self._candidate_state()
         next_iteration = int(self.state.get("iteration", 0)) + 1
+        training_games_total = (
+            max(1, int(scheduled_config.training_matches_per_iteration))
+            * max(1, int(scheduled_config.training_games_per_match))
+        )
+        promotion_games_total = max(1, int(scheduled_config.promotion_games))
+        simulation_pool = self._get_simulation_pool(
+            resolve_simulation_workers(
+                scheduled_config.simulation_workers,
+                training_games_total + promotion_games_total,
+            )
+        )
 
         self._set_live_progress(
             self._build_training_live_progress(
@@ -3744,6 +4159,7 @@ class SelfPlayTrainer:
         training_matches, training_samples, opponent_summaries, training_games_completed = self._play_training_matches(
             scheduled_config,
             next_iteration,
+            simulation_pool=simulation_pool,
         )
 
         self._set_live_progress(
@@ -3781,7 +4197,7 @@ class SelfPlayTrainer:
             collect_a=False,
             deterministic_a=True,
             deterministic_b=True,
-            games_per_match=max(1, int(scheduled_config.promotion_games)),
+            games_per_match=promotion_games_total,
             game_progress_callback=lambda progress: self._set_live_progress(
                 self._build_training_live_progress(
                     scheduled_config,
@@ -3794,6 +4210,8 @@ class SelfPlayTrainer:
                     promotion_stage_complete=False,
                 )
             ),
+            simulation_pool=simulation_pool,
+            cache_key_prefix=f"{self.run_name}:iteration:{next_iteration}:promotion",
         )
         self._record_live_match_progress(eval_summary, "evaluation", training_matches)
         candidate_score = float(eval_summary["wins_a"]) / max(int(eval_summary["games_played"]), 1)
@@ -3924,6 +4342,7 @@ class SelfPlayTrainer:
                 self.state["last_error"] = f"{type(exc).__name__}: {exc}"
                 self._save()
         finally:
+            self._close_simulation_pool()
             with self._lock:
                 if self.state.get("status") != "error":
                     self.state["status"] = "idle"
@@ -4529,7 +4948,7 @@ def _extract_card_acquire_decisions(game_turn_summaries: Sequence[Dict[str, Any]
 
 def _simulate_card_acquire_elo_chunk_worker(task: Dict[str, Any]) -> Dict[str, Any]:
     _configure_simulation_worker_runtime()
-    policy = PolicyNetwork.from_dict(task["policy_payload"])
+    policy = _policy_from_simulation_payload(task, "policy_payload", "policy_cache_key")
     config = _config_from_payload(task["config_payload"])
     deterministic = bool(task.get("deterministic", True))
     temperature = config.eval_temperature if deterministic else config.train_temperature
@@ -4573,6 +4992,7 @@ def _simulate_card_acquire_elo_chunk_worker(task: Dict[str, Any]) -> Dict[str, A
         games_completed += 1
         if game.ended_by_limit:
             ended_by_limit_games += 1
+        _emit_simulation_game_progress()
         extracted = _extract_card_acquire_decisions(game_turn_summaries)
         turn_summaries += int(extracted.get("turn_summaries", 0))
         eligible_single_acquire_turns += int(extracted.get("eligible_single_acquire_turns", 0))
@@ -4604,10 +5024,21 @@ def run_card_acquire_elo_test(
     config = trainer.config
     state = trainer.state
     resolved_checkpoint = _resolve_checkpoint_name(state, checkpoint) or str(checkpoint or "latest")
-    policy = load_policy(run_name, checkpoint)
+    start_time = time.time()
+    worker_count = resolve_simulation_workers(config.simulation_workers, int(games))
+    simulation_pool = (
+        _SimulationPool(worker_count)
+        if progress_callback is not None and worker_count > 1 and int(games) > 1
+        else None
+    )
+    try:
+        policy = load_policy(run_name, checkpoint)
+    except Exception:
+        if simulation_pool is not None:
+            simulation_pool.close()
+        raise
     temperature = config.eval_temperature if deterministic else config.train_temperature
     epsilon_random = 0.0 if deterministic else config.epsilon_random
-    start_time = time.time()
 
     future_trade_state = _initial_card_choice_rating_state()
     immediate_trade_state = _initial_card_choice_rating_state()
@@ -4669,7 +5100,6 @@ def run_card_acquire_elo_test(
         except Exception:
             pass
 
-    worker_count = resolve_simulation_workers(config.simulation_workers, int(games))
     chunk_sizes = _simulation_chunk_sizes(int(games), worker_count)
     games_completed = 0
 
@@ -4709,17 +5139,18 @@ def run_card_acquire_elo_test(
                     chunk_ended_by_limit_games += 1
                 chunk_turn_summaries.extend(game_turn_summaries)
                 games_completed += 1
+                emit_progress(games_completed)
             extracted = _extract_card_acquire_decisions(chunk_turn_summaries)
             extracted["games_completed"] = chunk_size
             extracted["ended_by_limit_games"] = chunk_ended_by_limit_games
             apply_chunk_result(extracted)
-            emit_progress(games_completed)
     else:
         policy_payload = _policy_payload_for_simulation(policy)
         config_payload = _config_payload_for_simulation(config)
         tasks = [
             {
                 "policy_payload": policy_payload,
+                "policy_cache_key": f"{run_name}:acquire:{resolved_checkpoint}:{start_time}:policy",
                 "config_payload": config_payload,
                 "game_count": chunk_size,
                 "deterministic": bool(deterministic),
@@ -4727,13 +5158,45 @@ def run_card_acquire_elo_test(
             }
             for chunk_size in chunk_sizes
         ]
-        with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
-            futures = [executor.submit(_simulate_card_acquire_elo_chunk_worker, task) for task in tasks]
-            for future in concurrent.futures.as_completed(futures):
-                chunk_result = future.result()
-                games_completed += int(chunk_result.get("games_completed", 0))
-                apply_chunk_result(chunk_result)
-                emit_progress(games_completed)
+        completed_from_results = 0
+        if progress_callback is not None and simulation_pool is not None:
+            progress_queue = simulation_pool.progress_queue
+            try:
+                simulation_pool.wait_until_ready()
+                _drain_simulation_progress_queue(progress_queue)
+                futures = [
+                    simulation_pool.executor.submit(_simulate_card_acquire_elo_chunk_worker, task)
+                    for task in tasks
+                ]
+
+                def on_progress(delta: int) -> None:
+                    nonlocal games_completed
+                    games_completed = min(int(games), games_completed + int(delta))
+                    emit_progress(games_completed)
+
+                def on_result(chunk_result: Dict[str, Any]) -> None:
+                    nonlocal games_completed, completed_from_results
+                    completed_from_results += int(chunk_result.get("games_completed", 0))
+                    games_completed = max(games_completed, min(int(games), completed_from_results))
+                    apply_chunk_result(chunk_result)
+                    emit_progress(games_completed)
+
+                _consume_simulation_futures(futures, progress_queue, on_progress, on_result)
+            finally:
+                simulation_pool.close()
+                simulation_pool = None
+        else:
+            with _process_pool_executor(
+                max_workers=worker_count,
+                initializer=_simulation_progress_worker_init,
+                initargs=(None,),
+            ) as executor:
+                futures = [executor.submit(_simulate_card_acquire_elo_chunk_worker, task) for task in tasks]
+                for future in concurrent.futures.as_completed(futures):
+                    chunk_result = future.result()
+                    completed_from_results += int(chunk_result.get("games_completed", 0))
+                    games_completed = max(games_completed, min(int(games), completed_from_results))
+                    apply_chunk_result(chunk_result)
 
     future_trade_leaderboard, future_trade_normalization_factor, future_trade_explorer_raw_elo = _normalized_card_choice_leaderboard(
         future_trade_state
@@ -4856,8 +5319,6 @@ def play_policy_match(
     if games_per_match <= 0:
         raise ValueError("games_per_match must be positive.")
 
-    policy_a = load_policy(run_name_a, checkpoint_a)
-    policy_b = load_policy(resolved_run_b, checkpoint_b)
     config_a = _get_trainer(run_name_a).config
     config_b = _get_trainer(resolved_run_b).config
     config = config_a.merged(
@@ -4867,13 +5328,31 @@ def play_policy_match(
             "eval_temperature": min(float(config_a.eval_temperature), float(config_b.eval_temperature)),
         }
     )
-    summary = _play_balanced_match(
-        policy_a,
-        policy_b,
-        config,
-        games_per_match=max(1, int(games_per_match)),
-        game_progress_callback=progress_callback,
+    total_games = max(1, int(games_per_match))
+    worker_count = resolve_simulation_workers(config.simulation_workers, total_games)
+    simulation_pool = (
+        _SimulationPool(worker_count)
+        if progress_callback is not None and worker_count > 1 and total_games > 1
+        else None
     )
+    try:
+        policy_a = load_policy(run_name_a, checkpoint_a)
+        policy_b = load_policy(resolved_run_b, checkpoint_b)
+        summary = _play_balanced_match(
+            policy_a,
+            policy_b,
+            config,
+            games_per_match=total_games,
+            game_progress_callback=progress_callback,
+            simulation_pool=simulation_pool,
+            cache_key_prefix=(
+                f"policy-match:{run_name_a}:{checkpoint_a}:"
+                f"{resolved_run_b}:{checkpoint_b}:{time.time()}"
+            ),
+        )
+    finally:
+        if simulation_pool is not None:
+            simulation_pool.close()
     wins_a = int(summary.get("wins_a", 0))
     wins_b = int(summary.get("wins_b", 0))
     if wins_a > wins_b:

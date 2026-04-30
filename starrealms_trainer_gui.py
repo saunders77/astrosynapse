@@ -69,6 +69,8 @@ REFRESH_INTERVAL_COMMAND_MS = 200
 REFRESH_INTERVAL_ACTIVE_MS = 350
 REFRESH_INTERVAL_IDLE_MS = 1000
 REFRESH_INTERVAL_ERROR_MS = 500
+STAGE_STARTUP_PROGRESS_CAP = 12.0
+STAGE_STARTUP_PROGRESS_SECONDS = 18.0
 
 
 @dataclass
@@ -1106,6 +1108,31 @@ class TrainerGUI(tk.Tk):
             return 100.0
         return max(0.0, min(100.0, (100.0 * float(completed)) / float(total)))
 
+    def _stage_startup_progress_value(
+        self,
+        live_progress: Dict[str, Any],
+        stage_name: str,
+        completed: int,
+        total: int,
+        *,
+        complete: bool = False,
+    ) -> float:
+        actual = self._progress_value(completed, total, complete=complete)
+        if complete or completed > 0:
+            return actual
+        if str(live_progress.get("stage", "")).strip().lower() != stage_name:
+            return actual
+        try:
+            updated_at = float(live_progress.get("updated_at", time.time()))
+        except (TypeError, ValueError):
+            updated_at = time.time()
+        elapsed = max(0.0, time.time() - updated_at)
+        startup = min(
+            STAGE_STARTUP_PROGRESS_CAP,
+            STAGE_STARTUP_PROGRESS_CAP * elapsed / max(1.0, STAGE_STARTUP_PROGRESS_SECONDS),
+        )
+        return max(actual, startup)
+
     def _stage_label(self, stage: str) -> str:
         labels = {
             "training": "Training",
@@ -1584,28 +1611,58 @@ class TrainerGUI(tk.Tk):
             iteration_total = max(1, int(live_progress.get("iteration_games_total", training_total + promotion_games)))
             training_complete = bool(live_progress.get("training_stage_complete"))
             promotion_complete = bool(live_progress.get("promotion_stage_complete"))
+            training_value = self._stage_startup_progress_value(
+                live_progress,
+                "training",
+                training_completed,
+                training_total,
+                complete=training_complete,
+            )
+            promotion_value = self._stage_startup_progress_value(
+                live_progress,
+                "promotion",
+                promotion_completed,
+                promotion_games,
+                complete=promotion_complete,
+            )
+            visual_training_completed = training_total * training_value / 100.0
+            visual_promotion_completed = promotion_games * promotion_value / 100.0
+            visual_iteration_completed = max(
+                float(iteration_completed),
+                min(float(iteration_total), visual_training_completed + visual_promotion_completed),
+            )
             self.summary_progress_value_vars["iteration"].set(
-                self._progress_value(
-                    iteration_completed,
-                    iteration_total,
-                    complete=bool(live_progress.get("iteration_complete")),
-                )
+                100.0
+                if bool(live_progress.get("iteration_complete"))
+                else max(0.0, min(100.0, (100.0 * visual_iteration_completed) / float(iteration_total)))
             )
             self.summary_progress_text_vars["iteration"].set(
                 f"Iteration {iteration_number}: {iteration_completed} / {iteration_total} scheduled games | {stage}"
             )
-            self.summary_progress_value_vars["training"].set(
-                self._progress_value(training_completed, training_total, complete=training_complete)
-            )
+            self.summary_progress_value_vars["training"].set(training_value)
             self.summary_progress_text_vars["training"].set(
                 f"{training_completed} / {training_total} games | {matches_completed} / {training_matches} matches"
+                + (
+                    " | starting workers"
+                    if str(live_progress.get("stage", "")).strip().lower() == "training"
+                    and training_completed == 0
+                    and not training_complete
+                    and training_value > 0.0
+                    else ""
+                )
                 + (" | complete" if training_complete else "")
             )
-            self.summary_progress_value_vars["promotion"].set(
-                self._progress_value(promotion_completed, promotion_games, complete=promotion_complete)
-            )
+            self.summary_progress_value_vars["promotion"].set(promotion_value)
             self.summary_progress_text_vars["promotion"].set(
                 f"{promotion_completed} / {promotion_games} games"
+                + (
+                    " | starting workers"
+                    if str(live_progress.get("stage", "")).strip().lower() == "promotion"
+                    and promotion_completed == 0
+                    and not promotion_complete
+                    and promotion_value > 0.0
+                    else ""
+                )
                 + (" | complete" if promotion_complete else f" | {stage}")
             )
             return
