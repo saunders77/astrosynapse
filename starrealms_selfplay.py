@@ -21,7 +21,7 @@ import warnings
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from chooser import choose as human_choose
 from sim import Game, cardDetails, factions
@@ -85,10 +85,14 @@ DIRECTML_BENCHMARK_MINIBATCH_SIZE = 64
 DIRECTML_BENCHMARK_MARGIN = 0.95
 SIMULATION_WORKERS_AUTO = 0
 SIMULATION_TASKS_PER_WORKER = 3
+SIMULATION_IN_FLIGHT_TASKS_PER_WORKER = 2
 SIMULATION_WORKER_CPU_RESERVE = 2
 SIMULATION_WORKER_TORCH_THREADS = 1
 SIMULATION_PROGRESS_POLL_SECONDS = 0.25
 SIMULATION_WORKER_POLICY_CACHE_LIMIT = 32
+DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION = 8192
+DEFAULT_MIN_AVAILABLE_MEMORY_MB = 1024
+MEMORY_SAFETY_CHECK_MATCH_INTERVAL = 16
 
 
 def _normalize_ability(raw_ability: Any) -> str:
@@ -250,6 +254,64 @@ def _format_seconds(seconds: float) -> str:
     return f"{secs}s"
 
 
+def _format_mebibytes(byte_count: int) -> str:
+    return f"{float(max(0, int(byte_count))) / (1024.0 * 1024.0):.0f} MiB"
+
+
+def _available_system_memory_bytes() -> Optional[int]:
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            status = MEMORYSTATUSEX()
+            status.dwLength = ctypes.sizeof(status)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                return int(status.ullAvailPhys)
+        except Exception:
+            return None
+    try:
+        pages = int(os.sysconf("SC_AVPHYS_PAGES"))
+        page_size = int(os.sysconf("SC_PAGE_SIZE"))
+        return pages * page_size
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
+def _memory_safety_threshold_bytes(config: Any) -> int:
+    try:
+        threshold_mb = int(getattr(config, "min_available_memory_mb", DEFAULT_MIN_AVAILABLE_MEMORY_MB))
+    except (TypeError, ValueError):
+        threshold_mb = DEFAULT_MIN_AVAILABLE_MEMORY_MB
+    return max(0, threshold_mb) * 1024 * 1024
+
+
+def _check_memory_safety(config: Any, context: str) -> None:
+    threshold = _memory_safety_threshold_bytes(config)
+    if threshold <= 0:
+        return
+    available = _available_system_memory_bytes()
+    if available is None or available >= threshold:
+        return
+    raise MemoryError(
+        f"Available system memory dropped below the safety threshold while {context}: "
+        f"{_format_mebibytes(available)} free, threshold {_format_mebibytes(threshold)}. "
+        "Training stopped before putting more pressure on the machine."
+    )
+
+
 def default_simulation_workers(cpu_count: Optional[int] = None) -> int:
     logical_cpus = max(1, int(cpu_count or os.cpu_count() or 1))
     if logical_cpus <= 2:
@@ -289,6 +351,14 @@ def _simulation_chunk_sizes(total_items: int, worker_count: int) -> List[int]:
         sizes.append(size)
         remaining -= size
     return sizes
+
+
+def _max_in_flight_simulation_tasks(worker_count: int, task_count: Optional[int] = None) -> int:
+    workers = max(1, int(worker_count))
+    limit = max(workers, workers * SIMULATION_IN_FLIGHT_TASKS_PER_WORKER)
+    if task_count is not None:
+        limit = min(limit, max(1, int(task_count)))
+    return max(1, limit)
 
 
 def _random_seed() -> int:
@@ -951,6 +1021,8 @@ class TrainingConfig:
     plateau_max_train_temperature: float = 1.15
     elo_k: float = 24.0
     max_training_samples_per_match: int = 256
+    max_training_samples_per_iteration: int = DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION
+    min_available_memory_mb: int = DEFAULT_MIN_AVAILABLE_MEMORY_MB
     max_turns_per_game: int = 400
     max_actions_per_turn: int = 200
     max_iterations: Optional[int] = None
@@ -1714,6 +1786,54 @@ def _consume_simulation_futures(
         progress_callback(progress_delta)
 
 
+def _consume_simulation_task_iterator(
+    executor: concurrent.futures.Executor,
+    worker_func: Callable[[Dict[str, Any]], Dict[str, Any]],
+    tasks: Iterable[Dict[str, Any]],
+    *,
+    max_in_flight: int,
+    progress_queue: Optional[Any],
+    progress_callback: Callable[[int], None],
+    result_callback: Callable[[Dict[str, Any]], None],
+) -> None:
+    task_iter = iter(tasks)
+    pending = set()
+    exhausted = False
+
+    def submit_until_full() -> None:
+        nonlocal exhausted
+        while not exhausted and len(pending) < max(1, int(max_in_flight)):
+            try:
+                task = next(task_iter)
+            except StopIteration:
+                exhausted = True
+                break
+            pending.add(executor.submit(worker_func, task))
+
+    try:
+        submit_until_full()
+        while pending:
+            done, pending = concurrent.futures.wait(
+                pending,
+                timeout=SIMULATION_PROGRESS_POLL_SECONDS,
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+            progress_delta = _drain_simulation_progress_queue(progress_queue)
+            if progress_delta > 0:
+                progress_callback(progress_delta)
+            for future in done:
+                result_callback(future.result())
+            submit_until_full()
+
+        progress_delta = _drain_simulation_progress_queue(progress_queue)
+        if progress_delta > 0:
+            progress_callback(progress_delta)
+    except BaseException:
+        for future in pending:
+            future.cancel()
+        raise
+
+
 def _seed_simulation(seed: int) -> None:
     random.seed(int(seed))
     if torch is not None:
@@ -1743,6 +1863,9 @@ def _simulate_match_games(
     per_game_winners: List[str] = []
     ended_by_limit_games = 0
     started_at = _timestamp()
+    collected_step_count = 0
+    collected_step_limit = max(1, int(config.max_training_samples_per_match)) if collect_a else 0
+    decisions_per_game_limit = training_decisions_per_game_limit(config.training_decisions_per_game) if collect_a else None
 
     for _ in range(max(0, int(game_count))):
         game_collector: Optional[List[Dict[str, Any]]] = [] if collect_a else None
@@ -1777,8 +1900,16 @@ def _simulate_match_games(
         if game.ended_by_limit:
             ended_by_limit_games += 1
         if collect_a and collector is not None and trajectory_by_game is not None and game_collector is not None:
-            collector.extend(game_collector)
-            trajectory_by_game.append(game_collector)
+            selected_game_collector = game_collector
+            if decisions_per_game_limit is not None and len(selected_game_collector) > decisions_per_game_limit:
+                selected_game_collector = random.sample(selected_game_collector, decisions_per_game_limit)
+            remaining_slots = max(0, collected_step_limit - collected_step_count)
+            if len(selected_game_collector) > remaining_slots:
+                selected_game_collector = random.sample(selected_game_collector, remaining_slots)
+            if selected_game_collector:
+                collector.extend(selected_game_collector)
+                trajectory_by_game.append(selected_game_collector)
+                collected_step_count += len(selected_game_collector)
         _emit_simulation_game_progress(progress_queue)
 
     return {
@@ -2508,6 +2639,17 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
         saved_config["simulation_workers"] = SIMULATION_WORKERS_AUTO
     else:
         saved_config["simulation_workers"] = normalize_simulation_workers(saved_config.get("simulation_workers"))
+    if "max_training_samples_per_iteration" not in saved_config:
+        saved_config["max_training_samples_per_iteration"] = DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION
+    else:
+        saved_config["max_training_samples_per_iteration"] = max(
+            1,
+            int(saved_config.get("max_training_samples_per_iteration") or DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION),
+        )
+    if "min_available_memory_mb" not in saved_config:
+        saved_config["min_available_memory_mb"] = DEFAULT_MIN_AVAILABLE_MEMORY_MB
+    else:
+        saved_config["min_available_memory_mb"] = max(0, int(saved_config.get("min_available_memory_mb") or 0))
     if config_defaults_version < CONFIG_DEFAULTS_VERSION:
         legacy_default_updates = {
             "promotion_score_threshold": ((0.55,), 0.6),
@@ -3176,6 +3318,33 @@ def _play_balanced_match(
         _close_simulation_progress_queue(progress_queue)
 
     return _combine_balanced_partials(partials, started_at=started_at)
+
+
+def _compact_training_match_summary(match_summary: Dict[str, Any]) -> Dict[str, Any]:
+    compact = dict(match_summary)
+    compact.pop("trajectory", None)
+    compact.pop("trajectory_by_game", None)
+    return compact
+
+
+def _extend_sample_reservoir(
+    reservoir: List[Dict[str, Any]],
+    incoming_samples: Sequence[Dict[str, Any]],
+    *,
+    max_samples: int,
+    seen_count: int,
+) -> int:
+    limit = max(1, int(max_samples))
+    seen = max(0, int(seen_count))
+    for sample in incoming_samples:
+        seen += 1
+        if len(reservoir) < limit:
+            reservoir.append(sample)
+            continue
+        replacement_index = random.randrange(seen)
+        if replacement_index < limit:
+            reservoir[replacement_index] = sample
+    return seen
 
 
 class SelfPlayTrainer:
@@ -3968,7 +4137,7 @@ class SelfPlayTrainer:
         scheduled_config: TrainingConfig,
         next_iteration: int,
         simulation_pool: Optional[_SimulationPool] = None,
-    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], int]:
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], int, int]:
         match_count = max(1, int(scheduled_config.training_matches_per_iteration))
         games_per_match = max(1, int(scheduled_config.training_games_per_match))
         total_games = match_count * games_per_match
@@ -3979,14 +4148,34 @@ class SelfPlayTrainer:
         training_samples: List[Dict[str, Any]] = []
         opponent_summaries: List[Dict[str, Any]] = []
         training_games_completed = 0
+        training_sample_candidates = 0
+        max_iteration_samples = max(1, int(scheduled_config.max_training_samples_per_iteration))
+        _check_memory_safety(scheduled_config, "starting training match collection")
 
-        match_specs: List[Tuple[int, PolicyNetwork, Dict[str, Any]]] = []
-        for match_index in range(match_count):
-            opponent_policy, opponent_meta = self._sample_league_opponent()
-            match_specs.append((match_index, opponent_policy, opponent_meta))
+        def record_completed_match(match_summary: Dict[str, Any], opponent_meta: Dict[str, Any]) -> None:
+            nonlocal training_sample_candidates
+            match_summary["opponent"] = opponent_meta
+            samples = self._match_to_training_samples(match_summary)
+            training_sample_candidates = _extend_sample_reservoir(
+                training_samples,
+                samples,
+                max_samples=max_iteration_samples,
+                seen_count=training_sample_candidates,
+            )
+            compact_summary = _compact_training_match_summary(match_summary)
+            training_matches.append(compact_summary)
+            opponent_summaries.append(opponent_meta)
+            if len(training_matches) % MEMORY_SAFETY_CHECK_MATCH_INTERVAL == 0:
+                _check_memory_safety(
+                    scheduled_config,
+                    f"collecting training match {len(training_matches)} of {match_count}",
+                )
+            self._record_live_match_progress(compact_summary, "training", training_matches)
 
         if worker_count <= 1:
-            for match_index, opponent_policy, opponent_meta in match_specs:
+            for match_index in range(match_count):
+                opponent_policy, opponent_meta = self._sample_league_opponent()
+                completed_before_match = training_games_completed
                 match_summary = _play_match(
                     self.candidate_policy,
                     opponent_policy,
@@ -3995,12 +4184,12 @@ class SelfPlayTrainer:
                     deterministic_a=False,
                     deterministic_b=False,
                     games_per_match=games_per_match,
-                    game_progress_callback=lambda progress, match_index=match_index, training_games_completed=training_games_completed: self._set_live_progress(
+                    game_progress_callback=lambda progress, match_index=match_index, completed_before_match=completed_before_match: self._set_live_progress(
                         self._build_training_live_progress(
                             scheduled_config,
                             stage="training",
                             iteration_number=next_iteration,
-                            training_games_completed=training_games_completed + int(progress.get("games_completed", 0)),
+                            training_games_completed=completed_before_match + int(progress.get("games_completed", 0)),
                             promotion_games_completed=0,
                             training_matches_completed=match_index,
                             training_stage_complete=False,
@@ -4008,13 +4197,15 @@ class SelfPlayTrainer:
                         )
                     ),
                 )
-                match_summary["opponent"] = opponent_meta
-                training_matches.append(match_summary)
-                opponent_summaries.append(opponent_meta)
-                training_samples.extend(self._match_to_training_samples(match_summary))
                 training_games_completed += int(match_summary.get("games_played", 0))
-                self._record_live_match_progress(match_summary, "training", training_matches)
-            return training_matches, training_samples, opponent_summaries, training_games_completed
+                record_completed_match(match_summary, opponent_meta)
+            return (
+                training_matches,
+                training_samples,
+                opponent_summaries,
+                training_games_completed,
+                training_sample_candidates,
+            )
 
         candidate_payload = _policy_payload_for_simulation(self.candidate_policy)
         config_payload = _config_payload_for_simulation(scheduled_config)
@@ -4024,19 +4215,31 @@ class SelfPlayTrainer:
             chunk_size = games_per_match
         else:
             chunk_size = max(1, math.ceil(total_games / max(1, target_tasks)))
+        chunks_per_match = max(1, math.ceil(games_per_match / max(1, chunk_size)))
+        total_task_count = max(1, match_count * chunks_per_match)
+        max_in_flight = _max_in_flight_simulation_tasks(worker_count, total_task_count)
 
-        tasks: List[Dict[str, Any]] = []
         expected_chunks_by_match: Dict[int, int] = {}
         opponent_by_match: Dict[int, Dict[str, Any]] = {}
-        for match_index, opponent_policy, opponent_meta in match_specs:
-            opponent_payload = _policy_payload_for_simulation(opponent_policy)
-            opponent_cache_key = f"{self.run_name}:iteration:{next_iteration}:opponent:{match_index}"
-            opponent_by_match[match_index] = opponent_meta
-            remaining_games = games_per_match
-            while remaining_games > 0:
-                games_in_chunk = min(chunk_size, remaining_games)
-                tasks.append(
-                    {
+        partials_by_match: Dict[int, List[Dict[str, Any]]] = {}
+        completed_matches = 0
+        completed_from_results = 0
+        progress_queue = simulation_pool.progress_queue if simulation_pool is not None else None
+        if progress_queue is not None:
+            _drain_simulation_progress_queue(progress_queue)
+
+        def iter_training_tasks() -> Any:
+            for match_index in range(match_count):
+                opponent_policy, opponent_meta = self._sample_league_opponent()
+                opponent_payload = _policy_payload_for_simulation(opponent_policy)
+                opponent_cache_key = f"{self.run_name}:iteration:{next_iteration}:opponent:{match_index}"
+                opponent_by_match[match_index] = opponent_meta
+                expected_chunks_by_match[match_index] = chunks_per_match
+                remaining_games = games_per_match
+                while remaining_games > 0:
+                    games_in_chunk = min(chunk_size, remaining_games)
+                    remaining_games -= games_in_chunk
+                    yield {
                         "match_index": match_index,
                         "policy_a_payload": candidate_payload,
                         "policy_b_payload": opponent_payload,
@@ -4050,15 +4253,6 @@ class SelfPlayTrainer:
                         "deterministic_b": False,
                         "opponent": opponent_meta,
                     }
-                )
-                expected_chunks_by_match[match_index] = expected_chunks_by_match.get(match_index, 0) + 1
-                remaining_games -= games_in_chunk
-
-        partials_by_match: Dict[int, List[Dict[str, Any]]] = {match_index: [] for match_index, _, _ in match_specs}
-        completed_matches = 0
-        progress_queue = simulation_pool.progress_queue if simulation_pool is not None else None
-        if progress_queue is not None:
-            _drain_simulation_progress_queue(progress_queue)
 
         def persist_training_progress() -> None:
             self._set_live_progress(
@@ -4080,35 +4274,43 @@ class SelfPlayTrainer:
             persist_training_progress()
 
         def on_result(partial: Dict[str, Any]) -> None:
-            nonlocal training_games_completed, completed_matches
+            nonlocal training_games_completed, completed_matches, completed_from_results
             match_index = int(partial["match_index"])
-            partials = partials_by_match[match_index]
+            partials = partials_by_match.setdefault(match_index, [])
             partials.append(partial)
-            completed_from_partials = sum(
-                int(item.get("games_played", 0))
-                for match_partials in partials_by_match.values()
-                for item in match_partials
-            )
-            training_games_completed = max(training_games_completed, min(total_games, completed_from_partials))
+            completed_from_results += int(partial.get("games_played", 0))
+            training_games_completed = max(training_games_completed, min(total_games, completed_from_results))
 
             if len(partials) >= expected_chunks_by_match.get(match_index, 0):
                 match_summary = _combine_match_partials(partials)
-                opponent_meta = opponent_by_match.get(match_index, {})
-                match_summary["opponent"] = opponent_meta
-                training_matches.append(match_summary)
-                opponent_summaries.append(opponent_meta)
-                training_samples.extend(self._match_to_training_samples(match_summary))
+                opponent_meta = opponent_by_match.pop(match_index, {})
+                record_completed_match(match_summary, opponent_meta)
+                partials.clear()
+                partials_by_match.pop(match_index, None)
+                expected_chunks_by_match.pop(match_index, None)
                 completed_matches += 1
-                self._record_live_match_progress(match_summary, "training", training_matches)
 
             persist_training_progress()
 
         if simulation_pool is not None:
             simulation_pool.wait_until_ready()
-            futures = [simulation_pool.executor.submit(_simulate_payload_match_chunk_worker, task) for task in tasks]
-            _consume_simulation_futures(futures, progress_queue, on_progress, on_result)
+            _consume_simulation_task_iterator(
+                simulation_pool.executor,
+                _simulate_payload_match_chunk_worker,
+                iter_training_tasks(),
+                max_in_flight=max_in_flight,
+                progress_queue=progress_queue,
+                progress_callback=on_progress,
+                result_callback=on_result,
+            )
             _drain_simulation_progress_queue(progress_queue)
-            return training_matches, training_samples, opponent_summaries, training_games_completed
+            return (
+                training_matches,
+                training_samples,
+                opponent_summaries,
+                training_games_completed,
+                training_sample_candidates,
+            )
 
         progress_context, progress_queue = _create_simulation_progress_queue()
         try:
@@ -4118,15 +4320,29 @@ class SelfPlayTrainer:
                 initargs=(progress_queue,),
                 mp_context=progress_context,
             ) as executor:
-                futures = [executor.submit(_simulate_payload_match_chunk_worker, task) for task in tasks]
-                _consume_simulation_futures(futures, progress_queue, on_progress, on_result)
+                _consume_simulation_task_iterator(
+                    executor,
+                    _simulate_payload_match_chunk_worker,
+                    iter_training_tasks(),
+                    max_in_flight=max_in_flight,
+                    progress_queue=progress_queue,
+                    progress_callback=on_progress,
+                    result_callback=on_result,
+                )
         finally:
             _close_simulation_progress_queue(progress_queue)
 
-        return training_matches, training_samples, opponent_summaries, training_games_completed
+        return (
+            training_matches,
+            training_samples,
+            opponent_summaries,
+            training_games_completed,
+            training_sample_candidates,
+        )
 
     def train_iteration(self) -> Dict[str, Any]:
         scheduled_config = self._scheduled_training_config()
+        _check_memory_safety(scheduled_config, "starting training iteration")
         drought_boost = self._promotion_drought_boost()
         candidate_state = self._candidate_state()
         next_iteration = int(self.state.get("iteration", 0)) + 1
@@ -4156,7 +4372,13 @@ class SelfPlayTrainer:
             force_persist=True,
         )
 
-        training_matches, training_samples, opponent_summaries, training_games_completed = self._play_training_matches(
+        (
+            training_matches,
+            training_samples,
+            opponent_summaries,
+            training_games_completed,
+            training_sample_candidates,
+        ) = self._play_training_matches(
             scheduled_config,
             next_iteration,
             simulation_pool=simulation_pool,
@@ -4175,6 +4397,7 @@ class SelfPlayTrainer:
             ),
             force_persist=True,
         )
+        _check_memory_safety(scheduled_config, "starting PPO optimization")
         update_stats = self.candidate_policy.train_on_samples(training_samples, scheduled_config)
         training_summary = self._summarize_training_matches(training_matches)
         self._set_live_progress(
@@ -4190,6 +4413,7 @@ class SelfPlayTrainer:
             ),
             force_persist=True,
         )
+        _check_memory_safety(scheduled_config, "starting promotion evaluation")
         eval_summary = _play_match(
             self.candidate_policy,
             self.policy,
@@ -4243,6 +4467,9 @@ class SelfPlayTrainer:
             "epsilon_multiplier": round(float(drought_boost["epsilon_multiplier"]), 4),
             "temperature_multiplier": round(float(drought_boost["temperature_multiplier"]), 4),
             "matches_collected": len(training_matches),
+            "samples_collected": len(training_samples),
+            "sample_candidates": int(training_sample_candidates),
+            "max_training_samples_per_iteration": int(scheduled_config.max_training_samples_per_iteration),
         }
 
         if promoted:
