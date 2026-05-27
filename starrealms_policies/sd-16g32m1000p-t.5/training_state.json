@@ -7,7 +7,7 @@
   "total_games": 12096,
   "created_at": 1779852346.24279,
   "created_datetime": "2026-05-26 20:25:46",
-  "updated_at": 1779853405.2453055,
+  "updated_at": 1779853570.641463,
   "forked_from": {
     "run_name": "sd-16g32m1000p",
     "checkpoint": "best",
@@ -820,5 +820,6 @@
       "source_checkpoint": "champion_000111.json"
     }
   ],
-  "last_error": null
+  "last_error": null,
+  "last_promotion_datetime": ""
 }

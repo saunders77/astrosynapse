@@ -5,7 +5,7 @@
   "total_matches": 18112,
   "total_games": 147446,
   "created_at": 1776922755.833662,
-  "updated_at": 1779842581.4434764,
+  "updated_at": 1779853583.9505103,
   "strategy": "champion_league_v2",
   "strategy_version": 2,
   "current_elo": 1619.2652191820055,
@@ -60,7 +60,14 @@
     "training_decisions_per_game": "ALL",
     "simulation_workers": 0,
     "max_training_samples_per_iteration": 8192,
-    "min_available_memory_mb": 1024
+    "min_available_memory_mb": 1024,
+    "opponent_normal_weight": 0.6,
+    "opponent_learnable_weight": 0.3,
+    "opponent_chaotic_weight": 0.1,
+    "opponent_learnable_temperature": 1.4,
+    "opponent_chaotic_temperature": 1.9,
+    "opponent_learnable_epsilon_random": 0.1,
+    "opponent_chaotic_epsilon_random": 0.14
   },
   "last_match": {
     "wins": 1,
@@ -3188,12 +3195,16 @@
     }
   ],
   "last_error": null,
-  "config_defaults_version": 3,
+  "config_defaults_version": 5,
   "device_plan": {
     "requested_backend": "cpu",
     "backend": "cpu",
     "repr": "cpu",
     "reason": "",
     "benchmark": null
-  }
+  },
+  "created_datetime": "2026-04-22 22:39:15",
+  "forked_from": null,
+  "last_promotion_at": 1776963028.129516,
+  "last_promotion_datetime": "2026-04-23 09:50:28"
 }

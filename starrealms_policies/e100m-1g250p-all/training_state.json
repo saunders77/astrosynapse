@@ -5,7 +5,7 @@
   "total_matches": 537,
   "total_games": 1576,
   "created_at": 1777334233.2546828,
-  "updated_at": 1777334840.6943793,
+  "updated_at": 1779853610.0425599,
   "strategy": "champion_league_v2",
   "strategy_version": 2,
   "current_elo": 1007.114394259181,
@@ -29,7 +29,7 @@
     "epsilon_random": 0.07,
     "min_epsilon_random": 0.015,
     "train_temperature": 0.95,
-    "min_train_temperature": 0.527778,
+    "min_train_temperature": 0.95,
     "eval_temperature": 0.35,
     "checkpoint_interval": 1,
     "training_matches_per_iteration": 100,
@@ -49,15 +49,25 @@
     "plateau_full_iterations_without_promotion": 36,
     "plateau_learning_rate_boost": 1.7,
     "plateau_epsilon_boost": 2.4,
-    "plateau_temperature_boost": 1.22,
+    "plateau_temperature_boost": 1.0,
     "plateau_max_learning_rate": 0.0033,
     "plateau_max_epsilon_random": 0.16,
-    "plateau_max_train_temperature": 1.213889,
+    "plateau_max_train_temperature": 0.95,
     "elo_k": 24.0,
     "max_training_samples_per_match": 256,
     "max_turns_per_game": 400,
     "max_actions_per_turn": 200,
-    "max_iterations": null
+    "max_iterations": null,
+    "simulation_workers": 0,
+    "max_training_samples_per_iteration": 8192,
+    "min_available_memory_mb": 1024,
+    "opponent_normal_weight": 0.6,
+    "opponent_learnable_weight": 0.3,
+    "opponent_chaotic_weight": 0.1,
+    "opponent_learnable_temperature": 1.4,
+    "opponent_chaotic_temperature": 1.9,
+    "opponent_learnable_epsilon_random": 0.1,
+    "opponent_chaotic_epsilon_random": 0.14
   },
   "last_match": {
     "wins": 59,
@@ -2980,5 +2990,17 @@
       }
     }
   ],
-  "last_error": null
+  "last_error": null,
+  "config_defaults_version": 5,
+  "created_datetime": "2026-04-27 16:57:13",
+  "forked_from": null,
+  "last_promotion_at": 1777334742.195732,
+  "last_promotion_datetime": "2026-04-27 17:05:42",
+  "device_plan": {
+    "requested_backend": "cpu",
+    "backend": "cpu",
+    "repr": "cpu",
+    "reason": "",
+    "benchmark": null
+  }
 }

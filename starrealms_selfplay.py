@@ -2259,6 +2259,8 @@ def _simulate_payload_balanced_chunk_worker(task: Dict[str, Any]) -> Dict[str, A
         deterministic_b=True,
     )
     result["swapped"] = swapped
+    if "pairing_index" in task:
+        result["pairing_index"] = int(task["pairing_index"])
     return result
 
 
@@ -5528,7 +5530,10 @@ def _sample_cross_run_pair(
             planned_games = int(planned_pair_counts.get(key, 0))
             pair_penalty = 1.0 / math.sqrt(float(existing_games + planned_games) + 1.0)
             choices.append(((run_name_a, run_name_b), weights.get(run_name_a, 1.0) * weights.get(run_name_b, 1.0) * pair_penalty))
-    return _weighted_choice(choices)
+    run_name_a, run_name_b = _weighted_choice(choices)
+    if random.random() < 0.5:
+        return run_name_b, run_name_a
+    return run_name_a, run_name_b
 
 
 def _cross_run_config_for_pair(
@@ -5608,6 +5613,136 @@ def cross_run_rating_summary() -> Dict[str, Any]:
         }
 
 
+def _cross_run_pair_tasks(
+    pair_counts: Dict[Tuple[str, str], int],
+    participant_by_name: Dict[str, Dict[str, Any]],
+    resolved_workers: int,
+    started_at: float,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    pairings: List[Dict[str, Any]] = []
+    tasks: List[Dict[str, Any]] = []
+    for pairing_index, ((run_name_a, run_name_b), game_count) in enumerate(pair_counts.items()):
+        participant_a = participant_by_name[run_name_a]
+        participant_b = participant_by_name[run_name_b]
+        checkpoint_a = str(participant_a["checkpoint"])
+        checkpoint_b = str(participant_b["checkpoint"])
+        policy_a = _cached_policy(run_name_a, checkpoint_a)
+        policy_b = _cached_policy(run_name_b, checkpoint_b)
+        config = _cross_run_config_for_pair(run_name_a, run_name_b, 1)
+        policy_a_payload = _policy_payload_for_simulation(policy_a)
+        policy_b_payload = _policy_payload_for_simulation(policy_b)
+        config_payload = _config_payload_for_simulation(config)
+        prefix = (
+            f"cross-run:{run_name_a}:{checkpoint_a}:"
+            f"{run_name_b}:{checkpoint_b}:{started_at:.6f}"
+        )
+        pairings.append(
+            {
+                "run_a": run_name_a,
+                "checkpoint_a": checkpoint_a,
+                "participant_a": participant_a,
+                "run_b": run_name_b,
+                "checkpoint_b": checkpoint_b,
+                "participant_b": participant_b,
+                "games_target": int(game_count),
+                "pending_chunks": 0,
+                "partials": [],
+            }
+        )
+        if int(game_count) <= 1:
+            chunk_tasks = [{"game_count": 1, "seed": _random_seed(), "swapped": False}]
+        else:
+            games_as_first = max(1, int(game_count) // 2)
+            games_as_second = max(1, int(game_count) - games_as_first)
+            chunk_tasks = [
+                {"game_count": chunk_size, "seed": _random_seed(), "swapped": False}
+                for chunk_size in _simulation_chunk_sizes(games_as_first, resolved_workers)
+            ]
+            chunk_tasks.extend(
+                {
+                    "game_count": chunk_size,
+                    "seed": _random_seed(),
+                    "swapped": True,
+                }
+                for chunk_size in _simulation_chunk_sizes(games_as_second, resolved_workers)
+            )
+        pairings[pairing_index]["pending_chunks"] = len(chunk_tasks)
+        for task in chunk_tasks:
+            tasks.append(
+                {
+                    **task,
+                    "pairing_index": pairing_index,
+                    "policy_a_payload": policy_a_payload,
+                    "policy_b_payload": policy_b_payload,
+                    "policy_a_cache_key": f"{prefix}:a",
+                    "policy_b_cache_key": f"{prefix}:b",
+                    "config_payload": config_payload,
+                }
+            )
+    return pairings, tasks
+
+
+def _apply_cross_run_pair_result(
+    state: Dict[str, Any],
+    participant_a: Dict[str, Any],
+    participant_b: Dict[str, Any],
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    run_name_a = str(participant_a["run_name"])
+    run_name_b = str(participant_b["run_name"])
+    entry_a = _ensure_cross_run_rating_entry(state, participant_a)
+    entry_b = _ensure_cross_run_rating_entry(state, participant_b)
+    pair_key, pair_entry = _cross_run_pair_entry(state, run_name_a, run_name_b)
+    left_name = str(pair_entry["run_a"])
+    played = int(summary.get("games_played", 0))
+    winners = list(summary.get("per_game_winners") or [])
+    if len(winners) < played:
+        winners.extend(["policy_a"] * max(0, int(summary.get("wins_a", 0)) - winners.count("policy_a")))
+        winners.extend(["policy_b"] * max(0, int(summary.get("wins_b", 0)) - winners.count("policy_b")))
+    for winner in winners[:played]:
+        old_a = float(entry_a.get("elo", INITIAL_ELO))
+        old_b = float(entry_b.get("elo", INITIAL_ELO))
+        if winner == "policy_a":
+            score_a = 1.0
+            entry_a["wins"] = int(entry_a.get("wins", 0)) + 1
+            entry_b["losses"] = int(entry_b.get("losses", 0)) + 1
+            if run_name_a == left_name:
+                pair_entry["wins_a"] = int(pair_entry.get("wins_a", 0)) + 1
+            else:
+                pair_entry["wins_b"] = int(pair_entry.get("wins_b", 0)) + 1
+        elif winner == "policy_b":
+            score_a = 0.0
+            entry_b["wins"] = int(entry_b.get("wins", 0)) + 1
+            entry_a["losses"] = int(entry_a.get("losses", 0)) + 1
+            if run_name_b == left_name:
+                pair_entry["wins_a"] = int(pair_entry.get("wins_a", 0)) + 1
+            else:
+                pair_entry["wins_b"] = int(pair_entry.get("wins_b", 0)) + 1
+        else:
+            score_a = 0.5
+            entry_a["draws"] = int(entry_a.get("draws", 0)) + 1
+            entry_b["draws"] = int(entry_b.get("draws", 0)) + 1
+            pair_entry["draws"] = int(pair_entry.get("draws", 0)) + 1
+        new_a, new_b = _elo_update(old_a, old_b, score_a, CROSS_RUN_ELO_K_FACTOR)
+        entry_a["elo"] = float(new_a)
+        entry_b["elo"] = float(new_b)
+        entry_a["games"] = int(entry_a.get("games", 0)) + 1
+        entry_b["games"] = int(entry_b.get("games", 0)) + 1
+        pair_entry["games"] = int(pair_entry.get("games", 0)) + 1
+        state["total_games"] = int(state.get("total_games", 0)) + 1
+    now = _timestamp()
+    entry_a["last_played_at"] = now
+    entry_b["last_played_at"] = now
+    confidence_a = _cross_run_confidence_radius(entry_a.get("games", 0))
+    confidence_b = _cross_run_confidence_radius(entry_b.get("games", 0))
+    entry_a["confidence_radius"] = None if confidence_a is None else float(confidence_a)
+    entry_b["confidence_radius"] = None if confidence_b is None else float(confidence_b)
+    state["ratings"][run_name_a] = entry_a
+    state["ratings"][run_name_b] = entry_b
+    state["pairings"][pair_key] = pair_entry
+    return pair_entry
+
+
 def run_cross_run_calibration_games(
     games: int = 200,
     progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
@@ -5665,97 +5800,31 @@ def run_cross_run_calibration_games(
             total_games,
             allocation_key=allocation_key,
         )
+        pairings, tasks = _cross_run_pair_tasks(pair_counts, participant_by_name, resolved_workers, started_at)
         simulation_pool = _SimulationPool(resolved_workers) if resolved_workers > 1 and total_games > 1 else None
-        for (run_name_a, run_name_b), game_count in pair_counts.items():
-            participant_a = participant_by_name[run_name_a]
-            participant_b = participant_by_name[run_name_b]
-            checkpoint_a = str(participant_a["checkpoint"])
-            checkpoint_b = str(participant_b["checkpoint"])
-            policy_a = _cached_policy(run_name_a, checkpoint_a)
-            policy_b = _cached_policy(run_name_b, checkpoint_b)
-            config = _cross_run_config_for_pair(run_name_a, run_name_b, resolved_workers)
+        finished_games = 0
 
-            def pair_progress(progress: Dict[str, Any]) -> None:
-                if progress_callback is None:
-                    return
-                pair_completed = completed_games + int(progress.get("games_completed", 0))
-                emit_progress(pair_completed, pairings_completed, len(pair_counts))
-
-            summary = _play_balanced_match(
-                policy_a,
-                policy_b,
-                config,
-                games_per_match=int(game_count),
-                game_progress_callback=pair_progress,
-                simulation_pool=simulation_pool,
-                cache_key_prefix=(
-                    f"cross-run:{run_name_a}:{checkpoint_a}:"
-                    f"{run_name_b}:{checkpoint_b}:{started_at:.6f}"
-                ),
-            )
-            pairings_completed += 1
+        def record_completed_pair(pairing: Dict[str, Any], summary: Dict[str, Any]) -> None:
+            nonlocal completed_games, pairings_completed, finished_games
+            participant_a = dict(pairing["participant_a"])
+            participant_b = dict(pairing["participant_b"])
+            run_name_a = str(pairing["run_a"])
+            run_name_b = str(pairing["run_b"])
             played = int(summary.get("games_played", 0))
-            completed_games += played
+            finished_games += played
+            completed_games = max(completed_games, min(total_games, finished_games))
+            pairings_completed += 1
 
             with _CROSS_RUN_RATING_LOCK:
                 state = _load_cross_run_rating_state()
-                entry_a = _ensure_cross_run_rating_entry(state, participant_a)
-                entry_b = _ensure_cross_run_rating_entry(state, participant_b)
-                pair_key, pair_entry = _cross_run_pair_entry(state, run_name_a, run_name_b)
-                left_name = str(pair_entry["run_a"])
-                right_name = str(pair_entry["run_b"])
-                winners = list(summary.get("per_game_winners") or [])
-                if len(winners) < played:
-                    winners.extend(["policy_a"] * max(0, int(summary.get("wins_a", 0)) - winners.count("policy_a")))
-                    winners.extend(["policy_b"] * max(0, int(summary.get("wins_b", 0)) - winners.count("policy_b")))
-                for winner in winners[:played]:
-                    old_a = float(entry_a.get("elo", INITIAL_ELO))
-                    old_b = float(entry_b.get("elo", INITIAL_ELO))
-                    if winner == "policy_a":
-                        score_a = 1.0
-                        entry_a["wins"] = int(entry_a.get("wins", 0)) + 1
-                        entry_b["losses"] = int(entry_b.get("losses", 0)) + 1
-                        if run_name_a == left_name:
-                            pair_entry["wins_a"] = int(pair_entry.get("wins_a", 0)) + 1
-                        else:
-                            pair_entry["wins_b"] = int(pair_entry.get("wins_b", 0)) + 1
-                    elif winner == "policy_b":
-                        score_a = 0.0
-                        entry_b["wins"] = int(entry_b.get("wins", 0)) + 1
-                        entry_a["losses"] = int(entry_a.get("losses", 0)) + 1
-                        if run_name_b == left_name:
-                            pair_entry["wins_a"] = int(pair_entry.get("wins_a", 0)) + 1
-                        else:
-                            pair_entry["wins_b"] = int(pair_entry.get("wins_b", 0)) + 1
-                    else:
-                        score_a = 0.5
-                        entry_a["draws"] = int(entry_a.get("draws", 0)) + 1
-                        entry_b["draws"] = int(entry_b.get("draws", 0)) + 1
-                        pair_entry["draws"] = int(pair_entry.get("draws", 0)) + 1
-                    new_a, new_b = _elo_update(old_a, old_b, score_a, CROSS_RUN_ELO_K_FACTOR)
-                    entry_a["elo"] = float(new_a)
-                    entry_b["elo"] = float(new_b)
-                    entry_a["games"] = int(entry_a.get("games", 0)) + 1
-                    entry_b["games"] = int(entry_b.get("games", 0)) + 1
-                    pair_entry["games"] = int(pair_entry.get("games", 0)) + 1
-                    state["total_games"] = int(state.get("total_games", 0)) + 1
-                now = _timestamp()
-                entry_a["last_played_at"] = now
-                entry_b["last_played_at"] = now
-                confidence_a = _cross_run_confidence_radius(entry_a.get("games", 0))
-                confidence_b = _cross_run_confidence_radius(entry_b.get("games", 0))
-                entry_a["confidence_radius"] = None if confidence_a is None else float(confidence_a)
-                entry_b["confidence_radius"] = None if confidence_b is None else float(confidence_b)
-                state["ratings"][run_name_a] = entry_a
-                state["ratings"][run_name_b] = entry_b
-                state["pairings"][pair_key] = pair_entry
+                _apply_cross_run_pair_result(state, participant_a, participant_b, summary)
                 state["last_calibration"] = {
                     "status": "running",
                     "started_at": started_at,
                     "games_completed": completed_games,
                     "games_target": total_games,
                     "pairings_completed": pairings_completed,
-                    "pairings_total": len(pair_counts),
+                    "pairings_total": len(pairings),
                     "resolved_simulation_workers": resolved_workers,
                 }
                 _save_cross_run_rating_state(state)
@@ -5763,15 +5832,50 @@ def run_cross_run_calibration_games(
             pair_results.append(
                 {
                     "run_a": run_name_a,
-                    "checkpoint_a": checkpoint_a,
+                    "checkpoint_a": pairing["checkpoint_a"],
                     "run_b": run_name_b,
-                    "checkpoint_b": checkpoint_b,
+                    "checkpoint_b": pairing["checkpoint_b"],
                     "games_played": played,
                     "wins_a": int(summary.get("wins_a", 0)),
                     "wins_b": int(summary.get("wins_b", 0)),
                 }
             )
-            emit_progress(completed_games, pairings_completed, len(pair_counts))
+            emit_progress(completed_games, pairings_completed, len(pairings))
+
+        def on_progress(delta: int) -> None:
+            nonlocal completed_games
+            completed_games = min(total_games, completed_games + int(delta))
+            emit_progress(completed_games, pairings_completed, len(pairings))
+
+        def on_result(partial: Dict[str, Any]) -> None:
+            pairing_index = int(partial["pairing_index"])
+            pairing = pairings[pairing_index]
+            pairing["partials"].append(partial)
+            pairing["pending_chunks"] = int(pairing.get("pending_chunks", 0)) - 1
+            if int(pairing["pending_chunks"]) > 0:
+                return
+            summary = _combine_balanced_partials(list(pairing.get("partials") or []))
+            record_completed_pair(pairing, summary)
+
+        if simulation_pool is not None:
+            progress_queue = simulation_pool.progress_queue
+            simulation_pool.wait_until_ready()
+            _drain_simulation_progress_queue(progress_queue)
+            _consume_simulation_task_iterator(
+                simulation_pool.executor,
+                _simulate_payload_balanced_chunk_worker,
+                tasks,
+                max_in_flight=_max_in_flight_simulation_tasks(resolved_workers, len(tasks)),
+                progress_queue=progress_queue,
+                progress_callback=on_progress,
+                result_callback=on_result,
+            )
+            _drain_simulation_progress_queue(progress_queue)
+        else:
+            for task in tasks:
+                partial = _simulate_payload_balanced_chunk_worker(task)
+                on_progress(int(partial.get("games_played", 0)))
+                on_result(partial)
     finally:
         if simulation_pool is not None:
             simulation_pool.close()

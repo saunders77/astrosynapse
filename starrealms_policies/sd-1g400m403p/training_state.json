@@ -1,12 +1,12 @@
 {
   "status": "idle",
   "run_name": "sd-1g400m403p",
-  "config_defaults_version": 3,
+  "config_defaults_version": 5,
   "iteration": 889,
   "total_matches": 356489,
   "total_games": 711200,
   "created_at": 1778306066.2619276,
-  "updated_at": 1779844745.5724754,
+  "updated_at": 1779853587.3769581,
   "strategy": "champion_league_v2",
   "strategy_version": 2,
   "current_elo": 1099.4800000000012,
@@ -61,7 +61,14 @@
     "max_actions_per_turn": 200,
     "max_iterations": null,
     "max_training_samples_per_iteration": 8192,
-    "min_available_memory_mb": 1024
+    "min_available_memory_mb": 1024,
+    "opponent_normal_weight": 0.6,
+    "opponent_learnable_weight": 0.3,
+    "opponent_chaotic_weight": 0.1,
+    "opponent_learnable_temperature": 1.4,
+    "opponent_chaotic_temperature": 1.9,
+    "opponent_learnable_epsilon_random": 0.1,
+    "opponent_chaotic_epsilon_random": 0.14
   },
   "last_match": {
     "wins": 214,
@@ -120646,5 +120653,8 @@
     "conversion_mode": "cloned_exact",
     "created_at": 1778306066.2619276
   },
-  "last_error": null
+  "last_error": null,
+  "created_datetime": "2026-05-08 22:54:26",
+  "last_promotion_at": 1778431316.741163,
+  "last_promotion_datetime": "2026-05-10 09:41:56"
 }

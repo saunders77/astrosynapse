@@ -3,6 +3,8 @@
   "state_size": 546,
   "option_size": 109,
   "hidden_size": 16,
+  "architecture": "legacy_v1",
+  "device_preference": "auto",
   "state_dict": {
     "joint_bias": [
       -0.016007328405976295,

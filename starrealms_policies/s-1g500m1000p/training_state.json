@@ -1,12 +1,12 @@
 {
   "status": "idle",
   "run_name": "s-1g500m1000p",
-  "config_defaults_version": 3,
+  "config_defaults_version": 5,
   "iteration": 1,
   "total_matches": 501,
   "total_games": 9000,
   "created_at": 1778598894.7432818,
-  "updated_at": 1779842459.3526835,
+  "updated_at": 1779853575.6663432,
   "strategy": "champion_league_v2",
   "strategy_version": 2,
   "current_elo": 1000.0,
@@ -61,7 +61,14 @@
     "min_available_memory_mb": 1024,
     "max_turns_per_game": 400,
     "max_actions_per_turn": 200,
-    "max_iterations": null
+    "max_iterations": null,
+    "opponent_normal_weight": 0.6,
+    "opponent_learnable_weight": 0.3,
+    "opponent_chaotic_weight": 0.1,
+    "opponent_learnable_temperature": 1.4,
+    "opponent_chaotic_temperature": 1.9,
+    "opponent_learnable_epsilon_random": 0.1,
+    "opponent_chaotic_epsilon_random": 0.14
   },
   "last_match": {
     "wins": 3984,
@@ -5168,5 +5175,7 @@
     "conversion_mode": "cloned_exact",
     "created_at": 1778598894.7432818
   },
-  "last_error": null
+  "last_error": null,
+  "created_datetime": "2026-05-12 08:14:54",
+  "last_promotion_datetime": ""
 }

@@ -6,7 +6,7 @@
   "total_matches": 4257,
   "total_games": 195048,
   "created_at": 1779845120.5122623,
-  "updated_at": 1779853341.7868319,
+  "updated_at": 1779853576.0777273,
   "strategy": "champion_league_v2",
   "strategy_version": 2,
   "current_elo": 1002.2080000000001,
@@ -5543,5 +5543,7 @@
     "created_at": 1779845120.5122623
   },
   "last_error": null,
-  "created_datetime": "2026-05-26 18:25:20"
+  "created_datetime": "2026-05-26 18:25:20",
+  "last_promotion_at": 1779850250.1663578,
+  "last_promotion_datetime": "2026-05-26 19:50:50"
 }
