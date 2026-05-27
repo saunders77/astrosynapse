@@ -2,8 +2,8 @@
   "version": 1,
   "created_at": 1779853568.0189946,
   "created_datetime": "2026-05-26 20:46:08",
-  "updated_at": 1779854437.1763487,
-  "total_games": 2800,
+  "updated_at": 1779854808.9774945,
+  "total_games": 4800,
   "ratings": {
     "s-1g500m1001p": {
       "run_name": "s-1g500m1001p",
@@ -39,10 +39,10 @@
     },
     "sd-16g32m1000p": {
       "run_name": "sd-16g32m1000p",
-      "elo": 1285.7624913987183,
-      "games": 185,
-      "wins": 146,
-      "losses": 39,
+      "elo": 1281.6513966479197,
+      "games": 409,
+      "wins": 249,
+      "losses": 160,
       "draws": 0,
       "best_checkpoint": "champion_000111.json",
       "best_iteration": 129,
@@ -50,15 +50,15 @@
       "created_datetime": "2026-05-26 18:25:20",
       "fork_origin": "sd-1g400m403p/champion_000886.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779854435.5018735,
-      "confidence_radius": 49.99459430237892
+      "last_played_at": 1779854684.466856,
+      "confidence_radius": 33.623835997522114
     },
     "sd-1g10000m500p-single": {
       "run_name": "sd-1g10000m500p-single",
-      "elo": 1318.473213690986,
-      "games": 148,
-      "wins": 125,
-      "losses": 23,
+      "elo": 1315.1656781096935,
+      "games": 365,
+      "wins": 246,
+      "losses": 119,
       "draws": 0,
       "best_checkpoint": "champion_000050.json",
       "best_iteration": 52,
@@ -66,15 +66,15 @@
       "created_datetime": "2026-05-10 09:55:42",
       "fork_origin": "sd-1g200m202p/champion_000910.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779854435.3312576,
-      "confidence_radius": 55.89565568382148
+      "last_played_at": 1779854683.8996484,
+      "confidence_radius": 35.59282673613453
     },
     "sd-1g400m403p": {
       "run_name": "sd-1g400m403p",
-      "elo": 1349.5028386373328,
-      "games": 131,
-      "wins": 111,
-      "losses": 20,
+      "elo": 1339.6020329393064,
+      "games": 1339,
+      "wins": 730,
+      "losses": 609,
       "draws": 0,
       "best_checkpoint": "champion_000886.json",
       "best_iteration": 889,
@@ -82,15 +82,15 @@
       "created_datetime": "2026-05-08 22:54:26",
       "fork_origin": "sd-1g200m202p/champion_000910.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779854433.367499,
-      "confidence_radius": 59.41187585295058
+      "last_played_at": 1779854808.1337328,
+      "confidence_radius": 18.58311969410269
     },
     "sd-1g200m202p": {
       "run_name": "sd-1g200m202p",
-      "elo": 1305.2890255518732,
-      "games": 144,
-      "wins": 119,
-      "losses": 25,
+      "elo": 1292.5995020421672,
+      "games": 340,
+      "wins": 225,
+      "losses": 115,
       "draws": 0,
       "best_checkpoint": "champion_000910.json",
       "best_iteration": 965,
@@ -98,15 +98,15 @@
       "created_datetime": "2026-04-29 18:38:33",
       "fork_origin": "sd-1g50m201p/champion_002624.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779854434.7048483,
-      "confidence_radius": 56.666666666666664
+      "last_played_at": 1779854684.5108593,
+      "confidence_radius": 36.87817782917155
     },
     "sd-1g50m201p": {
       "run_name": "sd-1g50m201p",
-      "elo": 1265.6357569074707,
-      "games": 120,
-      "wins": 96,
-      "losses": 24,
+      "elo": 1408.0130820260747,
+      "games": 1319,
+      "wins": 690,
+      "losses": 629,
       "draws": 0,
       "best_checkpoint": "champion_002850.json",
       "best_iteration": 2902,
@@ -114,15 +114,15 @@
       "created_datetime": "2026-04-27 18:28:38",
       "fork_origin": "s-1g7m64p/champion_002262.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779854435.306262,
-      "confidence_radius": 62.07522318391882
+      "last_played_at": 1779854808.1337328,
+      "confidence_radius": 18.72347757723687
     },
     "s-1g50m201p": {
       "run_name": "s-1g50m201p",
-      "elo": 1275.4785602607085,
-      "games": 122,
-      "wins": 98,
-      "losses": 24,
+      "elo": 1318.298605169337,
+      "games": 333,
+      "wins": 186,
+      "losses": 147,
       "draws": 0,
       "best_checkpoint": "champion_000126.json",
       "best_iteration": 135,
@@ -130,8 +130,8 @@
       "created_datetime": "2026-04-28 13:12:36",
       "fork_origin": "s-1g7m64p/champion_002262.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779854435.5430675,
-      "confidence_radius": 61.564307308912596
+      "last_played_at": 1779854683.20477,
+      "confidence_radius": 37.26377045588099
     },
     "d-1g50m200p": {
       "run_name": "d-1g50m200p",
@@ -535,10 +535,10 @@
     },
     "sd-16g32m1000p-t.5": {
       "run_name": "sd-16g32m1000p-t.5",
-      "elo": 1352.713315294281,
-      "games": 236,
-      "wins": 189,
-      "losses": 47,
+      "elo": 1284.616352525356,
+      "games": 526,
+      "wins": 339,
+      "losses": 187,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 8,
@@ -546,15 +546,15 @@
       "created_datetime": "2026-05-26 20:25:46",
       "fork_origin": "sd-16g32m1000p/champion_000111.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779854434.652134,
-      "confidence_radius": 44.264229733480114
+      "last_played_at": 1779854682.6541982,
+      "confidence_radius": 29.649408973392422
     },
     "sd-16g32m1000p-t.75": {
       "run_name": "sd-16g32m1000p-t.75",
-      "elo": 1286.201498905959,
-      "games": 182,
-      "wins": 148,
-      "losses": 34,
+      "elo": 1245.9666075693024,
+      "games": 438,
+      "wins": 276,
+      "losses": 162,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 8,
@@ -562,8 +562,8 @@
       "created_datetime": "2026-05-26 20:25:31",
       "fork_origin": "sd-16g32m1000p/champion_000111.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779854435.6187587,
-      "confidence_radius": 50.40495353295488
+      "last_played_at": 1779854684.0871315,
+      "confidence_radius": 32.49165681458977
     },
     "s-1g500m1000p": {
       "run_name": "s-1g500m1000p",
@@ -583,10 +583,10 @@
     },
     "sd-1g200m201p": {
       "run_name": "sd-1g200m201p",
-      "elo": 1284.5847501801206,
-      "games": 133,
-      "wins": 109,
-      "losses": 24,
+      "elo": 1237.7281937982937,
+      "games": 332,
+      "wins": 200,
+      "losses": 132,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 101,
@@ -594,8 +594,8 @@
       "created_datetime": "2026-04-29 17:17:10",
       "fork_origin": "sd-1g50m201p/champion_002488.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779854436.0640447,
-      "confidence_radius": 58.963477927640156
+      "last_played_at": 1779854683.660421,
+      "confidence_radius": 37.31984839649472
     },
     "fork_threshold_smoketest_1777339955": {
       "run_name": "fork_threshold_smoketest_1777339955",
@@ -890,9 +890,9 @@
     "s-1g50m201p||sd-16g32m1000p": {
       "run_a": "s-1g50m201p",
       "run_b": "sd-16g32m1000p",
-      "games": 3,
-      "wins_a": 2,
-      "wins_b": 1,
+      "games": 27,
+      "wins_a": 13,
+      "wins_b": 14,
       "draws": 0
     },
     "d-2000m-1g128p-1||sd-1g10000m500p-single": {
@@ -930,17 +930,17 @@
     "sd-16g32m1000p-t.5||sd-1g10000m500p-single": {
       "run_a": "sd-16g32m1000p-t.5",
       "run_b": "sd-1g10000m500p-single",
-      "games": 8,
-      "wins_a": 2,
-      "wins_b": 6,
+      "games": 41,
+      "wins_a": 23,
+      "wins_b": 18,
       "draws": 0
     },
     "sd-16g32m1000p-t.75||sd-1g50m201p": {
       "run_a": "sd-16g32m1000p-t.75",
       "run_b": "sd-1g50m201p",
-      "games": 4,
-      "wins_a": 2,
-      "wins_b": 2,
+      "games": 40,
+      "wins_a": 24,
+      "wins_b": 16,
       "draws": 0
     },
     "d-1g2000m128p-1||sd-1g200m201p": {
@@ -1018,17 +1018,17 @@
     "sd-16g32m1000p-t.75||sd-1g400m403p": {
       "run_a": "sd-16g32m1000p-t.75",
       "run_b": "sd-1g400m403p",
-      "games": 6,
-      "wins_a": 3,
-      "wins_b": 3,
+      "games": 36,
+      "wins_a": 17,
+      "wins_b": 19,
       "draws": 0
     },
     "sd-16g32m1000p-t.5||sd-16g32m1000p-t.75": {
       "run_a": "sd-16g32m1000p-t.5",
       "run_b": "sd-16g32m1000p-t.75",
-      "games": 7,
-      "wins_a": 4,
-      "wins_b": 3,
+      "games": 44,
+      "wins_a": 23,
+      "wins_b": 21,
       "draws": 0
     },
     "e50m-1g200p-all||multi_delete_smoketest": {
@@ -1042,9 +1042,9 @@
     "sd-1g10000m500p-single||sd-1g400m403p": {
       "run_a": "sd-1g10000m500p-single",
       "run_b": "sd-1g400m403p",
-      "games": 6,
-      "wins_a": 3,
-      "wins_b": 3,
+      "games": 32,
+      "wins_a": 14,
+      "wins_b": 18,
       "draws": 0
     },
     "codex_smoketest_v2||d1000m-1g500p-5dec-basedon1": {
@@ -1186,9 +1186,9 @@
     "sd-16g32m1000p-t.75||sd-1g200m202p": {
       "run_a": "sd-16g32m1000p-t.75",
       "run_b": "sd-1g200m202p",
-      "games": 6,
-      "wins_a": 4,
-      "wins_b": 2,
+      "games": 40,
+      "wins_a": 20,
+      "wins_b": 20,
       "draws": 0
     },
     "default3||fork_convert_smoketest_1777335657": {
@@ -1210,9 +1210,9 @@
     "sd-16g32m1000p||sd-1g50m201p": {
       "run_a": "sd-16g32m1000p",
       "run_b": "sd-1g50m201p",
-      "games": 4,
-      "wins_a": 3,
-      "wins_b": 1,
+      "games": 27,
+      "wins_a": 14,
+      "wins_b": 13,
       "draws": 0
     },
     "s-1g500m1000p||s-1g7m64p": {
@@ -1586,9 +1586,9 @@
     "sd-16g32m1000p-t.5||sd-1g200m202p": {
       "run_a": "sd-16g32m1000p-t.5",
       "run_b": "sd-1g200m202p",
-      "games": 10,
-      "wins_a": 5,
-      "wins_b": 5,
+      "games": 38,
+      "wins_a": 17,
+      "wins_b": 21,
       "draws": 0
     },
     "batching_smoketest||d1000m-1g500p-5dec-basedon1": {
@@ -1714,9 +1714,9 @@
     "sd-16g32m1000p||sd-1g10000m500p-single": {
       "run_a": "sd-16g32m1000p",
       "run_b": "sd-1g10000m500p-single",
-      "games": 9,
-      "wins_a": 3,
-      "wins_b": 6,
+      "games": 39,
+      "wins_a": 12,
+      "wins_b": 27,
       "draws": 0
     },
     "sd-16g32m1000p-t.75||threshold_migration_smoketest": {
@@ -1922,9 +1922,9 @@
     "sd-16g32m1000p||sd-16g32m1000p-t.5": {
       "run_a": "sd-16g32m1000p",
       "run_b": "sd-16g32m1000p-t.5",
-      "games": 10,
-      "wins_a": 5,
-      "wins_b": 5,
+      "games": 52,
+      "wins_a": 27,
+      "wins_b": 25,
       "draws": 0
     },
     "d1000m-1g500p-5dec||default3shallowfastmatch": {
@@ -2082,9 +2082,9 @@
     "sd-16g32m1000p-t.75||sd-1g10000m500p-single": {
       "run_a": "sd-16g32m1000p-t.75",
       "run_b": "sd-1g10000m500p-single",
-      "games": 3,
-      "wins_a": 0,
-      "wins_b": 3,
+      "games": 39,
+      "wins_a": 16,
+      "wins_b": 23,
       "draws": 0
     },
     "default3shallow||default3shallowfastmatch": {
@@ -2098,9 +2098,9 @@
     "s-1g50m201p||sd-16g32m1000p-t.5": {
       "run_a": "s-1g50m201p",
       "run_b": "sd-16g32m1000p-t.5",
-      "games": 5,
-      "wins_a": 3,
-      "wins_b": 2,
+      "games": 42,
+      "wins_a": 19,
+      "wins_b": 23,
       "draws": 0
     },
     "batching_smoketest||s-1g50m201p": {
@@ -2146,9 +2146,9 @@
     "sd-1g200m201p||sd-1g200m202p": {
       "run_a": "sd-1g200m201p",
       "run_b": "sd-1g200m202p",
-      "games": 1,
-      "wins_a": 0,
-      "wins_b": 1,
+      "games": 20,
+      "wins_a": 11,
+      "wins_b": 9,
       "draws": 0
     },
     "delete_checkpoint_smoketest||fork_threshold_smoketest_1777339955": {
@@ -2178,9 +2178,9 @@
     "sd-16g32m1000p-t.5||sd-1g50m201p": {
       "run_a": "sd-16g32m1000p-t.5",
       "run_b": "sd-1g50m201p",
-      "games": 3,
-      "wins_a": 2,
-      "wins_b": 1,
+      "games": 37,
+      "wins_a": 19,
+      "wins_b": 18,
       "draws": 0
     },
     "d-1g2000m128p||sd-1g400m403p": {
@@ -2266,25 +2266,25 @@
     "sd-1g200m201p||sd-1g400m403p": {
       "run_a": "sd-1g200m201p",
       "run_b": "sd-1g400m403p",
-      "games": 4,
-      "wins_a": 1,
-      "wins_b": 3,
+      "games": 26,
+      "wins_a": 11,
+      "wins_b": 15,
       "draws": 0
     },
     "sd-16g32m1000p||sd-1g400m403p": {
       "run_a": "sd-16g32m1000p",
       "run_b": "sd-1g400m403p",
-      "games": 4,
-      "wins_a": 1,
-      "wins_b": 3,
+      "games": 31,
+      "wins_a": 16,
+      "wins_b": 15,
       "draws": 0
     },
     "sd-16g32m1000p||sd-1g200m202p": {
       "run_a": "sd-16g32m1000p",
       "run_b": "sd-1g200m202p",
-      "games": 4,
-      "wins_a": 2,
-      "wins_b": 2,
+      "games": 25,
+      "wins_a": 7,
+      "wins_b": 18,
       "draws": 0
     },
     "e50m-1g200p-all||sd-16g32m1000p": {
@@ -2450,9 +2450,9 @@
     "sd-16g32m1000p||sd-16g32m1000p-t.75": {
       "run_a": "sd-16g32m1000p",
       "run_b": "sd-16g32m1000p-t.75",
-      "games": 5,
-      "wins_a": 2,
-      "wins_b": 3,
+      "games": 33,
+      "wins_a": 15,
+      "wins_b": 18,
       "draws": 0
     },
     "s-1g500m1000p||sd-16g32m1000p": {
@@ -2466,9 +2466,9 @@
     "sd-16g32m1000p||sd-1g200m201p": {
       "run_a": "sd-16g32m1000p",
       "run_b": "sd-1g200m201p",
-      "games": 3,
-      "wins_a": 2,
-      "wins_b": 1,
+      "games": 32,
+      "wins_a": 17,
+      "wins_b": 15,
       "draws": 0
     },
     "fork_threshold_smoketest_1777339955||sd-16g32m1000p": {
@@ -2882,25 +2882,25 @@
     "sd-1g10000m500p-single||sd-1g200m202p": {
       "run_a": "sd-1g10000m500p-single",
       "run_b": "sd-1g200m202p",
-      "games": 4,
-      "wins_a": 2,
-      "wins_b": 2,
+      "games": 30,
+      "wins_a": 16,
+      "wins_b": 14,
       "draws": 0
     },
     "sd-1g10000m500p-single||sd-1g50m201p": {
       "run_a": "sd-1g10000m500p-single",
       "run_b": "sd-1g50m201p",
-      "games": 2,
-      "wins_a": 1,
-      "wins_b": 1,
+      "games": 21,
+      "wins_a": 11,
+      "wins_b": 10,
       "draws": 0
     },
     "s-1g50m201p||sd-1g10000m500p-single": {
       "run_a": "s-1g50m201p",
       "run_b": "sd-1g10000m500p-single",
-      "games": 3,
-      "wins_a": 1,
-      "wins_b": 2,
+      "games": 26,
+      "wins_a": 6,
+      "wins_b": 20,
       "draws": 0
     },
     "d-1g50m200p||sd-1g10000m500p-single": {
@@ -3098,9 +3098,9 @@
     "sd-1g10000m500p-single||sd-1g200m201p": {
       "run_a": "sd-1g10000m500p-single",
       "run_b": "sd-1g200m201p",
-      "games": 3,
-      "wins_a": 2,
-      "wins_b": 1,
+      "games": 27,
+      "wins_a": 17,
+      "wins_b": 10,
       "draws": 0
     },
     "fork_threshold_smoketest_1777339955||sd-1g10000m500p-single": {
@@ -3202,25 +3202,25 @@
     "sd-1g200m202p||sd-1g400m403p": {
       "run_a": "sd-1g200m202p",
       "run_b": "sd-1g400m403p",
-      "games": 3,
-      "wins_a": 3,
-      "wins_b": 0,
+      "games": 23,
+      "wins_a": 11,
+      "wins_b": 12,
       "draws": 0
     },
     "sd-1g400m403p||sd-1g50m201p": {
       "run_a": "sd-1g400m403p",
       "run_b": "sd-1g50m201p",
-      "games": 4,
-      "wins_a": 4,
-      "wins_b": 0,
+      "games": 1023,
+      "wins_a": 523,
+      "wins_b": 500,
       "draws": 0
     },
     "s-1g50m201p||sd-1g400m403p": {
       "run_a": "s-1g50m201p",
       "run_b": "sd-1g400m403p",
-      "games": 2,
-      "wins_a": 0,
-      "wins_b": 2,
+      "games": 24,
+      "wins_a": 8,
+      "wins_b": 16,
       "draws": 0
     },
     "e50m-1g200p-all||sd-1g400m403p": {
@@ -3386,9 +3386,9 @@
     "sd-16g32m1000p-t.5||sd-1g400m403p": {
       "run_a": "sd-16g32m1000p-t.5",
       "run_b": "sd-1g400m403p",
-      "games": 7,
-      "wins_a": 3,
-      "wins_b": 4,
+      "games": 49,
+      "wins_a": 26,
+      "wins_b": 23,
       "draws": 0
     },
     "fork_threshold_smoketest_1777339955||sd-1g400m403p": {
@@ -3498,17 +3498,17 @@
     "sd-1g200m202p||sd-1g50m201p": {
       "run_a": "sd-1g200m202p",
       "run_b": "sd-1g50m201p",
-      "games": 5,
-      "wins_a": 1,
-      "wins_b": 4,
+      "games": 27,
+      "wins_a": 11,
+      "wins_b": 16,
       "draws": 0
     },
     "s-1g50m201p||sd-1g200m202p": {
       "run_a": "s-1g50m201p",
       "run_b": "sd-1g200m202p",
-      "games": 0,
-      "wins_a": 0,
-      "wins_b": 0,
+      "games": 26,
+      "wins_a": 8,
+      "wins_b": 18,
       "draws": 0
     },
     "e100m-1g250p-all||sd-1g200m202p": {
@@ -3770,9 +3770,9 @@
     "s-1g50m201p||sd-1g50m201p": {
       "run_a": "s-1g50m201p",
       "run_b": "sd-1g50m201p",
-      "games": 4,
-      "wins_a": 3,
-      "wins_b": 1,
+      "games": 34,
+      "wins_a": 13,
+      "wins_b": 21,
       "draws": 0
     },
     "d-1g50m200p||sd-1g50m201p": {
@@ -3978,9 +3978,9 @@
     "sd-1g200m201p||sd-1g50m201p": {
       "run_a": "sd-1g200m201p",
       "run_b": "sd-1g50m201p",
-      "games": 3,
-      "wins_a": 2,
-      "wins_b": 1,
+      "games": 19,
+      "wins_a": 8,
+      "wins_b": 11,
       "draws": 0
     },
     "fork_threshold_smoketest_1777339955||sd-1g50m201p": {
@@ -4258,9 +4258,9 @@
     "s-1g50m201p||sd-16g32m1000p-t.75": {
       "run_a": "s-1g50m201p",
       "run_b": "sd-16g32m1000p-t.75",
-      "games": 5,
-      "wins_a": 1,
-      "wins_b": 4,
+      "games": 31,
+      "wins_a": 16,
+      "wins_b": 15,
       "draws": 0
     },
     "s-1g500m1000p||s-1g50m201p": {
@@ -4274,9 +4274,9 @@
     "s-1g50m201p||sd-1g200m201p": {
       "run_a": "s-1g50m201p",
       "run_b": "sd-1g200m201p",
-      "games": 5,
-      "wins_a": 1,
-      "wins_b": 4,
+      "games": 28,
+      "wins_a": 16,
+      "wins_b": 12,
       "draws": 0
     },
     "fork_threshold_smoketest_1777339955||s-1g50m201p": {
@@ -9930,9 +9930,9 @@
     "sd-16g32m1000p-t.5||sd-1g200m201p": {
       "run_a": "sd-16g32m1000p-t.5",
       "run_b": "sd-1g200m201p",
-      "games": 5,
-      "wins_a": 3,
-      "wins_b": 2,
+      "games": 42,
+      "wins_a": 20,
+      "wins_b": 22,
       "draws": 0
     },
     "fork_convert_smoketest_1777335657||sd-16g32m1000p-t.5": {
@@ -10018,9 +10018,9 @@
     "sd-16g32m1000p-t.75||sd-1g200m201p": {
       "run_a": "sd-16g32m1000p-t.75",
       "run_b": "sd-1g200m201p",
-      "games": 3,
-      "wins_a": 1,
-      "wins_b": 2,
+      "games": 32,
+      "wins_a": 17,
+      "wins_b": 15,
       "draws": 0
     },
     "fork_convert_smoketest_1777335657||sd-16g32m1000p-t.75": {
@@ -11026,13 +11026,68 @@
   },
   "last_calibration": {
     "status": "completed",
-    "started_at": 1779854301.7405083,
-    "completed_at": 1779854437.1763487,
-    "duration_seconds": 135.43584036827087,
+    "started_at": 1779854774.9509,
+    "completed_at": 1779854808.9774945,
+    "duration_seconds": 34.026594400405884,
     "games_completed": 1000,
     "games_target": 1000,
-    "pairings_completed": 825,
-    "pairings_total": 825,
-    "resolved_simulation_workers": 14
+    "pairings_completed": 2,
+    "pairings_total": 2,
+    "resolved_simulation_workers": 14,
+    "eligible_participant_count": 2,
+    "excluded_participant_count": 49,
+    "excluded_run_names": [
+      "batching_smoketest",
+      "codex_smoketest_v2",
+      "d-1g2000m128p",
+      "d-1g2000m128p-1",
+      "d-1g50m200p",
+      "d-2000m-1g128p-1",
+      "d1000m-1g500p-5dec",
+      "d1000m-1g500p-5dec-basedon1",
+      "decisions_per_game_smoketest",
+      "deep4game5match16promo",
+      "deep_model_smoketest",
+      "default",
+      "default3",
+      "default3nondirecml",
+      "default3shallow",
+      "default3shallowfastmatch",
+      "delete_checkpoint_smoketest",
+      "directml_support_smoketest",
+      "e100m-1g250p-all",
+      "e200m-1g400p-all",
+      "e50m-1g200p-all",
+      "fork_convert_smoketest_1777335657",
+      "fork_feature_source_smoketest",
+      "fork_feature_target_smoketest",
+      "fork_threshold_smoketest_1777339955",
+      "live_progress_smoketest",
+      "multi_delete_smoketest",
+      "new_deep",
+      "new_run_settings_smoketest",
+      "plateau_boost_smoketest",
+      "s-1g500m1000p",
+      "s-1g500m1001p",
+      "s-1g50m201p",
+      "s-1g7m42p",
+      "s-1g7m64p",
+      "sd-16g32m1000p",
+      "sd-16g32m1000p-t.5",
+      "sd-16g32m1000p-t.75",
+      "sd-1g10000m500p-single",
+      "sd-1g200m201p",
+      "sd-1g200m202p",
+      "sd-1g7m128p",
+      "sd-3g32m128p",
+      "shallow1game1match7promo",
+      "shallow1game5match16promo",
+      "shallow1game7match32promo",
+      "temp_threshold_create_smoketest",
+      "temp_threshold_update_smoketest",
+      "threshold_migration_smoketest"
+    ],
+    "top_interval_run_name": "sd-1g400m403p",
+    "top_interval_lower_bound": 1361.77
   }
 }

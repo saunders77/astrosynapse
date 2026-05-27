@@ -897,6 +897,7 @@ class TrainerGUI(tk.Tk):
             runs_frame,
             columns=("status", "created", "fork", "iteration", "elo", "best_elo", "cross_elo", "cross_conf", "matches", "games"),
             headings=("Status", "Created", "Forked From", "Iter", "Elo", "Best Elo", "Cross Elo", "+/-", "Matches", "Games"),
+            selectmode="extended",
         )
         self.runs_tree.bind("<<TreeviewSelect>>", self._on_run_tree_select)
         self.runs_tree.column("created", width=145, stretch=False)
@@ -1492,7 +1493,8 @@ class TrainerGUI(tk.Tk):
         current_run_selection = None
         selected_items = self.runs_tree.selection()
         if selected_items:
-            current_run_selection = selected_items[0]
+            focus = self.runs_tree.focus()
+            current_run_selection = focus if focus in selected_items else selected_items[-1]
 
         run_rows = []
         for run in runs:
@@ -1553,10 +1555,25 @@ class TrainerGUI(tk.Tk):
                 self.runs_tree.selection_remove(self.runs_tree.selection())
                 self.runs_tree.focus("")
             elif selected_run in self.runs_tree.get_children():
-                if tuple(self.runs_tree.selection()) != (selected_run,):
+                surviving_selection = [
+                    item
+                    for item in selected_items
+                    if item in self.runs_tree.get_children()
+                ]
+                if surviving_selection:
+                    if tuple(self.runs_tree.selection()) != tuple(surviving_selection):
+                        self.runs_tree.selection_set(surviving_selection)
+                    focus_run = (
+                        current_run_selection
+                        if current_run_selection in surviving_selection
+                        else surviving_selection[-1]
+                    )
+                    self.runs_tree.focus(focus_run)
+                    self.runs_tree.see(focus_run)
+                else:
                     self.runs_tree.selection_set(selected_run)
-                self.runs_tree.focus(selected_run)
-                self.runs_tree.see(selected_run)
+                    self.runs_tree.focus(selected_run)
+                    self.runs_tree.see(selected_run)
             elif current_run_selection in self.runs_tree.get_children():
                 if tuple(self.runs_tree.selection()) != (current_run_selection,):
                     self.runs_tree.selection_set(current_run_selection)
@@ -1917,10 +1934,7 @@ class TrainerGUI(tk.Tk):
             f"- Rank: {cross_run_entry.get('rank', '-')}",
             f"- Games: {cross_run_entry.get('games', '-')}",
             f"- Rated best checkpoint: {cross_run_entry.get('best_checkpoint', '-')}",
-            f"- Calibration eligible: {cross_run_entry.get('calibration_eligible', '-')}",
             f"- Total cross-run games: {cross_run_summary.get('total_games', '-')}",
-            f"- Eligible participants: {cross_run_summary.get('eligible_participant_count', '-')}",
-            f"- Excluded participants: {cross_run_summary.get('excluded_participant_count', '-')}",
             f"- Confidence level: {cross_run_summary.get('confidence_level', '-')}",
             "",
             "Candidate",
@@ -1976,8 +1990,7 @@ class TrainerGUI(tk.Tk):
                         f"{float(item.get('elo', sp.INITIAL_ELO)):.1f}, "
                         f"confidence "
                         f"{'-' if item.get('confidence_radius') is None else '+/- ' + format(float(item.get('confidence_radius')), '.1f')}, "
-                        f"games {item.get('games', 0)}, best {item.get('best_checkpoint', '-')}, "
-                        f"{'eligible' if item.get('calibration_eligible', True) else 'excluded'}"
+                        f"games {item.get('games', 0)}, best {item.get('best_checkpoint', '-')}"
                         for item in cross_run_leaderboard[:12]
                     ],
                 ]
@@ -2155,7 +2168,8 @@ class TrainerGUI(tk.Tk):
         selection = self.runs_tree.selection()
         if not selection:
             return
-        run_name = selection[0]
+        focus = self.runs_tree.focus()
+        run_name = focus if focus in selection else selection[-1]
         self.run_name_var.set(run_name)
         checkpoints = sp.list_checkpoints(run_name)
         state = sp.get_run_state(run_name)
@@ -2495,19 +2509,20 @@ class TrainerGUI(tk.Tk):
         except ValueError as exc:
             messagebox.showerror("Invalid cross-run rating settings", str(exc), parent=self)
             return
-        try:
-            participant_count = int(sp.cross_run_rating_summary().get("participant_count", 0))
-        except Exception:
-            participant_count = 0
-        if participant_count < 2:
+        selected_run_names = [
+            str(item)
+            for item in self.runs_tree.selection()
+            if str(item) in set(self._known_run_names)
+        ]
+        if len(selected_run_names) < 2:
             messagebox.showerror(
-                "Not enough runs",
-                "Cross-run rating needs at least two runs with saved best policies.",
+                "Select runs",
+                "Select at least two runs in the Runs table before starting cross-run rating.",
                 parent=self,
             )
             return
 
-        activity_label = f"{games} calibration game(s)"
+        activity_label = f"{len(selected_run_names)} run(s), {games} game(s)"
         self._set_activity_progress(
             "cross_run_rating",
             {
@@ -2536,6 +2551,7 @@ class TrainerGUI(tk.Tk):
             try:
                 return sp.run_cross_run_calibration_games(
                     games=games,
+                    run_names=selected_run_names,
                     progress_callback=progress_callback,
                 )
             except Exception:
@@ -2579,9 +2595,7 @@ class TrainerGUI(tk.Tk):
                 f"Games completed: {result.get('games_completed', 0)} / {result.get('games_target', games)}",
                 f"Pairings sampled: {result.get('pairings_played', 0)} / {result.get('pairings_total', 0)}",
                 f"Participants: {result.get('participant_count', 0)}",
-                f"Eligible participants: {result.get('eligible_participant_count', '-')}",
-                f"Excluded participants: {result.get('excluded_participant_count', '-')}",
-                f"Leader interval floor: {result.get('top_interval_run_name', '-')} at {result.get('top_interval_lower_bound', '-')}",
+                f"Selected runs: {', '.join(result.get('selected_run_names') or selected_run_names)}",
                 f"Workers: {result.get('resolved_simulation_workers', '-')}",
                 f"Duration: {sp._format_seconds(float(result.get('duration_seconds', 0.0)))}",
                 f"Confidence level: {result.get('confidence_level', '-')}",
@@ -2594,8 +2608,7 @@ class TrainerGUI(tk.Tk):
                 report_lines.append(
                     f"#{item.get('rank', '-')} {item.get('run_name', '-')}: "
                     f"{float(item.get('elo', sp.INITIAL_ELO)):.1f} Elo ({confidence_text}), "
-                    f"{item.get('games', 0)} games, best {item.get('best_checkpoint', '-')}, "
-                    f"{'eligible' if item.get('calibration_eligible', True) else 'excluded'}"
+                    f"{item.get('games', 0)} games, best {item.get('best_checkpoint', '-')}"
                 )
             self._show_text_report("Cross-Run Rating", "\n".join(report_lines))
 
