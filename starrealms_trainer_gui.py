@@ -478,6 +478,7 @@ class TrainerGUI(tk.Tk):
         self._last_runs_tree_key: Optional[tuple[tuple[Any, ...], ...]] = None
         self._last_runs_order_key: Optional[tuple[str, ...]] = None
         self._last_checkpoint_tree_key: Optional[tuple[Any, ...]] = None
+        self._last_promotion_history_tree_key: Optional[tuple[Any, ...]] = None
 
         self.run_name_var = tk.StringVar(value=sp.LATEST_RUN_NAME)
         self.checkpoint_var = tk.StringVar(value="latest")
@@ -993,8 +994,10 @@ class TrainerGUI(tk.Tk):
         notebook.pack(fill="both", expand=True)
 
         summary_tab = tk.Frame(notebook, bg=WINDOW_BG)
+        promotion_history_tab = tk.Frame(notebook, bg=WINDOW_BG)
         log_tab = tk.Frame(notebook, bg=WINDOW_BG)
         notebook.add(summary_tab, text="Run Details")
+        notebook.add(promotion_history_tab, text="Promotion History")
         notebook.add(log_tab, text="Activity Log")
 
         self.details_text = ScrolledText(
@@ -1009,6 +1012,20 @@ class TrainerGUI(tk.Tk):
             pady=8,
         )
         self.details_text.pack(fill="both", expand=True)
+
+        self.promotion_history_tree = self._build_tree(
+            promotion_history_tab,
+            columns=("score", "required", "record", "action", "checkpoint"),
+            headings=("Promotion %", "Req %", "Record", "Action", "Checkpoint"),
+            selectmode="browse",
+        )
+        self.promotion_history_tree.heading("#0", text="Iteration")
+        self.promotion_history_tree.column("#0", width=80, stretch=False)
+        self.promotion_history_tree.column("score", width=92, stretch=False)
+        self.promotion_history_tree.column("required", width=68, stretch=False)
+        self.promotion_history_tree.column("record", width=82, stretch=False)
+        self.promotion_history_tree.column("action", width=110, stretch=False)
+        self.promotion_history_tree.column("checkpoint", width=175, stretch=True)
 
         activity_progress = tk.Frame(log_tab, bg=WINDOW_BG)
         activity_progress.pack(fill="x", pady=(0, 8))
@@ -1767,6 +1784,7 @@ class TrainerGUI(tk.Tk):
                 checkpoint_cache[selected_run] = selected_checkpoints
 
         self._refresh_checkpoint_selector(selected_run, selected_checkpoints)
+        self._refresh_promotion_history(selected_run, selected_state)
         self._refresh_summary(
             selected_run,
             run_names=self._known_run_names,
@@ -1892,6 +1910,86 @@ class TrainerGUI(tk.Tk):
             self.checkpoints_tree.see(current_checkpoint)
         elif selected_checkpoint in self.checkpoints_tree.get_children():
             self.checkpoints_tree.selection_set(selected_checkpoint)
+
+    def _refresh_promotion_history(self, run_name: str, state: Optional[Dict[str, Any]]) -> None:
+        state = dict(state or {})
+        if state:
+            try:
+                history = list(sp._promotion_history_from_state(state))
+            except Exception:
+                history = list(state.get("promotion_history") or [])
+        else:
+            history = []
+
+        def optional_float(value: Any) -> Optional[float]:
+            try:
+                if value is None:
+                    return None
+                number = float(value)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(number):
+                return None
+            return number
+
+        def format_percent(value: Any) -> str:
+            number = optional_float(value)
+            if number is None:
+                return "-"
+            return f"{number * 100.0:.1f}%"
+
+        rows = []
+        for entry in history:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                iteration = int(entry.get("iteration", 0))
+            except (TypeError, ValueError):
+                continue
+            if iteration <= 0:
+                continue
+            score = optional_float(entry.get("score"))
+            if score is None:
+                percent = optional_float(entry.get("score_percent"))
+                if percent is not None:
+                    score = percent / 100.0
+            settings = entry.get("promotion_settings") or {}
+            required = optional_float(settings.get("promotion_score_threshold")) if isinstance(settings, dict) else None
+            wins = int(entry.get("wins", 0) or 0)
+            losses = int(entry.get("losses", 0) or 0)
+            games_played = int(entry.get("games_played", wins + losses) or 0)
+            action = str(entry.get("action") or ("promoted" if entry.get("promoted") else "keep_training"))
+            checkpoint = str(entry.get("promoted_checkpoint") or entry.get("champion_checkpoint") or "-")
+            rows.append(
+                (
+                    iteration,
+                    (
+                        format_percent(score),
+                        format_percent(required),
+                        f"{wins}-{losses} / {games_played}",
+                        action,
+                        checkpoint,
+                    ),
+                )
+            )
+        rows.sort(key=lambda item: item[0])
+
+        history_tree_key = (run_name, tuple(rows))
+        if history_tree_key == self._last_promotion_history_tree_key:
+            return
+        self.promotion_history_tree.delete(*self.promotion_history_tree.get_children())
+        for iteration, values in rows:
+            item_id = f"iteration:{iteration}"
+            self.promotion_history_tree.insert(
+                "",
+                "end",
+                iid=item_id,
+                text=str(iteration),
+                values=values,
+            )
+        if rows:
+            self.promotion_history_tree.see(f"iteration:{rows[-1][0]}")
+        self._last_promotion_history_tree_key = history_tree_key
 
     def _refresh_summary_progress(self, summary: Dict[str, Any], state: Dict[str, Any]) -> None:
         config = state.get("config") or {}
@@ -2252,6 +2350,7 @@ class TrainerGUI(tk.Tk):
                 "last_match": None,
                 "last_update": None,
                 "last_eval": None,
+                "promotion_history": [],
                 "last_rating_pass": None,
                 "live_progress": None,
                 "last_error": None,
@@ -2312,6 +2411,7 @@ class TrainerGUI(tk.Tk):
             "last_match": state.get("last_match"),
             "last_update": state.get("last_update"),
             "last_eval": state.get("last_eval"),
+            "promotion_history": state.get("promotion_history"),
             "last_rating_pass": state.get("last_rating_pass"),
             "live_progress": state.get("live_progress"),
             "last_error": state.get("last_error"),

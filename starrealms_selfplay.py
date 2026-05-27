@@ -2719,6 +2719,7 @@ def _default_training_state(config: TrainingConfig) -> Dict[str, Any]:
         "last_match": None,
         "last_update": None,
         "last_eval": None,
+        "promotion_history": [],
         "last_rating_pass": None,
         "live_progress": None,
         "device_plan": None,
@@ -2919,6 +2920,11 @@ def _migrate_run_state(files: RunFiles, policy: PolicyNetwork, state: Dict[str, 
         dirty = True
     if state.get("last_promotion_datetime") != last_promotion_datetime:
         state["last_promotion_datetime"] = last_promotion_datetime
+        dirty = True
+
+    promotion_history = _promotion_history_from_state(state)
+    if state.get("promotion_history") != promotion_history:
+        state["promotion_history"] = promotion_history
         dirty = True
 
     if not files.policy_file.exists() or migrated_to_v2:
@@ -3279,7 +3285,13 @@ def _scrub_deleted_checkpoint_refs(value: Any, deleted_checkpoint: str, replacem
         for key, nested_value in value.items():
             if key == "checkpoint" and nested_value == deleted_checkpoint:
                 cleaned[key] = replacement_checkpoint
-            elif key in {"base_checkpoint", "best_checkpoint", "latest_checkpoint", "champion_checkpoint"} and nested_value == deleted_checkpoint:
+            elif key in {
+                "base_checkpoint",
+                "best_checkpoint",
+                "latest_checkpoint",
+                "champion_checkpoint",
+                "promoted_checkpoint",
+            } and nested_value == deleted_checkpoint:
                 cleaned[key] = replacement_checkpoint
             elif key == "promoted_checkpoint" and nested_value == deleted_checkpoint:
                 cleaned[key] = None
@@ -3407,6 +3419,11 @@ def delete_checkpoints(run_name: str = LATEST_RUN_NAME, checkpoints: Sequence[st
         )
         state["last_update"] = _scrub_deleted_checkpoint_refs(
             state.get("last_update"),
+            checkpoint_name,
+            replacement_reference,
+        )
+        state["promotion_history"] = _scrub_deleted_checkpoint_refs(
+            state.get("promotion_history"),
             checkpoint_name,
             replacement_reference,
         )
@@ -3802,6 +3819,161 @@ def _promotion_settings_snapshot(config: TrainingConfig) -> Dict[str, Any]:
         "training_decisions_per_game": normalize_training_decisions_per_game(config.training_decisions_per_game),
         "simulation_workers": int(config.simulation_workers),
     }
+
+
+def _optional_float(value: Any) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def _optional_int(value: Any) -> Optional[int]:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _promotion_eval_counts(eval_summary: Dict[str, Any]) -> Tuple[int, int, int]:
+    wins = _optional_int(eval_summary.get("wins_a"))
+    if wins is None:
+        wins = _optional_int(eval_summary.get("wins"))
+    losses = _optional_int(eval_summary.get("wins_b"))
+    if losses is None:
+        losses = _optional_int(eval_summary.get("losses"))
+    games_played = _optional_int(eval_summary.get("games_played"))
+    wins = max(0, int(wins or 0))
+    losses = max(0, int(losses or 0))
+    if games_played is None:
+        games_played = wins + losses
+    return wins, losses, max(0, int(games_played or 0))
+
+
+def _promotion_score_from_eval(eval_summary: Dict[str, Any]) -> Optional[float]:
+    explicit_score = _optional_float(eval_summary.get("score"))
+    if explicit_score is not None:
+        return explicit_score
+    wins, _, games_played = _promotion_eval_counts(eval_summary)
+    if games_played <= 0:
+        return None
+    return float(wins) / float(games_played)
+
+
+def _promotion_history_entry(
+    *,
+    iteration: int,
+    eval_summary: Dict[str, Any],
+    action: str,
+    promoted: bool,
+    promoted_checkpoint: Optional[str],
+    champion_checkpoint: Optional[str],
+    promotion_settings: Optional[Dict[str, Any]] = None,
+    recorded_at: Optional[float] = None,
+) -> Dict[str, Any]:
+    wins, losses, games_played = _promotion_eval_counts(eval_summary)
+    score = _promotion_score_from_eval(eval_summary)
+    entry: Dict[str, Any] = {
+        "iteration": int(iteration),
+        "wins": int(wins),
+        "losses": int(losses),
+        "games_played": int(games_played),
+        "promoted": bool(promoted),
+        "action": str(action or "keep_training"),
+        "promoted_checkpoint": promoted_checkpoint,
+        "champion_checkpoint": champion_checkpoint,
+        "duration_seconds": _optional_float(eval_summary.get("duration_seconds")),
+        "recorded_at": float(recorded_at if recorded_at is not None else _timestamp()),
+    }
+    if score is not None:
+        entry["score"] = float(score)
+        entry["score_percent"] = round(float(score) * 100.0, 6)
+    if promotion_settings:
+        entry["promotion_settings"] = dict(promotion_settings)
+    return entry
+
+
+def _normalize_promotion_history_entry(item: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(item, dict):
+        return None
+    iteration = _optional_int(item.get("iteration"))
+    if iteration is None or iteration <= 0:
+        return None
+    score = _optional_float(item.get("score"))
+    if score is None:
+        percent = _optional_float(item.get("score_percent"))
+        if percent is not None:
+            score = percent / 100.0
+    wins = _optional_int(item.get("wins")) or 0
+    losses = _optional_int(item.get("losses")) or 0
+    games_played = _optional_int(item.get("games_played"))
+    if games_played is None:
+        games_played = max(0, wins + losses)
+    if score is None and games_played > 0:
+        score = float(max(0, wins)) / float(games_played)
+    entry = dict(item)
+    entry["iteration"] = int(iteration)
+    entry["wins"] = max(0, int(wins))
+    entry["losses"] = max(0, int(losses))
+    entry["games_played"] = max(0, int(games_played or 0))
+    entry["promoted"] = bool(entry.get("promoted"))
+    entry["action"] = str(entry.get("action") or ("promoted" if entry["promoted"] else "keep_training"))
+    if score is not None:
+        entry["score"] = float(score)
+        entry["score_percent"] = round(float(score) * 100.0, 6)
+    if entry.get("recorded_at") is None:
+        entry["recorded_at"] = _timestamp()
+    return entry
+
+
+def _promotion_history_from_state(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    by_iteration: Dict[int, Dict[str, Any]] = {}
+    for item in list(state.get("promotion_history") or []):
+        entry = _normalize_promotion_history_entry(item)
+        if entry is None:
+            continue
+        by_iteration[int(entry["iteration"])] = entry
+
+    for checkpoint in list(state.get("checkpoints") or []):
+        if not isinstance(checkpoint, dict):
+            continue
+        eval_summary = checkpoint.get("promotion_eval")
+        if not isinstance(eval_summary, dict):
+            continue
+        iteration = _optional_int(checkpoint.get("iteration"))
+        if iteration is None or iteration <= 0 or iteration in by_iteration:
+            continue
+        by_iteration[iteration] = _promotion_history_entry(
+            iteration=iteration,
+            eval_summary=eval_summary,
+            action="promoted",
+            promoted=True,
+            promoted_checkpoint=str(checkpoint.get("name") or ""),
+            champion_checkpoint=checkpoint.get("promoted_from"),
+            promotion_settings=checkpoint.get("promotion_settings") if isinstance(checkpoint.get("promotion_settings"), dict) else None,
+            recorded_at=_optional_float(checkpoint.get("created_at")),
+        )
+
+    last_eval = state.get("last_eval")
+    if isinstance(last_eval, dict):
+        iteration = _optional_int(last_eval.get("iteration"))
+        if iteration is None:
+            iteration = _optional_int(state.get("iteration"))
+        if iteration is not None and iteration > 0 and iteration not in by_iteration:
+            by_iteration[iteration] = _promotion_history_entry(
+                iteration=iteration,
+                eval_summary=last_eval,
+                action=str(last_eval.get("action") or "keep_training"),
+                promoted=bool(last_eval.get("promoted")),
+                promoted_checkpoint=last_eval.get("promoted_checkpoint"),
+                champion_checkpoint=last_eval.get("champion_checkpoint"),
+                recorded_at=_optional_float(last_eval.get("recorded_at")),
+            )
+
+    return [by_iteration[key] for key in sorted(by_iteration)]
 
 
 class SelfPlayTrainer:
@@ -4479,6 +4651,7 @@ class SelfPlayTrainer:
             self._save_state_only()
         else:
             self.state["last_eval"] = {
+                "iteration": int(self.state.get("iteration", 0)) + 1,
                 "wins": match_summary.get("wins_a", 0),
                 "losses": match_summary.get("wins_b", 0),
                 "games_played": match_summary.get("games_played", 0),
@@ -4490,6 +4663,28 @@ class SelfPlayTrainer:
                 "duration_seconds": match_summary.get("duration_seconds", 0.0),
             }
             self._save()
+
+    def _record_promotion_history(self, entry: Dict[str, Any]) -> None:
+        normalized_entry = _normalize_promotion_history_entry(entry)
+        if normalized_entry is None:
+            return
+        entry_iteration = int(normalized_entry["iteration"])
+        history: List[Dict[str, Any]] = []
+        replaced = False
+        for item in list(self.state.get("promotion_history") or []):
+            normalized_item = _normalize_promotion_history_entry(item)
+            if normalized_item is None:
+                continue
+            if int(normalized_item["iteration"]) == entry_iteration:
+                if not replaced:
+                    history.append(normalized_entry)
+                    replaced = True
+                continue
+            history.append(normalized_item)
+        if not replaced:
+            history.append(normalized_entry)
+        history.sort(key=lambda item: int(item.get("iteration", 0)))
+        self.state["promotion_history"] = history
 
     def _reseed_candidate(
         self,
@@ -4977,6 +5172,7 @@ class SelfPlayTrainer:
                 candidate_state["last_opponents"] = opponent_summaries
 
         self.state["last_eval"] = {
+            "iteration": int(next_iteration),
             "wins": eval_summary["wins_a"],
             "losses": eval_summary["wins_b"],
             "games_played": eval_summary["games_played"],
@@ -4986,7 +5182,20 @@ class SelfPlayTrainer:
             "promoted_checkpoint": promoted_checkpoint,
             "champion_checkpoint": defending_champion,
             "duration_seconds": eval_summary["duration_seconds"],
+            "recorded_at": _timestamp(),
         }
+        self._record_promotion_history(
+            _promotion_history_entry(
+                iteration=next_iteration,
+                eval_summary=eval_summary,
+                action=action,
+                promoted=promoted,
+                promoted_checkpoint=promoted_checkpoint,
+                champion_checkpoint=defending_champion,
+                promotion_settings=_promotion_settings_snapshot(scheduled_config),
+                recorded_at=self.state["last_eval"]["recorded_at"],
+            )
+        )
         self.state["last_error"] = None
         self._set_live_progress(
             self._build_training_live_progress(
@@ -5105,6 +5314,7 @@ class SelfPlayTrainer:
             "last_match": self.state.get("last_match"),
             "last_update": self.state.get("last_update"),
             "last_eval": self.state.get("last_eval"),
+            "promotion_history": self.state.get("promotion_history"),
             "last_rating_pass": self.state.get("last_rating_pass"),
             "live_progress": self.state.get("live_progress"),
             "last_error": self.state.get("last_error"),
