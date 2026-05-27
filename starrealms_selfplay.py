@@ -48,11 +48,15 @@ else:
 
 ROOT_DIR = Path(__file__).resolve().parent
 RUNS_DIR = ROOT_DIR / "starrealms_policies"
+CROSS_RUN_RATINGS_FILE = RUNS_DIR / "cross_run_ratings.json"
 LATEST_RUN_NAME = "default"
 INITIAL_ELO = 1000.0
 CONFIG_DEFAULTS_VERSION = 5
 CARD_ACQUIRE_ELO_TEST_GAMES = 200
 CARD_ACQUIRE_ELO_K_FACTOR = 24.0
+CROSS_RUN_RATING_VERSION = 1
+CROSS_RUN_ELO_K_FACTOR = 16.0
+CROSS_RUN_CONFIDENCE_95_SCALE = 680.0
 ELO_LOGISTIC_SCALE = math.log(10.0) / 400.0
 CARD_ZONE_SCALE = 15.0
 NUMERIC_OPTION_SCALE = 10.0
@@ -1793,7 +1797,10 @@ def _sample_training_opponent_exploration(config: TrainingConfig) -> Dict[str, A
     choices = _training_opponent_exploration_choices(config)
     if sum(weight for _, weight in choices) <= 0.0:
         return choices[0][0]
-    return _weighted_choice(choices)
+    run_name_a, run_name_b = _weighted_choice(choices)
+    if random.random() < 0.5:
+        return run_name_b, run_name_a
+    return run_name_a, run_name_b
 
 
 def _training_opponent_exploration_plan(config: TrainingConfig, match_count: int) -> List[Dict[str, Any]]:
@@ -5248,6 +5255,484 @@ def summarize_rating_pass(
         f"Rating pass for '{run_name}' completed with {summary.get('participant_count', 0)} models "
         f"and {summary.get('pairings_played', 0)} pairings. "
         f"Top rated: {top_entry.get('name', '-')} at {round(float(top_entry.get('elo', INITIAL_ELO)), 2)} Elo."
+    )
+
+
+_CROSS_RUN_RATING_LOCK = threading.Lock()
+
+
+def _default_cross_run_rating_state() -> Dict[str, Any]:
+    now = _timestamp()
+    return {
+        "version": CROSS_RUN_RATING_VERSION,
+        "created_at": now,
+        "created_datetime": _format_timestamp(now),
+        "updated_at": now,
+        "total_games": 0,
+        "ratings": {},
+        "pairings": {},
+        "last_calibration": None,
+    }
+
+
+def _load_cross_run_rating_state() -> Dict[str, Any]:
+    state = _load_cached_json_or_none(CROSS_RUN_RATINGS_FILE) or _default_cross_run_rating_state()
+    state["version"] = int(state.get("version", CROSS_RUN_RATING_VERSION) or CROSS_RUN_RATING_VERSION)
+    state.setdefault("created_at", _timestamp())
+    state["created_datetime"] = state.get("created_datetime") or _format_timestamp(state.get("created_at"))
+    state.setdefault("updated_at", state.get("created_at"))
+    state.setdefault("total_games", 0)
+    state.setdefault("ratings", {})
+    state.setdefault("pairings", {})
+    state.setdefault("last_calibration", None)
+    return state
+
+
+def _save_cross_run_rating_state(state: Dict[str, Any]) -> None:
+    state["version"] = CROSS_RUN_RATING_VERSION
+    state["updated_at"] = _timestamp()
+    _atomic_write_json(CROSS_RUN_RATINGS_FILE, state)
+
+
+def _cross_run_confidence_radius(games: Any) -> Optional[float]:
+    try:
+        game_count = int(games)
+    except (TypeError, ValueError):
+        return None
+    if game_count <= 0:
+        return None
+    return CROSS_RUN_CONFIDENCE_95_SCALE / math.sqrt(float(game_count))
+
+
+def _round_optional_float(value: Any, digits: int = 2) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return round(number, digits)
+
+
+def _cross_run_best_participants(runs: Optional[Sequence[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    participants: List[Dict[str, Any]] = []
+    for run in list(runs if runs is not None else list_runs()):
+        run_name = str(run.get("run_name") or "").strip()
+        if not run_name:
+            continue
+        checkpoint_name = str(run.get("best_checkpoint") or run.get("latest_checkpoint") or "").strip()
+        if not checkpoint_name:
+            continue
+        participants.append(
+            {
+                "run_name": run_name,
+                "checkpoint": checkpoint_name,
+                "best_checkpoint": checkpoint_name,
+                "best_iteration": int(run.get("iteration", 0) or 0),
+                "created_at": run.get("created_at"),
+                "created_datetime": run.get("created_datetime") or _format_timestamp(run.get("created_at")),
+                "fork_origin": run.get("fork_origin") or _fork_origin_label(run.get("forked_from")),
+            }
+        )
+    return participants
+
+
+def _ensure_cross_run_rating_entry(state: Dict[str, Any], participant: Dict[str, Any]) -> Dict[str, Any]:
+    ratings = state.setdefault("ratings", {})
+    run_name = str(participant.get("run_name") or "").strip()
+    if not run_name:
+        raise ValueError("Cross-run participant is missing a run name.")
+    checkpoint = str(participant.get("best_checkpoint") or participant.get("checkpoint") or "").strip()
+    now = _timestamp()
+    existing = dict(ratings.get(run_name) or {})
+    previous_checkpoint = str(existing.get("best_checkpoint") or "").strip()
+    checkpoint_changed = bool(existing) and previous_checkpoint and previous_checkpoint != checkpoint
+    entry = {
+        "run_name": run_name,
+        "elo": float(existing.get("elo", INITIAL_ELO)),
+        "games": int(existing.get("games", 0)),
+        "wins": int(existing.get("wins", 0)),
+        "losses": int(existing.get("losses", 0)),
+        "draws": int(existing.get("draws", 0)),
+        "best_checkpoint": checkpoint,
+        "best_iteration": int(participant.get("best_iteration", existing.get("best_iteration", 0)) or 0),
+        "created_at": participant.get("created_at", existing.get("created_at")),
+        "created_datetime": participant.get("created_datetime") or existing.get("created_datetime") or "",
+        "fork_origin": participant.get("fork_origin") or existing.get("fork_origin") or "-",
+        "first_rated_at": existing.get("first_rated_at") or now,
+        "last_played_at": existing.get("last_played_at"),
+    }
+    if checkpoint_changed:
+        entry["previous_best_checkpoint"] = previous_checkpoint
+        entry["best_changed_at"] = now
+        entry["games"] = 0
+        entry["wins"] = 0
+        entry["losses"] = 0
+        entry["draws"] = 0
+        entry["last_played_at"] = None
+    confidence = _cross_run_confidence_radius(entry["games"])
+    entry["confidence_radius"] = None if confidence is None else float(confidence)
+    ratings[run_name] = entry
+    return entry
+
+
+def _cross_run_pair_key(run_name_a: str, run_name_b: str) -> str:
+    left, right = sorted((str(run_name_a), str(run_name_b)))
+    return f"{left}||{right}"
+
+
+def _cross_run_pair_entry(state: Dict[str, Any], run_name_a: str, run_name_b: str) -> Tuple[str, Dict[str, Any]]:
+    key = _cross_run_pair_key(run_name_a, run_name_b)
+    left, right = key.split("||", 1)
+    pairings = state.setdefault("pairings", {})
+    entry = dict(pairings.get(key) or {})
+    entry.setdefault("run_a", left)
+    entry.setdefault("run_b", right)
+    entry.setdefault("games", 0)
+    entry.setdefault("wins_a", 0)
+    entry.setdefault("wins_b", 0)
+    entry.setdefault("draws", 0)
+    pairings[key] = entry
+    return key, entry
+
+
+def _cross_run_participant_weights(
+    participants: Sequence[Dict[str, Any]],
+    state: Dict[str, Any],
+) -> Dict[str, float]:
+    created_values: List[Tuple[float, str]] = []
+    for participant in participants:
+        run_name = str(participant.get("run_name") or "")
+        try:
+            created_at = float(participant.get("created_at") or 0.0)
+        except (TypeError, ValueError):
+            created_at = 0.0
+        created_values.append((created_at, run_name))
+    newest_first = [name for _, name in sorted(created_values, reverse=True)]
+    recency_rank = {name: index for index, name in enumerate(newest_first)}
+    weights: Dict[str, float] = {}
+    ratings = state.get("ratings") or {}
+    for participant in participants:
+        run_name = str(participant.get("run_name") or "")
+        entry = ratings.get(run_name) or {}
+        confidence = _cross_run_confidence_radius(entry.get("games", 0))
+        uncertainty_weight = 8.0 if confidence is None else _clip(float(confidence) / 100.0, 0.2, 8.0)
+        rank = recency_rank.get(run_name, len(participants))
+        recency_weight = 1.0 / math.sqrt(float(rank) + 1.0)
+        weights[run_name] = max(0.0001, recency_weight * uncertainty_weight)
+    return weights
+
+
+def _sample_cross_run_pair(
+    participants: Sequence[Dict[str, Any]],
+    state: Dict[str, Any],
+    planned_pair_counts: Dict[str, int],
+) -> Tuple[str, str]:
+    if len(participants) < 2:
+        raise ValueError("At least two runs with saved best policies are required for cross-run calibration.")
+    weights = _cross_run_participant_weights(participants, state)
+    choices: List[Tuple[Tuple[str, str], float]] = []
+    for index, participant_a in enumerate(participants):
+        run_name_a = str(participant_a.get("run_name") or "")
+        for participant_b in participants[index + 1:]:
+            run_name_b = str(participant_b.get("run_name") or "")
+            key, pair_entry = _cross_run_pair_entry(state, run_name_a, run_name_b)
+            existing_games = int(pair_entry.get("games", 0))
+            planned_games = int(planned_pair_counts.get(key, 0))
+            pair_penalty = 1.0 / math.sqrt(float(existing_games + planned_games) + 1.0)
+            choices.append(((run_name_a, run_name_b), weights.get(run_name_a, 1.0) * weights.get(run_name_b, 1.0) * pair_penalty))
+    return _weighted_choice(choices)
+
+
+def _cross_run_config_for_pair(
+    run_name_a: str,
+    run_name_b: str,
+    simulation_workers: int,
+) -> TrainingConfig:
+    config_a = _get_trainer(run_name_a).config
+    config_b = _get_trainer(run_name_b).config
+    return config_a.merged(
+        {
+            "max_turns_per_game": max(int(config_a.max_turns_per_game), int(config_b.max_turns_per_game)),
+            "max_actions_per_turn": max(int(config_a.max_actions_per_turn), int(config_b.max_actions_per_turn)),
+            "eval_temperature": min(float(config_a.eval_temperature), float(config_b.eval_temperature)),
+            "simulation_workers": int(simulation_workers),
+        }
+    )
+
+
+def _cross_run_leaderboard_from_state(
+    state: Dict[str, Any],
+    participants: Optional[Sequence[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    participant_by_name = {
+        str(participant.get("run_name") or ""): participant
+        for participant in (participants if participants is not None else _cross_run_best_participants())
+    }
+    entries: List[Dict[str, Any]] = []
+    for run_name, raw_entry in (state.get("ratings") or {}).items():
+        participant = participant_by_name.get(str(run_name))
+        if participant is None:
+            continue
+        entry = _ensure_cross_run_rating_entry(state, participant)
+        confidence = _cross_run_confidence_radius(entry.get("games", 0))
+        entries.append(
+            {
+                "run_name": str(run_name),
+                "elo": round(float(entry.get("elo", INITIAL_ELO)), 2),
+                "confidence_radius": _round_optional_float(confidence, 2),
+                "games": int(entry.get("games", 0)),
+                "wins": int(entry.get("wins", 0)),
+                "losses": int(entry.get("losses", 0)),
+                "draws": int(entry.get("draws", 0)),
+                "best_checkpoint": entry.get("best_checkpoint"),
+                "best_iteration": int(entry.get("best_iteration", 0) or 0),
+                "created_at": entry.get("created_at"),
+                "created_datetime": entry.get("created_datetime") or "",
+                "fork_origin": entry.get("fork_origin") or "-",
+                "last_played_at": entry.get("last_played_at"),
+                "last_played_datetime": _format_timestamp(entry.get("last_played_at")),
+            }
+        )
+    entries.sort(key=lambda item: (float(item.get("elo", INITIAL_ELO)), int(item.get("games", 0)), item.get("run_name", "")), reverse=True)
+    for rank, entry in enumerate(entries, start=1):
+        entry["rank"] = rank
+    return entries
+
+
+def cross_run_rating_summary() -> Dict[str, Any]:
+    with _CROSS_RUN_RATING_LOCK:
+        state = _load_cross_run_rating_state()
+        participants = _cross_run_best_participants()
+        for participant in participants:
+            _ensure_cross_run_rating_entry(state, participant)
+        leaderboard = _cross_run_leaderboard_from_state(state, participants)
+        return {
+            "status": "available" if len(participants) >= 2 else "needs_two_runs",
+            "participant_count": len(participants),
+            "total_games": int(state.get("total_games", 0)),
+            "updated_at": state.get("updated_at"),
+            "updated_datetime": _format_timestamp(state.get("updated_at")),
+            "confidence_level": "approx_95_percent",
+            "confidence_formula": f"+/- {CROSS_RUN_CONFIDENCE_95_SCALE:.0f} / sqrt(cross-run games)",
+            "leaderboard": leaderboard,
+            "last_calibration": state.get("last_calibration"),
+            "ratings_file": str(CROSS_RUN_RATINGS_FILE),
+        }
+
+
+def run_cross_run_calibration_games(
+    games: int = 200,
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    simulation_workers: int = SIMULATION_WORKERS_AUTO,
+) -> Dict[str, Any]:
+    total_games = int(games)
+    if total_games <= 0:
+        raise ValueError("Cross-run calibration games must be positive.")
+    simulation_workers = normalize_simulation_workers(simulation_workers)
+    allocation_key = "cross-run-rating"
+    started_at = _timestamp()
+
+    def emit_progress(games_completed: int, pairings_completed: int, pairings_total: int) -> None:
+        if progress_callback is None:
+            return
+        try:
+            progress_callback(
+                {
+                    "games_completed": int(games_completed),
+                    "games_target": int(total_games),
+                    "pairings_completed": int(pairings_completed),
+                    "pairings_total": int(pairings_total),
+                    "duration_seconds": _timestamp() - started_at,
+                }
+            )
+        except Exception:
+            pass
+
+    with _CROSS_RUN_RATING_LOCK:
+        state = _load_cross_run_rating_state()
+        participants = _cross_run_best_participants()
+        if len(participants) < 2:
+            raise ValueError("At least two runs with saved best policies are required for cross-run calibration.")
+        participant_by_name = {str(item["run_name"]): item for item in participants}
+        for participant in participants:
+            _ensure_cross_run_rating_entry(state, participant)
+
+        planned_pair_counts: Dict[str, int] = {}
+        pair_counts: Dict[Tuple[str, str], int] = {}
+        for _ in range(total_games):
+            run_name_a, run_name_b = _sample_cross_run_pair(participants, state, planned_pair_counts)
+            pair_key = _cross_run_pair_key(run_name_a, run_name_b)
+            planned_pair_counts[pair_key] = planned_pair_counts.get(pair_key, 0) + 1
+            pair_counts[(run_name_a, run_name_b)] = pair_counts.get((run_name_a, run_name_b), 0) + 1
+
+    completed_games = 0
+    pairings_completed = 0
+    pair_results: List[Dict[str, Any]] = []
+    resolved_workers = 1
+    simulation_pool = None
+    _register_active_simulation_run(allocation_key, simulation_workers)
+    try:
+        resolved_workers = resolve_simulation_workers(
+            simulation_workers,
+            total_games,
+            allocation_key=allocation_key,
+        )
+        simulation_pool = _SimulationPool(resolved_workers) if resolved_workers > 1 and total_games > 1 else None
+        for (run_name_a, run_name_b), game_count in pair_counts.items():
+            participant_a = participant_by_name[run_name_a]
+            participant_b = participant_by_name[run_name_b]
+            checkpoint_a = str(participant_a["checkpoint"])
+            checkpoint_b = str(participant_b["checkpoint"])
+            policy_a = _cached_policy(run_name_a, checkpoint_a)
+            policy_b = _cached_policy(run_name_b, checkpoint_b)
+            config = _cross_run_config_for_pair(run_name_a, run_name_b, resolved_workers)
+
+            def pair_progress(progress: Dict[str, Any]) -> None:
+                if progress_callback is None:
+                    return
+                pair_completed = completed_games + int(progress.get("games_completed", 0))
+                emit_progress(pair_completed, pairings_completed, len(pair_counts))
+
+            summary = _play_balanced_match(
+                policy_a,
+                policy_b,
+                config,
+                games_per_match=int(game_count),
+                game_progress_callback=pair_progress,
+                simulation_pool=simulation_pool,
+                cache_key_prefix=(
+                    f"cross-run:{run_name_a}:{checkpoint_a}:"
+                    f"{run_name_b}:{checkpoint_b}:{started_at:.6f}"
+                ),
+            )
+            pairings_completed += 1
+            played = int(summary.get("games_played", 0))
+            completed_games += played
+
+            with _CROSS_RUN_RATING_LOCK:
+                state = _load_cross_run_rating_state()
+                entry_a = _ensure_cross_run_rating_entry(state, participant_a)
+                entry_b = _ensure_cross_run_rating_entry(state, participant_b)
+                pair_key, pair_entry = _cross_run_pair_entry(state, run_name_a, run_name_b)
+                left_name = str(pair_entry["run_a"])
+                right_name = str(pair_entry["run_b"])
+                winners = list(summary.get("per_game_winners") or [])
+                if len(winners) < played:
+                    winners.extend(["policy_a"] * max(0, int(summary.get("wins_a", 0)) - winners.count("policy_a")))
+                    winners.extend(["policy_b"] * max(0, int(summary.get("wins_b", 0)) - winners.count("policy_b")))
+                for winner in winners[:played]:
+                    old_a = float(entry_a.get("elo", INITIAL_ELO))
+                    old_b = float(entry_b.get("elo", INITIAL_ELO))
+                    if winner == "policy_a":
+                        score_a = 1.0
+                        entry_a["wins"] = int(entry_a.get("wins", 0)) + 1
+                        entry_b["losses"] = int(entry_b.get("losses", 0)) + 1
+                        if run_name_a == left_name:
+                            pair_entry["wins_a"] = int(pair_entry.get("wins_a", 0)) + 1
+                        else:
+                            pair_entry["wins_b"] = int(pair_entry.get("wins_b", 0)) + 1
+                    elif winner == "policy_b":
+                        score_a = 0.0
+                        entry_b["wins"] = int(entry_b.get("wins", 0)) + 1
+                        entry_a["losses"] = int(entry_a.get("losses", 0)) + 1
+                        if run_name_b == left_name:
+                            pair_entry["wins_a"] = int(pair_entry.get("wins_a", 0)) + 1
+                        else:
+                            pair_entry["wins_b"] = int(pair_entry.get("wins_b", 0)) + 1
+                    else:
+                        score_a = 0.5
+                        entry_a["draws"] = int(entry_a.get("draws", 0)) + 1
+                        entry_b["draws"] = int(entry_b.get("draws", 0)) + 1
+                        pair_entry["draws"] = int(pair_entry.get("draws", 0)) + 1
+                    new_a, new_b = _elo_update(old_a, old_b, score_a, CROSS_RUN_ELO_K_FACTOR)
+                    entry_a["elo"] = float(new_a)
+                    entry_b["elo"] = float(new_b)
+                    entry_a["games"] = int(entry_a.get("games", 0)) + 1
+                    entry_b["games"] = int(entry_b.get("games", 0)) + 1
+                    pair_entry["games"] = int(pair_entry.get("games", 0)) + 1
+                    state["total_games"] = int(state.get("total_games", 0)) + 1
+                now = _timestamp()
+                entry_a["last_played_at"] = now
+                entry_b["last_played_at"] = now
+                confidence_a = _cross_run_confidence_radius(entry_a.get("games", 0))
+                confidence_b = _cross_run_confidence_radius(entry_b.get("games", 0))
+                entry_a["confidence_radius"] = None if confidence_a is None else float(confidence_a)
+                entry_b["confidence_radius"] = None if confidence_b is None else float(confidence_b)
+                state["ratings"][run_name_a] = entry_a
+                state["ratings"][run_name_b] = entry_b
+                state["pairings"][pair_key] = pair_entry
+                state["last_calibration"] = {
+                    "status": "running",
+                    "started_at": started_at,
+                    "games_completed": completed_games,
+                    "games_target": total_games,
+                    "pairings_completed": pairings_completed,
+                    "pairings_total": len(pair_counts),
+                    "resolved_simulation_workers": resolved_workers,
+                }
+                _save_cross_run_rating_state(state)
+
+            pair_results.append(
+                {
+                    "run_a": run_name_a,
+                    "checkpoint_a": checkpoint_a,
+                    "run_b": run_name_b,
+                    "checkpoint_b": checkpoint_b,
+                    "games_played": played,
+                    "wins_a": int(summary.get("wins_a", 0)),
+                    "wins_b": int(summary.get("wins_b", 0)),
+                }
+            )
+            emit_progress(completed_games, pairings_completed, len(pair_counts))
+    finally:
+        if simulation_pool is not None:
+            simulation_pool.close()
+        _unregister_active_simulation_run(allocation_key)
+
+    with _CROSS_RUN_RATING_LOCK:
+        state = _load_cross_run_rating_state()
+        participants = _cross_run_best_participants()
+        for participant in participants:
+            _ensure_cross_run_rating_entry(state, participant)
+        leaderboard = _cross_run_leaderboard_from_state(state, participants)
+        state["last_calibration"] = {
+            "status": "completed",
+            "started_at": started_at,
+            "completed_at": _timestamp(),
+            "duration_seconds": _timestamp() - started_at,
+            "games_completed": completed_games,
+            "games_target": total_games,
+            "pairings_completed": pairings_completed,
+            "pairings_total": len(pair_counts),
+            "resolved_simulation_workers": resolved_workers,
+        }
+        _save_cross_run_rating_state(state)
+        return {
+            "status": "completed",
+            "games_completed": completed_games,
+            "games_target": total_games,
+            "pairings_played": pairings_completed,
+            "pairings_total": len(pair_counts),
+            "participant_count": len(participants),
+            "resolved_simulation_workers": resolved_workers,
+            "duration_seconds": _timestamp() - started_at,
+            "confidence_level": "approx_95_percent",
+            "leaderboard": leaderboard,
+            "pair_results": pair_results,
+            "ratings_file": str(CROSS_RUN_RATINGS_FILE),
+        }
+
+
+def summarize_cross_run_rating(games: int = 200) -> str:
+    summary = run_cross_run_calibration_games(games=games)
+    top_entry = (summary.get("leaderboard") or [{}])[0]
+    confidence = top_entry.get("confidence_radius")
+    confidence_text = "-" if confidence is None else f"+/- {float(confidence):.1f}"
+    return (
+        f"Cross-run rating completed with {summary.get('games_completed', 0)} calibration games. "
+        f"Top rated run: {top_entry.get('run_name', '-')} at "
+        f"{round(float(top_entry.get('elo', INITIAL_ELO)), 2)} Elo ({confidence_text})."
     )
 
 

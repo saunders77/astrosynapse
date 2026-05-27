@@ -489,6 +489,7 @@ class TrainerGUI(tk.Tk):
         self.fork_source_checkpoint_var = tk.StringVar(value="latest")
         self.rating_models_var = tk.StringVar(value="8")
         self.rating_games_var = tk.StringVar(value="12")
+        self.cross_run_games_var = tk.StringVar(value="200")
         self.include_candidate_var = tk.BooleanVar(value=True)
         self.human_name_var = tk.StringVar(value="Human")
         self.policy_name_var = tk.StringVar(value="Policy")
@@ -524,11 +525,13 @@ class TrainerGUI(tk.Tk):
             "acquire_elo": tk.DoubleVar(value=0.0),
             "policy_match": tk.DoubleVar(value=0.0),
             "rating_pass": tk.DoubleVar(value=0.0),
+            "cross_run_rating": tk.DoubleVar(value=0.0),
         }
         self.activity_progress_text_vars = {
             "acquire_elo": tk.StringVar(value="Idle"),
             "policy_match": tk.StringVar(value="Idle"),
             "rating_pass": tk.StringVar(value="Idle"),
+            "cross_run_rating": tk.StringVar(value="Idle"),
         }
 
         self._build_style()
@@ -597,6 +600,7 @@ class TrainerGUI(tk.Tk):
             "ActivityAcquire.Horizontal.TProgressbar": "#f08a5d",
             "ActivityPolicy.Horizontal.TProgressbar": "#5aa9e6",
             "ActivityRating.Horizontal.TProgressbar": "#7bd389",
+            "ActivityCrossRun.Horizontal.TProgressbar": "#c9a227",
         }
         for style_name, color in progressbar_styles.items():
             style.configure(
@@ -806,9 +810,13 @@ class TrainerGUI(tk.Tk):
         ttk.Label(rating_row, text="Games / Pair").pack(side="left")
         ttk.Entry(rating_row, textvariable=self.rating_games_var, width=8).pack(side="left", padx=(6, 16))
         ttk.Checkbutton(rating_row, text="Include Candidate", variable=self.include_candidate_var).pack(side="left")
+        ttk.Label(rating_row, text="Cross-Run Games").pack(side="left", padx=(16, 0))
+        ttk.Entry(rating_row, textvariable=self.cross_run_games_var, width=8).pack(side="left", padx=(6, 8))
+        self.cross_run_rating_button = self._button(rating_row, "Run Cross-Run Rating", self._run_cross_run_rating)
+        self.cross_run_rating_button.pack(side="left", padx=(0, 12))
         rating_tip = tk.Label(
             rating_row,
-            text="Rating pass runs a round-robin over a representative checkpoint pool and rewrites Elo from those results.",
+            text="Rating pass is within-run; cross-run rating only compares each run's best policy.",
             bg=WINDOW_BG,
             fg=MUTED,
             anchor="w",
@@ -886,12 +894,14 @@ class TrainerGUI(tk.Tk):
 
         self.runs_tree = self._build_tree(
             runs_frame,
-            columns=("status", "created", "fork", "iteration", "elo", "best_elo", "matches", "games"),
-            headings=("Status", "Created", "Forked From", "Iter", "Elo", "Best Elo", "Matches", "Games"),
+            columns=("status", "created", "fork", "iteration", "elo", "best_elo", "cross_elo", "cross_conf", "matches", "games"),
+            headings=("Status", "Created", "Forked From", "Iter", "Elo", "Best Elo", "Cross Elo", "+/-", "Matches", "Games"),
         )
         self.runs_tree.bind("<<TreeviewSelect>>", self._on_run_tree_select)
         self.runs_tree.column("created", width=145, stretch=False)
         self.runs_tree.column("fork", width=190, stretch=True)
+        self.runs_tree.column("cross_elo", width=82, stretch=False)
+        self.runs_tree.column("cross_conf", width=62, stretch=False)
 
         self.checkpoints_tree = self._build_tree(
             checkpoints_frame,
@@ -960,6 +970,13 @@ class TrainerGUI(tk.Tk):
             "Rating Pass",
             "rating_pass",
             "ActivityRating.Horizontal.TProgressbar",
+        )
+        self._activity_progress_row(
+            activity_progress,
+            3,
+            "Cross-Run Rating",
+            "cross_run_rating",
+            "ActivityCrossRun.Horizontal.TProgressbar",
         )
 
         self.log_text = ScrolledText(
@@ -1230,6 +1247,15 @@ class TrainerGUI(tk.Tk):
             raise ValueError("Games per pair must be at least 2.")
         return games
 
+    def _cross_run_games(self) -> int:
+        try:
+            games = int(self.cross_run_games_var.get().strip())
+        except ValueError:
+            raise ValueError("Cross-run games must be an integer.")
+        if games <= 0:
+            raise ValueError("Cross-run games must be positive.")
+        return games
+
     def _new_run_training_matches(self) -> int:
         try:
             value = int(self.new_run_matches_var.get().strip())
@@ -1436,6 +1462,20 @@ class TrainerGUI(tk.Tk):
         run_names = [item["run_name"] for item in runs]
         run_name_set = set(run_names)
         checkpoint_cache: Dict[str, List[Dict[str, Any]]] = {}
+        try:
+            cross_run_entries = list(sp.cross_run_rating_summary().get("leaderboard") or [])
+            cross_run_by_name = {str(item.get("run_name")): item for item in cross_run_entries}
+        except Exception:
+            cross_run_by_name = {}
+
+        def cross_run_table_values(run_name: str) -> tuple[str, str]:
+            entry = cross_run_by_name.get(run_name) or {}
+            elo = entry.get("elo")
+            confidence = entry.get("confidence_radius")
+            elo_text = "-" if elo is None else f"{float(elo):.1f}"
+            confidence_text = "-" if confidence is None else f"{float(confidence):.1f}"
+            return elo_text, confidence_text
+
         self._known_run_names = tuple(run_names)
 
         if tuple(self.run_combo["values"]) != self._known_run_names:
@@ -1462,6 +1502,7 @@ class TrainerGUI(tk.Tk):
                 int(run["iteration"]),
                 f"{float(run['current_elo']):.1f}",
                 f"{float(run['best_elo']):.1f}",
+                *cross_run_table_values(run["run_name"]),
                 int(run["total_matches"]),
                 int(run["total_games"]),
             )
@@ -1486,6 +1527,7 @@ class TrainerGUI(tk.Tk):
                             run["iteration"],
                             f"{run['current_elo']:.1f}",
                             f"{run['best_elo']:.1f}",
+                            *cross_run_table_values(run["run_name"]),
                             run["total_matches"],
                             run["total_games"],
                         ),
@@ -1761,6 +1803,20 @@ class TrainerGUI(tk.Tk):
         last_rating_pass = summary.get("last_rating_pass") or {}
         candidate = summary.get("candidate") or {}
         forked_from = state.get("forked_from") or {}
+        cross_run_summary: Dict[str, Any] = {}
+        cross_run_entry: Dict[str, Any] = {}
+        try:
+            cross_run_summary = sp.cross_run_rating_summary()
+            for item in list(cross_run_summary.get("leaderboard") or []):
+                if item.get("run_name") == run_name:
+                    cross_run_entry = dict(item)
+                    break
+        except Exception as exc:
+            cross_run_summary = {"status": f"unavailable: {type(exc).__name__}: {exc}"}
+        cross_confidence = cross_run_entry.get("confidence_radius")
+        cross_confidence_text = "-" if cross_confidence is None else f"+/- {float(cross_confidence):.1f}"
+        cross_elo = cross_run_entry.get("elo")
+        cross_elo_text = "-" if cross_elo is None else f"{float(cross_elo):.1f}"
         details = [
             f"Run: {run_name}",
             f"Directory: {summary.get('run_dir', '-')}",
@@ -1838,6 +1894,16 @@ class TrainerGUI(tk.Tk):
             f"- Included candidate: {last_rating_pass.get('include_candidate', '-')}",
             f"- Duration seconds: {last_rating_pass.get('duration_seconds', '-')}",
             "",
+            "Cross-Run Rating",
+            f"- Status: {cross_run_summary.get('status', '-')}",
+            f"- Elo: {cross_elo_text}",
+            f"- Confidence: {cross_confidence_text}",
+            f"- Rank: {cross_run_entry.get('rank', '-')}",
+            f"- Games: {cross_run_entry.get('games', '-')}",
+            f"- Rated best checkpoint: {cross_run_entry.get('best_checkpoint', '-')}",
+            f"- Total cross-run games: {cross_run_summary.get('total_games', '-')}",
+            f"- Confidence level: {cross_run_summary.get('confidence_level', '-')}",
+            "",
             "Candidate",
             f"- Base checkpoint: {candidate.get('base_checkpoint', '-')}",
             f"- Attempts since reset: {candidate.get('attempts_since_reset', '-')}",
@@ -1877,6 +1943,22 @@ class TrainerGUI(tk.Tk):
                         f"- {item.get('name', '-')}: elo {round(float(item.get('elo', sp.INITIAL_ELO)), 2)}, "
                         f"iter {item.get('iteration', '-')}, kind {item.get('kind', '-')}"
                         for item in leaderboard
+                    ],
+                ]
+            )
+        cross_run_leaderboard = list(cross_run_summary.get("leaderboard") or [])
+        if cross_run_leaderboard:
+            details.extend(
+                [
+                    "",
+                    "Cross-Run Leaderboard",
+                    *[
+                        f"- #{item.get('rank', '-')} {item.get('run_name', '-')}: elo "
+                        f"{float(item.get('elo', sp.INITIAL_ELO)):.1f}, "
+                        f"confidence "
+                        f"{'-' if item.get('confidence_radius') is None else '+/- ' + format(float(item.get('confidence_radius')), '.1f')}, "
+                        f"games {item.get('games', 0)}, best {item.get('best_checkpoint', '-')}"
+                        for item in cross_run_leaderboard[:12]
                     ],
                 ]
             )
@@ -2381,6 +2463,114 @@ class TrainerGUI(tk.Tk):
             )
 
         self._run_async(f"Run rating pass for '{run_name}'", action, on_success=on_success)
+
+    def _run_cross_run_rating(self) -> None:
+        try:
+            games = self._cross_run_games()
+        except ValueError as exc:
+            messagebox.showerror("Invalid cross-run rating settings", str(exc), parent=self)
+            return
+        try:
+            participant_count = int(sp.cross_run_rating_summary().get("participant_count", 0))
+        except Exception:
+            participant_count = 0
+        if participant_count < 2:
+            messagebox.showerror(
+                "Not enough runs",
+                "Cross-run rating needs at least two runs with saved best policies.",
+                parent=self,
+            )
+            return
+
+        activity_label = f"{games} calibration game(s)"
+        self._set_activity_progress(
+            "cross_run_rating",
+            {
+                "status": "running",
+                "label": activity_label,
+                "games_completed": 0,
+                "games_target": games,
+                "pairings_completed": 0,
+                "pairings_total": 0,
+            },
+        )
+
+        def action() -> Dict[str, Any]:
+            def progress_callback(progress: Dict[str, Any]) -> None:
+                self.progress_queue.put(
+                    (
+                        "cross_run_rating",
+                        {
+                            "status": "running",
+                            "label": activity_label,
+                            **progress,
+                        },
+                    )
+                )
+
+            try:
+                return sp.run_cross_run_calibration_games(
+                    games=games,
+                    progress_callback=progress_callback,
+                )
+            except Exception:
+                self.progress_queue.put(
+                    (
+                        "cross_run_rating",
+                        {
+                            "status": "failed",
+                            "label": activity_label,
+                        },
+                    )
+                )
+                raise
+
+        def on_success(result: Dict[str, Any]) -> None:
+            leaderboard = list(result.get("leaderboard") or [])
+            top_line = "-"
+            if leaderboard:
+                top_entry = leaderboard[0]
+                confidence = top_entry.get("confidence_radius")
+                confidence_text = "-" if confidence is None else f"+/- {float(confidence):.1f}"
+                top_line = f"{top_entry.get('run_name')} at {float(top_entry.get('elo', sp.INITIAL_ELO)):.1f} ({confidence_text})"
+            self._set_activity_progress(
+                "cross_run_rating",
+                {
+                    "status": "completed",
+                    "label": activity_label,
+                    "games_completed": int(result.get("games_completed", games)),
+                    "games_target": int(result.get("games_target", games)),
+                    "pairings_completed": int(result.get("pairings_played", 0)),
+                    "pairings_total": int(result.get("pairings_total", 0)),
+                    "duration_seconds": result.get("duration_seconds"),
+                },
+            )
+            self.log(
+                f"Cross-run rating finished: {result.get('games_completed', 0)} game(s), "
+                f"{result.get('pairings_played', 0)} sampled pairing(s), top rated {top_line}."
+            )
+            report_lines = [
+                "Cross-Run Rating",
+                f"Games completed: {result.get('games_completed', 0)} / {result.get('games_target', games)}",
+                f"Pairings sampled: {result.get('pairings_played', 0)} / {result.get('pairings_total', 0)}",
+                f"Participants: {result.get('participant_count', 0)}",
+                f"Workers: {result.get('resolved_simulation_workers', '-')}",
+                f"Duration: {sp._format_seconds(float(result.get('duration_seconds', 0.0)))}",
+                f"Confidence level: {result.get('confidence_level', '-')}",
+                "",
+                "Leaderboard",
+            ]
+            for item in leaderboard:
+                confidence = item.get("confidence_radius")
+                confidence_text = "-" if confidence is None else f"+/- {float(confidence):.1f}"
+                report_lines.append(
+                    f"#{item.get('rank', '-')} {item.get('run_name', '-')}: "
+                    f"{float(item.get('elo', sp.INITIAL_ELO)):.1f} Elo ({confidence_text}), "
+                    f"{item.get('games', 0)} games, best {item.get('best_checkpoint', '-')}"
+                )
+            self._show_text_report("Cross-Run Rating", "\n".join(report_lines))
+
+        self._run_async("Run cross-run rating", action, on_success=on_success)
 
     def _run_card_acquire_elo_test(self) -> None:
         run_name = self._selected_run_name()
