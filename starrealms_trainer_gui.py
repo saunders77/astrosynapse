@@ -1917,7 +1917,10 @@ class TrainerGUI(tk.Tk):
             f"- Rank: {cross_run_entry.get('rank', '-')}",
             f"- Games: {cross_run_entry.get('games', '-')}",
             f"- Rated best checkpoint: {cross_run_entry.get('best_checkpoint', '-')}",
+            f"- Calibration eligible: {cross_run_entry.get('calibration_eligible', '-')}",
             f"- Total cross-run games: {cross_run_summary.get('total_games', '-')}",
+            f"- Eligible participants: {cross_run_summary.get('eligible_participant_count', '-')}",
+            f"- Excluded participants: {cross_run_summary.get('excluded_participant_count', '-')}",
             f"- Confidence level: {cross_run_summary.get('confidence_level', '-')}",
             "",
             "Candidate",
@@ -1973,7 +1976,8 @@ class TrainerGUI(tk.Tk):
                         f"{float(item.get('elo', sp.INITIAL_ELO)):.1f}, "
                         f"confidence "
                         f"{'-' if item.get('confidence_radius') is None else '+/- ' + format(float(item.get('confidence_radius')), '.1f')}, "
-                        f"games {item.get('games', 0)}, best {item.get('best_checkpoint', '-')}"
+                        f"games {item.get('games', 0)}, best {item.get('best_checkpoint', '-')}, "
+                        f"{'eligible' if item.get('calibration_eligible', True) else 'excluded'}"
                         for item in cross_run_leaderboard[:12]
                     ],
                 ]
@@ -2575,6 +2579,9 @@ class TrainerGUI(tk.Tk):
                 f"Games completed: {result.get('games_completed', 0)} / {result.get('games_target', games)}",
                 f"Pairings sampled: {result.get('pairings_played', 0)} / {result.get('pairings_total', 0)}",
                 f"Participants: {result.get('participant_count', 0)}",
+                f"Eligible participants: {result.get('eligible_participant_count', '-')}",
+                f"Excluded participants: {result.get('excluded_participant_count', '-')}",
+                f"Leader interval floor: {result.get('top_interval_run_name', '-')} at {result.get('top_interval_lower_bound', '-')}",
                 f"Workers: {result.get('resolved_simulation_workers', '-')}",
                 f"Duration: {sp._format_seconds(float(result.get('duration_seconds', 0.0)))}",
                 f"Confidence level: {result.get('confidence_level', '-')}",
@@ -2587,7 +2594,8 @@ class TrainerGUI(tk.Tk):
                 report_lines.append(
                     f"#{item.get('rank', '-')} {item.get('run_name', '-')}: "
                     f"{float(item.get('elo', sp.INITIAL_ELO)):.1f} Elo ({confidence_text}), "
-                    f"{item.get('games', 0)} games, best {item.get('best_checkpoint', '-')}"
+                    f"{item.get('games', 0)} games, best {item.get('best_checkpoint', '-')}, "
+                    f"{'eligible' if item.get('calibration_eligible', True) else 'excluded'}"
                 )
             self._show_text_report("Cross-Run Rating", "\n".join(report_lines))
 

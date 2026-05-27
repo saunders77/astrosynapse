@@ -5511,6 +5511,105 @@ def _cross_run_participant_weights(
     return weights
 
 
+def _cross_run_rating_interval(entry: Dict[str, Any]) -> Optional[Tuple[float, float]]:
+    confidence = _cross_run_confidence_radius(entry.get("games", 0))
+    if confidence is None:
+        return None
+    try:
+        elo = float(entry.get("elo", INITIAL_ELO))
+    except (TypeError, ValueError):
+        elo = INITIAL_ELO
+    if not math.isfinite(elo):
+        elo = INITIAL_ELO
+    return elo - float(confidence), elo + float(confidence)
+
+
+def _cross_run_calibration_eligibility(
+    state: Dict[str, Any],
+    participants: Sequence[Dict[str, Any]],
+) -> Dict[str, Any]:
+    entries: List[Dict[str, Any]] = []
+    ratings = state.get("ratings") or {}
+    for participant in participants:
+        run_name = str(participant.get("run_name") or "")
+        if not run_name:
+            continue
+        entry = dict(ratings.get(run_name) or {})
+        try:
+            elo = float(entry.get("elo", INITIAL_ELO))
+        except (TypeError, ValueError):
+            elo = INITIAL_ELO
+        if not math.isfinite(elo):
+            elo = INITIAL_ELO
+        interval = _cross_run_rating_interval(entry)
+        entries.append(
+            {
+                "run_name": run_name,
+                "elo": elo,
+                "confidence_radius": _cross_run_confidence_radius(entry.get("games", 0)),
+                "lower_bound": None if interval is None else interval[0],
+                "upper_bound": None if interval is None else interval[1],
+            }
+        )
+
+    if not entries:
+        return {
+            "eligible_run_names": set(),
+            "excluded_run_names": set(),
+            "runs": {},
+            "top_run_name": None,
+            "top_lower_bound": None,
+        }
+
+    max_elo = max(float(item["elo"]) for item in entries)
+    top_candidates = [item for item in entries if abs(float(item["elo"]) - max_elo) <= 1e-9]
+    if any(item.get("confidence_radius") is None for item in top_candidates):
+        run_metadata = {
+            str(item["run_name"]): {
+                **item,
+                "eligible": True,
+                "exclusion_reason": None,
+            }
+            for item in entries
+        }
+        return {
+            "eligible_run_names": set(run_metadata.keys()),
+            "excluded_run_names": set(),
+            "runs": run_metadata,
+            "top_run_name": str(top_candidates[0]["run_name"]),
+            "top_lower_bound": None,
+        }
+
+    top_entry = max(top_candidates, key=lambda item: float(item.get("lower_bound") or -math.inf))
+    top_lower_bound = float(top_entry["lower_bound"])
+    eligible_run_names = set()
+    excluded_run_names = set()
+    run_metadata: Dict[str, Dict[str, Any]] = {}
+    for item in entries:
+        run_name = str(item["run_name"])
+        upper_bound = item.get("upper_bound")
+        eligible = upper_bound is None or float(upper_bound) >= top_lower_bound
+        if eligible:
+            eligible_run_names.add(run_name)
+            reason = None
+        else:
+            excluded_run_names.add(run_name)
+            reason = "upper_bound_below_top_lower_bound"
+        run_metadata[run_name] = {
+            **item,
+            "eligible": eligible,
+            "exclusion_reason": reason,
+        }
+
+    return {
+        "eligible_run_names": eligible_run_names,
+        "excluded_run_names": excluded_run_names,
+        "runs": run_metadata,
+        "top_run_name": str(top_entry["run_name"]),
+        "top_lower_bound": top_lower_bound,
+    }
+
+
 def _sample_cross_run_pair(
     participants: Sequence[Dict[str, Any]],
     state: Dict[str, Any],
@@ -5556,10 +5655,13 @@ def _cross_run_leaderboard_from_state(
     state: Dict[str, Any],
     participants: Optional[Sequence[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
+    participant_list = list(participants if participants is not None else _cross_run_best_participants())
     participant_by_name = {
         str(participant.get("run_name") or ""): participant
-        for participant in (participants if participants is not None else _cross_run_best_participants())
+        for participant in participant_list
     }
+    eligibility = _cross_run_calibration_eligibility(state, participant_list)
+    eligibility_by_name = eligibility.get("runs") or {}
     entries: List[Dict[str, Any]] = []
     for run_name, raw_entry in (state.get("ratings") or {}).items():
         participant = participant_by_name.get(str(run_name))
@@ -5567,11 +5669,16 @@ def _cross_run_leaderboard_from_state(
             continue
         entry = _ensure_cross_run_rating_entry(state, participant)
         confidence = _cross_run_confidence_radius(entry.get("games", 0))
+        run_eligibility = dict(eligibility_by_name.get(str(run_name)) or {})
         entries.append(
             {
                 "run_name": str(run_name),
                 "elo": round(float(entry.get("elo", INITIAL_ELO)), 2),
                 "confidence_radius": _round_optional_float(confidence, 2),
+                "confidence_lower_bound": _round_optional_float(run_eligibility.get("lower_bound"), 2),
+                "confidence_upper_bound": _round_optional_float(run_eligibility.get("upper_bound"), 2),
+                "calibration_eligible": bool(run_eligibility.get("eligible", True)),
+                "calibration_exclusion_reason": run_eligibility.get("exclusion_reason"),
                 "games": int(entry.get("games", 0)),
                 "wins": int(entry.get("wins", 0)),
                 "losses": int(entry.get("losses", 0)),
@@ -5597,10 +5704,16 @@ def cross_run_rating_summary() -> Dict[str, Any]:
         participants = _cross_run_best_participants()
         for participant in participants:
             _ensure_cross_run_rating_entry(state, participant)
+        eligibility = _cross_run_calibration_eligibility(state, participants)
         leaderboard = _cross_run_leaderboard_from_state(state, participants)
         return {
             "status": "available" if len(participants) >= 2 else "needs_two_runs",
             "participant_count": len(participants),
+            "eligible_participant_count": len(eligibility.get("eligible_run_names") or []),
+            "excluded_participant_count": len(eligibility.get("excluded_run_names") or []),
+            "excluded_run_names": sorted(str(name) for name in (eligibility.get("excluded_run_names") or [])),
+            "top_interval_run_name": eligibility.get("top_run_name"),
+            "top_interval_lower_bound": _round_optional_float(eligibility.get("top_lower_bound"), 2),
             "total_games": int(state.get("total_games", 0)),
             "updated_at": state.get("updated_at"),
             "updated_datetime": _format_timestamp(state.get("updated_at")),
@@ -5778,11 +5891,55 @@ def run_cross_run_calibration_games(
         participant_by_name = {str(item["run_name"]): item for item in participants}
         for participant in participants:
             _ensure_cross_run_rating_entry(state, participant)
+        eligibility = _cross_run_calibration_eligibility(state, participants)
+        eligible_run_names = set(str(name) for name in (eligibility.get("eligible_run_names") or set()))
+        eligible_participants = [
+            participant
+            for participant in participants
+            if str(participant.get("run_name") or "") in eligible_run_names
+        ]
+        eligibility_summary = {
+            "eligible_participant_count": len(eligible_participants),
+            "excluded_participant_count": len(eligibility.get("excluded_run_names") or []),
+            "excluded_run_names": sorted(str(name) for name in (eligibility.get("excluded_run_names") or [])),
+            "top_interval_run_name": eligibility.get("top_run_name"),
+            "top_interval_lower_bound": _round_optional_float(eligibility.get("top_lower_bound"), 2),
+        }
+        if len(eligible_participants) < 2:
+            leaderboard = _cross_run_leaderboard_from_state(state, participants)
+            state["last_calibration"] = {
+                "status": "skipped_no_eligible_pairings",
+                "started_at": started_at,
+                "completed_at": _timestamp(),
+                "duration_seconds": _timestamp() - started_at,
+                "games_completed": 0,
+                "games_target": total_games,
+                "pairings_completed": 0,
+                "pairings_total": 0,
+                "resolved_simulation_workers": 0,
+                **eligibility_summary,
+            }
+            _save_cross_run_rating_state(state)
+            return {
+                "status": "skipped_no_eligible_pairings",
+                "games_completed": 0,
+                "games_target": total_games,
+                "pairings_played": 0,
+                "pairings_total": 0,
+                "participant_count": len(participants),
+                **eligibility_summary,
+                "resolved_simulation_workers": 0,
+                "duration_seconds": _timestamp() - started_at,
+                "confidence_level": "approx_95_percent",
+                "leaderboard": leaderboard,
+                "pair_results": [],
+                "ratings_file": str(CROSS_RUN_RATINGS_FILE),
+            }
 
         planned_pair_counts: Dict[str, int] = {}
         pair_counts: Dict[Tuple[str, str], int] = {}
         for _ in range(total_games):
-            run_name_a, run_name_b = _sample_cross_run_pair(participants, state, planned_pair_counts)
+            run_name_a, run_name_b = _sample_cross_run_pair(eligible_participants, state, planned_pair_counts)
             pair_key = _cross_run_pair_key(run_name_a, run_name_b)
             planned_pair_counts[pair_key] = planned_pair_counts.get(pair_key, 0) + 1
             pair_counts[(run_name_a, run_name_b)] = pair_counts.get((run_name_a, run_name_b), 0) + 1
@@ -5825,6 +5982,7 @@ def run_cross_run_calibration_games(
                     "pairings_completed": pairings_completed,
                     "pairings_total": len(pairings),
                     "resolved_simulation_workers": resolved_workers,
+                    **eligibility_summary,
                 }
                 _save_cross_run_rating_state(state)
 
@@ -5896,6 +6054,7 @@ def run_cross_run_calibration_games(
             "pairings_completed": pairings_completed,
             "pairings_total": len(pair_counts),
             "resolved_simulation_workers": resolved_workers,
+            **eligibility_summary,
         }
         _save_cross_run_rating_state(state)
         return {
@@ -5905,6 +6064,7 @@ def run_cross_run_calibration_games(
             "pairings_played": pairings_completed,
             "pairings_total": len(pair_counts),
             "participant_count": len(participants),
+            **eligibility_summary,
             "resolved_simulation_workers": resolved_workers,
             "duration_seconds": _timestamp() - started_at,
             "confidence_level": "approx_95_percent",
