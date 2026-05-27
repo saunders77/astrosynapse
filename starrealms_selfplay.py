@@ -49,7 +49,7 @@ ROOT_DIR = Path(__file__).resolve().parent
 RUNS_DIR = ROOT_DIR / "starrealms_policies"
 LATEST_RUN_NAME = "default"
 INITIAL_ELO = 1000.0
-CONFIG_DEFAULTS_VERSION = 2
+CONFIG_DEFAULTS_VERSION = 4
 CARD_ACQUIRE_ELO_TEST_GAMES = 200
 CARD_ACQUIRE_ELO_K_FACTOR = 24.0
 ELO_LOGISTIC_SCALE = math.log(10.0) / 400.0
@@ -76,8 +76,6 @@ TRAINING_DECISIONS_PER_GAME_OPTIONS = (
     TRAINING_DECISIONS_PER_GAME_5,
     TRAINING_DECISIONS_PER_GAME_ALL,
 )
-DEFAULT_MIN_TRAIN_TEMPERATURE_RATIO = 0.5 / 0.9
-DEFAULT_PLATEAU_MAX_TRAIN_TEMPERATURE_RATIO = 1.15 / 0.9
 LIVE_PROGRESS_SAVE_INTERVAL_SECONDS = 0.4
 DIRECTML_BENCHMARK_INFERENCE_REPEATS = 10
 DIRECTML_BENCHMARK_TRAINING_SAMPLE_COUNT = 256
@@ -319,6 +317,83 @@ def default_simulation_workers(cpu_count: Optional[int] = None) -> int:
     return max(1, logical_cpus - SIMULATION_WORKER_CPU_RESERVE)
 
 
+_SIMULATION_WORKER_MANAGER_LOCK = threading.RLock()
+_ACTIVE_SIMULATION_RUNS: Dict[str, Dict[str, Any]] = {}
+
+
+def _active_simulation_run_names() -> List[str]:
+    with _SIMULATION_WORKER_MANAGER_LOCK:
+        return sorted(_ACTIVE_SIMULATION_RUNS.keys())
+
+
+def _active_simulation_run_snapshot() -> Dict[str, Dict[str, Any]]:
+    with _SIMULATION_WORKER_MANAGER_LOCK:
+        return {key: dict(value) for key, value in _ACTIVE_SIMULATION_RUNS.items()}
+
+
+def _register_active_simulation_run(
+    run_name: str,
+    configured_workers: Any = SIMULATION_WORKERS_AUTO,
+) -> str:
+    key = str(run_name or LATEST_RUN_NAME)
+    with _SIMULATION_WORKER_MANAGER_LOCK:
+        _ACTIVE_SIMULATION_RUNS[key] = {
+            "started_at": _timestamp(),
+            "simulation_workers": normalize_simulation_workers(configured_workers),
+        }
+    return key
+
+
+def _unregister_active_simulation_run(key: str) -> None:
+    with _SIMULATION_WORKER_MANAGER_LOCK:
+        _ACTIVE_SIMULATION_RUNS.pop(str(key), None)
+
+
+def active_simulation_runs() -> List[str]:
+    return _active_simulation_run_names()
+
+
+def _auto_simulation_workers_for_active_run(
+    allocation_key: Optional[str] = None,
+    cpu_count: Optional[int] = None,
+) -> int:
+    budget = default_simulation_workers(cpu_count)
+    active_runs = _active_simulation_run_snapshot()
+    key = str(allocation_key) if allocation_key else ""
+    if key and key not in active_runs:
+        active_runs[key] = {
+            "started_at": _timestamp(),
+            "simulation_workers": SIMULATION_WORKERS_AUTO,
+        }
+    if not active_runs:
+        return budget
+
+    explicit_workers = sum(
+        max(0, int(item.get("simulation_workers", SIMULATION_WORKERS_AUTO)))
+        for item in active_runs.values()
+        if int(item.get("simulation_workers", SIMULATION_WORKERS_AUTO)) > 0
+    )
+    auto_runs = sorted(
+        active_key
+        for active_key, item in active_runs.items()
+        if int(item.get("simulation_workers", SIMULATION_WORKERS_AUTO)) == SIMULATION_WORKERS_AUTO
+    )
+    remaining_budget = max(1, budget - explicit_workers)
+    if not auto_runs:
+        return remaining_budget
+
+    active_count = len(auto_runs)
+    base = remaining_budget // active_count
+    extra = remaining_budget % active_count
+    if not key:
+        return max(1, base)
+    try:
+        index = auto_runs.index(key)
+    except ValueError:
+        return max(1, base)
+    return max(1, base + (1 if index < extra else 0))
+
+
 def normalize_simulation_workers(value: Any) -> int:
     try:
         workers = int(value)
@@ -329,9 +404,17 @@ def normalize_simulation_workers(value: Any) -> int:
     return workers
 
 
-def resolve_simulation_workers(value: Any = SIMULATION_WORKERS_AUTO, work_items: int = 0) -> int:
+def resolve_simulation_workers(
+    value: Any = SIMULATION_WORKERS_AUTO,
+    work_items: int = 0,
+    allocation_key: Optional[str] = None,
+) -> int:
     requested = normalize_simulation_workers(value)
-    workers = default_simulation_workers() if requested == SIMULATION_WORKERS_AUTO else requested
+    workers = (
+        _auto_simulation_workers_for_active_run(allocation_key)
+        if requested == SIMULATION_WORKERS_AUTO
+        else requested
+    )
     if work_items > 0:
         workers = min(workers, max(1, int(work_items)))
     return max(1, workers)
@@ -994,7 +1077,7 @@ class TrainingConfig:
     epsilon_random: float = 0.07
     min_epsilon_random: float = 0.015
     train_temperature: float = 0.9
-    min_train_temperature: float = 0.5
+    min_train_temperature: float = 0.9
     eval_temperature: float = 0.35
     checkpoint_interval: int = 1
     training_matches_per_iteration: int = 5
@@ -1010,15 +1093,22 @@ class TrainingConfig:
     league_best_weight: float = 0.2
     league_recent_weight: float = 0.25
     league_historical_weight: float = 0.1
+    opponent_normal_weight: float = 0.4
+    opponent_learnable_weight: float = 0.45
+    opponent_chaotic_weight: float = 0.15
+    opponent_learnable_temperature: float = 1.4
+    opponent_chaotic_temperature: float = 1.9
+    opponent_learnable_epsilon_random: float = 0.1
+    opponent_chaotic_epsilon_random: float = 0.14
     anneal_steps: int = 3000
     plateau_start_iterations_without_promotion: int = 12
     plateau_full_iterations_without_promotion: int = 36
     plateau_learning_rate_boost: float = 1.7
     plateau_epsilon_boost: float = 2.4
-    plateau_temperature_boost: float = 1.22
+    plateau_temperature_boost: float = 1.0
     plateau_max_learning_rate: float = 0.0033
     plateau_max_epsilon_random: float = 0.16
-    plateau_max_train_temperature: float = 1.15
+    plateau_max_train_temperature: float = 0.9
     elo_k: float = 24.0
     max_training_samples_per_match: int = 256
     max_training_samples_per_iteration: int = DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION
@@ -1632,6 +1722,83 @@ def _config_from_payload(payload: Dict[str, Any]) -> TrainingConfig:
     return TrainingConfig().merged(payload)
 
 
+def _actor_temperature(config: TrainingConfig, deterministic: bool, override_temperature: Optional[float] = None) -> float:
+    if deterministic:
+        return float(config.eval_temperature)
+    if override_temperature is None:
+        return float(config.train_temperature)
+    return max(float(override_temperature), 1e-3)
+
+
+def _actor_epsilon_random(config: TrainingConfig, deterministic: bool, override_epsilon: Optional[float] = None) -> float:
+    if deterministic:
+        return 0.0
+    if override_epsilon is None:
+        return max(0.0, float(config.epsilon_random))
+    return max(0.0, float(override_epsilon))
+
+
+def _training_opponent_exploration_choices(config: TrainingConfig) -> List[Tuple[Dict[str, Any], float]]:
+    normal = {
+        "style": "normal",
+        "temperature": float(config.train_temperature),
+        "epsilon_random": max(0.0, float(config.epsilon_random)),
+    }
+    return [
+        (normal, max(0.0, float(config.opponent_normal_weight))),
+        (
+            {
+                "style": "learnable",
+                "temperature": max(1e-3, float(config.opponent_learnable_temperature)),
+                "epsilon_random": max(0.0, float(config.opponent_learnable_epsilon_random)),
+            },
+            max(0.0, float(config.opponent_learnable_weight)),
+        ),
+        (
+            {
+                "style": "chaotic",
+                "temperature": max(1e-3, float(config.opponent_chaotic_temperature)),
+                "epsilon_random": max(0.0, float(config.opponent_chaotic_epsilon_random)),
+            },
+            max(0.0, float(config.opponent_chaotic_weight)),
+        ),
+    ]
+
+
+def _sample_training_opponent_exploration(config: TrainingConfig) -> Dict[str, Any]:
+    choices = _training_opponent_exploration_choices(config)
+    if sum(weight for _, weight in choices) <= 0.0:
+        return choices[0][0]
+    return _weighted_choice(choices)
+
+
+def _training_opponent_exploration_plan(config: TrainingConfig, match_count: int) -> List[Dict[str, Any]]:
+    total_matches = max(0, int(match_count))
+    if total_matches <= 0:
+        return []
+    choices = [(style, weight) for style, weight in _training_opponent_exploration_choices(config) if weight > 0.0]
+    if not choices:
+        return [_training_opponent_exploration_choices(config)[0][0] for _ in range(total_matches)]
+
+    total_weight = sum(weight for _, weight in choices)
+    desired_counts = [(style, total_matches * weight / total_weight) for style, weight in choices]
+    counts = [int(math.floor(desired)) for _, desired in desired_counts]
+    remaining = total_matches - sum(counts)
+    remainders = sorted(
+        range(len(desired_counts)),
+        key=lambda index: desired_counts[index][1] - counts[index],
+        reverse=True,
+    )
+    for index in remainders[:remaining]:
+        counts[index] += 1
+
+    plan: List[Dict[str, Any]] = []
+    for (style, _), count in zip(desired_counts, counts):
+        plan.extend(_copy_nested(style) for _ in range(count))
+    random.shuffle(plan)
+    return plan
+
+
 def _policy_from_simulation_payload(task: Dict[str, Any], payload_key: str, cache_key_key: str) -> PolicyNetwork:
     cache_key = str(task.get(cache_key_key) or "")
     if cache_key:
@@ -1853,6 +2020,10 @@ def _simulate_match_games(
     collect_a: bool,
     deterministic_a: bool,
     deterministic_b: bool,
+    temperature_a: Optional[float] = None,
+    epsilon_random_a: Optional[float] = None,
+    temperature_b: Optional[float] = None,
+    epsilon_random_b: Optional[float] = None,
     progress_queue: Optional[Any] = None,
 ) -> Dict[str, Any]:
     _seed_simulation(seed)
@@ -1872,15 +2043,15 @@ def _simulate_match_games(
         actor_a = PolicyActor(
             policy_a,
             deterministic=deterministic_a,
-            temperature=config.eval_temperature if deterministic_a else config.train_temperature,
-            epsilon_random=0.0 if deterministic_a else config.epsilon_random,
+            temperature=_actor_temperature(config, deterministic_a, temperature_a),
+            epsilon_random=_actor_epsilon_random(config, deterministic_a, epsilon_random_a),
             collector=game_collector,
         )
         actor_b = PolicyActor(
             policy_b,
             deterministic=deterministic_b,
-            temperature=config.eval_temperature if deterministic_b else config.train_temperature,
-            epsilon_random=0.0 if deterministic_b else config.epsilon_random,
+            temperature=_actor_temperature(config, deterministic_b, temperature_b),
+            epsilon_random=_actor_epsilon_random(config, deterministic_b, epsilon_random_b),
             collector=None,
         )
         game = Game(
@@ -1936,6 +2107,10 @@ def _simulate_initialized_match_chunk_worker(task: Dict[str, Any]) -> Dict[str, 
         collect_a=bool(task.get("collect_a", False)),
         deterministic_a=bool(task.get("deterministic_a", False)),
         deterministic_b=bool(task.get("deterministic_b", False)),
+        temperature_a=task.get("temperature_a"),
+        epsilon_random_a=task.get("epsilon_random_a"),
+        temperature_b=task.get("temperature_b"),
+        epsilon_random_b=task.get("epsilon_random_b"),
     )
 
 
@@ -1971,6 +2146,10 @@ def _simulate_payload_match_chunk_worker(task: Dict[str, Any]) -> Dict[str, Any]
         collect_a=bool(task.get("collect_a", False)),
         deterministic_a=bool(task.get("deterministic_a", False)),
         deterministic_b=bool(task.get("deterministic_b", False)),
+        temperature_a=task.get("temperature_a"),
+        epsilon_random_a=task.get("epsilon_random_a"),
+        temperature_b=task.get("temperature_b"),
+        epsilon_random_b=task.get("epsilon_random_b"),
     )
     if "match_index" in task:
         result["match_index"] = int(task["match_index"])
@@ -2313,19 +2492,12 @@ def normalize_train_temperature(value: Any) -> float:
 
 
 def derive_temperature_schedule_overrides(train_temperature: float) -> Dict[str, float]:
-    normalized_temperature = normalize_train_temperature(train_temperature)
-    min_temperature = min(
-        normalized_temperature,
-        max(0.35, normalized_temperature * DEFAULT_MIN_TRAIN_TEMPERATURE_RATIO),
-    )
-    plateau_max_temperature = max(
-        normalized_temperature,
-        normalized_temperature * DEFAULT_PLATEAU_MAX_TRAIN_TEMPERATURE_RATIO,
-    )
+    normalized_temperature = round(normalize_train_temperature(train_temperature), 6)
     return {
-        "train_temperature": round(normalized_temperature, 6),
-        "min_train_temperature": round(min_temperature, 6),
-        "plateau_max_train_temperature": round(plateau_max_temperature, 6),
+        "train_temperature": normalized_temperature,
+        "min_train_temperature": normalized_temperature,
+        "plateau_temperature_boost": 1.0,
+        "plateau_max_train_temperature": normalized_temperature,
     }
 
 
@@ -2650,33 +2822,48 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
         saved_config["min_available_memory_mb"] = DEFAULT_MIN_AVAILABLE_MEMORY_MB
     else:
         saved_config["min_available_memory_mb"] = max(0, int(saved_config.get("min_available_memory_mb") or 0))
+    default_config = TrainingConfig()
+    for key in (
+        "opponent_normal_weight",
+        "opponent_learnable_weight",
+        "opponent_chaotic_weight",
+        "opponent_learnable_temperature",
+        "opponent_chaotic_temperature",
+        "opponent_learnable_epsilon_random",
+        "opponent_chaotic_epsilon_random",
+    ):
+        if key not in saved_config:
+            saved_config[key] = getattr(default_config, key)
     if config_defaults_version < CONFIG_DEFAULTS_VERSION:
-        legacy_default_updates = {
-            "promotion_score_threshold": ((0.55,), 0.6),
-            "learning_rate": ((0.0015,), 0.0019),
-            "min_learning_rate": ((0.0003,), 0.0004),
-            "epsilon_random": ((0.05,), 0.07),
-            "min_epsilon_random": ((0.01,), 0.015),
-            "train_temperature": ((1.0, 1.1), 0.9),
-            "min_train_temperature": ((0.55, 0.62), 0.5),
-            "plateau_learning_rate_boost": ((2.0, 2.15), 1.7),
-            "plateau_epsilon_boost": ((3.0, 3.2), 2.4),
-            "plateau_temperature_boost": ((1.35, 1.45, 1.28), 1.22),
-            "plateau_max_learning_rate": ((0.0035, 0.0042), 0.0033),
-            "plateau_max_epsilon_random": ((0.18, 0.22), 0.16),
-            "plateau_max_train_temperature": ((1.45, 1.6, 1.35), 1.15),
-        }
-        for key, (old_values, new_value) in legacy_default_updates.items():
-            current_value = saved_config.get(key)
-            if current_value is None:
-                saved_config[key] = new_value
-                continue
-            try:
-                numeric_value = float(current_value)
-            except (TypeError, ValueError):
-                continue
-            if any(abs(numeric_value - float(old_value)) <= 1e-12 for old_value in old_values):
-                saved_config[key] = new_value
+        if config_defaults_version < 2:
+            legacy_default_updates = {
+                "promotion_score_threshold": ((0.55,), 0.6),
+                "learning_rate": ((0.0015,), 0.0019),
+                "min_learning_rate": ((0.0003,), 0.0004),
+                "epsilon_random": ((0.05,), 0.07),
+                "min_epsilon_random": ((0.01,), 0.015),
+                "train_temperature": ((1.0, 1.1), 0.9),
+                "min_train_temperature": ((0.55, 0.62), 0.5),
+                "plateau_learning_rate_boost": ((2.0, 2.15), 1.7),
+                "plateau_epsilon_boost": ((3.0, 3.2), 2.4),
+                "plateau_temperature_boost": ((1.35, 1.45, 1.28), 1.22),
+                "plateau_max_learning_rate": ((0.0035, 0.0042), 0.0033),
+                "plateau_max_epsilon_random": ((0.18, 0.22), 0.16),
+                "plateau_max_train_temperature": ((1.45, 1.6, 1.35), 1.15),
+            }
+            for key, (old_values, new_value) in legacy_default_updates.items():
+                current_value = saved_config.get(key)
+                if current_value is None:
+                    saved_config[key] = new_value
+                    continue
+                try:
+                    numeric_value = float(current_value)
+                except (TypeError, ValueError):
+                    continue
+                if any(abs(numeric_value - float(old_value)) <= 1e-12 for old_value in old_values):
+                    saved_config[key] = new_value
+        if config_defaults_version < 3:
+            saved_config.update(derive_temperature_schedule_overrides(saved_config.get("train_temperature", 0.9)))
         state_payload["config_defaults_version"] = CONFIG_DEFAULTS_VERSION
     if policy_payload is not None:
         payload_architecture = policy_payload.get("architecture")
@@ -3025,6 +3212,10 @@ def _play_match(
     game_progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     simulation_pool: Optional[_SimulationPool] = None,
     cache_key_prefix: str = "",
+    temperature_a: Optional[float] = None,
+    epsilon_random_a: Optional[float] = None,
+    temperature_b: Optional[float] = None,
+    epsilon_random_b: Optional[float] = None,
 ) -> Dict[str, Any]:
     total_games = max(1, int(games_per_match))
     started_at = _timestamp()
@@ -3065,6 +3256,10 @@ def _play_match(
                 collect_a=collect_a,
                 deterministic_a=deterministic_a,
                 deterministic_b=deterministic_b,
+                temperature_a=temperature_a,
+                epsilon_random_a=epsilon_random_a,
+                temperature_b=temperature_b,
+                epsilon_random_b=epsilon_random_b,
             )
             partials.append(partial)
             completed_games += int(partial.get("games_played", 0))
@@ -3094,6 +3289,10 @@ def _play_match(
                 "collect_a": collect_a,
                 "deterministic_a": deterministic_a,
                 "deterministic_b": deterministic_b,
+                "temperature_a": temperature_a,
+                "epsilon_random_a": epsilon_random_a,
+                "temperature_b": temperature_b,
+                "epsilon_random_b": epsilon_random_b,
             }
             for chunk_size in chunk_sizes
         ]
@@ -3136,6 +3335,10 @@ def _play_match(
                         "collect_a": collect_a,
                         "deterministic_a": deterministic_a,
                         "deterministic_b": deterministic_b,
+                        "temperature_a": temperature_a,
+                        "epsilon_random_a": epsilon_random_a,
+                        "temperature_b": temperature_b,
+                        "epsilon_random_b": epsilon_random_b,
                     },
                 )
                 for chunk_size in chunk_sizes
@@ -3457,7 +3660,6 @@ class SelfPlayTrainer:
             {
                 "learning_rate": _lerp(self.config.learning_rate, self.config.min_learning_rate, progress),
                 "epsilon_random": _lerp(self.config.epsilon_random, self.config.min_epsilon_random, progress),
-                "train_temperature": _lerp(self.config.train_temperature, self.config.min_train_temperature, progress),
                 "ppo_clip": _lerp(self.config.ppo_clip, self.config.min_ppo_clip, progress),
             }
         )
@@ -3473,10 +3675,6 @@ class SelfPlayTrainer:
                 "epsilon_random": min(
                     float(self.config.plateau_max_epsilon_random),
                     float(scheduled.epsilon_random) * float(boost["epsilon_multiplier"]),
-                ),
-                "train_temperature": min(
-                    float(self.config.plateau_max_train_temperature),
-                    float(scheduled.train_temperature) * float(boost["temperature_multiplier"]),
                 ),
             }
         )
@@ -3507,7 +3705,7 @@ class SelfPlayTrainer:
             "progress": progress,
             "learning_rate_multiplier": _lerp(1.0, self.config.plateau_learning_rate_boost, progress),
             "epsilon_multiplier": _lerp(1.0, self.config.plateau_epsilon_boost, progress),
-            "temperature_multiplier": _lerp(1.0, self.config.plateau_temperature_boost, progress),
+            "temperature_multiplier": 1.0,
         }
 
     def _rating_pass_pool(self, max_policies: int, include_candidate: bool) -> List[Dict[str, Any]]:
@@ -3620,6 +3818,10 @@ class SelfPlayTrainer:
 
         rating_map = {item["name"]: float(item.get("elo", INITIAL_ELO)) for item in participants}
         started_at = _timestamp()
+        active_simulation_key = _register_active_simulation_run(
+            f"{self.run_name}:rating",
+            self.config.simulation_workers,
+        )
         self.state["status"] = "rating"
         self.state["last_error"] = None
         self.state["last_rating_pass"] = {
@@ -3631,7 +3833,9 @@ class SelfPlayTrainer:
             "resolved_simulation_workers": resolve_simulation_workers(
                 self.config.simulation_workers,
                 max(1, (len(participants) * (len(participants) - 1) // 2) * int(games_per_pair)),
+                allocation_key=active_simulation_key,
             ),
+            "active_simulation_runs": active_simulation_runs(),
             "started_at": started_at,
         }
         self._save()
@@ -3728,6 +3932,7 @@ class SelfPlayTrainer:
             worker_count = resolve_simulation_workers(
                 self.config.simulation_workers,
                 max(1, len(pairing_specs) * int(games_per_pair)),
+                allocation_key=active_simulation_key,
             )
             emit_rating_progress(force_persist=True)
             parallel_pairings = len(pairing_specs) >= max(2, worker_count // 2)
@@ -3916,6 +4121,8 @@ class SelfPlayTrainer:
             }
             self._save()
             raise
+        finally:
+            _unregister_active_simulation_run(active_simulation_key)
 
     def _find_checkpoint_entry(self, checkpoint_name: str) -> Optional[Dict[str, Any]]:
         for item in self.state.get("checkpoints", []):
@@ -4150,6 +4357,7 @@ class SelfPlayTrainer:
         training_games_completed = 0
         training_sample_candidates = 0
         max_iteration_samples = max(1, int(scheduled_config.max_training_samples_per_iteration))
+        opponent_exploration_plan = _training_opponent_exploration_plan(scheduled_config, match_count)
         _check_memory_safety(scheduled_config, "starting training match collection")
 
         def record_completed_match(match_summary: Dict[str, Any], opponent_meta: Dict[str, Any]) -> None:
@@ -4175,6 +4383,11 @@ class SelfPlayTrainer:
         if worker_count <= 1:
             for match_index in range(match_count):
                 opponent_policy, opponent_meta = self._sample_league_opponent()
+                opponent_style = opponent_exploration_plan[match_index]
+                opponent_meta = {
+                    **opponent_meta,
+                    "exploration": _copy_nested(opponent_style),
+                }
                 completed_before_match = training_games_completed
                 match_summary = _play_match(
                     self.candidate_policy,
@@ -4184,6 +4397,8 @@ class SelfPlayTrainer:
                     deterministic_a=False,
                     deterministic_b=False,
                     games_per_match=games_per_match,
+                    temperature_b=float(opponent_style["temperature"]),
+                    epsilon_random_b=float(opponent_style["epsilon_random"]),
                     game_progress_callback=lambda progress, match_index=match_index, completed_before_match=completed_before_match: self._set_live_progress(
                         self._build_training_live_progress(
                             scheduled_config,
@@ -4231,6 +4446,11 @@ class SelfPlayTrainer:
         def iter_training_tasks() -> Any:
             for match_index in range(match_count):
                 opponent_policy, opponent_meta = self._sample_league_opponent()
+                opponent_style = opponent_exploration_plan[match_index]
+                opponent_meta = {
+                    **opponent_meta,
+                    "exploration": _copy_nested(opponent_style),
+                }
                 opponent_payload = _policy_payload_for_simulation(opponent_policy)
                 opponent_cache_key = f"{self.run_name}:iteration:{next_iteration}:opponent:{match_index}"
                 opponent_by_match[match_index] = opponent_meta
@@ -4251,6 +4471,8 @@ class SelfPlayTrainer:
                         "collect_a": True,
                         "deterministic_a": False,
                         "deterministic_b": False,
+                        "temperature_b": float(opponent_style["temperature"]),
+                        "epsilon_random_b": float(opponent_style["epsilon_random"]),
                         "opponent": opponent_meta,
                     }
 
@@ -4354,7 +4576,8 @@ class SelfPlayTrainer:
         simulation_pool = self._get_simulation_pool(
             resolve_simulation_workers(
                 scheduled_config.simulation_workers,
-                training_games_total + promotion_games_total,
+                training_games_total,
+                allocation_key=self.run_name,
             )
         )
 
@@ -4413,6 +4636,13 @@ class SelfPlayTrainer:
             ),
             force_persist=True,
         )
+        simulation_pool = self._get_simulation_pool(
+            resolve_simulation_workers(
+                scheduled_config.simulation_workers,
+                promotion_games_total,
+                allocation_key=self.run_name,
+            )
+        )
         _check_memory_safety(scheduled_config, "starting promotion evaluation")
         eval_summary = _play_match(
             self.candidate_policy,
@@ -4460,7 +4690,11 @@ class SelfPlayTrainer:
             "train_temperature": scheduled_config.train_temperature,
             "ppo_clip": scheduled_config.ppo_clip,
             "simulation_workers": int(scheduled_config.simulation_workers),
-            "resolved_simulation_workers": resolve_simulation_workers(scheduled_config.simulation_workers),
+            "resolved_simulation_workers": resolve_simulation_workers(
+                scheduled_config.simulation_workers,
+                allocation_key=self.run_name,
+            ),
+            "active_simulation_runs": active_simulation_runs(),
             "iterations_since_promotion": int(drought_boost["iterations_since_promotion"]),
             "promotion_drought_progress": round(float(drought_boost["progress"]), 4),
             "learning_rate_multiplier": round(float(drought_boost["learning_rate_multiplier"]), 4),
@@ -4553,6 +4787,10 @@ class SelfPlayTrainer:
         }
 
     def _training_loop(self) -> None:
+        active_simulation_key = _register_active_simulation_run(
+            self.run_name,
+            self.config.simulation_workers,
+        )
         with self._lock:
             self.state["status"] = "training"
             self.state["last_error"] = None
@@ -4570,6 +4808,7 @@ class SelfPlayTrainer:
                 self._save()
         finally:
             self._close_simulation_pool()
+            _unregister_active_simulation_run(active_simulation_key)
             with self._lock:
                 if self.state.get("status") != "error":
                     self.state["status"] = "idle"
@@ -4638,7 +4877,11 @@ class SelfPlayTrainer:
             "device_reason": str(device_plan.get("reason", "")),
             "device_benchmark": _copy_nested(device_plan.get("benchmark")),
             "simulation_workers": int(self.config.simulation_workers),
-            "resolved_simulation_workers": resolve_simulation_workers(self.config.simulation_workers),
+            "resolved_simulation_workers": resolve_simulation_workers(
+                self.config.simulation_workers,
+                allocation_key=self.run_name,
+            ),
+            "active_simulation_runs": active_simulation_runs(),
             "logical_processors": int(os.cpu_count() or 1),
             "last_promotion_iteration": self._last_promotion_iteration(),
             "iterations_since_promotion": int(drought_boost["iterations_since_promotion"]),
