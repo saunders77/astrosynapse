@@ -280,6 +280,59 @@ def _fork_origin_label(forked_from: Any) -> str:
     return "-"
 
 
+def _optional_timestamp(value: Any) -> Optional[float]:
+    try:
+        timestamp = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(timestamp) or timestamp <= 0.0:
+        return None
+    return timestamp
+
+
+def _last_promotion_timestamp_from_state(state: Dict[str, Any]) -> Optional[float]:
+    try:
+        promotions = int(state.get("promotions", 0) or 0)
+    except (TypeError, ValueError):
+        promotions = 0
+    if promotions <= 0:
+        return None
+
+    existing = _optional_timestamp(state.get("last_promotion_at"))
+    if existing is not None:
+        return existing
+
+    checkpoints = list(state.get("checkpoints") or [])
+    latest_checkpoint = str(state.get("latest_checkpoint") or "").strip()
+    try:
+        last_iteration = int(state.get("last_promotion_iteration", 0) or 0)
+    except (TypeError, ValueError):
+        last_iteration = 0
+
+    candidates: List[float] = []
+    for checkpoint in checkpoints:
+        if not isinstance(checkpoint, dict):
+            continue
+        checkpoint_time = _optional_timestamp(checkpoint.get("created_at"))
+        if checkpoint_time is None:
+            continue
+        checkpoint_name = str(checkpoint.get("name") or "").strip()
+        try:
+            checkpoint_iteration = int(checkpoint.get("iteration", 0) or 0)
+        except (TypeError, ValueError):
+            checkpoint_iteration = 0
+        if checkpoint_name == latest_checkpoint:
+            candidates.append(checkpoint_time)
+        elif last_iteration > 0 and checkpoint_iteration == last_iteration:
+            candidates.append(checkpoint_time)
+        elif checkpoint.get("promoted_from"):
+            candidates.append(checkpoint_time)
+
+    if candidates:
+        return max(candidates)
+    return _optional_timestamp(state.get("updated_at"))
+
+
 def _format_mebibytes(byte_count: int) -> str:
     return f"{float(max(0, int(byte_count))) / (1024.0 * 1024.0):.0f} MiB"
 
@@ -2597,6 +2650,8 @@ def _default_training_state(config: TrainingConfig) -> Dict[str, Any]:
         "latest_checkpoint": "checkpoint_000000.json",
         "promotions": 0,
         "last_promotion_iteration": 0,
+        "last_promotion_at": None,
+        "last_promotion_datetime": "",
         "config": asdict(config),
         "last_match": None,
         "last_update": None,
@@ -2793,6 +2848,15 @@ def _migrate_run_state(files: RunFiles, policy: PolicyNetwork, state: Dict[str, 
         dirty = True
     else:
         state["last_promotion_iteration"] = max(0, int(state.get("last_promotion_iteration", 0)))
+
+    last_promotion_at = _last_promotion_timestamp_from_state(state)
+    last_promotion_datetime = _format_timestamp(last_promotion_at) if last_promotion_at is not None else ""
+    if state.get("last_promotion_at") != last_promotion_at:
+        state["last_promotion_at"] = last_promotion_at
+        dirty = True
+    if state.get("last_promotion_datetime") != last_promotion_datetime:
+        state["last_promotion_datetime"] = last_promotion_datetime
+        dirty = True
 
     if not files.policy_file.exists() or migrated_to_v2:
         _atomic_write_json(files.policy_file, policy.to_dict(include_optimizer=True))
@@ -3001,6 +3065,8 @@ def list_runs() -> List[Dict[str, Any]]:
         checkpoints = list(state.get("checkpoints") or [])
         created_at = state.get("created_at")
         created_datetime = state.get("created_datetime") or _format_timestamp(created_at)
+        last_promotion_at = _last_promotion_timestamp_from_state(state)
+        last_promotion_datetime = _format_timestamp(last_promotion_at) if last_promotion_at is not None else ""
         forked_from = state.get("forked_from")
         runs.append(
             {
@@ -3014,6 +3080,9 @@ def list_runs() -> List[Dict[str, Any]]:
                 "best_checkpoint": state.get("best_checkpoint"),
                 "latest_checkpoint": state.get("latest_checkpoint"),
                 "promotions": int(state.get("promotions", 0)),
+                "last_promotion_iteration": int(state.get("last_promotion_iteration", 0) or 0),
+                "last_promotion_at": last_promotion_at,
+                "last_promotion_datetime": last_promotion_datetime,
                 "checkpoint_count": len(checkpoints),
                 "created_at": created_at,
                 "created_datetime": created_datetime,
@@ -3027,7 +3096,16 @@ def list_runs() -> List[Dict[str, Any]]:
                 "run_dir": str(run_dir),
             }
         )
-    runs.sort(key=lambda item: (item.get("updated_at") or 0.0, item["run_name"]), reverse=True)
+    def run_sort_key(item: Dict[str, Any]) -> Tuple[int, float, str]:
+        last_promotion_at = _optional_timestamp(item.get("last_promotion_at"))
+        created_sort_at = _optional_timestamp(item.get("created_at")) or 0.0
+        return (
+            1 if last_promotion_at is not None else 0,
+            last_promotion_at if last_promotion_at is not None else created_sort_at,
+            str(item["run_name"]),
+        )
+
+    runs.sort(key=run_sort_key, reverse=True)
     return runs
 
 
@@ -3072,6 +3150,9 @@ def get_run_state(run_name: str = LATEST_RUN_NAME) -> Dict[str, Any]:
         return {}
     state["run_name"] = state.get("run_name", run_name)
     state["created_datetime"] = state.get("created_datetime") or _format_timestamp(state.get("created_at"))
+    last_promotion_at = _last_promotion_timestamp_from_state(state)
+    state["last_promotion_at"] = last_promotion_at
+    state["last_promotion_datetime"] = _format_timestamp(last_promotion_at) if last_promotion_at is not None else ""
     state["fork_origin"] = _fork_origin_label(state.get("forked_from"))
     state["run_dir"] = str(files.run_dir)
     state["candidate_policy_file"] = str(files.candidate_policy_file)
@@ -4395,9 +4476,10 @@ class SelfPlayTrainer:
         checkpoint_name = checkpoint_path.name
         _atomic_write_json(checkpoint_path, self.candidate_policy.to_dict(include_optimizer=False))
 
+        promoted_at = _timestamp()
         promoted_entry = _ensure_checkpoint_entry(self.state, checkpoint_name, iteration, new_candidate_elo)
         promoted_entry["elo"] = new_candidate_elo
-        promoted_entry["created_at"] = _timestamp()
+        promoted_entry["created_at"] = promoted_at
         promoted_entry["promoted_from"] = previous_checkpoint
         promoted_entry["promotion_eval"] = eval_summary
         promoted_entry["training_summary"] = training_summary
@@ -4406,6 +4488,8 @@ class SelfPlayTrainer:
         self.state["latest_checkpoint"] = checkpoint_name
         self.state["current_elo"] = new_candidate_elo
         self.state["last_promotion_iteration"] = int(iteration)
+        self.state["last_promotion_at"] = promoted_at
+        self.state["last_promotion_datetime"] = _format_timestamp(promoted_at)
         if new_candidate_elo >= float(self.state.get("best_elo", INITIAL_ELO)):
             self.state["best_elo"] = new_candidate_elo
             self.state["best_checkpoint"] = checkpoint_name
@@ -4927,6 +5011,9 @@ class SelfPlayTrainer:
             "status": self.state.get("status", "idle"),
             "created_at": self.state.get("created_at"),
             "created_datetime": self.state.get("created_datetime") or _format_timestamp(self.state.get("created_at")),
+            "last_promotion_at": self.state.get("last_promotion_at"),
+            "last_promotion_datetime": self.state.get("last_promotion_datetime")
+            or _format_timestamp(self.state.get("last_promotion_at")),
             "forked_from": self.state.get("forked_from"),
             "fork_origin": _fork_origin_label(self.state.get("forked_from")),
             "iteration": self.state.get("iteration", 0),

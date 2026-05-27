@@ -466,6 +466,7 @@ class TrainerGUI(tk.Tk):
         self._next_refresh_at = 0.0
         self._known_run_names: tuple[str, ...] = ()
         self._last_runs_tree_key: Optional[tuple[tuple[Any, ...], ...]] = None
+        self._last_runs_order_key: Optional[tuple[str, ...]] = None
         self._last_checkpoint_tree_key: Optional[tuple[Any, ...]] = None
 
         self.run_name_var = tk.StringVar(value=sp.LATEST_RUN_NAME)
@@ -1493,46 +1494,60 @@ class TrainerGUI(tk.Tk):
         if selected_items:
             current_run_selection = selected_items[0]
 
-        runs_tree_key = tuple(
-            (
-                run["run_name"],
-                str(run["status"]),
-                str(run.get("created_datetime") or ""),
-                str(run.get("fork_origin") or "-"),
-                int(run["iteration"]),
-                f"{float(run['current_elo']):.1f}",
-                f"{float(run['best_elo']):.1f}",
-                *cross_run_table_values(run["run_name"]),
-                int(run["total_matches"]),
-                int(run["total_games"]),
+        run_rows = []
+        for run in runs:
+            run_name = str(run["run_name"])
+            values = (
+                run["status"],
+                run.get("created_datetime") or "-",
+                run.get("fork_origin") or "-",
+                run["iteration"],
+                f"{run['current_elo']:.1f}",
+                f"{run['best_elo']:.1f}",
+                *cross_run_table_values(run_name),
+                run["total_matches"],
+                run["total_games"],
             )
-            for run in runs
-        )
+            run_rows.append(
+                (
+                    run_name,
+                    values,
+                    (
+                        run_name,
+                        str(run["status"]),
+                        str(run.get("created_datetime") or ""),
+                        str(run.get("fork_origin") or "-"),
+                        str(run.get("last_promotion_at") or ""),
+                        int(run["iteration"]),
+                        f"{float(run['current_elo']):.1f}",
+                        f"{float(run['best_elo']):.1f}",
+                        *cross_run_table_values(run_name),
+                        int(run["total_matches"]),
+                        int(run["total_games"]),
+                    ),
+                )
+            )
+        runs_tree_key = tuple(row_key for _, _, row_key in run_rows)
+        runs_order_key = tuple(run_name for run_name, _, _ in run_rows)
 
         self._suppress_run_events = True
         try:
-            if runs_tree_key != self._last_runs_tree_key:
+            if runs_order_key != self._last_runs_order_key:
                 self.runs_tree.delete(*self.runs_tree.get_children())
-                for run in runs:
-                    iid = run["run_name"]
+                for run_name, values, _ in run_rows:
                     self.runs_tree.insert(
                         "",
                         "end",
-                        iid=iid,
-                        text=run["run_name"],
-                        values=(
-                            run["status"],
-                            run.get("created_datetime") or "-",
-                            run.get("fork_origin") or "-",
-                            run["iteration"],
-                            f"{run['current_elo']:.1f}",
-                            f"{run['best_elo']:.1f}",
-                            *cross_run_table_values(run["run_name"]),
-                            run["total_matches"],
-                            run["total_games"],
-                        ),
+                        iid=run_name,
+                        text=run_name,
+                        values=values,
                     )
-                self._last_runs_tree_key = runs_tree_key
+                self._last_runs_order_key = runs_order_key
+            elif runs_tree_key != self._last_runs_tree_key:
+                for run_name, values, _ in run_rows:
+                    if run_name in self.runs_tree.get_children():
+                        self.runs_tree.item(run_name, text=run_name, values=values)
+            self._last_runs_tree_key = runs_tree_key
 
             if typed_new_run:
                 self.runs_tree.selection_remove(self.runs_tree.selection())
@@ -1834,6 +1849,7 @@ class TrainerGUI(tk.Tk):
             f"- Latest checkpoint: {summary.get('latest_checkpoint')}",
             f"- Promotions: {summary.get('promotions', 0)}",
             f"- Last promotion iteration: {state.get('last_promotion_iteration', 0)}",
+            f"- Last promotion time: {summary.get('last_promotion_datetime') or '-'}",
             f"- Runtime: {summary.get('runtime')}",
             f"- Device backend: {summary.get('device_backend', '-')}",
             f"- Device repr: {summary.get('device_repr', '-')}",
@@ -2002,6 +2018,8 @@ class TrainerGUI(tk.Tk):
                 "last_error": None,
                 "created_at": None,
                 "created_datetime": "-",
+                "last_promotion_at": None,
+                "last_promotion_datetime": "",
                 "forked_from": None,
                 "fork_origin": "-",
                 "runtime": "-",
@@ -2038,6 +2056,9 @@ class TrainerGUI(tk.Tk):
             "status": state.get("status", "idle"),
             "created_at": state.get("created_at"),
             "created_datetime": state.get("created_datetime") or sp._format_timestamp(state.get("created_at")),
+            "last_promotion_at": state.get("last_promotion_at"),
+            "last_promotion_datetime": state.get("last_promotion_datetime")
+            or sp._format_timestamp(state.get("last_promotion_at")),
             "forked_from": state.get("forked_from"),
             "fork_origin": state.get("fork_origin") or sp._fork_origin_label(state.get("forked_from")),
             "iteration": int(state.get("iteration", 0)),
