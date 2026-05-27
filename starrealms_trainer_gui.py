@@ -2265,6 +2265,7 @@ class TrainerGUI(tk.Tk):
             f"- Promotions: {candidate.get('promotions', '-')}",
             f"- Rating pass Elo: {candidate.get('rating_pass_elo', '-')}",
             f"- Last score: {candidate.get('last_score', '-')}",
+            f"- Score average since reset: {candidate.get('score_average_since_reset', '-')}",
             f"- Last result: {candidate.get('last_result', '-')}",
             f"- Last reset reason: {candidate.get('last_reset_reason', '-')}",
             "",

@@ -51,7 +51,7 @@ RUNS_DIR = ROOT_DIR / "starrealms_policies"
 CROSS_RUN_RATINGS_FILE = RUNS_DIR / "cross_run_ratings.json"
 LATEST_RUN_NAME = "default"
 INITIAL_ELO = 1000.0
-CONFIG_DEFAULTS_VERSION = 7
+CONFIG_DEFAULTS_VERSION = 9
 CARD_ACQUIRE_ELO_TEST_GAMES = 500
 CARD_ACQUIRE_ELO_K_FACTOR = 24.0
 SCRAP_ELO_TEST_GAMES = 1000
@@ -1187,7 +1187,8 @@ class TrainingConfig:
     promotion_score_threshold: float = 0.6
     simulation_workers: int = SIMULATION_WORKERS_AUTO
     candidate_patience: int = 8
-    candidate_reset_threshold: float = 0.35
+    candidate_reset_threshold: float = 0.49
+    candidate_soft_reset_threshold: float = 0.5
     league_recent_window: int = 10
     league_champion_weight: float = 0.0
     league_best_weight: float = 1.0
@@ -2461,6 +2462,8 @@ def _default_candidate_state(base_checkpoint: str, iteration: int) -> Dict[str, 
         "promotions": 0,
         "rating_pass_elo": None,
         "last_score": None,
+        "score_history": [],
+        "score_average_since_reset": None,
         "last_result": "initialized",
         "last_reset_reason": "initialization",
         "last_opponents": [],
@@ -2992,6 +2995,8 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
         saved_config["simulation_workers"] = SIMULATION_WORKERS_AUTO
     else:
         saved_config["simulation_workers"] = normalize_simulation_workers(saved_config.get("simulation_workers"))
+    if "candidate_soft_reset_threshold" not in saved_config:
+        saved_config["candidate_soft_reset_threshold"] = 0.5
     for key, default_value, normalizer in (
         ("learning_rate", 0.0019, normalize_learning_rate),
         ("epsilon_random", 0.07, normalize_epsilon_random),
@@ -3102,6 +3107,30 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
                     continue
                 if any(abs(numeric_value - float(old_value)) <= 1e-12 for old_value in old_values):
                     saved_config[key] = new_value
+        if config_defaults_version < 8:
+            reset_default_updates = {
+                "candidate_reset_threshold": ((0.35,), 0.47),
+                "candidate_soft_reset_threshold": ((0.35, 0.47), 0.5),
+            }
+            for key, (old_values, new_value) in reset_default_updates.items():
+                current_value = saved_config.get(key)
+                if current_value is None:
+                    saved_config[key] = new_value
+                    continue
+                try:
+                    numeric_value = float(current_value)
+                except (TypeError, ValueError):
+                    continue
+                if any(abs(numeric_value - float(old_value)) <= 1e-12 for old_value in old_values):
+                    saved_config[key] = new_value
+        if config_defaults_version < 9:
+            current_value = saved_config.get("candidate_reset_threshold")
+            try:
+                numeric_value = float(current_value)
+            except (TypeError, ValueError):
+                numeric_value = 0.49
+            if abs(numeric_value - 0.47) <= 1e-12:
+                saved_config["candidate_reset_threshold"] = 0.49
         state_payload["config_defaults_version"] = CONFIG_DEFAULTS_VERSION
     if policy_payload is not None:
         payload_architecture = policy_payload.get("architecture")
@@ -3835,6 +3864,9 @@ def _promotion_settings_snapshot(config: TrainingConfig) -> Dict[str, Any]:
         "ppo_clip": float(config.ppo_clip),
         "promotion_score_threshold": float(config.promotion_score_threshold),
         "promotion_games": int(config.promotion_games),
+        "candidate_reset_threshold": float(config.candidate_reset_threshold),
+        "candidate_soft_reset_threshold": float(config.candidate_soft_reset_threshold),
+        "candidate_patience": int(config.candidate_patience),
         "training_matches_per_iteration": int(config.training_matches_per_iteration),
         "training_games_per_match": int(config.training_games_per_match),
         "training_decisions_per_game": normalize_training_decisions_per_game(config.training_decisions_per_game),
@@ -4100,7 +4132,26 @@ class SelfPlayTrainer:
                 int(self.state.get("iteration", 0)),
             )
             self.state["candidate"] = candidate_state
+        else:
+            default_candidate = _default_candidate_state(
+                self.state.get("latest_checkpoint", "checkpoint_000000.json"),
+                int(self.state.get("iteration", 0)),
+            )
+            for key, value in default_candidate.items():
+                candidate_state.setdefault(key, value)
         return candidate_state
+
+    def _candidate_score_history(self, candidate_state: Dict[str, Any]) -> List[float]:
+        history: List[float] = []
+        for item in list(candidate_state.get("score_history") or []):
+            score = _optional_float(item)
+            if score is not None:
+                history.append(float(score))
+        if not history and int(candidate_state.get("attempts_since_reset", 0) or 0) > 0:
+            last_score = _optional_float(candidate_state.get("last_score"))
+            if last_score is not None:
+                history.append(float(last_score))
+        return history
 
     def _scheduled_training_config(self) -> TrainingConfig:
         return self.config
@@ -4546,6 +4597,16 @@ class SelfPlayTrainer:
     def _sample_league_opponent(self) -> Tuple[PolicyNetwork, Dict[str, Any]]:
         latest_name = self.state.get("latest_checkpoint")
         best_name = self.state.get("best_checkpoint")
+        if best_name:
+            selected = {
+                "label": "best",
+                "source": "best",
+                "checkpoint": best_name,
+            }
+            if best_name == latest_name:
+                return self.policy, selected
+            return _cached_policy(self.run_name, best_name), selected
+
         historical_names = [item["name"] for item in self._checkpoint_entries_sorted() if item.get("name")]
         historical_names = [name for name in historical_names if name != latest_name]
 
@@ -5164,16 +5225,28 @@ class SelfPlayTrainer:
             )
         else:
             attempts_since_reset = int(candidate_state.get("attempts_since_reset", 0)) + 1
-            should_reset = (
-                candidate_score <= float(scheduled_config.candidate_reset_threshold)
-                or attempts_since_reset >= max(1, int(scheduled_config.candidate_patience))
+            score_history = self._candidate_score_history(candidate_state)
+            score_history.append(float(candidate_score))
+            score_average_since_reset = _mean(score_history)
+            hard_reset = candidate_score <= float(scheduled_config.candidate_reset_threshold)
+            soft_reset = (
+                attempts_since_reset >= max(1, int(scheduled_config.candidate_patience))
+                and score_average_since_reset <= float(scheduled_config.candidate_soft_reset_threshold)
             )
+            should_reset = hard_reset or soft_reset
             if should_reset:
                 total_resets += 1
-                reason = (
-                    f"Candidate reset after score {candidate_score:.3f} "
-                    f"and {attempts_since_reset} attempt(s) since the last reset."
-                )
+                if hard_reset:
+                    reason = (
+                        f"Candidate hard reset after score {candidate_score:.3f} "
+                        f"at or below threshold {float(scheduled_config.candidate_reset_threshold):.3f}."
+                    )
+                else:
+                    reason = (
+                        f"Candidate soft reset after {attempts_since_reset} attempt(s) since reset "
+                        f"with average score {score_average_since_reset:.3f} "
+                        f"at or below threshold {float(scheduled_config.candidate_soft_reset_threshold):.3f}."
+                    )
                 action = "reset_candidate"
                 self._reseed_candidate(
                     next_iteration,
@@ -5189,6 +5262,8 @@ class SelfPlayTrainer:
                 candidate_state["attempts_since_reset"] = attempts_since_reset
                 candidate_state["total_attempts"] = total_attempts
                 candidate_state["last_score"] = candidate_score
+                candidate_state["score_history"] = score_history
+                candidate_state["score_average_since_reset"] = score_average_since_reset
                 candidate_state["last_result"] = "keep_training"
                 candidate_state["last_opponents"] = opponent_summaries
 
