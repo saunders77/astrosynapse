@@ -103,6 +103,7 @@ SIMULATION_WORKER_CPU_RESERVE = 2
 SIMULATION_WORKER_TORCH_THREADS = 1
 SIMULATION_PROGRESS_POLL_SECONDS = 0.25
 SIMULATION_WORKER_POLICY_CACHE_LIMIT = 32
+DEFAULT_MAX_TRAINING_SAMPLES_PER_GAME = 70
 DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION = 8192
 DEFAULT_MIN_AVAILABLE_MEMORY_MB = 1024
 MEMORY_SAFETY_CHECK_MATCH_INTERVAL = 16
@@ -1213,8 +1214,6 @@ class TrainingConfig:
     plateau_max_epsilon_random: float = 0.16
     plateau_max_train_temperature: float = 0.9
     elo_k: float = 24.0
-    max_training_samples_per_match: int = 256
-    max_training_samples_per_iteration: int = DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION
     min_available_memory_mb: int = DEFAULT_MIN_AVAILABLE_MEMORY_MB
     max_turns_per_game: int = 400
     max_actions_per_turn: int = 200
@@ -1224,7 +1223,7 @@ class TrainingConfig:
         if not overrides:
             return self
         data = asdict(self)
-        data.update(overrides)
+        data.update({key: value for key, value in overrides.items() if key in data})
         return TrainingConfig(**data)
 
 
@@ -2140,9 +2139,6 @@ def _simulate_match_games(
     per_game_winners: List[str] = []
     ended_by_limit_games = 0
     started_at = _timestamp()
-    collected_step_count = 0
-    collected_step_limit = max(1, int(config.max_training_samples_per_match)) if collect_a else 0
-    decisions_per_game_limit = training_decisions_per_game_limit(config.training_decisions_per_game) if collect_a else None
 
     for _ in range(max(0, int(game_count))):
         game_collector: Optional[List[Dict[str, Any]]] = [] if collect_a else None
@@ -2177,16 +2173,13 @@ def _simulate_match_games(
         if game.ended_by_limit:
             ended_by_limit_games += 1
         if collect_a and collector is not None and trajectory_by_game is not None and game_collector is not None:
-            selected_game_collector = game_collector
-            if decisions_per_game_limit is not None and len(selected_game_collector) > decisions_per_game_limit:
-                selected_game_collector = random.sample(selected_game_collector, decisions_per_game_limit)
-            remaining_slots = max(0, collected_step_limit - collected_step_count)
-            if len(selected_game_collector) > remaining_slots:
-                selected_game_collector = random.sample(selected_game_collector, remaining_slots)
+            selected_game_collector = _sample_training_game_trajectory(
+                game_collector,
+                config.training_decisions_per_game,
+            )
             if selected_game_collector:
                 collector.extend(selected_game_collector)
                 trajectory_by_game.append(selected_game_collector)
-                collected_step_count += len(selected_game_collector)
         _emit_simulation_game_progress(progress_queue)
 
     return {
@@ -2589,6 +2582,24 @@ def training_decisions_per_game_limit(value: Any) -> Optional[int]:
     return int(normalized)
 
 
+def training_samples_per_game_limit(value: Any = TRAINING_DECISIONS_PER_GAME_ALL) -> int:
+    decisions_limit = training_decisions_per_game_limit(value)
+    if decisions_limit is None:
+        return DEFAULT_MAX_TRAINING_SAMPLES_PER_GAME
+    return max(1, min(int(decisions_limit), DEFAULT_MAX_TRAINING_SAMPLES_PER_GAME))
+
+
+def _sample_training_game_trajectory(
+    game_trajectory: Sequence[Dict[str, Any]],
+    training_decisions_per_game: Any = TRAINING_DECISIONS_PER_GAME_ALL,
+) -> List[Dict[str, Any]]:
+    trajectory = list(game_trajectory or [])
+    limit = training_samples_per_game_limit(training_decisions_per_game)
+    if len(trajectory) <= limit:
+        return trajectory
+    return random.sample(trajectory, limit)
+
+
 def normalize_train_temperature(value: Any) -> float:
     try:
         temperature = float(value)
@@ -2946,13 +2957,14 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
         saved_config["simulation_workers"] = SIMULATION_WORKERS_AUTO
     else:
         saved_config["simulation_workers"] = normalize_simulation_workers(saved_config.get("simulation_workers"))
-    if "max_training_samples_per_iteration" not in saved_config:
-        saved_config["max_training_samples_per_iteration"] = DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION
-    else:
-        saved_config["max_training_samples_per_iteration"] = max(
-            1,
-            int(saved_config.get("max_training_samples_per_iteration") or DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION),
-        )
+    saved_config.pop("max_training_samples_per_match", None)
+    saved_config.pop("max_training_samples_per_iteration", None)
+    if isinstance(state_payload.get("last_update"), dict):
+        last_update = state_payload["last_update"]
+        last_update.pop("max_training_samples_per_match", None)
+        if "max_training_samples_per_iteration" in last_update:
+            last_update.pop("max_training_samples_per_iteration", None)
+            last_update.setdefault("sample_reservoir_limit", DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION)
     if "min_available_memory_mb" not in saved_config:
         saved_config["min_available_memory_mb"] = DEFAULT_MIN_AVAILABLE_MEMORY_MB
     else:
@@ -4354,19 +4366,19 @@ class SelfPlayTrainer:
         if not trajectory_by_game:
             return []
         return_value = match_summary["return_value"]
-        decisions_per_game_limit = training_decisions_per_game_limit(self.config.training_decisions_per_game)
         selected_trajectory: List[Dict[str, Any]] = []
 
         for game_trajectory in trajectory_by_game:
             if not game_trajectory:
                 continue
-            for step in game_trajectory:
+            sampled_game_trajectory = _sample_training_game_trajectory(
+                game_trajectory,
+                self.config.training_decisions_per_game,
+            )
+            for step in sampled_game_trajectory:
                 step["return"] = return_value
                 step["advantage"] = return_value - step["value"]
-            if decisions_per_game_limit is None or len(game_trajectory) <= decisions_per_game_limit:
-                selected_trajectory.extend(game_trajectory)
-            else:
-                selected_trajectory.extend(random.sample(game_trajectory, decisions_per_game_limit))
+            selected_trajectory.extend(sampled_game_trajectory)
 
         if not selected_trajectory:
             return []
@@ -4377,8 +4389,6 @@ class SelfPlayTrainer:
         if advantage_std > 1e-6:
             for step in selected_trajectory:
                 step["advantage"] = (step["advantage"] - advantage_mean) / advantage_std
-        if len(selected_trajectory) > self.config.max_training_samples_per_match:
-            selected_trajectory = random.sample(selected_trajectory, self.config.max_training_samples_per_match)
         return selected_trajectory
 
     def _summarize_training_matches(self, match_summaries: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
@@ -4507,7 +4517,7 @@ class SelfPlayTrainer:
         opponent_summaries: List[Dict[str, Any]] = []
         training_games_completed = 0
         training_sample_candidates = 0
-        max_iteration_samples = max(1, int(scheduled_config.max_training_samples_per_iteration))
+        max_iteration_samples = DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION
         opponent_exploration_plan = _training_opponent_exploration_plan(scheduled_config, match_count)
         _check_memory_safety(scheduled_config, "starting training match collection")
 
@@ -4849,7 +4859,8 @@ class SelfPlayTrainer:
             "matches_collected": len(training_matches),
             "samples_collected": len(training_samples),
             "sample_candidates": int(training_sample_candidates),
-            "max_training_samples_per_iteration": int(scheduled_config.max_training_samples_per_iteration),
+            "max_training_samples_per_game": DEFAULT_MAX_TRAINING_SAMPLES_PER_GAME,
+            "sample_reservoir_limit": DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION,
         }
 
         if promoted:

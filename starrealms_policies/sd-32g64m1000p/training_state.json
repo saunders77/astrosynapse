@@ -7,7 +7,7 @@
   "total_games": 210312,
   "created_at": 1779891377.5844939,
   "created_datetime": "2026-05-27 07:16:17",
-  "updated_at": 1779900390.8839757,
+  "updated_at": 1779902954.6164074,
   "forked_from": {
     "run_name": "sd-16g32m1000p",
     "checkpoint": "best",
@@ -78,8 +78,6 @@
     "plateau_max_epsilon_random": 0.16,
     "plateau_max_train_temperature": 0.9,
     "elo_k": 24.0,
-    "max_training_samples_per_match": 256,
-    "max_training_samples_per_iteration": 8192,
     "min_available_memory_mb": 1024,
     "max_turns_per_game": 400,
     "max_actions_per_turn": 200,
