@@ -51,7 +51,7 @@ RUNS_DIR = ROOT_DIR / "starrealms_policies"
 CROSS_RUN_RATINGS_FILE = RUNS_DIR / "cross_run_ratings.json"
 LATEST_RUN_NAME = "default"
 INITIAL_ELO = 1000.0
-CONFIG_DEFAULTS_VERSION = 5
+CONFIG_DEFAULTS_VERSION = 6
 CARD_ACQUIRE_ELO_TEST_GAMES = 500
 CARD_ACQUIRE_ELO_K_FACTOR = 24.0
 SCRAP_ELO_TEST_GAMES = 1000
@@ -1171,17 +1171,13 @@ class TrainingConfig:
     model_architecture: str = CURRENT_MODEL_ARCHITECTURE
     device_preference: str = DEVICE_AUTO
     learning_rate: float = 0.0019
-    min_learning_rate: float = 0.0004
     ppo_epochs: int = 2
     ppo_minibatch_size: int = 64
     ppo_clip: float = 0.2
-    min_ppo_clip: float = 0.1
     value_coef: float = 0.5
     grad_clip: float = 1.0
     epsilon_random: float = 0.07
-    min_epsilon_random: float = 0.015
     train_temperature: float = 0.9
-    min_train_temperature: float = 0.9
     eval_temperature: float = 0.35
     checkpoint_interval: int = 1
     training_matches_per_iteration: int = 5
@@ -1204,15 +1200,6 @@ class TrainingConfig:
     opponent_chaotic_temperature: float = 1.9
     opponent_learnable_epsilon_random: float = 0.1
     opponent_chaotic_epsilon_random: float = 0.14
-    anneal_steps: int = 3000
-    plateau_start_iterations_without_promotion: int = 12
-    plateau_full_iterations_without_promotion: int = 36
-    plateau_learning_rate_boost: float = 1.7
-    plateau_epsilon_boost: float = 2.4
-    plateau_temperature_boost: float = 1.0
-    plateau_max_learning_rate: float = 0.0033
-    plateau_max_epsilon_random: float = 0.16
-    plateau_max_train_temperature: float = 0.9
     elo_k: float = 24.0
     min_available_memory_mb: int = DEFAULT_MIN_AVAILABLE_MEMORY_MB
     max_turns_per_game: int = 400
@@ -2610,14 +2597,9 @@ def normalize_train_temperature(value: Any) -> float:
     return temperature
 
 
-def derive_temperature_schedule_overrides(train_temperature: float) -> Dict[str, float]:
+def train_temperature_overrides(train_temperature: float) -> Dict[str, float]:
     normalized_temperature = round(normalize_train_temperature(train_temperature), 6)
-    return {
-        "train_temperature": normalized_temperature,
-        "min_train_temperature": normalized_temperature,
-        "plateau_temperature_boost": 1.0,
-        "plateau_max_train_temperature": normalized_temperature,
-    }
+    return {"train_temperature": normalized_temperature}
 
 
 def normalize_promotion_score_threshold(value: Any) -> float:
@@ -2649,7 +2631,7 @@ def new_run_overrides(
         raise ValueError("promotion_games must be positive.")
 
     overrides = model_type_overrides(model_type)
-    overrides.update(derive_temperature_schedule_overrides(train_temperature))
+    overrides.update(train_temperature_overrides(train_temperature))
     overrides.update(
         {
             "device_preference": str(device_preference or DEVICE_AUTO).strip().lower(),
@@ -2957,6 +2939,22 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
         saved_config["simulation_workers"] = SIMULATION_WORKERS_AUTO
     else:
         saved_config["simulation_workers"] = normalize_simulation_workers(saved_config.get("simulation_workers"))
+    for removed_schedule_key in (
+        "min_learning_rate",
+        "min_ppo_clip",
+        "min_epsilon_random",
+        "min_train_temperature",
+        "anneal_steps",
+        "plateau_start_iterations_without_promotion",
+        "plateau_full_iterations_without_promotion",
+        "plateau_learning_rate_boost",
+        "plateau_epsilon_boost",
+        "plateau_temperature_boost",
+        "plateau_max_learning_rate",
+        "plateau_max_epsilon_random",
+        "plateau_max_train_temperature",
+    ):
+        saved_config.pop(removed_schedule_key, None)
     saved_config.pop("max_training_samples_per_match", None)
     saved_config.pop("max_training_samples_per_iteration", None)
     if isinstance(state_payload.get("last_update"), dict):
@@ -2986,17 +2984,8 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
             legacy_default_updates = {
                 "promotion_score_threshold": ((0.55,), 0.6),
                 "learning_rate": ((0.0015,), 0.0019),
-                "min_learning_rate": ((0.0003,), 0.0004),
                 "epsilon_random": ((0.05,), 0.07),
-                "min_epsilon_random": ((0.01,), 0.015),
                 "train_temperature": ((1.0, 1.1), 0.9),
-                "min_train_temperature": ((0.55, 0.62), 0.5),
-                "plateau_learning_rate_boost": ((2.0, 2.15), 1.7),
-                "plateau_epsilon_boost": ((3.0, 3.2), 2.4),
-                "plateau_temperature_boost": ((1.35, 1.45, 1.28), 1.22),
-                "plateau_max_learning_rate": ((0.0035, 0.0042), 0.0033),
-                "plateau_max_epsilon_random": ((0.18, 0.22), 0.16),
-                "plateau_max_train_temperature": ((1.45, 1.6, 1.35), 1.15),
             }
             for key, (old_values, new_value) in legacy_default_updates.items():
                 current_value = saved_config.get(key)
@@ -3010,7 +2999,7 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
                 if any(abs(numeric_value - float(old_value)) <= 1e-12 for old_value in old_values):
                     saved_config[key] = new_value
         if config_defaults_version < 3:
-            saved_config.update(derive_temperature_schedule_overrides(saved_config.get("train_temperature", 0.9)))
+            saved_config.update(train_temperature_overrides(saved_config.get("train_temperature", 0.9)))
         if config_defaults_version < 5:
             opponent_mix_default_updates = {
                 "opponent_normal_weight": ((0.4,), 0.6),
@@ -3848,15 +3837,7 @@ class SelfPlayTrainer:
         return candidate_state
 
     def _scheduled_training_config(self) -> TrainingConfig:
-        anneal_steps = max(1, int(self.config.anneal_steps))
-        progress = _clip(float(self.state.get("iteration", 0)) / float(anneal_steps), 0.0, 1.0)
-        return self.config.merged(
-            {
-                "learning_rate": _lerp(self.config.learning_rate, self.config.min_learning_rate, progress),
-                "epsilon_random": _lerp(self.config.epsilon_random, self.config.min_epsilon_random, progress),
-                "ppo_clip": _lerp(self.config.ppo_clip, self.config.min_ppo_clip, progress),
-            }
-        )
+        return self.config
 
     def _last_promotion_iteration(self) -> int:
         latest_name = self.state.get("latest_checkpoint")
@@ -5057,9 +5038,9 @@ class SelfPlayTrainer:
             "logical_processors": int(os.cpu_count() or 1),
             "last_promotion_iteration": self._last_promotion_iteration(),
             "iterations_since_promotion": self._iterations_since_promotion(),
-            "scheduled_learning_rate": float(scheduled_config.learning_rate),
-            "scheduled_epsilon_random": float(scheduled_config.epsilon_random),
-            "scheduled_train_temperature": float(scheduled_config.train_temperature),
+            "learning_rate": float(scheduled_config.learning_rate),
+            "epsilon_random": float(scheduled_config.epsilon_random),
+            "train_temperature": float(scheduled_config.train_temperature),
         }
 
 
@@ -5240,7 +5221,7 @@ def create_run_from_checkpoint(
             "simulation_workers": normalize_simulation_workers(simulation_workers),
         }
     )
-    config = config.merged(derive_temperature_schedule_overrides(train_temperature))
+    config = config.merged(train_temperature_overrides(train_temperature))
 
     if config.training_matches_per_iteration <= 0:
         raise ValueError("training_matches_per_iteration must be positive.")
@@ -5306,7 +5287,7 @@ def update_run_config(
 
     overrides: Dict[str, Any] = {}
     if train_temperature is not None:
-        overrides.update(derive_temperature_schedule_overrides(train_temperature))
+        overrides.update(train_temperature_overrides(train_temperature))
     if promotion_score_threshold is not None:
         overrides["promotion_score_threshold"] = normalize_promotion_score_threshold(promotion_score_threshold)
     if simulation_workers is not None:
