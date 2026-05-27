@@ -51,7 +51,7 @@ RUNS_DIR = ROOT_DIR / "starrealms_policies"
 CROSS_RUN_RATINGS_FILE = RUNS_DIR / "cross_run_ratings.json"
 LATEST_RUN_NAME = "default"
 INITIAL_ELO = 1000.0
-CONFIG_DEFAULTS_VERSION = 6
+CONFIG_DEFAULTS_VERSION = 7
 CARD_ACQUIRE_ELO_TEST_GAMES = 500
 CARD_ACQUIRE_ELO_K_FACTOR = 24.0
 SCRAP_ELO_TEST_GAMES = 1000
@@ -1189,13 +1189,13 @@ class TrainingConfig:
     candidate_patience: int = 8
     candidate_reset_threshold: float = 0.35
     league_recent_window: int = 10
-    league_champion_weight: float = 0.45
-    league_best_weight: float = 0.2
-    league_recent_weight: float = 0.25
-    league_historical_weight: float = 0.1
-    opponent_normal_weight: float = 0.6
-    opponent_learnable_weight: float = 0.3
-    opponent_chaotic_weight: float = 0.1
+    league_champion_weight: float = 0.0
+    league_best_weight: float = 1.0
+    league_recent_weight: float = 0.0
+    league_historical_weight: float = 0.0
+    opponent_normal_weight: float = 0.97
+    opponent_learnable_weight: float = 0.02
+    opponent_chaotic_weight: float = 0.01
     opponent_learnable_temperature: float = 1.4
     opponent_chaotic_temperature: float = 1.9
     opponent_learnable_epsilon_random: float = 0.1
@@ -3069,6 +3069,27 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
                 "opponent_normal_weight": ((0.4,), 0.6),
                 "opponent_learnable_weight": ((0.45,), 0.3),
                 "opponent_chaotic_weight": ((0.15,), 0.1),
+            }
+            for key, (old_values, new_value) in opponent_mix_default_updates.items():
+                current_value = saved_config.get(key)
+                if current_value is None:
+                    saved_config[key] = new_value
+                    continue
+                try:
+                    numeric_value = float(current_value)
+                except (TypeError, ValueError):
+                    continue
+                if any(abs(numeric_value - float(old_value)) <= 1e-12 for old_value in old_values):
+                    saved_config[key] = new_value
+        if config_defaults_version < 7:
+            opponent_mix_default_updates = {
+                "league_champion_weight": ((0.45,), 0.0),
+                "league_best_weight": ((0.2,), 1.0),
+                "league_recent_weight": ((0.25,), 0.0),
+                "league_historical_weight": ((0.1,), 0.0),
+                "opponent_normal_weight": ((0.6,), 0.97),
+                "opponent_learnable_weight": ((0.3,), 0.02),
+                "opponent_chaotic_weight": ((0.1,), 0.01),
             }
             for key, (old_values, new_value) in opponent_mix_default_updates.items():
                 current_value = saved_config.get(key)

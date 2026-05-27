@@ -2,12 +2,12 @@
   "status": "idle",
   "run_name": "sd-32g64m1000p",
   "config_defaults_version": 6,
-  "iteration": 117,
-  "total_matches": 7605,
-  "total_games": 356616,
+  "iteration": 129,
+  "total_matches": 8385,
+  "total_games": 393192,
   "created_at": 1779891377.5844939,
   "created_datetime": "2026-05-27 07:16:17",
-  "updated_at": 1779911333.4960184,
+  "updated_at": 1779913643.8327334,
   "forked_from": {
     "run_name": "sd-16g32m1000p",
     "checkpoint": "best",
@@ -34,21 +34,21 @@
     "hidden_size": 96,
     "model_architecture": "deep_v2",
     "device_preference": "cpu",
-    "learning_rate": 0.0025,
+    "learning_rate": 0.002,
     "ppo_epochs": 2,
     "ppo_minibatch_size": 64,
     "ppo_clip": 0.25,
     "value_coef": 0.5,
     "grad_clip": 1.0,
-    "epsilon_random": 0.01,
-    "train_temperature": 1.25,
+    "epsilon_random": 0.013,
+    "train_temperature": 1.4,
     "eval_temperature": 0.35,
     "checkpoint_interval": 1,
     "training_matches_per_iteration": 64,
     "training_games_per_match": 32,
     "training_decisions_per_game": "ALL",
     "promotion_games": 1000,
-    "promotion_score_threshold": 0.54,
+    "promotion_score_threshold": 0.531,
     "simulation_workers": 0,
     "candidate_patience": 8,
     "candidate_reset_threshold": 0.35,
@@ -71,13 +71,83 @@
     "max_iterations": null
   },
   "last_match": {
-    "wins": 1176,
-    "losses": 872,
+    "wins": 1185,
+    "losses": 863,
     "games_played": 2048,
-    "return_value": 0.1484375,
-    "duration_seconds": 696.4067015647888,
+    "return_value": 0.1572265625,
+    "duration_seconds": 669.4318571090698,
     "matches_played": 64,
     "opponents": [
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "chaotic",
+          "temperature": 1.9,
+          "epsilon_random": 0.14
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "chaotic",
+          "temperature": 1.9,
+          "epsilon_random": 0.14
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
       {
         "label": "recent",
         "source": "recent",
@@ -89,9 +159,9 @@
         }
       },
       {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000038.json",
         "exploration": {
           "style": "chaotic",
           "temperature": 1.9,
@@ -103,226 +173,6 @@
         "source": "champion",
         "checkpoint": "champion_000096.json",
         "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000036.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000058.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000058.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000011.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000036.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "chaotic",
-          "temperature": 1.9,
-          "epsilon_random": 0.14
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
           "style": "normal",
           "temperature": 1.25,
           "epsilon_random": 0.01
@@ -336,172 +186,12 @@
           "style": "learnable",
           "temperature": 1.4,
           "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
         }
       },
       {
         "label": "recent",
         "source": "recent",
         "checkpoint": "champion_000046.json",
-        "exploration": {
-          "style": "chaotic",
-          "temperature": 1.9,
-          "epsilon_random": 0.14
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000058.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000011.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000046.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000084.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
         "exploration": {
           "style": "normal",
           "temperature": 1.25,
@@ -539,6 +229,336 @@
         }
       },
       {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000087.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000038.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000046.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000087.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000038.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "chaotic",
+          "temperature": 1.9,
+          "epsilon_random": 0.14
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000044.json",
+        "exploration": {
+          "style": "chaotic",
+          "temperature": 1.9,
+          "epsilon_random": 0.14
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
         "label": "champion",
         "source": "champion",
         "checkpoint": "champion_000096.json",
@@ -559,19 +579,9 @@
         }
       },
       {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "chaotic",
-          "temperature": 1.9,
-          "epsilon_random": 0.14
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000058.json",
         "exploration": {
           "style": "learnable",
           "temperature": 1.4,
@@ -579,9 +589,9 @@
         }
       },
       {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000011.json",
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
         "exploration": {
           "style": "normal",
           "temperature": 1.25,
@@ -596,36 +606,6 @@
           "style": "normal",
           "temperature": 1.25,
           "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000044.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "chaotic",
-          "temperature": 1.9,
-          "epsilon_random": 0.14
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
         }
       },
       {
@@ -633,6 +613,36 @@
         "source": "recent",
         "checkpoint": "champion_000046.json",
         "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000036.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
           "style": "normal",
           "temperature": 1.25,
           "epsilon_random": 0.01
@@ -653,26 +663,6 @@
         "source": "champion",
         "checkpoint": "champion_000096.json",
         "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
           "style": "learnable",
           "temperature": 1.4,
           "epsilon_random": 0.1
@@ -716,50 +706,61 @@
           "style": "learnable",
           "temperature": 1.4,
           "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000038.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
         }
       }
     ]
   },
   "last_update": {
     "samples": 8192.0,
-    "policy_loss": 0.005851532536325976,
-    "value_loss": 0.03172750022349646,
-    "clip_fraction": 0.01531982421875,
-    "avg_ratio": 0.985260372926864,
-    "avg_value_prediction": 0.14674727141414223,
-    "learning_rate": 0.0025,
+    "policy_loss": 2.0435059148221626,
+    "value_loss": 0.024454240010527428,
+    "clip_fraction": 0.01629638671875,
+    "avg_ratio": 1.7433429403068428,
+    "avg_value_prediction": 0.15578949859650493,
+    "learning_rate": 0.004,
     "epsilon_random": 0.01,
     "train_temperature": 1.25,
     "ppo_clip": 0.25,
     "simulation_workers": 0,
-    "resolved_simulation_workers": 7,
+    "resolved_simulation_workers": 14,
     "active_simulation_runs": [
-      "sd-16g32m1000p",
       "sd-32g64m1000p"
     ],
-    "iterations_since_promotion": 21,
+    "iterations_since_promotion": 33,
     "matches_collected": 64,
     "samples_collected": 8192,
-    "sample_candidates": 143323,
+    "sample_candidates": 143359,
     "max_training_samples_per_game": 70,
     "sample_reservoir_limit": 8192
   },
   "last_eval": {
-    "wins": 495,
-    "losses": 505,
+    "iteration": 129,
+    "wins": 475,
+    "losses": 525,
     "games_played": 1000,
-    "score": 0.495,
+    "score": 0.475,
     "promoted": false,
     "action": "keep_training",
     "promoted_checkpoint": null,
     "champion_checkpoint": "champion_000096.json",
-    "duration_seconds": 53.645817279815674
+    "duration_seconds": 43.964144706726074,
+    "recorded_at": 1779913331.4517007
   },
   "last_rating_pass": null,
   "live_progress": {
     "kind": "training_iteration",
     "stage": "complete",
-    "iteration_number": 117,
+    "iteration_number": 129,
     "training_matches_completed": 64,
     "training_matches_total": 64,
     "training_games_completed": 2048,
@@ -771,7 +772,7 @@
     "training_stage_complete": true,
     "promotion_stage_complete": true,
     "iteration_complete": true,
-    "updated_at": 1779911331.9236
+    "updated_at": 1779913331.4517007
   },
   "device_plan": {
     "requested_backend": "cpu",
@@ -782,16 +783,86 @@
   },
   "candidate": {
     "base_checkpoint": "champion_000096.json",
-    "base_iteration": 112,
-    "attempts_since_reset": 5,
-    "total_attempts": 117,
-    "resets": 10,
+    "base_iteration": 128,
+    "attempts_since_reset": 1,
+    "total_attempts": 129,
+    "resets": 12,
     "promotions": 10,
     "rating_pass_elo": 1005.5920000000002,
-    "last_score": 0.495,
+    "last_score": 0.475,
     "last_result": "keep_training",
-    "last_reset_reason": "Candidate reset after score 0.503 and 8 attempt(s) since the last reset.",
+    "last_reset_reason": "Candidate reset after score 0.526 and 8 attempt(s) since the last reset.",
     "last_opponents": [
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "chaotic",
+          "temperature": 1.9,
+          "epsilon_random": 0.14
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "chaotic",
+          "temperature": 1.9,
+          "epsilon_random": 0.14
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
       {
         "label": "recent",
         "source": "recent",
@@ -803,9 +874,9 @@
         }
       },
       {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000038.json",
         "exploration": {
           "style": "chaotic",
           "temperature": 1.9,
@@ -817,226 +888,6 @@
         "source": "champion",
         "checkpoint": "champion_000096.json",
         "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000036.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000058.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000058.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000011.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000036.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "chaotic",
-          "temperature": 1.9,
-          "epsilon_random": 0.14
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
           "style": "normal",
           "temperature": 1.25,
           "epsilon_random": 0.01
@@ -1050,172 +901,12 @@
           "style": "learnable",
           "temperature": 1.4,
           "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
         }
       },
       {
         "label": "recent",
         "source": "recent",
         "checkpoint": "champion_000046.json",
-        "exploration": {
-          "style": "chaotic",
-          "temperature": 1.9,
-          "epsilon_random": 0.14
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000058.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000011.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000046.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000084.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
         "exploration": {
           "style": "normal",
           "temperature": 1.25,
@@ -1253,6 +944,336 @@
         }
       },
       {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000087.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000038.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000046.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000087.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000038.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "chaotic",
+          "temperature": 1.9,
+          "epsilon_random": 0.14
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000044.json",
+        "exploration": {
+          "style": "chaotic",
+          "temperature": 1.9,
+          "epsilon_random": 0.14
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
         "label": "champion",
         "source": "champion",
         "checkpoint": "champion_000096.json",
@@ -1273,19 +1294,9 @@
         }
       },
       {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "chaotic",
-          "temperature": 1.9,
-          "epsilon_random": 0.14
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000058.json",
         "exploration": {
           "style": "learnable",
           "temperature": 1.4,
@@ -1293,9 +1304,9 @@
         }
       },
       {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000011.json",
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
         "exploration": {
           "style": "normal",
           "temperature": 1.25,
@@ -1310,36 +1321,6 @@
           "style": "normal",
           "temperature": 1.25,
           "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_000044.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "chaotic",
-          "temperature": 1.9,
-          "epsilon_random": 0.14
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
         }
       },
       {
@@ -1347,6 +1328,36 @@
         "source": "recent",
         "checkpoint": "champion_000046.json",
         "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000036.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_000096.json",
+        "exploration": {
           "style": "normal",
           "temperature": 1.25,
           "epsilon_random": 0.01
@@ -1367,26 +1378,6 @@
         "source": "champion",
         "checkpoint": "champion_000096.json",
         "exploration": {
-          "style": "normal",
-          "temperature": 1.25,
-          "epsilon_random": 0.01
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_000096.json",
-        "exploration": {
           "style": "learnable",
           "temperature": 1.4,
           "epsilon_random": 0.1
@@ -1430,6 +1421,16 @@
           "style": "learnable",
           "temperature": 1.4,
           "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_000038.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 1.25,
+          "epsilon_random": 0.01
         }
       }
     ]
@@ -28254,5 +28255,473 @@
       }
     }
   ],
-  "last_error": null
+  "last_error": null,
+  "promotion_history": [
+    {
+      "iteration": 11,
+      "wins": 530,
+      "losses": 470,
+      "games_played": 1000,
+      "promoted": true,
+      "action": "promoted",
+      "promoted_checkpoint": "champion_000011.json",
+      "champion_checkpoint": "checkpoint_000000.json",
+      "duration_seconds": 51.61473369598389,
+      "recorded_at": 1779894207.5931077,
+      "score": 0.53,
+      "score_percent": 53.0
+    },
+    {
+      "iteration": 35,
+      "wins": 526,
+      "losses": 474,
+      "games_played": 1000,
+      "promoted": true,
+      "action": "promoted",
+      "promoted_checkpoint": "champion_000035.json",
+      "champion_checkpoint": "champion_000011.json",
+      "duration_seconds": 31.412862300872803,
+      "recorded_at": 1779897642.5966036,
+      "score": 0.526,
+      "score_percent": 52.6
+    },
+    {
+      "iteration": 36,
+      "wins": 519,
+      "losses": 481,
+      "games_played": 1000,
+      "promoted": true,
+      "action": "promoted",
+      "promoted_checkpoint": "champion_000036.json",
+      "champion_checkpoint": "champion_000035.json",
+      "duration_seconds": 25.46091628074646,
+      "recorded_at": 1779897722.6662104,
+      "score": 0.519,
+      "score_percent": 51.9
+    },
+    {
+      "iteration": 38,
+      "wins": 525,
+      "losses": 475,
+      "games_played": 1000,
+      "promoted": true,
+      "action": "promoted",
+      "promoted_checkpoint": "champion_000038.json",
+      "champion_checkpoint": "champion_000036.json",
+      "duration_seconds": 25.053157091140747,
+      "recorded_at": 1779897876.9012399,
+      "score": 0.525,
+      "score_percent": 52.5
+    },
+    {
+      "iteration": 44,
+      "wins": 523,
+      "losses": 477,
+      "games_played": 1000,
+      "promoted": true,
+      "action": "promoted",
+      "promoted_checkpoint": "champion_000044.json",
+      "champion_checkpoint": "champion_000038.json",
+      "duration_seconds": 25.62440538406372,
+      "recorded_at": 1779898331.7895167,
+      "score": 0.523,
+      "score_percent": 52.3
+    },
+    {
+      "iteration": 46,
+      "wins": 512,
+      "losses": 488,
+      "games_played": 1000,
+      "promoted": true,
+      "action": "promoted",
+      "promoted_checkpoint": "champion_000046.json",
+      "champion_checkpoint": "champion_000044.json",
+      "duration_seconds": 26.30172324180603,
+      "recorded_at": 1779898495.4143157,
+      "score": 0.512,
+      "score_percent": 51.2
+    },
+    {
+      "iteration": 58,
+      "wins": 518,
+      "losses": 482,
+      "games_played": 1000,
+      "promoted": true,
+      "action": "promoted",
+      "promoted_checkpoint": "champion_000058.json",
+      "champion_checkpoint": "champion_000046.json",
+      "duration_seconds": 27.324733018875122,
+      "recorded_at": 1779899472.5856493,
+      "score": 0.518,
+      "score_percent": 51.8
+    },
+    {
+      "iteration": 84,
+      "wins": 520,
+      "losses": 480,
+      "games_played": 1000,
+      "promoted": true,
+      "action": "promoted",
+      "promoted_checkpoint": "champion_000084.json",
+      "champion_checkpoint": "champion_000058.json",
+      "duration_seconds": 50.11587333679199,
+      "recorded_at": 1779905810.134,
+      "score": 0.52,
+      "score_percent": 52.0
+    },
+    {
+      "iteration": 87,
+      "wins": 532,
+      "losses": 468,
+      "games_played": 1000,
+      "promoted": true,
+      "action": "promoted",
+      "promoted_checkpoint": "champion_000087.json",
+      "champion_checkpoint": "champion_000084.json",
+      "duration_seconds": 50.432042360305786,
+      "recorded_at": 1779906268.3722568,
+      "score": 0.532,
+      "score_percent": 53.2
+    },
+    {
+      "iteration": 96,
+      "wins": 528,
+      "losses": 472,
+      "games_played": 1000,
+      "promoted": true,
+      "action": "promoted",
+      "promoted_checkpoint": "champion_000096.json",
+      "champion_checkpoint": "champion_000087.json",
+      "duration_seconds": 52.49607753753662,
+      "recorded_at": 1779907646.8617375,
+      "score": 0.528,
+      "score_percent": 52.8
+    },
+    {
+      "iteration": 117,
+      "wins": 495,
+      "losses": 505,
+      "games_played": 1000,
+      "promoted": false,
+      "action": "keep_training",
+      "promoted_checkpoint": null,
+      "champion_checkpoint": "champion_000096.json",
+      "duration_seconds": 53.645817279815674,
+      "recorded_at": 1779911377.3880343,
+      "score": 0.495,
+      "score_percent": 49.5
+    },
+    {
+      "iteration": 118,
+      "wins": 472,
+      "losses": 528,
+      "games_played": 1000,
+      "promoted": false,
+      "action": "keep_training",
+      "promoted_checkpoint": null,
+      "champion_checkpoint": "champion_000096.json",
+      "duration_seconds": 53.093960762023926,
+      "recorded_at": 1779911557.5733578,
+      "score": 0.472,
+      "score_percent": 47.2,
+      "promotion_settings": {
+        "learning_rate": 0.0025,
+        "epsilon_random": 0.01,
+        "train_temperature": 1.25,
+        "ppo_clip": 0.25,
+        "promotion_score_threshold": 0.54,
+        "promotion_games": 1000,
+        "training_matches_per_iteration": 64,
+        "training_games_per_match": 32,
+        "training_decisions_per_game": "ALL",
+        "simulation_workers": 0
+      }
+    },
+    {
+      "iteration": 119,
+      "wins": 506,
+      "losses": 494,
+      "games_played": 1000,
+      "promoted": false,
+      "action": "keep_training",
+      "promoted_checkpoint": null,
+      "champion_checkpoint": "champion_000096.json",
+      "duration_seconds": 49.38772535324097,
+      "recorded_at": 1779911717.3628206,
+      "score": 0.506,
+      "score_percent": 50.6,
+      "promotion_settings": {
+        "learning_rate": 0.0025,
+        "epsilon_random": 0.01,
+        "train_temperature": 1.25,
+        "ppo_clip": 0.25,
+        "promotion_score_threshold": 0.54,
+        "promotion_games": 1000,
+        "training_matches_per_iteration": 64,
+        "training_games_per_match": 32,
+        "training_decisions_per_game": "ALL",
+        "simulation_workers": 0
+      }
+    },
+    {
+      "iteration": 120,
+      "wins": 503,
+      "losses": 497,
+      "games_played": 1000,
+      "promoted": false,
+      "action": "reset_candidate",
+      "promoted_checkpoint": null,
+      "champion_checkpoint": "champion_000096.json",
+      "duration_seconds": 48.11638879776001,
+      "recorded_at": 1779911873.3932085,
+      "score": 0.503,
+      "score_percent": 50.3,
+      "promotion_settings": {
+        "learning_rate": 0.0025,
+        "epsilon_random": 0.01,
+        "train_temperature": 1.25,
+        "ppo_clip": 0.25,
+        "promotion_score_threshold": 0.54,
+        "promotion_games": 1000,
+        "training_matches_per_iteration": 64,
+        "training_games_per_match": 32,
+        "training_decisions_per_game": "ALL",
+        "simulation_workers": 0
+      }
+    },
+    {
+      "iteration": 121,
+      "wins": 486,
+      "losses": 514,
+      "games_played": 1000,
+      "promoted": false,
+      "action": "keep_training",
+      "promoted_checkpoint": null,
+      "champion_checkpoint": "champion_000096.json",
+      "duration_seconds": 49.92391300201416,
+      "recorded_at": 1779912035.3677056,
+      "score": 0.486,
+      "score_percent": 48.6,
+      "promotion_settings": {
+        "learning_rate": 0.0025,
+        "epsilon_random": 0.01,
+        "train_temperature": 1.25,
+        "ppo_clip": 0.25,
+        "promotion_score_threshold": 0.54,
+        "promotion_games": 1000,
+        "training_matches_per_iteration": 64,
+        "training_games_per_match": 32,
+        "training_decisions_per_game": "ALL",
+        "simulation_workers": 0
+      }
+    },
+    {
+      "iteration": 122,
+      "wins": 508,
+      "losses": 492,
+      "games_played": 1000,
+      "promoted": false,
+      "action": "keep_training",
+      "promoted_checkpoint": null,
+      "champion_checkpoint": "champion_000096.json",
+      "duration_seconds": 51.3614227771759,
+      "recorded_at": 1779912201.0999732,
+      "score": 0.508,
+      "score_percent": 50.8,
+      "promotion_settings": {
+        "learning_rate": 0.0025,
+        "epsilon_random": 0.01,
+        "train_temperature": 1.25,
+        "ppo_clip": 0.25,
+        "promotion_score_threshold": 0.54,
+        "promotion_games": 1000,
+        "training_matches_per_iteration": 64,
+        "training_games_per_match": 32,
+        "training_decisions_per_game": "ALL",
+        "simulation_workers": 0
+      }
+    },
+    {
+      "iteration": 123,
+      "wins": 504,
+      "losses": 496,
+      "games_played": 1000,
+      "promoted": false,
+      "action": "keep_training",
+      "promoted_checkpoint": null,
+      "champion_checkpoint": "champion_000096.json",
+      "duration_seconds": 52.17021036148071,
+      "recorded_at": 1779912370.2017753,
+      "score": 0.504,
+      "score_percent": 50.4,
+      "promotion_settings": {
+        "learning_rate": 0.0025,
+        "epsilon_random": 0.01,
+        "train_temperature": 1.25,
+        "ppo_clip": 0.25,
+        "promotion_score_threshold": 0.54,
+        "promotion_games": 1000,
+        "training_matches_per_iteration": 64,
+        "training_games_per_match": 32,
+        "training_decisions_per_game": "ALL",
+        "simulation_workers": 0
+      }
+    },
+    {
+      "iteration": 124,
+      "wins": 484,
+      "losses": 516,
+      "games_played": 1000,
+      "promoted": false,
+      "action": "keep_training",
+      "promoted_checkpoint": null,
+      "champion_checkpoint": "champion_000096.json",
+      "duration_seconds": 30.260937690734863,
+      "recorded_at": 1779912511.7744157,
+      "score": 0.484,
+      "score_percent": 48.4,
+      "promotion_settings": {
+        "learning_rate": 0.0025,
+        "epsilon_random": 0.01,
+        "train_temperature": 1.25,
+        "ppo_clip": 0.25,
+        "promotion_score_threshold": 0.54,
+        "promotion_games": 1000,
+        "training_matches_per_iteration": 64,
+        "training_games_per_match": 32,
+        "training_decisions_per_game": "ALL",
+        "simulation_workers": 0
+      }
+    },
+    {
+      "iteration": 125,
+      "wins": 493,
+      "losses": 507,
+      "games_played": 1000,
+      "promoted": false,
+      "action": "keep_training",
+      "promoted_checkpoint": null,
+      "champion_checkpoint": "champion_000096.json",
+      "duration_seconds": 54.52940058708191,
+      "recorded_at": 1779912696.0426526,
+      "score": 0.493,
+      "score_percent": 49.3,
+      "promotion_settings": {
+        "learning_rate": 0.004,
+        "epsilon_random": 0.01,
+        "train_temperature": 1.25,
+        "ppo_clip": 0.25,
+        "promotion_score_threshold": 0.53,
+        "promotion_games": 1000,
+        "training_matches_per_iteration": 64,
+        "training_games_per_match": 32,
+        "training_decisions_per_game": "ALL",
+        "simulation_workers": 0
+      }
+    },
+    {
+      "iteration": 126,
+      "wins": 468,
+      "losses": 532,
+      "games_played": 1000,
+      "promoted": false,
+      "action": "keep_training",
+      "promoted_checkpoint": null,
+      "champion_checkpoint": "champion_000096.json",
+      "duration_seconds": 50.17721939086914,
+      "recorded_at": 1779912854.2776256,
+      "score": 0.468,
+      "score_percent": 46.8,
+      "promotion_settings": {
+        "learning_rate": 0.004,
+        "epsilon_random": 0.01,
+        "train_temperature": 1.25,
+        "ppo_clip": 0.25,
+        "promotion_score_threshold": 0.53,
+        "promotion_games": 1000,
+        "training_matches_per_iteration": 64,
+        "training_games_per_match": 32,
+        "training_decisions_per_game": "ALL",
+        "simulation_workers": 0
+      }
+    },
+    {
+      "iteration": 127,
+      "wins": 497,
+      "losses": 503,
+      "games_played": 1000,
+      "promoted": false,
+      "action": "keep_training",
+      "promoted_checkpoint": null,
+      "champion_checkpoint": "champion_000096.json",
+      "duration_seconds": 53.44328951835632,
+      "recorded_at": 1779913017.566079,
+      "score": 0.497,
+      "score_percent": 49.7,
+      "promotion_settings": {
+        "learning_rate": 0.004,
+        "epsilon_random": 0.01,
+        "train_temperature": 1.25,
+        "ppo_clip": 0.25,
+        "promotion_score_threshold": 0.53,
+        "promotion_games": 1000,
+        "training_matches_per_iteration": 64,
+        "training_games_per_match": 32,
+        "training_decisions_per_game": "ALL",
+        "simulation_workers": 0
+      }
+    },
+    {
+      "iteration": 128,
+      "wins": 526,
+      "losses": 474,
+      "games_played": 1000,
+      "promoted": false,
+      "action": "reset_candidate",
+      "promoted_checkpoint": null,
+      "champion_checkpoint": "champion_000096.json",
+      "duration_seconds": 48.587218284606934,
+      "recorded_at": 1779913177.9952297,
+      "score": 0.526,
+      "score_percent": 52.6,
+      "promotion_settings": {
+        "learning_rate": 0.004,
+        "epsilon_random": 0.01,
+        "train_temperature": 1.25,
+        "ppo_clip": 0.25,
+        "promotion_score_threshold": 0.53,
+        "promotion_games": 1000,
+        "training_matches_per_iteration": 64,
+        "training_games_per_match": 32,
+        "training_decisions_per_game": "ALL",
+        "simulation_workers": 0
+      }
+    },
+    {
+      "iteration": 129,
+      "wins": 475,
+      "losses": 525,
+      "games_played": 1000,
+      "promoted": false,
+      "action": "keep_training",
+      "promoted_checkpoint": null,
+      "champion_checkpoint": "champion_000096.json",
+      "duration_seconds": 43.964144706726074,
+      "recorded_at": 1779913331.4517007,
+      "score": 0.475,
+      "score_percent": 47.5,
+      "promotion_settings": {
+        "learning_rate": 0.004,
+        "epsilon_random": 0.01,
+        "train_temperature": 1.25,
+        "ppo_clip": 0.25,
+        "promotion_score_threshold": 0.53,
+        "promotion_games": 1000,
+        "training_matches_per_iteration": 64,
+        "training_games_per_match": 32,
+        "training_decisions_per_game": "ALL",
+        "simulation_workers": 0
+      }
+    }
+  ]
 }
