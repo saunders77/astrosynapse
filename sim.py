@@ -198,7 +198,8 @@ class Player:
 
         self.attack = 0
         self.trade = 0
-        self.turnAcquisitionEvents = []
+        if self.turn_summary_callback is not None:
+            self.turnAcquisitionEvents = []
         self.allAllied = False # for Mech World
         self.fleetActive = False # for FleetHQ
         self.nextShipTop = False # for several cards
@@ -298,13 +299,14 @@ class Player:
                         mainPhase = False
                         self.game.winner = self
                 case 'acquire':
-                    self.recordAcquisitionEvent(
-                        'acquire',
-                        options[decision][2],
-                        self.game.tradeRow,
-                        options[decision][2][1],
-                        current_trade,
-                    )
+                    if self.turn_summary_callback is not None:
+                        self.recordAcquisitionEvent(
+                            'acquire',
+                            options[decision][2],
+                            self.game.tradeRow,
+                            options[decision][2][1],
+                            current_trade,
+                        )
                     self.acquire(options[decision][1], options[decision][2][1])
                 case 'endTurn': mainPhase = False
         
@@ -327,6 +329,8 @@ class Player:
         self.draw(5)
 
     def recordAcquisitionEvent(self, acquisitionType, card, tradeRowSnapshot, cost, tradeAvailable):
+        if self.turn_summary_callback is None:
+            return
         self.turnAcquisitionEvents.append({
             'type': acquisitionType,
             'cardName': card[0],
@@ -339,11 +343,12 @@ class Player:
     def finishTurnSummary(self):
         if self.turn_summary_callback is None:
             return
-        total_trade_gained = self.trade + sum(event['costPaid'] for event in self.turnAcquisitionEvents)
+        turn_acquisition_events = self.turnAcquisitionEvents
+        total_trade_gained = self.trade + sum(event['costPaid'] for event in turn_acquisition_events)
         self.turn_summary_callback({
             'playerName': self.name,
-            'acquisitionEvents': list(self.turnAcquisitionEvents),
-            'totalAcquisitions': len(self.turnAcquisitionEvents),
+            'acquisitionEvents': list(turn_acquisition_events),
+            'totalAcquisitions': len(turn_acquisition_events),
             'remainingTrade': self.trade,
             'totalTradeGained': total_trade_gained,
         })
@@ -440,7 +445,8 @@ class Player:
                 if len(options) > 0:
                     self.nextShipTop = True
                     decision = self.sendChoice(options)
-                    self.recordAcquisitionEvent('freeAcquire', options[decision][2], self.game.tradeRow, 0, self.trade)
+                    if self.turn_summary_callback is not None:
+                        self.recordAcquisitionEvent('freeAcquire', options[decision][2], self.game.tradeRow, 0, self.trade)
                     self.acquire(options[decision][1], 0)
             case 'destroyscrap':
                 self.selectAndDestroyBase()
