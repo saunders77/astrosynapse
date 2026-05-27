@@ -2,15 +2,15 @@
   "version": 1,
   "created_at": 1779853568.0189946,
   "created_datetime": "2026-05-26 20:46:08",
-  "updated_at": 1779853885.4832706,
-  "total_games": 584,
+  "updated_at": 1779854009.1968455,
+  "total_games": 676,
   "ratings": {
     "s-1g500m1001p": {
       "run_name": "s-1g500m1001p",
-      "elo": 1119.3501113829054,
-      "games": 38,
-      "wins": 30,
-      "losses": 8,
+      "elo": 1093.3455770044463,
+      "games": 43,
+      "wins": 31,
+      "losses": 12,
       "draws": 0,
       "best_checkpoint": "champion_000010.json",
       "best_iteration": 26,
@@ -18,15 +18,15 @@
       "created_datetime": "2026-05-12 08:18:54",
       "fork_origin": "s-1g7m64p/champion_002262.json",
       "first_rated_at": 1779853568.0199947,
-      "last_played_at": 1779853884.6708632,
-      "confidence_radius": 110.31056636891853
+      "last_played_at": 1779854007.9426036,
+      "confidence_radius": 103.69902782617118
     },
     "decisions_per_game_smoketest": {
       "run_name": "decisions_per_game_smoketest",
-      "elo": 945.9411691126534,
-      "games": 21,
+      "elo": 935.289238265604,
+      "games": 23,
       "wins": 6,
-      "losses": 15,
+      "losses": 17,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 0,
@@ -34,14 +34,14 @@
       "created_datetime": "2026-04-24 11:08:55",
       "fork_origin": "-",
       "first_rated_at": 1779853568.0199947,
-      "last_played_at": 1779853885.2812421,
-      "confidence_radius": 148.38816536047483
+      "last_played_at": 1779853891.0698059,
+      "confidence_radius": 141.78980155881086
     },
     "sd-16g32m1000p": {
       "run_name": "sd-16g32m1000p",
-      "elo": 1110.3167414153406,
-      "games": 37,
-      "wins": 27,
+      "elo": 1138.8532355183313,
+      "games": 43,
+      "wins": 33,
       "losses": 10,
       "draws": 0,
       "best_checkpoint": "champion_000111.json",
@@ -50,14 +50,14 @@
       "created_datetime": "2026-05-26 18:25:20",
       "fork_origin": "sd-1g400m403p/champion_000886.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853876.430887,
-      "confidence_radius": 111.79131136764296
+      "last_played_at": 1779854008.7659886,
+      "confidence_radius": 103.69902782617118
     },
     "sd-1g10000m500p-single": {
       "run_name": "sd-1g10000m500p-single",
-      "elo": 1132.3312170193483,
-      "games": 32,
-      "wins": 27,
+      "elo": 1145.8816034438926,
+      "games": 35,
+      "wins": 30,
       "losses": 5,
       "draws": 0,
       "best_checkpoint": "champion_000050.json",
@@ -66,15 +66,15 @@
       "created_datetime": "2026-05-10 09:55:42",
       "fork_origin": "sd-1g200m202p/champion_000910.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853869.0937438,
-      "confidence_radius": 120.20815280171307
+      "last_played_at": 1779854008.7979853,
+      "confidence_radius": 114.94097864307825
     },
     "sd-1g400m403p": {
       "run_name": "sd-1g400m403p",
-      "elo": 1082.118126905124,
-      "games": 28,
-      "wins": 19,
-      "losses": 9,
+      "elo": 1111.7465009532525,
+      "games": 34,
+      "wins": 24,
+      "losses": 10,
       "draws": 0,
       "best_checkpoint": "champion_000886.json",
       "best_iteration": 889,
@@ -82,14 +82,14 @@
       "created_datetime": "2026-05-08 22:54:26",
       "fork_origin": "sd-1g200m202p/champion_000910.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853857.9548645,
-      "confidence_radius": 128.50792082313725
+      "last_played_at": 1779854008.4409041,
+      "confidence_radius": 116.61903789690601
     },
     "sd-1g200m202p": {
       "run_name": "sd-1g200m202p",
-      "elo": 1125.631999326081,
-      "games": 32,
-      "wins": 26,
+      "elo": 1143.0809483655262,
+      "games": 36,
+      "wins": 30,
       "losses": 6,
       "draws": 0,
       "best_checkpoint": "champion_000910.json",
@@ -98,15 +98,15 @@
       "created_datetime": "2026-04-29 18:38:33",
       "fork_origin": "sd-1g50m201p/champion_002624.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853881.0906174,
-      "confidence_radius": 120.20815280171307
+      "last_played_at": 1779854008.7284634,
+      "confidence_radius": 113.33333333333333
     },
     "sd-1g50m201p": {
       "run_name": "sd-1g50m201p",
-      "elo": 1078.5961290853525,
-      "games": 23,
-      "wins": 17,
-      "losses": 6,
+      "elo": 1074.3958918926144,
+      "games": 27,
+      "wins": 19,
+      "losses": 8,
       "draws": 0,
       "best_checkpoint": "champion_002850.json",
       "best_iteration": 2902,
@@ -114,15 +114,15 @@
       "created_datetime": "2026-04-27 18:28:38",
       "fork_origin": "s-1g7m64p/champion_002262.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853883.0354788,
-      "confidence_radius": 141.78980155881086
+      "last_played_at": 1779854008.9464712,
+      "confidence_radius": 130.86606101631517
     },
     "s-1g50m201p": {
       "run_name": "s-1g50m201p",
-      "elo": 1091.080063137092,
-      "games": 32,
-      "wins": 24,
-      "losses": 8,
+      "elo": 1089.491113913237,
+      "games": 34,
+      "wins": 25,
+      "losses": 9,
       "draws": 0,
       "best_checkpoint": "champion_000126.json",
       "best_iteration": 135,
@@ -130,14 +130,14 @@
       "created_datetime": "2026-04-28 13:12:36",
       "fork_origin": "s-1g7m64p/champion_002262.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853877.9105134,
-      "confidence_radius": 120.20815280171307
+      "last_played_at": 1779854008.364363,
+      "confidence_radius": 116.61903789690601
     },
     "d-1g50m200p": {
       "run_name": "d-1g50m200p",
-      "elo": 1081.523999021534,
-      "games": 22,
-      "wins": 17,
+      "elo": 1114.7399567249302,
+      "games": 27,
+      "wins": 22,
       "losses": 5,
       "draws": 0,
       "best_checkpoint": "champion_000045.json",
@@ -146,15 +146,15 @@
       "created_datetime": "2026-04-27 17:27:51",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853839.675038,
-      "confidence_radius": 144.9764871218151
+      "last_played_at": 1779854008.9464712,
+      "confidence_radius": 130.86606101631517
     },
     "e50m-1g200p-all": {
       "run_name": "e50m-1g200p-all",
-      "elo": 958.5852178736635,
-      "games": 25,
+      "elo": 948.4050545574198,
+      "games": 27,
       "wins": 8,
-      "losses": 17,
+      "losses": 19,
       "draws": 0,
       "best_checkpoint": "champion_000013.json",
       "best_iteration": 13,
@@ -162,8 +162,8 @@
       "created_datetime": "2026-04-27 17:08:50",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853884.4179926,
-      "confidence_radius": 136.0
+      "last_played_at": 1779854006.9690757,
+      "confidence_radius": 130.86606101631517
     },
     "e100m-1g250p-all": {
       "run_name": "e100m-1g250p-all",
@@ -183,10 +183,10 @@
     },
     "d1000m-1g500p-5dec": {
       "run_name": "d1000m-1g500p-5dec",
-      "elo": 931.7719015983903,
-      "games": 19,
-      "wins": 3,
-      "losses": 16,
+      "elo": 918.9724071142901,
+      "games": 24,
+      "wins": 4,
+      "losses": 20,
       "draws": 0,
       "best_checkpoint": "champion_000007.json",
       "best_iteration": 17,
@@ -194,15 +194,15 @@
       "created_datetime": "2026-04-26 20:31:21",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853884.6708632,
-      "confidence_radius": 156.002699031982
+      "last_played_at": 1779854008.9937453,
+      "confidence_radius": 138.80441875771345
     },
     "d-2000m-1g128p-1": {
       "run_name": "d-2000m-1g128p-1",
-      "elo": 1026.463533226776,
-      "games": 16,
-      "wins": 10,
-      "losses": 6,
+      "elo": 1042.061827332118,
+      "games": 22,
+      "wins": 14,
+      "losses": 8,
       "draws": 0,
       "best_checkpoint": "champion_000018.json",
       "best_iteration": 28,
@@ -210,15 +210,15 @@
       "created_datetime": "2026-04-24 14:17:52",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853859.9335425,
-      "confidence_radius": 170.0
+      "last_played_at": 1779854009.0761483,
+      "confidence_radius": 144.9764871218151
     },
     "d-1g2000m128p-1": {
       "run_name": "d-1g2000m128p-1",
-      "elo": 967.208080316856,
-      "games": 19,
+      "elo": 962.8652858945863,
+      "games": 20,
       "wins": 7,
-      "losses": 12,
+      "losses": 13,
       "draws": 0,
       "best_checkpoint": "champion_000001.json",
       "best_iteration": 1,
@@ -226,15 +226,15 @@
       "created_datetime": "2026-04-24 14:16:40",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853859.4276469,
-      "confidence_radius": 156.002699031982
+      "last_played_at": 1779854008.7284634,
+      "confidence_radius": 152.0526224699857
     },
     "d-1g2000m128p": {
       "run_name": "d-1g2000m128p",
-      "elo": 949.6971510196001,
-      "games": 19,
+      "elo": 919.7518875382623,
+      "games": 25,
       "wins": 6,
-      "losses": 13,
+      "losses": 19,
       "draws": 0,
       "best_checkpoint": "champion_000001.json",
       "best_iteration": 1,
@@ -242,15 +242,15 @@
       "created_datetime": "2026-04-24 11:37:03",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853882.7361028,
-      "confidence_radius": 156.002699031982
+      "last_played_at": 1779854008.7979853,
+      "confidence_radius": 136.0
     },
     "sd-3g32m128p": {
       "run_name": "sd-3g32m128p",
-      "elo": 999.5931277642062,
-      "games": 16,
-      "wins": 7,
-      "losses": 9,
+      "elo": 1012.6177428390599,
+      "games": 19,
+      "wins": 9,
+      "losses": 10,
       "draws": 0,
       "best_checkpoint": "champion_000010.json",
       "best_iteration": 1126,
@@ -258,15 +258,15 @@
       "created_datetime": "2026-04-23 13:11:46",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853838.6667454,
-      "confidence_radius": 170.0
+      "last_played_at": 1779854007.8339965,
+      "confidence_radius": 156.002699031982
     },
     "sd-1g7m128p": {
       "run_name": "sd-1g7m128p",
-      "elo": 917.2698613435385,
-      "games": 21,
+      "elo": 901.4438911670279,
+      "games": 24,
       "wins": 4,
-      "losses": 17,
+      "losses": 20,
       "draws": 0,
       "best_checkpoint": "champion_000002.json",
       "best_iteration": 2,
@@ -274,15 +274,15 @@
       "created_datetime": "2026-04-23 13:06:05",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853871.6384394,
-      "confidence_radius": 148.38816536047483
+      "last_played_at": 1779854009.121106,
+      "confidence_radius": 138.80441875771345
     },
     "s-1g7m64p": {
       "run_name": "s-1g7m64p",
-      "elo": 1110.766369134984,
-      "games": 23,
-      "wins": 20,
-      "losses": 3,
+      "elo": 1114.8827861779262,
+      "games": 27,
+      "wins": 23,
+      "losses": 4,
       "draws": 0,
       "best_checkpoint": "champion_002262.json",
       "best_iteration": 2264,
@@ -290,15 +290,15 @@
       "created_datetime": "2026-04-22 22:39:15",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853885.4832706,
-      "confidence_radius": 141.78980155881086
+      "last_played_at": 1779854008.1793175,
+      "confidence_radius": 130.86606101631517
     },
     "s-1g7m42p": {
       "run_name": "s-1g7m42p",
-      "elo": 1033.3209665758445,
-      "games": 15,
-      "wins": 10,
-      "losses": 5,
+      "elo": 1052.5439378920994,
+      "games": 20,
+      "wins": 14,
+      "losses": 6,
       "draws": 0,
       "best_checkpoint": "champion_000574.json",
       "best_iteration": 578,
@@ -306,15 +306,15 @@
       "created_datetime": "2026-04-22 20:34:35",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853869.9508994,
-      "confidence_radius": 175.57524502806956
+      "last_played_at": 1779854008.0372612,
+      "confidence_radius": 152.0526224699857
     },
     "shallow1game7match32promo": {
       "run_name": "shallow1game7match32promo",
-      "elo": 890.8682510489917,
-      "games": 17,
+      "elo": 875.1985530731139,
+      "games": 20,
       "wins": 0,
-      "losses": 17,
+      "losses": 20,
       "draws": 0,
       "best_checkpoint": "champion_000001.json",
       "best_iteration": 4,
@@ -322,14 +322,14 @@
       "created_datetime": "2026-04-22 20:20:32",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853851.507813,
-      "confidence_radius": 164.92422502470643
+      "last_played_at": 1779854009.0761483,
+      "confidence_radius": 152.0526224699857
     },
     "shallow1game5match16promo": {
       "run_name": "shallow1game5match16promo",
-      "elo": 1011.5287624915618,
-      "games": 12,
-      "wins": 7,
+      "elo": 1023.4474607935996,
+      "games": 14,
+      "wins": 9,
       "losses": 5,
       "draws": 0,
       "best_checkpoint": "champion_000867.json",
@@ -338,15 +338,15 @@
       "created_datetime": "2026-04-22 15:00:57",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853878.083474,
-      "confidence_radius": 196.29909152447277
+      "last_played_at": 1779854006.9690757,
+      "confidence_radius": 181.7376445004486
     },
     "shallow1game1match7promo": {
       "run_name": "shallow1game1match7promo",
-      "elo": 1032.7920459474126,
-      "games": 21,
-      "wins": 12,
-      "losses": 9,
+      "elo": 1030.5258461622652,
+      "games": 23,
+      "wins": 13,
+      "losses": 10,
       "draws": 0,
       "best_checkpoint": "champion_001032.json",
       "best_iteration": 1033,
@@ -354,15 +354,15 @@
       "created_datetime": "2026-04-22 18:43:57",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853867.2221043,
-      "confidence_radius": 148.38816536047483
+      "last_played_at": 1779854007.9066348,
+      "confidence_radius": 141.78980155881086
     },
     "deep4game5match16promo": {
       "run_name": "deep4game5match16promo",
-      "elo": 1002.9300767043165,
-      "games": 20,
-      "wins": 10,
-      "losses": 10,
+      "elo": 999.6452271838633,
+      "games": 28,
+      "wins": 14,
+      "losses": 14,
       "draws": 0,
       "best_checkpoint": "champion_000185.json",
       "best_iteration": 185,
@@ -370,14 +370,14 @@
       "created_datetime": "2026-04-22 15:00:09",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853882.4172223,
-      "confidence_radius": 152.0526224699857
+      "last_played_at": 1779854008.6914535,
+      "confidence_radius": 128.50792082313725
     },
     "default3shallowfastmatch": {
       "run_name": "default3shallowfastmatch",
-      "elo": 979.604615600655,
-      "games": 21,
-      "wins": 8,
+      "elo": 986.917666676049,
+      "games": 22,
+      "wins": 9,
       "losses": 13,
       "draws": 0,
       "best_checkpoint": "champion_000511.json",
@@ -386,15 +386,15 @@
       "created_datetime": "2026-04-22 13:34:42",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853884.1818671,
-      "confidence_radius": 148.38816536047483
+      "last_played_at": 1779854006.5967627,
+      "confidence_radius": 144.9764871218151
     },
     "default3nondirecml": {
       "run_name": "default3nondirecml",
-      "elo": 983.6438798302773,
-      "games": 18,
-      "wins": 8,
-      "losses": 10,
+      "elo": 986.5754189463764,
+      "games": 20,
+      "wins": 9,
+      "losses": 11,
       "draws": 0,
       "best_checkpoint": "champion_000138.json",
       "best_iteration": 140,
@@ -402,15 +402,15 @@
       "created_datetime": "2026-04-22 13:01:17",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853881.7136967,
-      "confidence_radius": 160.27753706895078
+      "last_played_at": 1779854007.6599548,
+      "confidence_radius": 152.0526224699857
     },
     "default3shallow": {
       "run_name": "default3shallow",
-      "elo": 976.7118532302603,
-      "games": 19,
-      "wins": 8,
-      "losses": 11,
+      "elo": 990.908151040339,
+      "games": 23,
+      "wins": 11,
+      "losses": 12,
       "draws": 0,
       "best_checkpoint": "champion_000102.json",
       "best_iteration": 102,
@@ -418,15 +418,15 @@
       "created_datetime": "2026-04-22 13:20:49",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853869.6937454,
-      "confidence_radius": 156.002699031982
+      "last_played_at": 1779854009.1554024,
+      "confidence_radius": 141.78980155881086
     },
     "batching_smoketest": {
       "run_name": "batching_smoketest",
-      "elo": 979.1622875079879,
-      "games": 22,
+      "elo": 954.9335178073061,
+      "games": 26,
       "wins": 9,
-      "losses": 13,
+      "losses": 17,
       "draws": 0,
       "best_checkpoint": "champion_000001.json",
       "best_iteration": 1,
@@ -434,15 +434,15 @@
       "created_datetime": "2026-04-22 13:37:32",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853876.2946718,
-      "confidence_radius": 144.9764871218151
+      "last_played_at": 1779854008.1486633,
+      "confidence_radius": 133.35897189396516
     },
     "default3": {
       "run_name": "default3",
-      "elo": 940.7462421363246,
-      "games": 17,
+      "elo": 936.8012217506523,
+      "games": 18,
       "wins": 4,
-      "losses": 13,
+      "losses": 14,
       "draws": 0,
       "best_checkpoint": "champion_000002.json",
       "best_iteration": 2,
@@ -450,15 +450,15 @@
       "created_datetime": "2026-04-22 12:59:15",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853868.3712795,
-      "confidence_radius": 164.92422502470643
+      "last_played_at": 1779854007.594195,
+      "confidence_radius": 160.27753706895078
     },
     "default": {
       "run_name": "default",
-      "elo": 935.3125004924375,
-      "games": 15,
+      "elo": 911.7053636328405,
+      "games": 19,
       "wins": 3,
-      "losses": 12,
+      "losses": 16,
       "draws": 0,
       "best_checkpoint": "champion_003123.json",
       "best_iteration": 3135,
@@ -466,14 +466,14 @@
       "created_datetime": "2026-04-20 11:49:44",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853869.6937454,
-      "confidence_radius": 175.57524502806956
+      "last_played_at": 1779854008.5225697,
+      "confidence_radius": 156.002699031982
     },
     "new_deep": {
       "run_name": "new_deep",
-      "elo": 983.3691110044873,
-      "games": 18,
-      "wins": 7,
+      "elo": 996.0139836060981,
+      "games": 20,
+      "wins": 9,
       "losses": 11,
       "draws": 0,
       "best_checkpoint": "champion_001124.json",
@@ -482,15 +482,15 @@
       "created_datetime": "2026-04-21 21:21:01",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853879.3231618,
-      "confidence_radius": 160.27753706895078
+      "last_played_at": 1779854009.1968455,
+      "confidence_radius": 152.0526224699857
     },
     "live_progress_smoketest": {
       "run_name": "live_progress_smoketest",
-      "elo": 949.4181195934938,
-      "games": 9,
-      "wins": 1,
-      "losses": 8,
+      "elo": 931.106301496369,
+      "games": 16,
+      "wins": 2,
+      "losses": 14,
       "draws": 0,
       "best_checkpoint": "champion_000001.json",
       "best_iteration": 1,
@@ -498,15 +498,15 @@
       "created_datetime": "2026-04-21 21:27:55",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853815.2339108,
-      "confidence_radius": 226.66666666666666
+      "last_played_at": 1779854009.034786,
+      "confidence_radius": 170.0
     },
     "deep_model_smoketest": {
       "run_name": "deep_model_smoketest",
-      "elo": 923.2108068336851,
-      "games": 15,
+      "elo": 890.5941815341125,
+      "games": 22,
       "wins": 2,
-      "losses": 13,
+      "losses": 20,
       "draws": 0,
       "best_checkpoint": "champion_000002.json",
       "best_iteration": 4,
@@ -514,15 +514,15 @@
       "created_datetime": "2026-04-21 20:48:11",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853880.7929413,
-      "confidence_radius": 175.57524502806956
+      "last_played_at": 1779854008.6152358,
+      "confidence_radius": 144.9764871218151
     },
     "codex_smoketest_v2": {
       "run_name": "codex_smoketest_v2",
-      "elo": 890.074741983979,
-      "games": 20,
+      "elo": 869.1633549807833,
+      "games": 24,
       "wins": 1,
-      "losses": 19,
+      "losses": 23,
       "draws": 0,
       "best_checkpoint": "champion_000001.json",
       "best_iteration": 1,
@@ -530,15 +530,15 @@
       "created_datetime": "2026-04-21 17:37:46",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853883.3756447,
-      "confidence_radius": 152.0526224699857
+      "last_played_at": 1779854009.034786,
+      "confidence_radius": 138.80441875771345
     },
     "sd-16g32m1000p-t.5": {
       "run_name": "sd-16g32m1000p-t.5",
-      "elo": 1132.2340702003955,
-      "games": 62,
-      "wins": 47,
-      "losses": 15,
+      "elo": 1120.247696996805,
+      "games": 68,
+      "wins": 50,
+      "losses": 18,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 8,
@@ -546,15 +546,15 @@
       "created_datetime": "2026-05-26 20:25:46",
       "fork_origin": "sd-16g32m1000p/champion_000111.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853883.7349453,
-      "confidence_radius": 86.36008636012954
+      "last_played_at": 1779854008.6487675,
+      "confidence_radius": 82.46211251235322
     },
     "sd-16g32m1000p-t.75": {
       "run_name": "sd-16g32m1000p-t.75",
-      "elo": 1161.9232459166972,
-      "games": 50,
-      "wins": 40,
-      "losses": 10,
+      "elo": 1192.4838471179835,
+      "games": 61,
+      "wins": 50,
+      "losses": 11,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 8,
@@ -562,15 +562,15 @@
       "created_datetime": "2026-05-26 20:25:31",
       "fork_origin": "sd-16g32m1000p/champion_000111.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853881.3733952,
-      "confidence_radius": 96.16652224137046
+      "last_played_at": 1779854008.1198208,
+      "confidence_radius": 87.06507835436926
     },
     "s-1g500m1000p": {
       "run_name": "s-1g500m1000p",
-      "elo": 1117.5695172041792,
-      "games": 38,
+      "elo": 1106.9528171145466,
+      "games": 39,
       "wins": 28,
-      "losses": 10,
+      "losses": 11,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 1,
@@ -578,14 +578,14 @@
       "created_datetime": "2026-05-12 08:14:54",
       "fork_origin": "s-1g7m64p/champion_002262.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853881.3733952,
-      "confidence_radius": 110.31056636891853
+      "last_played_at": 1779854005.9604583,
+      "confidence_radius": 108.88714458745925
     },
     "sd-1g200m201p": {
       "run_name": "sd-1g200m201p",
-      "elo": 1095.471926516157,
-      "games": 23,
-      "wins": 19,
+      "elo": 1128.6792652603874,
+      "games": 29,
+      "wins": 25,
       "losses": 4,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
@@ -594,14 +594,14 @@
       "created_datetime": "2026-04-29 17:17:10",
       "fork_origin": "sd-1g50m201p/champion_002488.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853882.7361028,
-      "confidence_radius": 141.78980155881086
+      "last_played_at": 1779854008.8531532,
+      "confidence_radius": 126.27282996039527
     },
     "fork_threshold_smoketest_1777339955": {
       "run_name": "fork_threshold_smoketest_1777339955",
-      "elo": 1049.1918408226709,
-      "games": 25,
-      "wins": 16,
+      "elo": 1084.5015719863306,
+      "games": 31,
+      "wins": 22,
       "losses": 9,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
@@ -610,15 +610,15 @@
       "created_datetime": "2026-04-27 18:32:36",
       "fork_origin": "s-1g7m64p/champion_002262.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853879.6293373,
-      "confidence_radius": 136.0
+      "last_played_at": 1779854008.580202,
+      "confidence_radius": 122.13160537820694
     },
     "fork_convert_smoketest_1777335657": {
       "run_name": "fork_convert_smoketest_1777335657",
-      "elo": 870.8745631432638,
-      "games": 27,
+      "elo": 852.0218648887053,
+      "games": 31,
       "wins": 3,
-      "losses": 24,
+      "losses": 28,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 0,
@@ -626,8 +626,8 @@
       "created_datetime": "2026-04-27 17:20:57",
       "fork_origin": "default/champion_003135.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853879.3231618,
-      "confidence_radius": 130.86606101631517
+      "last_played_at": 1779854009.1554024,
+      "confidence_radius": 122.13160537820694
     },
     "e200m-1g400p-all": {
       "run_name": "e200m-1g400p-all",
@@ -647,10 +647,10 @@
     },
     "d1000m-1g500p-5dec-basedon1": {
       "run_name": "d1000m-1g500p-5dec-basedon1",
-      "elo": 1050.1461203978317,
-      "games": 21,
-      "wins": 15,
-      "losses": 6,
+      "elo": 1036.255979339419,
+      "games": 26,
+      "wins": 17,
+      "losses": 9,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 2,
@@ -658,15 +658,15 @@
       "created_datetime": "2026-04-27 10:56:25",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853883.7349453,
-      "confidence_radius": 148.38816536047483
+      "last_played_at": 1779854008.9937453,
+      "confidence_radius": 133.35897189396516
     },
     "temp_threshold_update_smoketest": {
       "run_name": "temp_threshold_update_smoketest",
-      "elo": 983.3940378381227,
-      "games": 20,
-      "wins": 8,
-      "losses": 12,
+      "elo": 1005.7067679815846,
+      "games": 25,
+      "wins": 12,
+      "losses": 13,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 0,
@@ -674,15 +674,15 @@
       "created_datetime": "2026-04-26 19:47:10",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853881.7136967,
-      "confidence_radius": 152.0526224699857
+      "last_played_at": 1779854008.8531532,
+      "confidence_radius": 136.0
     },
     "temp_threshold_create_smoketest": {
       "run_name": "temp_threshold_create_smoketest",
-      "elo": 888.6115049136422,
-      "games": 20,
+      "elo": 885.0675427434045,
+      "games": 21,
       "wins": 1,
-      "losses": 19,
+      "losses": 20,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 0,
@@ -690,15 +690,15 @@
       "created_datetime": "2026-04-26 19:47:10",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853880.2858136,
-      "confidence_radius": 152.0526224699857
+      "last_played_at": 1779854007.4865258,
+      "confidence_radius": 148.38816536047483
     },
     "threshold_migration_smoketest": {
       "run_name": "threshold_migration_smoketest",
-      "elo": 980.6451270944382,
-      "games": 18,
-      "wins": 7,
-      "losses": 11,
+      "elo": 980.3451410712593,
+      "games": 20,
+      "wins": 8,
+      "losses": 12,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 0,
@@ -706,15 +706,15 @@
       "created_datetime": "2026-04-22 23:43:22",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853883.3756447,
-      "confidence_radius": 160.27753706895078
+      "last_played_at": 1779854006.748532,
+      "confidence_radius": 152.0526224699857
     },
     "fork_feature_target_smoketest": {
       "run_name": "fork_feature_target_smoketest",
-      "elo": 922.6989531230527,
-      "games": 24,
+      "elo": 911.026100064604,
+      "games": 26,
       "wins": 5,
-      "losses": 19,
+      "losses": 21,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 0,
@@ -722,15 +722,15 @@
       "created_datetime": "2026-04-22 22:30:01",
       "fork_origin": "fork_feature_source_smoketest/checkpoint_000000.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853878.083474,
-      "confidence_radius": 138.80441875771345
+      "last_played_at": 1779854009.1968455,
+      "confidence_radius": 133.35897189396516
     },
     "fork_feature_source_smoketest": {
       "run_name": "fork_feature_source_smoketest",
-      "elo": 969.3497170398039,
-      "games": 22,
-      "wins": 8,
-      "losses": 14,
+      "elo": 973.3023179226592,
+      "games": 24,
+      "wins": 9,
+      "losses": 15,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 0,
@@ -738,15 +738,15 @@
       "created_datetime": "2026-04-22 22:30:01",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853874.9126453,
-      "confidence_radius": 144.9764871218151
+      "last_played_at": 1779854007.521925,
+      "confidence_radius": 138.80441875771345
     },
     "plateau_boost_smoketest": {
       "run_name": "plateau_boost_smoketest",
-      "elo": 944.7713354967636,
-      "games": 18,
-      "wins": 5,
-      "losses": 13,
+      "elo": 936.1552457824383,
+      "games": 22,
+      "wins": 6,
+      "losses": 16,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 0,
@@ -754,15 +754,15 @@
       "created_datetime": "2026-04-22 20:32:21",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853874.6355767,
-      "confidence_radius": 160.27753706895078
+      "last_played_at": 1779854008.1793175,
+      "confidence_radius": 144.9764871218151
     },
     "multi_delete_smoketest": {
       "run_name": "multi_delete_smoketest",
-      "elo": 927.9736906252152,
-      "games": 17,
-      "wins": 3,
-      "losses": 14,
+      "elo": 931.8047671448128,
+      "games": 19,
+      "wins": 4,
+      "losses": 15,
       "draws": 0,
       "best_checkpoint": "champion_000001.json",
       "best_iteration": 0,
@@ -770,8 +770,8 @@
       "created_datetime": "2026-04-22 18:52:34",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853885.2812421,
-      "confidence_radius": 164.92422502470643
+      "last_played_at": 1779854008.6487675,
+      "confidence_radius": 156.002699031982
     },
     "delete_checkpoint_smoketest": {
       "run_name": "delete_checkpoint_smoketest",
@@ -791,10 +791,10 @@
     },
     "directml_support_smoketest": {
       "run_name": "directml_support_smoketest",
-      "elo": 928.376311009705,
-      "games": 17,
-      "wins": 3,
-      "losses": 14,
+      "elo": 924.4483489925748,
+      "games": 20,
+      "wins": 4,
+      "losses": 16,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 0,
@@ -802,15 +802,15 @@
       "created_datetime": "2026-04-22 12:57:16",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853884.1818671,
-      "confidence_radius": 164.92422502470643
+      "last_played_at": 1779854008.0608017,
+      "confidence_radius": 152.0526224699857
     },
     "new_run_settings_smoketest": {
       "run_name": "new_run_settings_smoketest",
-      "elo": 1009.7823733468136,
-      "games": 17,
+      "elo": 1001.0489846680068,
+      "games": 18,
       "wins": 9,
-      "losses": 8,
+      "losses": 9,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 0,
@@ -818,8 +818,8 @@
       "created_datetime": "2026-04-22 12:06:26",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779853843.4035487,
-      "confidence_radius": 164.92422502470643
+      "last_played_at": 1779854007.6599548,
+      "confidence_radius": 160.27753706895078
     }
   },
   "pairings": {
@@ -1010,25 +1010,25 @@
     "d-2000m-1g128p-1||sd-16g32m1000p-t.5": {
       "run_a": "d-2000m-1g128p-1",
       "run_b": "sd-16g32m1000p-t.5",
-      "games": 1,
-      "wins_a": 0,
+      "games": 2,
+      "wins_a": 1,
       "wins_b": 1,
       "draws": 0
     },
     "sd-16g32m1000p-t.75||sd-1g400m403p": {
       "run_a": "sd-16g32m1000p-t.75",
       "run_b": "sd-1g400m403p",
-      "games": 2,
+      "games": 3,
       "wins_a": 2,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "sd-16g32m1000p-t.5||sd-16g32m1000p-t.75": {
       "run_a": "sd-16g32m1000p-t.5",
       "run_b": "sd-16g32m1000p-t.75",
-      "games": 3,
+      "games": 4,
       "wins_a": 2,
-      "wins_b": 1,
+      "wins_b": 2,
       "draws": 0
     },
     "e50m-1g200p-all||multi_delete_smoketest": {
@@ -1066,8 +1066,8 @@
     "sd-1g200m202p||sd-3g32m128p": {
       "run_a": "sd-1g200m202p",
       "run_b": "sd-3g32m128p",
-      "games": 1,
-      "wins_a": 1,
+      "games": 2,
+      "wins_a": 2,
       "wins_b": 0,
       "draws": 0
     },
@@ -1090,8 +1090,8 @@
     "d-1g50m200p||live_progress_smoketest": {
       "run_a": "d-1g50m200p",
       "run_b": "live_progress_smoketest",
-      "games": 1,
-      "wins_a": 1,
+      "games": 3,
+      "wins_a": 3,
       "wins_b": 0,
       "draws": 0
     },
@@ -1234,8 +1234,8 @@
     "default3shallow||fork_convert_smoketest_1777335657": {
       "run_a": "default3shallow",
       "run_b": "fork_convert_smoketest_1777335657",
-      "games": 2,
-      "wins_a": 2,
+      "games": 3,
+      "wins_a": 3,
       "wins_b": 0,
       "draws": 0
     },
@@ -1282,9 +1282,9 @@
     "default3||sd-1g200m202p": {
       "run_a": "default3",
       "run_b": "sd-1g200m202p",
-      "games": 1,
+      "games": 2,
       "wins_a": 0,
-      "wins_b": 1,
+      "wins_b": 2,
       "draws": 0
     },
     "fork_threshold_smoketest_1777339955||sd-16g32m1000p-t.5": {
@@ -1482,9 +1482,9 @@
     "batching_smoketest||sd-16g32m1000p-t.75": {
       "run_a": "batching_smoketest",
       "run_b": "sd-16g32m1000p-t.75",
-      "games": 2,
+      "games": 3,
       "wins_a": 0,
-      "wins_b": 2,
+      "wins_b": 3,
       "draws": 0
     },
     "sd-1g400m403p||sd-1g7m128p": {
@@ -1650,9 +1650,9 @@
     "d1000m-1g500p-5dec-basedon1||sd-1g10000m500p-single": {
       "run_a": "d1000m-1g500p-5dec-basedon1",
       "run_b": "sd-1g10000m500p-single",
-      "games": 1,
+      "games": 2,
       "wins_a": 1,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "d-2000m-1g128p-1||sd-1g400m403p": {
@@ -1850,8 +1850,8 @@
     "s-1g50m201p||sd-1g7m128p": {
       "run_a": "s-1g50m201p",
       "run_b": "sd-1g7m128p",
-      "games": 1,
-      "wins_a": 1,
+      "games": 2,
+      "wins_a": 2,
       "wins_b": 0,
       "draws": 0
     },
@@ -1938,9 +1938,9 @@
     "deep4game5match16promo||sd-1g200m201p": {
       "run_a": "deep4game5match16promo",
       "run_b": "sd-1g200m201p",
-      "games": 1,
+      "games": 2,
       "wins_a": 0,
-      "wins_b": 1,
+      "wins_b": 2,
       "draws": 0
     },
     "default3nondirecml||plateau_boost_smoketest": {
@@ -2066,9 +2066,9 @@
     "s-1g7m42p||sd-16g32m1000p-t.5": {
       "run_a": "s-1g7m42p",
       "run_b": "sd-16g32m1000p-t.5",
-      "games": 1,
+      "games": 2,
       "wins_a": 0,
-      "wins_b": 1,
+      "wins_b": 2,
       "draws": 0
     },
     "d-1g2000m128p||sd-3g32m128p": {
@@ -2114,9 +2114,9 @@
     "d1000m-1g500p-5dec||sd-16g32m1000p": {
       "run_a": "d1000m-1g500p-5dec",
       "run_b": "sd-16g32m1000p",
-      "games": 1,
+      "games": 2,
       "wins_a": 0,
-      "wins_b": 1,
+      "wins_b": 2,
       "draws": 0
     },
     "directml_support_smoketest||temp_threshold_update_smoketest": {
@@ -2306,9 +2306,9 @@
     "d-2000m-1g128p-1||sd-16g32m1000p": {
       "run_a": "d-2000m-1g128p-1",
       "run_b": "sd-16g32m1000p",
-      "games": 1,
+      "games": 3,
       "wins_a": 0,
-      "wins_b": 1,
+      "wins_b": 3,
       "draws": 0
     },
     "d-1g2000m128p-1||sd-16g32m1000p": {
@@ -2322,9 +2322,9 @@
     "d-1g2000m128p||sd-16g32m1000p": {
       "run_a": "d-1g2000m128p",
       "run_b": "sd-16g32m1000p",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "sd-16g32m1000p||sd-3g32m128p": {
@@ -2434,9 +2434,9 @@
     "deep_model_smoketest||sd-16g32m1000p": {
       "run_a": "deep_model_smoketest",
       "run_b": "sd-16g32m1000p",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "codex_smoketest_v2||sd-16g32m1000p": {
@@ -2570,9 +2570,9 @@
     "directml_support_smoketest||sd-16g32m1000p": {
       "run_a": "directml_support_smoketest",
       "run_b": "sd-16g32m1000p",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "new_run_settings_smoketest||sd-16g32m1000p": {
@@ -2602,8 +2602,8 @@
     "d-1g50m200p||s-1g500m1001p": {
       "run_a": "d-1g50m200p",
       "run_b": "s-1g500m1001p",
-      "games": 1,
-      "wins_a": 1,
+      "games": 3,
+      "wins_a": 3,
       "wins_b": 0,
       "draws": 0
     },
@@ -2666,9 +2666,9 @@
     "s-1g500m1001p||s-1g7m42p": {
       "run_a": "s-1g500m1001p",
       "run_b": "s-1g7m42p",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "s-1g500m1001p||shallow1game7match32promo": {
@@ -2690,8 +2690,8 @@
     "s-1g500m1001p||shallow1game1match7promo": {
       "run_a": "s-1g500m1001p",
       "run_b": "shallow1game1match7promo",
-      "games": 0,
-      "wins_a": 0,
+      "games": 1,
+      "wins_a": 1,
       "wins_b": 0,
       "draws": 0
     },
@@ -2778,9 +2778,9 @@
     "s-1g500m1001p||sd-16g32m1000p-t.75": {
       "run_a": "s-1g500m1001p",
       "run_b": "sd-16g32m1000p-t.75",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "s-1g500m1001p||sd-1g200m201p": {
@@ -2946,9 +2946,9 @@
     "d-1g2000m128p||sd-1g10000m500p-single": {
       "run_a": "d-1g2000m128p",
       "run_b": "sd-1g10000m500p-single",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "sd-1g10000m500p-single||sd-3g32m128p": {
@@ -3138,9 +3138,9 @@
     "decisions_per_game_smoketest||sd-1g10000m500p-single": {
       "run_a": "decisions_per_game_smoketest",
       "run_b": "sd-1g10000m500p-single",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "sd-1g10000m500p-single||threshold_migration_smoketest": {
@@ -3210,8 +3210,8 @@
     "sd-1g400m403p||sd-1g50m201p": {
       "run_a": "sd-1g400m403p",
       "run_b": "sd-1g50m201p",
-      "games": 0,
-      "wins_a": 0,
+      "games": 1,
+      "wins_a": 1,
       "wins_b": 0,
       "draws": 0
     },
@@ -3314,9 +3314,9 @@
     "default3nondirecml||sd-1g400m403p": {
       "run_a": "default3nondirecml",
       "run_b": "sd-1g400m403p",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "default3shallow||sd-1g400m403p": {
@@ -3330,9 +3330,9 @@
     "batching_smoketest||sd-1g400m403p": {
       "run_a": "batching_smoketest",
       "run_b": "sd-1g400m403p",
-      "games": 1,
+      "games": 2,
       "wins_a": 0,
-      "wins_b": 1,
+      "wins_b": 2,
       "draws": 0
     },
     "default3||sd-1g400m403p": {
@@ -3386,16 +3386,16 @@
     "sd-16g32m1000p-t.5||sd-1g400m403p": {
       "run_a": "sd-16g32m1000p-t.5",
       "run_b": "sd-1g400m403p",
-      "games": 1,
+      "games": 2,
       "wins_a": 0,
-      "wins_b": 1,
+      "wins_b": 2,
       "draws": 0
     },
     "fork_threshold_smoketest_1777339955||sd-1g400m403p": {
       "run_a": "fork_threshold_smoketest_1777339955",
       "run_b": "sd-1g400m403p",
-      "games": 0,
-      "wins_a": 0,
+      "games": 1,
+      "wins_a": 1,
       "wins_b": 0,
       "draws": 0
     },
@@ -3538,9 +3538,9 @@
     "d-1g2000m128p-1||sd-1g200m202p": {
       "run_a": "d-1g2000m128p-1",
       "run_b": "sd-1g200m202p",
-      "games": 1,
+      "games": 2,
       "wins_a": 0,
-      "wins_b": 1,
+      "wins_b": 2,
       "draws": 0
     },
     "sd-1g200m202p||sd-1g7m128p": {
@@ -3658,9 +3658,9 @@
     "deep_model_smoketest||sd-1g200m202p": {
       "run_a": "deep_model_smoketest",
       "run_b": "sd-1g200m202p",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "codex_smoketest_v2||sd-1g200m202p": {
@@ -3778,8 +3778,8 @@
     "d-1g50m200p||sd-1g50m201p": {
       "run_a": "d-1g50m200p",
       "run_b": "sd-1g50m201p",
-      "games": 0,
-      "wins_a": 0,
+      "games": 1,
+      "wins_a": 1,
       "wins_b": 0,
       "draws": 0
     },
@@ -3802,9 +3802,9 @@
     "d1000m-1g500p-5dec||sd-1g50m201p": {
       "run_a": "d1000m-1g500p-5dec",
       "run_b": "sd-1g50m201p",
-      "games": 1,
+      "games": 2,
       "wins_a": 0,
-      "wins_b": 1,
+      "wins_b": 2,
       "draws": 0
     },
     "d-2000m-1g128p-1||sd-1g50m201p": {
@@ -3882,9 +3882,9 @@
     "deep4game5match16promo||sd-1g50m201p": {
       "run_a": "deep4game5match16promo",
       "run_b": "sd-1g50m201p",
-      "games": 1,
+      "games": 2,
       "wins_a": 0,
-      "wins_b": 1,
+      "wins_b": 2,
       "draws": 0
     },
     "default3shallowfastmatch||sd-1g50m201p": {
@@ -4258,9 +4258,9 @@
     "s-1g50m201p||sd-16g32m1000p-t.75": {
       "run_a": "s-1g50m201p",
       "run_b": "sd-16g32m1000p-t.75",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "s-1g500m1000p||s-1g50m201p": {
@@ -4730,9 +4730,9 @@
     "e50m-1g200p-all||shallow1game5match16promo": {
       "run_a": "e50m-1g200p-all",
       "run_b": "shallow1game5match16promo",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "e50m-1g200p-all||shallow1game1match7promo": {
@@ -4826,9 +4826,9 @@
     "e50m-1g200p-all||sd-16g32m1000p-t.75": {
       "run_a": "e50m-1g200p-all",
       "run_b": "sd-16g32m1000p-t.75",
-      "games": 1,
+      "games": 2,
       "wins_a": 0,
-      "wins_b": 1,
+      "wins_b": 2,
       "draws": 0
     },
     "e50m-1g200p-all||s-1g500m1000p": {
@@ -5410,9 +5410,9 @@
     "codex_smoketest_v2||d1000m-1g500p-5dec": {
       "run_a": "codex_smoketest_v2",
       "run_b": "d1000m-1g500p-5dec",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "d1000m-1g500p-5dec||sd-16g32m1000p-t.75": {
@@ -5442,9 +5442,9 @@
     "d1000m-1g500p-5dec||fork_threshold_smoketest_1777339955": {
       "run_a": "d1000m-1g500p-5dec",
       "run_b": "fork_threshold_smoketest_1777339955",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "d1000m-1g500p-5dec||fork_convert_smoketest_1777335657": {
@@ -5466,9 +5466,9 @@
     "d1000m-1g500p-5dec||d1000m-1g500p-5dec-basedon1": {
       "run_a": "d1000m-1g500p-5dec",
       "run_b": "d1000m-1g500p-5dec-basedon1",
-      "games": 1,
+      "games": 2,
       "wins_a": 0,
-      "wins_b": 1,
+      "wins_b": 2,
       "draws": 0
     },
     "d1000m-1g500p-5dec||temp_threshold_update_smoketest": {
@@ -5602,8 +5602,8 @@
     "d-2000m-1g128p-1||shallow1game7match32promo": {
       "run_a": "d-2000m-1g128p-1",
       "run_b": "shallow1game7match32promo",
-      "games": 0,
-      "wins_a": 0,
+      "games": 1,
+      "wins_a": 1,
       "wins_b": 0,
       "draws": 0
     },
@@ -5778,8 +5778,8 @@
     "d-2000m-1g128p-1||threshold_migration_smoketest": {
       "run_a": "d-2000m-1g128p-1",
       "run_b": "threshold_migration_smoketest",
-      "games": 0,
-      "wins_a": 0,
+      "games": 1,
+      "wins_a": 1,
       "wins_b": 0,
       "draws": 0
     },
@@ -5802,8 +5802,8 @@
     "d-2000m-1g128p-1||plateau_boost_smoketest": {
       "run_a": "d-2000m-1g128p-1",
       "run_b": "plateau_boost_smoketest",
-      "games": 0,
-      "wins_a": 0,
+      "games": 1,
+      "wins_a": 1,
       "wins_b": 0,
       "draws": 0
     },
@@ -6146,17 +6146,17 @@
     "d-1g2000m128p||deep4game5match16promo": {
       "run_a": "d-1g2000m128p",
       "run_b": "deep4game5match16promo",
-      "games": 1,
+      "games": 2,
       "wins_a": 0,
-      "wins_b": 1,
+      "wins_b": 2,
       "draws": 0
     },
     "d-1g2000m128p||default3shallowfastmatch": {
       "run_a": "d-1g2000m128p",
       "run_b": "default3shallowfastmatch",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "d-1g2000m128p||default3nondirecml": {
@@ -6226,9 +6226,9 @@
     "d-1g2000m128p||sd-1g200m201p": {
       "run_a": "d-1g2000m128p",
       "run_b": "sd-1g200m201p",
-      "games": 1,
+      "games": 3,
       "wins_a": 0,
-      "wins_b": 1,
+      "wins_b": 3,
       "draws": 0
     },
     "d-1g2000m128p||fork_threshold_smoketest_1777339955": {
@@ -6394,9 +6394,9 @@
     "deep4game5match16promo||sd-3g32m128p": {
       "run_a": "deep4game5match16promo",
       "run_b": "sd-3g32m128p",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "default3shallowfastmatch||sd-3g32m128p": {
@@ -6474,9 +6474,9 @@
     "s-1g500m1000p||sd-3g32m128p": {
       "run_a": "s-1g500m1000p",
       "run_b": "sd-3g32m128p",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "sd-1g200m201p||sd-3g32m128p": {
@@ -6618,8 +6618,8 @@
     "s-1g7m42p||sd-1g7m128p": {
       "run_a": "s-1g7m42p",
       "run_b": "sd-1g7m128p",
-      "games": 0,
-      "wins_a": 0,
+      "games": 1,
+      "wins_a": 1,
       "wins_b": 0,
       "draws": 0
     },
@@ -6706,8 +6706,8 @@
     "new_deep||sd-1g7m128p": {
       "run_a": "new_deep",
       "run_b": "sd-1g7m128p",
-      "games": 1,
-      "wins_a": 1,
+      "games": 2,
+      "wins_a": 2,
       "wins_b": 0,
       "draws": 0
     },
@@ -6978,9 +6978,9 @@
     "live_progress_smoketest||s-1g7m64p": {
       "run_a": "live_progress_smoketest",
       "run_b": "s-1g7m64p",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "deep_model_smoketest||s-1g7m64p": {
@@ -7018,9 +7018,9 @@
     "s-1g7m64p||sd-1g200m201p": {
       "run_a": "s-1g7m64p",
       "run_b": "sd-1g200m201p",
-      "games": 1,
+      "games": 2,
       "wins_a": 0,
-      "wins_b": 1,
+      "wins_b": 2,
       "draws": 0
     },
     "fork_convert_smoketest_1777335657||s-1g7m64p": {
@@ -7058,8 +7058,8 @@
     "s-1g7m64p||temp_threshold_create_smoketest": {
       "run_a": "s-1g7m64p",
       "run_b": "temp_threshold_create_smoketest",
-      "games": 1,
-      "wins_a": 1,
+      "games": 2,
+      "wins_a": 2,
       "wins_b": 0,
       "draws": 0
     },
@@ -7098,9 +7098,9 @@
     "plateau_boost_smoketest||s-1g7m64p": {
       "run_a": "plateau_boost_smoketest",
       "run_b": "s-1g7m64p",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "multi_delete_smoketest||s-1g7m64p": {
@@ -7218,17 +7218,17 @@
     "deep_model_smoketest||s-1g7m42p": {
       "run_a": "deep_model_smoketest",
       "run_b": "s-1g7m42p",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "codex_smoketest_v2||s-1g7m42p": {
       "run_a": "codex_smoketest_v2",
       "run_b": "s-1g7m42p",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "s-1g7m42p||sd-16g32m1000p-t.75": {
@@ -7346,8 +7346,8 @@
     "shallow1game5match16promo||shallow1game7match32promo": {
       "run_a": "shallow1game5match16promo",
       "run_b": "shallow1game7match32promo",
-      "games": 0,
-      "wins_a": 0,
+      "games": 1,
+      "wins_a": 1,
       "wins_b": 0,
       "draws": 0
     },
@@ -7386,8 +7386,8 @@
     "default3shallow||shallow1game7match32promo": {
       "run_a": "default3shallow",
       "run_b": "shallow1game7match32promo",
-      "games": 0,
-      "wins_a": 0,
+      "games": 1,
+      "wins_a": 1,
       "wins_b": 0,
       "draws": 0
     },
@@ -7906,9 +7906,9 @@
     "fork_convert_smoketest_1777335657||shallow1game1match7promo": {
       "run_a": "fork_convert_smoketest_1777335657",
       "run_b": "shallow1game1match7promo",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "d1000m-1g500p-5dec-basedon1||shallow1game1match7promo": {
@@ -8042,8 +8042,8 @@
     "deep4game5match16promo||default": {
       "run_a": "deep4game5match16promo",
       "run_b": "default",
-      "games": 0,
-      "wins_a": 0,
+      "games": 1,
+      "wins_a": 1,
       "wins_b": 0,
       "draws": 0
     },
@@ -8066,8 +8066,8 @@
     "deep4game5match16promo||deep_model_smoketest": {
       "run_a": "deep4game5match16promo",
       "run_b": "deep_model_smoketest",
-      "games": 0,
-      "wins_a": 0,
+      "games": 1,
+      "wins_a": 1,
       "wins_b": 0,
       "draws": 0
     },
@@ -8154,9 +8154,9 @@
     "decisions_per_game_smoketest||deep4game5match16promo": {
       "run_a": "decisions_per_game_smoketest",
       "run_b": "deep4game5match16promo",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "deep4game5match16promo||threshold_migration_smoketest": {
@@ -8178,9 +8178,9 @@
     "deep4game5match16promo||fork_feature_source_smoketest": {
       "run_a": "deep4game5match16promo",
       "run_b": "fork_feature_source_smoketest",
-      "games": 1,
+      "games": 2,
       "wins_a": 1,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "deep4game5match16promo||plateau_boost_smoketest": {
@@ -8586,8 +8586,8 @@
     "default3nondirecml||new_run_settings_smoketest": {
       "run_a": "default3nondirecml",
       "run_b": "new_run_settings_smoketest",
-      "games": 1,
-      "wins_a": 0,
+      "games": 2,
+      "wins_a": 1,
       "wins_b": 1,
       "draws": 0
     },
@@ -8666,9 +8666,9 @@
     "default3shallow||fork_threshold_smoketest_1777339955": {
       "run_a": "default3shallow",
       "run_b": "fork_threshold_smoketest_1777339955",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "default3shallow||e200m-1g400p-all": {
@@ -8682,9 +8682,9 @@
     "d1000m-1g500p-5dec-basedon1||default3shallow": {
       "run_a": "d1000m-1g500p-5dec-basedon1",
       "run_b": "default3shallow",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "default3shallow||temp_threshold_update_smoketest": {
@@ -8834,9 +8834,9 @@
     "batching_smoketest||fork_threshold_smoketest_1777339955": {
       "run_a": "batching_smoketest",
       "run_b": "fork_threshold_smoketest_1777339955",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "batching_smoketest||fork_convert_smoketest_1777335657": {
@@ -8906,9 +8906,9 @@
     "batching_smoketest||plateau_boost_smoketest": {
       "run_a": "batching_smoketest",
       "run_b": "plateau_boost_smoketest",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "batching_smoketest||multi_delete_smoketest": {
@@ -9154,9 +9154,9 @@
     "default||sd-16g32m1000p-t.75": {
       "run_a": "default",
       "run_b": "sd-16g32m1000p-t.75",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "default||s-1g500m1000p": {
@@ -9210,9 +9210,9 @@
     "default||temp_threshold_update_smoketest": {
       "run_a": "default",
       "run_b": "temp_threshold_update_smoketest",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "default||temp_threshold_create_smoketest": {
@@ -9266,9 +9266,9 @@
     "default||multi_delete_smoketest": {
       "run_a": "default",
       "run_b": "multi_delete_smoketest",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "default||delete_checkpoint_smoketest": {
@@ -9402,9 +9402,9 @@
     "fork_feature_target_smoketest||new_deep": {
       "run_a": "fork_feature_target_smoketest",
       "run_b": "new_deep",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "fork_feature_source_smoketest||new_deep": {
@@ -9466,9 +9466,9 @@
     "codex_smoketest_v2||live_progress_smoketest": {
       "run_a": "codex_smoketest_v2",
       "run_b": "live_progress_smoketest",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "live_progress_smoketest||sd-16g32m1000p-t.5": {
@@ -9482,9 +9482,9 @@
     "live_progress_smoketest||sd-16g32m1000p-t.75": {
       "run_a": "live_progress_smoketest",
       "run_b": "sd-16g32m1000p-t.75",
-      "games": 0,
+      "games": 2,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 2,
       "draws": 0
     },
     "live_progress_smoketest||s-1g500m1000p": {
@@ -9506,8 +9506,8 @@
     "fork_threshold_smoketest_1777339955||live_progress_smoketest": {
       "run_a": "fork_threshold_smoketest_1777339955",
       "run_b": "live_progress_smoketest",
-      "games": 1,
-      "wins_a": 1,
+      "games": 2,
+      "wins_a": 2,
       "wins_b": 0,
       "draws": 0
     },
@@ -9634,9 +9634,9 @@
     "deep_model_smoketest||sd-16g32m1000p-t.5": {
       "run_a": "deep_model_smoketest",
       "run_b": "sd-16g32m1000p-t.5",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "deep_model_smoketest||sd-16g32m1000p-t.75": {
@@ -9666,9 +9666,9 @@
     "deep_model_smoketest||fork_threshold_smoketest_1777339955": {
       "run_a": "deep_model_smoketest",
       "run_b": "fork_threshold_smoketest_1777339955",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "deep_model_smoketest||fork_convert_smoketest_1777335657": {
@@ -9698,9 +9698,9 @@
     "deep_model_smoketest||temp_threshold_update_smoketest": {
       "run_a": "deep_model_smoketest",
       "run_b": "temp_threshold_update_smoketest",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "deep_model_smoketest||temp_threshold_create_smoketest": {
@@ -9794,9 +9794,9 @@
     "codex_smoketest_v2||sd-16g32m1000p-t.75": {
       "run_a": "codex_smoketest_v2",
       "run_b": "sd-16g32m1000p-t.75",
-      "games": 2,
+      "games": 3,
       "wins_a": 0,
-      "wins_b": 2,
+      "wins_b": 3,
       "draws": 0
     },
     "codex_smoketest_v2||s-1g500m1000p": {
@@ -9994,9 +9994,9 @@
     "multi_delete_smoketest||sd-16g32m1000p-t.5": {
       "run_a": "multi_delete_smoketest",
       "run_b": "sd-16g32m1000p-t.5",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "directml_support_smoketest||sd-16g32m1000p-t.5": {
@@ -10026,9 +10026,9 @@
     "fork_convert_smoketest_1777335657||sd-16g32m1000p-t.75": {
       "run_a": "fork_convert_smoketest_1777335657",
       "run_b": "sd-16g32m1000p-t.75",
-      "games": 1,
+      "games": 2,
       "wins_a": 0,
-      "wins_b": 1,
+      "wins_b": 2,
       "draws": 0
     },
     "sd-16g32m1000p-t.75||temp_threshold_update_smoketest": {
@@ -10202,8 +10202,8 @@
     "sd-1g200m201p||temp_threshold_update_smoketest": {
       "run_a": "sd-1g200m201p",
       "run_b": "temp_threshold_update_smoketest",
-      "games": 0,
-      "wins_a": 0,
+      "games": 1,
+      "wins_a": 1,
       "wins_b": 0,
       "draws": 0
     },
@@ -10234,9 +10234,9 @@
     "fork_feature_source_smoketest||sd-1g200m201p": {
       "run_a": "fork_feature_source_smoketest",
       "run_b": "sd-1g200m201p",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "plateau_boost_smoketest||sd-1g200m201p": {
@@ -10442,8 +10442,8 @@
     "directml_support_smoketest||fork_convert_smoketest_1777335657": {
       "run_a": "directml_support_smoketest",
       "run_b": "fork_convert_smoketest_1777335657",
-      "games": 1,
-      "wins_a": 1,
+      "games": 2,
+      "wins_a": 2,
       "wins_b": 0,
       "draws": 0
     },
@@ -10530,9 +10530,9 @@
     "d1000m-1g500p-5dec-basedon1||temp_threshold_update_smoketest": {
       "run_a": "d1000m-1g500p-5dec-basedon1",
       "run_b": "temp_threshold_update_smoketest",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "d1000m-1g500p-5dec-basedon1||temp_threshold_create_smoketest": {
@@ -10562,8 +10562,8 @@
     "d1000m-1g500p-5dec-basedon1||fork_feature_target_smoketest": {
       "run_a": "d1000m-1g500p-5dec-basedon1",
       "run_b": "fork_feature_target_smoketest",
-      "games": 0,
-      "wins_a": 0,
+      "games": 1,
+      "wins_a": 1,
       "wins_b": 0,
       "draws": 0
     },
@@ -10650,9 +10650,9 @@
     "plateau_boost_smoketest||temp_threshold_update_smoketest": {
       "run_a": "plateau_boost_smoketest",
       "run_b": "temp_threshold_update_smoketest",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "multi_delete_smoketest||temp_threshold_update_smoketest": {
@@ -10850,9 +10850,9 @@
     "directml_support_smoketest||threshold_migration_smoketest": {
       "run_a": "directml_support_smoketest",
       "run_b": "threshold_migration_smoketest",
-      "games": 0,
+      "games": 1,
       "wins_a": 0,
-      "wins_b": 0,
+      "wins_b": 1,
       "draws": 0
     },
     "new_run_settings_smoketest||threshold_migration_smoketest": {
@@ -11026,11 +11026,11 @@
   },
   "last_calibration": {
     "status": "running",
-    "started_at": 1779853812.5559378,
-    "games_completed": 184,
+    "started_at": 1779853965.7537887,
+    "games_completed": 83,
     "games_target": 200,
-    "pairings_completed": 169,
-    "pairings_total": 184,
+    "pairings_completed": 74,
+    "pairings_total": 196,
     "resolved_simulation_workers": 14
   }
 }

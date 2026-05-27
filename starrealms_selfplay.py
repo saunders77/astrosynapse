@@ -3098,11 +3098,10 @@ def list_runs() -> List[Dict[str, Any]]:
                 "run_dir": str(run_dir),
             }
         )
-    def run_sort_key(item: Dict[str, Any]) -> Tuple[int, float, str]:
+    def run_sort_key(item: Dict[str, Any]) -> Tuple[float, str]:
         last_promotion_at = _optional_timestamp(item.get("last_promotion_at"))
         created_sort_at = _optional_timestamp(item.get("created_at")) or 0.0
         return (
-            1 if last_promotion_at is not None else 0,
             last_promotion_at if last_promotion_at is not None else created_sort_at,
             str(item["run_name"]),
         )

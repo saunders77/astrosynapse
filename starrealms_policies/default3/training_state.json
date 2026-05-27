@@ -5,7 +5,7 @@
   "total_matches": 12,
   "total_games": 174,
   "created_at": 1776887955.6233513,
-  "updated_at": 1779853604.4454472,
+  "updated_at": 1779853977.5041723,
   "strategy": "champion_league_v2",
   "strategy_version": 2,
   "current_elo": 1002.8571428571429,
@@ -287,10 +287,10 @@
     "reason": "CPU won the synthetic policy-shape benchmark, so DirectML would likely slow this run down.",
     "benchmark": {
       "preferred_backend": "cpu",
-      "cpu_inference_ms": 0.508,
-      "directml_inference_ms": 1.812,
-      "cpu_training_ms": 79.965,
-      "directml_training_ms": 258.424,
+      "cpu_inference_ms": 0.385,
+      "directml_inference_ms": 1.298,
+      "cpu_training_ms": 59.819,
+      "directml_training_ms": 202.118,
       "sample_count": 256,
       "minibatch_size": 64,
       "reason": "CPU won the synthetic policy-shape benchmark, so DirectML would likely slow this run down."
