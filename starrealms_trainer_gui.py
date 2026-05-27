@@ -9,7 +9,7 @@ import time
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Set
 
 try:
     import tkinter as tk
@@ -109,6 +109,14 @@ class GameViewRequest:
     event: threading.Event = field(default_factory=threading.Event)
     result: Any = None
     error: Optional[str] = None
+
+
+@dataclass
+class GuiCommand:
+    command_id: int
+    label: str
+    scopes: FrozenSet[str]
+    thread: threading.Thread
 
 
 class GameViewBridge:
@@ -452,9 +460,10 @@ class TrainerGUI(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self.choice_queue: "queue.Queue[Any]" = queue.Queue()
-        self.result_queue: "queue.Queue[tuple[str, str, Any, Optional[Callable[[Any], None]]]]" = queue.Queue()
+        self.result_queue: "queue.Queue[tuple[str, int, str, Any, Optional[Callable[[Any], None]]]]" = queue.Queue()
         self.progress_queue: "queue.Queue[tuple[str, Dict[str, Any]]]" = queue.Queue()
-        self.command_thread: Optional[threading.Thread] = None
+        self.command_threads: Dict[int, GuiCommand] = {}
+        self._next_command_id = 1
         self.game_view = chooser_ui.GameChooserGUI(parent=self, title="Star Realms Game Viewer")
         self.game_view_bridge = GameViewBridge(self)
         self._suppress_run_events = False
@@ -524,12 +533,14 @@ class TrainerGUI(tk.Tk):
         }
         self.activity_progress_value_vars = {
             "acquire_elo": tk.DoubleVar(value=0.0),
+            "scrap_elo": tk.DoubleVar(value=0.0),
             "policy_match": tk.DoubleVar(value=0.0),
             "rating_pass": tk.DoubleVar(value=0.0),
             "cross_run_rating": tk.DoubleVar(value=0.0),
         }
         self.activity_progress_text_vars = {
             "acquire_elo": tk.StringVar(value="Idle"),
+            "scrap_elo": tk.StringVar(value="Idle"),
             "policy_match": tk.StringVar(value="Idle"),
             "rating_pass": tk.StringVar(value="Idle"),
             "cross_run_rating": tk.StringVar(value="Idle"),
@@ -565,7 +576,7 @@ class TrainerGUI(tk.Tk):
             self._next_refresh_at = 0.0
 
     def _refresh_interval_ms(self) -> int:
-        if self.command_thread is not None and self.command_thread.is_alive():
+        if self._has_active_command():
             return REFRESH_INTERVAL_COMMAND_MS
         status = self.status_vars["status"].get().strip().lower()
         if status in {"training", "stop_requested"}:
@@ -599,6 +610,7 @@ class TrainerGUI(tk.Tk):
             "SummaryTraining.Horizontal.TProgressbar": "#5aa9e6",
             "SummaryPromotion.Horizontal.TProgressbar": "#7bd389",
             "ActivityAcquire.Horizontal.TProgressbar": "#f08a5d",
+            "ActivityScrap.Horizontal.TProgressbar": "#c06c84",
             "ActivityPolicy.Horizontal.TProgressbar": "#5aa9e6",
             "ActivityRating.Horizontal.TProgressbar": "#7bd389",
             "ActivityCrossRun.Horizontal.TProgressbar": "#c9a227",
@@ -678,6 +690,12 @@ class TrainerGUI(tk.Tk):
             self._run_card_acquire_elo_test,
         )
         self.card_acquire_elo_button.pack(side="left", padx=6)
+        self.scrap_elo_button = self._button(
+            button_row,
+            "Run Scrap Elo Test",
+            self._run_scrap_elo_test,
+        )
+        self.scrap_elo_button.pack(side="left", padx=6)
         self.selfplay_button = self._button(button_row, "Run Self-Play Game", self._play_self_game)
         self.selfplay_button.pack(side="left", padx=6)
         self.human_button = self._button(button_row, "Play Against Selected Policy", self._play_human_game)
@@ -962,20 +980,27 @@ class TrainerGUI(tk.Tk):
         self._activity_progress_row(
             activity_progress,
             1,
+            "Scrap Elo Test",
+            "scrap_elo",
+            "ActivityScrap.Horizontal.TProgressbar",
+        )
+        self._activity_progress_row(
+            activity_progress,
+            2,
             "Policy Match",
             "policy_match",
             "ActivityPolicy.Horizontal.TProgressbar",
         )
         self._activity_progress_row(
             activity_progress,
-            2,
+            3,
             "Rating Pass",
             "rating_pass",
             "ActivityRating.Horizontal.TProgressbar",
         )
         self._activity_progress_row(
             activity_progress,
-            3,
+            4,
             "Cross-Run Rating",
             "cross_run_rating",
             "ActivityCrossRun.Horizontal.TProgressbar",
@@ -1350,25 +1375,90 @@ class TrainerGUI(tk.Tk):
         label: str,
         func: Callable[[], Any],
         on_success: Optional[Callable[[Any], None]] = None,
+        scopes: Optional[Sequence[str]] = None,
     ) -> None:
-        if self.command_thread is not None and self.command_thread.is_alive():
-            messagebox.showinfo("Busy", "Another command is still running. Wait for it to finish first.", parent=self)
+        command_scopes = self._normalize_command_scopes(scopes)
+        conflict = self._conflicting_command(command_scopes)
+        if conflict is not None:
+            self._show_command_conflict(conflict)
             return
 
         self.log(f"{label} started.")
+        command_id = self._next_command_id
+        self._next_command_id += 1
 
         def worker() -> None:
             try:
                 result = func()
-                self.result_queue.put(("success", label, result, on_success))
+                self.result_queue.put(("success", command_id, label, result, on_success))
             except Exception:
-                self.result_queue.put(("error", label, traceback.format_exc(), on_success))
+                self.result_queue.put(("error", command_id, label, traceback.format_exc(), on_success))
 
-        self.command_thread = threading.Thread(target=worker, name="trainer-gui-command", daemon=True)
-        self.command_thread.start()
+        thread = threading.Thread(target=worker, name=f"trainer-gui-command-{command_id}", daemon=True)
+        self.command_threads[command_id] = GuiCommand(
+            command_id=command_id,
+            label=label,
+            scopes=command_scopes,
+            thread=thread,
+        )
+        thread.start()
 
-    def _has_active_command(self) -> bool:
-        return self.command_thread is not None and self.command_thread.is_alive()
+    def _normalize_command_scopes(self, scopes: Optional[Sequence[str]]) -> FrozenSet[str]:
+        return frozenset(str(scope).strip() for scope in (scopes or ()) if str(scope).strip())
+
+    def _run_scope(self, run_name: str) -> str:
+        return f"run:{run_name.strip() or sp.LATEST_RUN_NAME}"
+
+    def _activity_scope(self, key: str) -> str:
+        return f"activity:{key.strip()}"
+
+    def _run_scopes(self, *run_names: str) -> List[str]:
+        scopes: List[str] = []
+        seen: Set[str] = set()
+        for run_name in run_names:
+            scope = self._run_scope(run_name)
+            if scope not in seen:
+                scopes.append(scope)
+                seen.add(scope)
+        return scopes
+
+    def _prune_finished_commands(self) -> None:
+        finished_ids = [
+            command_id
+            for command_id, command in self.command_threads.items()
+            if not command.thread.is_alive()
+        ]
+        for command_id in finished_ids:
+            self.command_threads.pop(command_id, None)
+
+    def _conflicting_command(self, scopes: FrozenSet[str]) -> Optional[GuiCommand]:
+        self._prune_finished_commands()
+        if not scopes:
+            return None
+        for command in self.command_threads.values():
+            if command.scopes & scopes:
+                return command
+        return None
+
+    def _show_command_conflict(self, conflict: GuiCommand) -> None:
+        messagebox.showinfo(
+            "Busy",
+            f"{conflict.label} is still running. Wait for that action before starting another action that touches the same run or activity.",
+            parent=self,
+        )
+
+    def _ensure_command_scopes_available(self, scopes: Sequence[str]) -> bool:
+        conflict = self._conflicting_command(self._normalize_command_scopes(scopes))
+        if conflict is not None:
+            self._show_command_conflict(conflict)
+            return False
+        return True
+
+    def _has_active_command(self, scopes: Optional[Sequence[str]] = None) -> bool:
+        self._prune_finished_commands()
+        if scopes is None:
+            return bool(self.command_threads)
+        return self._conflicting_command(self._normalize_command_scopes(scopes)) is not None
 
     def _checkpoint_values_for_run(
         self,
@@ -2243,7 +2333,12 @@ class TrainerGUI(tk.Tk):
                 f"{replacement_text}{skipped_text}"
             )
 
-        self._run_async(f"Delete {count} checkpoint(s) from '{run_name}'", action, on_success=on_success)
+        self._run_async(
+            f"Delete {count} checkpoint(s) from '{run_name}'",
+            action,
+            on_success=on_success,
+            scopes=self._run_scopes(run_name),
+        )
 
     def _train_chunk(self) -> None:
         try:
@@ -2263,13 +2358,17 @@ class TrainerGUI(tk.Tk):
                 f"elo {result.get('current_elo')}."
             )
 
-        self._run_async(f"Train {iterations} iteration(s) for '{run_name}'", action, on_success=on_success)
+        self._run_async(
+            f"Train {iterations} iteration(s) for '{run_name}'",
+            action,
+            on_success=on_success,
+            scopes=self._run_scopes(run_name),
+        )
 
     def _start_background(self) -> None:
-        if self._has_active_command():
-            messagebox.showinfo("Busy", "Another command is still running. Wait for it to finish first.", parent=self)
-            return
         run_name = self._selected_run_name()
+        if not self._ensure_command_scopes_available(self._run_scopes(run_name)):
+            return
         try:
             overrides = self._new_run_overrides_for(run_name)
         except ValueError as exc:
@@ -2280,10 +2379,9 @@ class TrainerGUI(tk.Tk):
         self.refresh_data()
 
     def _continue_background(self) -> None:
-        if self._has_active_command():
-            messagebox.showinfo("Busy", "Another command is still running. Wait for it to finish first.", parent=self)
-            return
         run_name = self._selected_run_name()
+        if not self._ensure_command_scopes_available(self._run_scopes(run_name)):
+            return
         try:
             overrides = self._new_run_overrides_for(run_name)
         except ValueError as exc:
@@ -2319,7 +2417,12 @@ class TrainerGUI(tk.Tk):
             )
             self.refresh_data()
 
-        self._run_async(f"Create run '{run_name}'", action, on_success=on_success)
+        self._run_async(
+            f"Create run '{run_name}'",
+            action,
+            on_success=on_success,
+            scopes=self._run_scopes(run_name),
+        )
 
     def _create_run_from_checkpoint(self) -> None:
         run_name = self._selected_run_name()
@@ -2370,6 +2473,7 @@ class TrainerGUI(tk.Tk):
             f"Create run '{run_name}' from '{source_run_name}' / '{source_checkpoint}'",
             action,
             on_success=on_success,
+            scopes=self._run_scopes(run_name, source_run_name),
         )
 
     def _apply_run_settings(self) -> None:
@@ -2405,7 +2509,12 @@ class TrainerGUI(tk.Tk):
             )
             self.refresh_data()
 
-        self._run_async(f"Apply run settings for '{run_name}'", action, on_success=on_success)
+        self._run_async(
+            f"Apply run settings for '{run_name}'",
+            action,
+            on_success=on_success,
+            scopes=self._run_scopes(run_name),
+        )
 
     def _interrupt_background(self) -> None:
         run_name = self._selected_run_name()
@@ -2416,7 +2525,12 @@ class TrainerGUI(tk.Tk):
         def on_success(result: str) -> None:
             self.log(result)
 
-        self._run_async(f"Interrupt background training for '{run_name}'", action, on_success=on_success)
+        self._run_async(
+            f"Interrupt background training for '{run_name}'",
+            action,
+            on_success=on_success,
+            scopes=self._run_scopes(run_name),
+        )
 
     def _run_rating_pass(self) -> None:
         run_name = self._selected_run_name()
@@ -2430,6 +2544,9 @@ class TrainerGUI(tk.Tk):
         pairings_total = max_policies * (max_policies - 1) // 2
         games_target = pairings_total * games_per_pair
         activity_label = f"{run_name}: {max_policies} policies"
+        scopes = [*self._run_scopes(run_name), self._activity_scope("rating_pass")]
+        if not self._ensure_command_scopes_available(scopes):
+            return
         self._set_activity_progress(
             "rating_pass",
             {
@@ -2498,7 +2615,12 @@ class TrainerGUI(tk.Tk):
                 f"{result.get('pairings_played', 0)} pairings, top rated {top_line}."
             )
 
-        self._run_async(f"Run rating pass for '{run_name}'", action, on_success=on_success)
+        self._run_async(
+            f"Run rating pass for '{run_name}'",
+            action,
+            on_success=on_success,
+            scopes=scopes,
+        )
 
     def _run_cross_run_rating(self) -> None:
         try:
@@ -2520,6 +2642,13 @@ class TrainerGUI(tk.Tk):
             return
 
         activity_label = f"{len(selected_run_names)} run(s), {games} game(s)"
+        scopes = [
+            *self._run_scopes(*selected_run_names),
+            self._activity_scope("cross_run_rating"),
+            "cross_run_ratings",
+        ]
+        if not self._ensure_command_scopes_available(scopes):
+            return
         self._set_activity_progress(
             "cross_run_rating",
             {
@@ -2609,7 +2738,12 @@ class TrainerGUI(tk.Tk):
                 )
             self._show_text_report("Cross-Run Rating", "\n".join(report_lines))
 
-        self._run_async("Run cross-run rating", action, on_success=on_success)
+        self._run_async(
+            "Run cross-run rating",
+            action,
+            on_success=on_success,
+            scopes=scopes,
+        )
 
     def _run_card_acquire_elo_test(self) -> None:
         run_name = self._selected_run_name()
@@ -2618,6 +2752,9 @@ class TrainerGUI(tk.Tk):
             messagebox.showerror("Run does not exist", f"Run '{run_name}' does not exist yet.", parent=self)
             return
         activity_label = f"{run_name} / {checkpoint}"
+        scopes = [*self._run_scopes(run_name), self._activity_scope("acquire_elo")]
+        if not self._ensure_command_scopes_available(scopes):
+            return
         self._set_activity_progress(
             "acquire_elo",
             {
@@ -2690,6 +2827,92 @@ class TrainerGUI(tk.Tk):
             f"Run acquire Elo test for '{run_name}' / '{checkpoint}'",
             action,
             on_success=on_success,
+            scopes=scopes,
+        )
+
+    def _run_scrap_elo_test(self) -> None:
+        run_name = self._selected_run_name()
+        checkpoint = self._selected_checkpoint()
+        if not sp.run_exists(run_name):
+            messagebox.showerror("Run does not exist", f"Run '{run_name}' does not exist yet.", parent=self)
+            return
+        activity_label = f"{run_name} / {checkpoint}"
+        scopes = [*self._run_scopes(run_name), self._activity_scope("scrap_elo")]
+        if not self._ensure_command_scopes_available(scopes):
+            return
+        self._set_activity_progress(
+            "scrap_elo",
+            {
+                "status": "running",
+                "label": activity_label,
+                "games_completed": 0,
+                "games_target": sp.SCRAP_ELO_TEST_GAMES,
+            },
+        )
+
+        def action() -> Dict[str, Any]:
+            def progress_callback(progress: Dict[str, Any]) -> None:
+                self.progress_queue.put(
+                    (
+                        "scrap_elo",
+                        {
+                            "status": "running",
+                            "label": activity_label,
+                            **progress,
+                        },
+                    )
+                )
+
+            try:
+                return sp.run_scrap_elo_test(
+                    run_name=run_name,
+                    checkpoint=checkpoint,
+                    games=sp.SCRAP_ELO_TEST_GAMES,
+                    progress_callback=progress_callback,
+                )
+            except Exception:
+                self.progress_queue.put(
+                    (
+                        "scrap_elo",
+                        {
+                            "status": "failed",
+                            "label": activity_label,
+                        },
+                    )
+                )
+                raise
+
+        def on_success(result: Dict[str, Any]) -> None:
+            leaderboard = list(result.get("leaderboard") or [])
+            top_entry = leaderboard[0] if leaderboard else {}
+            self._set_activity_progress(
+                "scrap_elo",
+                {
+                    "status": "completed",
+                    "label": f"{run_name} / {result.get('resolved_checkpoint', checkpoint)}",
+                    "games_completed": int(result.get("games", 0)),
+                    "games_target": sp.SCRAP_ELO_TEST_GAMES,
+                    "duration_seconds": result.get("duration_seconds"),
+                },
+            )
+            self.log(
+                f"Scrap Elo test finished for '{run_name}' / '{checkpoint}': "
+                f"{result.get('scored_decisions', 0)} scored decision(s) from "
+                f"{result.get('eligible_scrapany_decisions', 0)} eligible scrapany decision(s) across "
+                f"{result.get('games', 0)} game(s). "
+                f"Top option: {top_entry.get('option_label', '-')} at {round(float(top_entry.get('elo', 0.0)), 2)}. "
+                f"Report saved to {result.get('report_path', '-')}"
+            )
+            self._show_text_report(
+                f"Scrap Elo Test: {run_name} / {result.get('resolved_checkpoint', checkpoint)}",
+                str(result.get("report_text") or ""),
+            )
+
+        self._run_async(
+            f"Run scrap Elo test for '{run_name}' / '{checkpoint}'",
+            action,
+            on_success=on_success,
+            scopes=scopes,
         )
 
     def _play_self_game(self) -> None:
@@ -2711,7 +2934,12 @@ class TrainerGUI(tk.Tk):
                 f"ended_by_limit={result.get('ended_by_limit')}."
             )
 
-        self._run_async(f"Run self-play for '{run_name}' / '{checkpoint}'", action, on_success=on_success)
+        self._run_async(
+            f"Run self-play for '{run_name}' / '{checkpoint}'",
+            action,
+            on_success=on_success,
+            scopes=[*self._run_scopes(run_name), "game_view"],
+        )
 
     def _play_policy_match(self) -> None:
         run_name_a = self.match_run_a_var.get().strip() or sp.LATEST_RUN_NAME
@@ -2724,6 +2952,12 @@ class TrainerGUI(tk.Tk):
             messagebox.showerror("Invalid match settings", str(exc), parent=self)
             return
         activity_label = f"{run_name_a} / {checkpoint_a} vs {run_name_b} / {checkpoint_b}"
+        scopes = [
+            *self._run_scopes(run_name_a, run_name_b),
+            self._activity_scope("policy_match"),
+        ]
+        if not self._ensure_command_scopes_available(scopes):
+            return
         self._set_activity_progress(
             "policy_match",
             {
@@ -2800,6 +3034,7 @@ class TrainerGUI(tk.Tk):
             f"Run policy match for '{run_name_a}' / '{checkpoint_a}' vs '{run_name_b}' / '{checkpoint_b}'",
             action,
             on_success=on_success,
+            scopes=scopes,
         )
 
     def _play_human_game(self) -> None:
@@ -2826,7 +3061,12 @@ class TrainerGUI(tk.Tk):
                 f"ended_by_limit={result.get('ended_by_limit')}."
             )
 
-        self._run_async(f"Play human game against '{run_name}' / '{checkpoint}'", action, on_success=on_success)
+        self._run_async(
+            f"Play human game against '{run_name}' / '{checkpoint}'",
+            action,
+            on_success=on_success,
+            scopes=[*self._run_scopes(run_name), "game_view"],
+        )
 
     def _handle_choice_requests(self) -> None:
         while True:
@@ -2895,11 +3135,12 @@ class TrainerGUI(tk.Tk):
         handled_result = False
         while True:
             try:
-                status, label, payload, callback = self.result_queue.get_nowait()
+                status, command_id, label, payload, callback = self.result_queue.get_nowait()
             except queue.Empty:
                 break
 
             handled_result = True
+            self.command_threads.pop(command_id, None)
 
             if status == "success":
                 self.log(f"{label} finished.")

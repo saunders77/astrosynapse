@@ -54,6 +54,8 @@ INITIAL_ELO = 1000.0
 CONFIG_DEFAULTS_VERSION = 5
 CARD_ACQUIRE_ELO_TEST_GAMES = 200
 CARD_ACQUIRE_ELO_K_FACTOR = 24.0
+SCRAP_ELO_TEST_GAMES = 500
+SCRAP_ELO_K_FACTOR = 24.0
 CROSS_RUN_RATING_VERSION = 2
 CROSS_RUN_RATING_MODEL = "glicko_2"
 CROSS_RUN_GLICKO2_SCALE = 173.7178
@@ -171,6 +173,18 @@ ACTION_TO_INDEX = {name: idx for idx, name in enumerate(ACTION_TYPES)}
 CARD_NAME_ORDER = [str(card[0]) for card in cardDetails]
 CARD_BY_NAME = {str(card[0]): card for card in cardDetails}
 CARD_COST_BY_NAME = {str(card[0]): int(card[1]) for card in cardDetails}
+SCRAP_ELO_ACTION_SOURCE = {
+    "scrapFromHandNormal": "hand",
+    "scrapFromHandDraw": "hand",
+    "scrapFromDiscardNormal": "discard",
+    "scrapFromDiscardDraw": "discard",
+}
+SCRAP_ELO_NO_SCRAP_KEY = "noscrap"
+SCRAP_ELO_SOURCE_LABELS = {
+    "hand": "Hand",
+    "discard": "Discard",
+    "noscrap": "No Scrap",
+}
 
 CARD_FEATURE_SIZE = 8 + len(factions) + len(CARD_TYPE_TO_INDEX) + len(ABILITY_FAMILIES) + 2
 ZONE_FEATURE_SIZE = CARD_FEATURE_SIZE + 4
@@ -3235,11 +3249,12 @@ def delete_checkpoints(run_name: str = LATEST_RUN_NAME, checkpoints: Sequence[st
     if any(name == "candidate" for name in checkpoint_names):
         raise ValueError("The candidate row is not a checkpoint file. Delete saved checkpoints instead.")
 
-    trainer = _TRAINERS.get(run_name)
+    with _TRAINERS_LOCK:
+        trainer = _TRAINERS.get(run_name)
     if trainer is not None and trainer.is_running:
         raise RuntimeError(f"Run '{run_name}' is currently training. Interrupt it before deleting checkpoints.")
-    if str(state.get("status", "idle")).lower() == "running":
-        raise RuntimeError(f"Run '{run_name}' is marked as running. Interrupt training before deleting checkpoints.")
+    if str(state.get("status", "idle")).lower() in {"training", "stop_requested", "rating"}:
+        raise RuntimeError(f"Run '{run_name}' is marked as active. Interrupt training before deleting checkpoints.")
 
     checkpoint_entries = list(state.get("checkpoints") or [])
     existing_names = {str(item.get("name", "")) for item in checkpoint_entries}
@@ -3336,11 +3351,14 @@ def delete_checkpoints(run_name: str = LATEST_RUN_NAME, checkpoints: Sequence[st
             checkpoint_name,
             replacement_reference,
         )
-        _POLICY_CACHE.pop((run_name, checkpoint_name), None)
+        with _POLICY_CACHE_LOCK:
+            _POLICY_CACHE.pop((run_name, checkpoint_name), None)
 
-    _POLICY_CACHE.pop((run_name, "best"), None)
-    _POLICY_CACHE.pop((run_name, "latest"), None)
-    _TRAINERS.pop(run_name, None)
+    with _POLICY_CACHE_LOCK:
+        _POLICY_CACHE.pop((run_name, "best"), None)
+        _POLICY_CACHE.pop((run_name, "latest"), None)
+    with _TRAINERS_LOCK:
+        _TRAINERS.pop(run_name, None)
 
     _save_policy_and_state(files, policy, state)
 
@@ -3721,15 +3739,17 @@ class SelfPlayTrainer:
         self.state = state
         self.config = config
         self.run_name = run_name
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._training_active = False
         self._last_live_progress_save_at = 0.0
         self._simulation_pool: Optional[_SimulationPool] = None
 
     @property
     def is_running(self) -> bool:
-        return self._thread is not None and self._thread.is_alive()
+        with self._lock:
+            return self._training_active or (self._thread is not None and self._thread.is_alive())
 
     def _get_simulation_pool(self, worker_count: int) -> Optional[_SimulationPool]:
         worker_count = max(1, int(worker_count))
@@ -4938,6 +4958,9 @@ class SelfPlayTrainer:
             with self._lock:
                 if self.state.get("status") != "error":
                     self.state["status"] = "idle"
+                self._training_active = False
+                if self._thread is threading.current_thread():
+                    self._thread = None
                 self._save()
 
     def start(self, background: bool = True) -> Dict[str, Any]:
@@ -4945,6 +4968,7 @@ class SelfPlayTrainer:
             if self.is_running:
                 return {"started": False, "message": "training already running", "status": self.state["status"]}
             self._stop_event.clear()
+            self._training_active = True
             if background:
                 self._thread = threading.Thread(
                     target=self._training_loop,
@@ -4957,16 +4981,21 @@ class SelfPlayTrainer:
         return {"started": True, "background": False, "run_name": self.run_name}
 
     def interrupt(self) -> Dict[str, Any]:
-        if not self.is_running:
-            self.state["status"] = "idle"
+        thread_to_join: Optional[threading.Thread] = None
+        with self._lock:
+            if not self.is_running:
+                self.state["status"] = "idle"
+                self._save()
+                return {"stopped": False, "message": "training was not running"}
+            self.state["status"] = "stop_requested"
             self._save()
-            return {"stopped": False, "message": "training was not running"}
-        self.state["status"] = "stop_requested"
-        self._save()
-        self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join()
-        self._thread = None
+            self._stop_event.set()
+            thread_to_join = self._thread
+        if thread_to_join is not None and thread_to_join is not threading.current_thread():
+            thread_to_join.join()
+        with self._lock:
+            if thread_to_join is not None and not thread_to_join.is_alive() and self._thread is thread_to_join:
+                self._thread = None
         return {"stopped": True, "message": "training stopped after the current match"}
 
     def progress_summary(self) -> Dict[str, Any]:
@@ -5025,14 +5054,25 @@ class SelfPlayTrainer:
 
 _TRAINERS: Dict[str, SelfPlayTrainer] = {}
 _POLICY_CACHE: Dict[Tuple[str, str], Tuple[float, PolicyNetwork]] = {}
+_TRAINERS_LOCK = threading.RLock()
+_POLICY_CACHE_LOCK = threading.Lock()
 
 
 def _get_trainer(run_name: str = LATEST_RUN_NAME, config_overrides: Optional[Dict[str, Any]] = None) -> SelfPlayTrainer:
-    trainer = _TRAINERS.get(run_name)
-    if trainer is None or (config_overrides and trainer.config != trainer.config.merged(config_overrides)):
+    with _TRAINERS_LOCK:
+        trainer = _TRAINERS.get(run_name)
+        if trainer is not None:
+            if config_overrides and trainer.config != trainer.config.merged(config_overrides):
+                if trainer.is_running:
+                    raise RuntimeError(
+                        f"Run '{run_name}' is currently training. Interrupt it before changing run settings."
+                    )
+                trainer = SelfPlayTrainer(run_name, config_overrides=config_overrides)
+                _TRAINERS[run_name] = trainer
+            return trainer
         trainer = SelfPlayTrainer(run_name, config_overrides=config_overrides)
         _TRAINERS[run_name] = trainer
-    return trainer
+        return trainer
 
 
 def summarize_start_training(run_name: str = LATEST_RUN_NAME, **config_overrides: Any) -> str:
@@ -5235,7 +5275,8 @@ def create_run_from_checkpoint(
     _atomic_write_json(files.checkpoints_dir / "checkpoint_000000.json", fork_policy.to_dict(include_optimizer=False))
 
     trainer = SelfPlayTrainer(run_name)
-    _TRAINERS[run_name] = trainer
+    with _TRAINERS_LOCK:
+        _TRAINERS[run_name] = trainer
     return trainer.progress_summary()
 
 
@@ -5249,7 +5290,7 @@ def update_run_config(
         raise ValueError(f"Run '{run_name}' does not exist.")
 
     trainer = _get_trainer(run_name)
-    if trainer.is_running or str(trainer.state.get("status", "idle")).lower() == "running":
+    if trainer.is_running or str(trainer.state.get("status", "idle")).lower() in {"training", "stop_requested", "rating"}:
         raise RuntimeError(f"Run '{run_name}' is currently training. Interrupt it before changing run settings.")
 
     overrides: Dict[str, Any] = {}
@@ -6307,6 +6348,234 @@ def _normalized_card_choice_leaderboard(
     return leaderboard, normalization_factor, explorer_rating
 
 
+def _scrap_option_key(source: str, card_name: str) -> str:
+    normalized_source = str(source or "").strip().lower()
+    if normalized_source == "noscrap":
+        return SCRAP_ELO_NO_SCRAP_KEY
+    return f"{normalized_source}:{str(card_name or '').strip()}"
+
+
+def _scrap_option_label(source: str, card_name: str) -> str:
+    normalized_source = str(source or "").strip().lower()
+    if normalized_source == "noscrap":
+        return SCRAP_ELO_SOURCE_LABELS["noscrap"]
+    source_label = SCRAP_ELO_SOURCE_LABELS.get(normalized_source, normalized_source.title())
+    return f"{source_label}: {str(card_name or '').strip()}"
+
+
+def _scrap_option_order() -> List[Dict[str, str]]:
+    options = [
+        {
+            "option_key": SCRAP_ELO_NO_SCRAP_KEY,
+            "source": "noscrap",
+            "card_name": "noscrap",
+            "option_label": _scrap_option_label("noscrap", "noscrap"),
+        }
+    ]
+    for source in ("hand", "discard"):
+        for card_name in CARD_NAME_ORDER:
+            options.append(
+                {
+                    "option_key": _scrap_option_key(source, card_name),
+                    "source": source,
+                    "card_name": card_name,
+                    "option_label": _scrap_option_label(source, card_name),
+                }
+            )
+    return options
+
+
+def _initial_scrap_choice_rating_state() -> Dict[str, Dict[str, Any]]:
+    options = _scrap_option_order()
+    return {
+        "ratings": {option["option_key"]: INITIAL_ELO for option in options},
+        "decision_counts": {option["option_key"]: 0 for option in options},
+        "pairwise_counts": {option["option_key"]: 0 for option in options},
+        "win_counts": {option["option_key"]: 0 for option in options},
+        "loss_counts": {option["option_key"]: 0 for option in options},
+        "information": {option["option_key"]: 0.0 for option in options},
+        "option_meta": {option["option_key"]: dict(option) for option in options},
+        "option_order": [option["option_key"] for option in options],
+    }
+
+
+def _ensure_scrap_option_rating(
+    rating_state: Dict[str, Dict[str, Any]],
+    option: Dict[str, str],
+) -> None:
+    option_key = str(option.get("option_key") or "").strip()
+    if not option_key:
+        return
+    rating_state["ratings"].setdefault(option_key, INITIAL_ELO)
+    rating_state["decision_counts"].setdefault(option_key, 0)
+    rating_state["pairwise_counts"].setdefault(option_key, 0)
+    rating_state["win_counts"].setdefault(option_key, 0)
+    rating_state["loss_counts"].setdefault(option_key, 0)
+    rating_state["information"].setdefault(option_key, 0.0)
+    rating_state["option_meta"].setdefault(option_key, dict(option))
+    if option_key not in rating_state["option_order"]:
+        rating_state["option_order"].append(option_key)
+
+
+def _scrap_elo_option_from_sim_option(option: Sequence[Any]) -> Optional[Dict[str, str]]:
+    action = _option_action_name(option)
+    if action == "noScrapFromHand":
+        return {
+            "option_key": SCRAP_ELO_NO_SCRAP_KEY,
+            "source": "noscrap",
+            "card_name": "noscrap",
+            "option_label": _scrap_option_label("noscrap", "noscrap"),
+        }
+    source = SCRAP_ELO_ACTION_SOURCE.get(action)
+    if source is None or len(option) < 3:
+        return None
+    card = _extract_card(option[2])
+    if card is None:
+        return None
+    card_name = str(card[0] or "").strip()
+    if not card_name:
+        return None
+    return {
+        "option_key": _scrap_option_key(source, card_name),
+        "source": source,
+        "card_name": card_name,
+        "option_label": _scrap_option_label(source, card_name),
+    }
+
+
+def _extract_scrap_elo_decision_from_choice(
+    options: Sequence[Sequence[Any]],
+    action_index: int,
+) -> Optional[Dict[str, Any]]:
+    if action_index < 0 or action_index >= len(options):
+        return None
+    action_names = [_option_action_name(option) for option in options]
+    if "noScrapFromHand" not in action_names:
+        return None
+
+    winner_option = _scrap_elo_option_from_sim_option(options[action_index])
+    if winner_option is None:
+        return None
+
+    unique_options: List[Dict[str, str]] = []
+    seen_keys = set()
+    for option in options:
+        scrap_option = _scrap_elo_option_from_sim_option(option)
+        if scrap_option is None:
+            continue
+        option_key = scrap_option["option_key"]
+        if option_key in seen_keys:
+            continue
+        seen_keys.add(option_key)
+        unique_options.append(scrap_option)
+
+    winner_key = winner_option["option_key"]
+    if winner_key not in seen_keys:
+        unique_options.append(winner_option)
+        seen_keys.add(winner_key)
+
+    loser_options = [option for option in unique_options if option["option_key"] != winner_key]
+    return {
+        "winner_option": winner_option,
+        "loser_options": loser_options,
+        "unique_options": unique_options,
+        "unique_option_count": len(unique_options),
+    }
+
+
+def _apply_scrap_choice_result(
+    rating_state: Dict[str, Dict[str, Any]],
+    winner_option: Dict[str, str],
+    loser_options: Sequence[Dict[str, str]],
+    k_factor: float,
+) -> int:
+    winner_key = str(winner_option.get("option_key") or "").strip()
+    if not winner_key:
+        return 0
+
+    unique_losers: List[Dict[str, str]] = []
+    seen_loser_keys = set()
+    for loser_option in loser_options:
+        loser_key = str(loser_option.get("option_key") or "").strip()
+        if not loser_key or loser_key == winner_key or loser_key in seen_loser_keys:
+            continue
+        seen_loser_keys.add(loser_key)
+        unique_losers.append(dict(loser_option))
+
+    if not unique_losers:
+        return 0
+
+    _ensure_scrap_option_rating(rating_state, winner_option)
+    for loser_option in unique_losers:
+        _ensure_scrap_option_rating(rating_state, loser_option)
+
+    ratings = rating_state["ratings"]
+    decision_counts = rating_state["decision_counts"]
+    pairwise_counts = rating_state["pairwise_counts"]
+    win_counts = rating_state["win_counts"]
+    loss_counts = rating_state["loss_counts"]
+    information = rating_state["information"]
+
+    participant_keys = [winner_key, *[loser_option["option_key"] for loser_option in unique_losers]]
+    for option_key in participant_keys:
+        decision_counts[option_key] = int(decision_counts.get(option_key, 0)) + 1
+
+    base_winner_rating = float(ratings.get(winner_key, INITIAL_ELO))
+    base_ratings = {
+        loser_option["option_key"]: float(ratings.get(loser_option["option_key"], INITIAL_ELO))
+        for loser_option in unique_losers
+    }
+    deltas: Dict[str, float] = {winner_key: 0.0}
+    for loser_option in unique_losers:
+        loser_key = loser_option["option_key"]
+        expected_winner = _elo_expected(base_winner_rating, base_ratings[loser_key])
+        delta = float(k_factor) * (1.0 - expected_winner)
+        deltas[winner_key] = deltas.get(winner_key, 0.0) + delta
+        deltas[loser_key] = deltas.get(loser_key, 0.0) - delta
+        pairwise_counts[winner_key] = int(pairwise_counts.get(winner_key, 0)) + 1
+        pairwise_counts[loser_key] = int(pairwise_counts.get(loser_key, 0)) + 1
+        win_counts[winner_key] = int(win_counts.get(winner_key, 0)) + 1
+        loss_counts[loser_key] = int(loss_counts.get(loser_key, 0)) + 1
+        fisher = expected_winner * (1.0 - expected_winner)
+        information[winner_key] = float(information.get(winner_key, 0.0)) + fisher
+        information[loser_key] = float(information.get(loser_key, 0.0)) + fisher
+
+    for option_key, delta in deltas.items():
+        ratings[option_key] = float(ratings.get(option_key, INITIAL_ELO)) + delta
+
+    return len(unique_losers)
+
+
+def _scrap_choice_leaderboard(rating_state: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    leaderboard: List[Dict[str, Any]] = []
+    option_keys = list(rating_state.get("option_order") or [])
+    for option_key in rating_state.get("ratings", {}).keys():
+        if option_key not in option_keys:
+            option_keys.append(option_key)
+    for option_key in option_keys:
+        meta = dict(rating_state["option_meta"].get(option_key) or {})
+        raw_rating = float(rating_state["ratings"].get(option_key, INITIAL_ELO))
+        raw_uncertainty = _card_rating_uncertainty_from_information(
+            float(rating_state["information"].get(option_key, 0.0))
+        )
+        leaderboard.append(
+            {
+                "option_key": option_key,
+                "source": str(meta.get("source", "")),
+                "card_name": str(meta.get("card_name", "")),
+                "option_label": str(meta.get("option_label") or option_key),
+                "elo": round(raw_rating, 4),
+                "uncertainty": None if raw_uncertainty is None else round(raw_uncertainty, 4),
+                "decision_count": int(rating_state["decision_counts"].get(option_key, 0)),
+                "pairwise_comparisons": int(rating_state["pairwise_counts"].get(option_key, 0)),
+                "wins": int(rating_state["win_counts"].get(option_key, 0)),
+                "losses": int(rating_state["loss_counts"].get(option_key, 0)),
+            }
+        )
+    leaderboard.sort(key=lambda entry: (-float(entry["elo"]), str(entry["option_label"])))
+    return leaderboard
+
+
 def format_card_acquire_elo_test_report(result: Dict[str, Any]) -> str:
     future_trade = dict(result.get("future_trade") or {})
     immediate_trade = dict(result.get("immediate_trade") or {})
@@ -6731,6 +7000,314 @@ def run_card_acquire_elo_test(
     return result
 
 
+def format_scrap_elo_test_report(result: Dict[str, Any]) -> str:
+    leaderboard = list(result.get("leaderboard") or [])
+    lines = [
+        f"Scrap Elo Test for {result.get('run_name', '-')}/{result.get('checkpoint', '-')}",
+        f"Resolved checkpoint: {result.get('resolved_checkpoint', '-')}",
+        f"Games: {result.get('games', 0)}",
+        f"Deterministic: {result.get('deterministic', True)}",
+        f"Ended by limit: {result.get('ended_by_limit_games', 0)} game(s)",
+        f"Scrapany decision points: {result.get('scrapany_decisions', 0)}",
+        f"Eligible scrapany decisions: {result.get('eligible_scrapany_decisions', 0)}",
+        f"Scored decisions: {result.get('scored_decisions', 0)}",
+        f"Pairwise comparisons: {result.get('pairwise_comparisons', 0)}",
+        "Rating update model: pairwise Elo; the selected option wins one match against each unselected unique option.",
+        "Options are unique by source plus exact card title; noscrap is its own option.",
+        "Higher Elo means the policy is more likely to choose that option when resolving scrapany.",
+        "Uncertainty: approximate 1-sigma Elo standard error from diagonal Fisher information of the same pairwise model.",
+        f"Duration: {_format_seconds(float(result.get('duration_seconds', 0.0)))}",
+        "",
+        "Option Rankings",
+    ]
+    for index, entry in enumerate(leaderboard, start=1):
+        uncertainty = entry.get("uncertainty")
+        uncertainty_text = "-" if uncertainty is None else f"{float(uncertainty):.2f}"
+        lines.append(
+            f"{index:>2}. {entry.get('option_label', '-'):<26} "
+            f"Elo {float(entry.get('elo', 0.0)):>8.2f}  "
+            f"+/- {uncertainty_text:>8}  "
+            f"dec {int(entry.get('decision_count', 0)):>4}  "
+            f"cmp {int(entry.get('pairwise_comparisons', 0)):>5}"
+        )
+    return "\n".join(lines)
+
+
+def _simulate_scrap_elo_games(
+    policy: PolicyNetwork,
+    config: TrainingConfig,
+    *,
+    game_count: int,
+    deterministic: bool,
+    seed: Optional[int] = None,
+    game_progress_callback: Optional[Callable[[], None]] = None,
+) -> Dict[str, Any]:
+    if seed is not None:
+        _seed_simulation(int(seed))
+    temperature = config.eval_temperature if deterministic else config.train_temperature
+    epsilon_random = 0.0 if deterministic else config.epsilon_random
+
+    games_completed = 0
+    ended_by_limit_games = 0
+    scrapany_decisions = 0
+    eligible_scrapany_decisions = 0
+    decisions: List[Dict[str, Any]] = []
+
+    def capture_scrap_decision(
+        _player_name: str,
+        options: Sequence[Sequence[Any]],
+        _known_game_state: Dict[str, Any],
+        action_index: int,
+    ) -> None:
+        nonlocal scrapany_decisions, eligible_scrapany_decisions
+        decision = _extract_scrap_elo_decision_from_choice(options, int(action_index))
+        if decision is None:
+            return
+        scrapany_decisions += 1
+        if int(decision.get("unique_option_count", 0)) <= 1:
+            return
+        eligible_scrapany_decisions += 1
+        decisions.append(decision)
+
+    for _ in range(max(0, int(game_count))):
+        actor_a = PolicyActor(
+            policy,
+            deterministic=deterministic,
+            temperature=temperature,
+            epsilon_random=epsilon_random,
+            decision_callback=capture_scrap_decision,
+        )
+        actor_b = PolicyActor(
+            policy,
+            deterministic=deterministic,
+            temperature=temperature,
+            epsilon_random=epsilon_random,
+            decision_callback=capture_scrap_decision,
+        )
+        game = Game(
+            "policy_a",
+            "policy_b",
+            p1_choose=actor_a.choose,
+            p2_choose=actor_b.choose,
+            verbose=False,
+            max_turns=config.max_turns_per_game,
+            max_actions_per_turn=config.max_actions_per_turn,
+        )
+        games_completed += 1
+        if game.ended_by_limit:
+            ended_by_limit_games += 1
+        _emit_simulation_game_progress()
+        if game_progress_callback is not None:
+            try:
+                game_progress_callback()
+            except Exception:
+                pass
+
+    return {
+        "games_completed": games_completed,
+        "ended_by_limit_games": ended_by_limit_games,
+        "scrapany_decisions": scrapany_decisions,
+        "eligible_scrapany_decisions": eligible_scrapany_decisions,
+        "decisions": decisions,
+    }
+
+
+def _simulate_scrap_elo_chunk_worker(task: Dict[str, Any]) -> Dict[str, Any]:
+    _configure_simulation_worker_runtime()
+    policy = _policy_from_simulation_payload(task, "policy_payload", "policy_cache_key")
+    config = _config_from_payload(task["config_payload"])
+    deterministic = bool(task.get("deterministic", True))
+    return _simulate_scrap_elo_games(
+        policy,
+        config,
+        game_count=max(0, int(task["game_count"])),
+        deterministic=deterministic,
+        seed=int(task["seed"]),
+    )
+
+
+def run_scrap_elo_test(
+    run_name: str = LATEST_RUN_NAME,
+    checkpoint: str = "latest",
+    games: int = SCRAP_ELO_TEST_GAMES,
+    deterministic: bool = True,
+    k_factor: float = SCRAP_ELO_K_FACTOR,
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+) -> Dict[str, Any]:
+    if games <= 0:
+        raise ValueError("games must be positive.")
+    if not math.isfinite(float(k_factor)) or float(k_factor) <= 0.0:
+        raise ValueError("k_factor must be greater than 0.")
+
+    trainer = _get_trainer(run_name)
+    config = trainer.config
+    state = trainer.state
+    resolved_checkpoint = _resolve_checkpoint_name(state, checkpoint) or str(checkpoint or "latest")
+    start_time = time.time()
+    worker_count = resolve_simulation_workers(config.simulation_workers, int(games))
+    simulation_pool = (
+        _SimulationPool(worker_count)
+        if progress_callback is not None and worker_count > 1 and int(games) > 1
+        else None
+    )
+    try:
+        policy = load_policy(run_name, checkpoint)
+    except Exception:
+        if simulation_pool is not None:
+            simulation_pool.close()
+        raise
+
+    rating_state = _initial_scrap_choice_rating_state()
+    scrapany_decisions = 0
+    eligible_scrapany_decisions = 0
+    scored_decisions = 0
+    pairwise_comparisons = 0
+    ended_by_limit_games = 0
+
+    def apply_chunk_result(chunk_result: Dict[str, Any]) -> None:
+        nonlocal scrapany_decisions
+        nonlocal eligible_scrapany_decisions
+        nonlocal scored_decisions
+        nonlocal pairwise_comparisons
+        nonlocal ended_by_limit_games
+
+        ended_by_limit_games += int(chunk_result.get("ended_by_limit_games", 0))
+        scrapany_decisions += int(chunk_result.get("scrapany_decisions", 0))
+        eligible_scrapany_decisions += int(chunk_result.get("eligible_scrapany_decisions", 0))
+        for decision in list(chunk_result.get("decisions") or []):
+            comparisons = _apply_scrap_choice_result(
+                rating_state,
+                dict(decision.get("winner_option") or {}),
+                list(decision.get("loser_options") or []),
+                float(k_factor),
+            )
+            if comparisons > 0:
+                scored_decisions += 1
+                pairwise_comparisons += comparisons
+
+    def emit_progress(games_completed: int) -> None:
+        if progress_callback is None:
+            return
+        try:
+            progress_callback(
+                {
+                    "games_completed": int(games_completed),
+                    "games_target": int(games),
+                    "duration_seconds": time.time() - start_time,
+                }
+            )
+        except Exception:
+            pass
+
+    chunk_sizes = _simulation_chunk_sizes(int(games), worker_count)
+    games_completed = 0
+
+    if worker_count <= 1 or int(games) <= 1:
+        for chunk_size in chunk_sizes:
+            def on_game_complete() -> None:
+                nonlocal games_completed
+                games_completed = min(int(games), games_completed + 1)
+                emit_progress(games_completed)
+
+            chunk_result = _simulate_scrap_elo_games(
+                policy,
+                config,
+                game_count=chunk_size,
+                deterministic=bool(deterministic),
+                game_progress_callback=on_game_complete,
+            )
+            apply_chunk_result(chunk_result)
+    else:
+        policy_payload = _policy_payload_for_simulation(policy)
+        config_payload = _config_payload_for_simulation(config)
+        tasks = [
+            {
+                "policy_payload": policy_payload,
+                "policy_cache_key": f"{run_name}:scrap:{resolved_checkpoint}:{start_time}:policy",
+                "config_payload": config_payload,
+                "game_count": chunk_size,
+                "deterministic": bool(deterministic),
+                "seed": _random_seed(),
+            }
+            for chunk_size in chunk_sizes
+        ]
+        completed_from_results = 0
+        if progress_callback is not None and simulation_pool is not None:
+            progress_queue = simulation_pool.progress_queue
+            try:
+                simulation_pool.wait_until_ready()
+                _drain_simulation_progress_queue(progress_queue)
+                futures = [
+                    simulation_pool.executor.submit(_simulate_scrap_elo_chunk_worker, task)
+                    for task in tasks
+                ]
+
+                def on_progress(delta: int) -> None:
+                    nonlocal games_completed
+                    games_completed = min(int(games), games_completed + int(delta))
+                    emit_progress(games_completed)
+
+                def on_result(chunk_result: Dict[str, Any]) -> None:
+                    nonlocal games_completed, completed_from_results
+                    completed_from_results += int(chunk_result.get("games_completed", 0))
+                    games_completed = max(games_completed, min(int(games), completed_from_results))
+                    apply_chunk_result(chunk_result)
+                    emit_progress(games_completed)
+
+                _consume_simulation_futures(futures, progress_queue, on_progress, on_result)
+            finally:
+                simulation_pool.close()
+                simulation_pool = None
+        else:
+            with _process_pool_executor(
+                max_workers=worker_count,
+                initializer=_simulation_progress_worker_init,
+                initargs=(None,),
+            ) as executor:
+                futures = [executor.submit(_simulate_scrap_elo_chunk_worker, task) for task in tasks]
+                for future in concurrent.futures.as_completed(futures):
+                    chunk_result = future.result()
+                    completed_from_results += int(chunk_result.get("games_completed", 0))
+                    games_completed = max(games_completed, min(int(games), completed_from_results))
+                    apply_chunk_result(chunk_result)
+
+    leaderboard = _scrap_choice_leaderboard(rating_state)
+    duration_seconds = time.time() - start_time
+    result: Dict[str, Any] = {
+        "run_name": run_name,
+        "checkpoint": checkpoint,
+        "resolved_checkpoint": resolved_checkpoint,
+        "games": int(games),
+        "deterministic": bool(deterministic),
+        "k_factor": float(k_factor),
+        "simulation_workers": int(config.simulation_workers),
+        "resolved_simulation_workers": worker_count,
+        "ended_by_limit_games": ended_by_limit_games,
+        "scrapany_decisions": scrapany_decisions,
+        "eligible_scrapany_decisions": eligible_scrapany_decisions,
+        "scored_decisions": scored_decisions,
+        "pairwise_comparisons": pairwise_comparisons,
+        "rating_model": "pairwise_elo",
+        "leaderboard": leaderboard,
+        "duration_seconds": duration_seconds,
+    }
+    report_text = format_scrap_elo_test_report(result)
+    result["report_text"] = report_text
+
+    files = trainer.files
+    files.analysis_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_slug = _safe_slug(resolved_checkpoint)
+    timestamp_slug = time.strftime("%Y%m%d-%H%M%S")
+    report_stem = f"scrap_elo_{checkpoint_slug}_{timestamp_slug}"
+    report_path = files.analysis_dir / f"{report_stem}.txt"
+    json_path = files.analysis_dir / f"{report_stem}.json"
+    result["report_path"] = str(report_path.resolve())
+    result["json_path"] = str(json_path.resolve())
+    report_path.write_text(report_text, encoding="utf-8")
+    _atomic_write_json(json_path, result)
+    return result
+
+
 def play_self_game(
     run_name: str = LATEST_RUN_NAME,
     checkpoint: str = "latest",
@@ -6907,11 +7484,13 @@ def _cached_policy(run_name: str, checkpoint: str) -> PolicyNetwork:
         path = files.checkpoints_dir / checkpoint
     mtime = path.stat().st_mtime if path.exists() else 0.0
     cache_key = (run_name, checkpoint)
-    cached = _POLICY_CACHE.get(cache_key)
+    with _POLICY_CACHE_LOCK:
+        cached = _POLICY_CACHE.get(cache_key)
     if cached and cached[0] == mtime:
         return cached[1]
     policy = load_policy(run_name, checkpoint)
-    _POLICY_CACHE[cache_key] = (mtime, policy)
+    with _POLICY_CACHE_LOCK:
+        _POLICY_CACHE[cache_key] = (mtime, policy)
     return policy
 
 
