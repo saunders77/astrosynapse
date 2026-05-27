@@ -6,7 +6,7 @@
   "total_matches": 33824,
   "total_games": 1548800,
   "created_at": 1779845120.5122623,
-  "updated_at": 1779911337.6655693,
+  "updated_at": 1779911340.5851066,
   "strategy": "champion_league_v2",
   "strategy_version": 2,
   "current_elo": 1020.4240000000008,
@@ -429,14 +429,14 @@
     "training_matches_total": 32,
     "training_games_completed": 512,
     "training_games_total": 512,
-    "promotion_games_completed": 833,
+    "promotion_games_completed": 892,
     "promotion_games_total": 1000,
-    "iteration_games_completed": 1345,
+    "iteration_games_completed": 1404,
     "iteration_games_total": 1512,
     "training_stage_complete": true,
     "promotion_stage_complete": false,
     "iteration_complete": false,
-    "updated_at": 1779911337.6655693
+    "updated_at": 1779911340.5851066
   },
   "device_plan": {
     "requested_backend": "cpu",
