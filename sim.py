@@ -599,6 +599,8 @@ class Player:
                 if scrapCandidate == True:
                     options.append((scrap_from_hand, i, self.hand[i]))
 
+        if required == False and len(options) == 0:
+            return 0
         if required == False:
             options.append(('noScrapFromHand',))
         decision = self.sendChoice(options)

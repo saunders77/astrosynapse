@@ -1,0 +1,115 @@
+Scrap Elo Test for sd-32g64m1000p/champion_000035.json
+Resolved checkpoint: champion_000035.json
+Games: 500
+Deterministic: True
+Ended by limit: 10 game(s)
+Scrapany decision points: 955
+Eligible scrapany decisions: 104
+Scored decisions: 104
+Pairwise comparisons: 301
+Rating update model: pairwise Elo; the selected option wins one match against each unselected unique option.
+Options are unique by source plus exact card title; noscrap is its own option.
+Higher Elo means the policy is more likely to choose that option when resolving scrapany.
+Uncertainty: approximate 1-sigma Elo standard error from diagonal Fisher information of the same pairwise model.
+Duration: 19s
+
+Option Rankings
+ 1. Discard: Scout             Elo  1384.67  +/-    34.96  dec   81  cmp   232
+ 2. Discard: Viper             Elo  1253.01  +/-    54.40  dec   40  cmp    62
+ 3. Discard: Federation Shuttle Elo  1141.02  +/-    92.12  dec    4  cmp    16
+ 4. Discard: Flagship          Elo  1103.70  +/-   135.89  dec    2  cmp     9
+ 5. Discard: Defense Center    Elo  1016.94  +/-   143.14  dec    6  cmp     8
+ 6. Discard: Cutter            Elo  1006.10  +/-   217.47  dec    2  cmp     3
+ 7. Hand: Machine Base         Elo  1004.92  +/-   430.24  dec    1  cmp     1
+ 8. Discard: Battle Mech       Elo  1000.00  +/-        -  dec    0  cmp     0
+ 9. Discard: Battlecruiser     Elo  1000.00  +/-        -  dec    0  cmp     0
+10. Discard: Blob Destroyer    Elo  1000.00  +/-        -  dec    0  cmp     0
+11. Discard: Blob World        Elo  1000.00  +/-        -  dec    0  cmp     0
+12. Discard: Brain World       Elo  1000.00  +/-        -  dec    0  cmp     0
+13. Discard: Central Office    Elo  1000.00  +/-        -  dec    0  cmp     0
+14. Discard: Dreadnaught       Elo  1000.00  +/-        -  dec    0  cmp     0
+15. Discard: Embassy Yacht     Elo  1000.00  +/-        -  dec    0  cmp     0
+16. Discard: Explorer          Elo  1000.00  +/-        -  dec    0  cmp     0
+17. Discard: Junkyard          Elo  1000.00  +/-        -  dec    0  cmp     0
+18. Discard: Missile Bot       Elo  1000.00  +/-        -  dec    0  cmp     0
+19. Discard: Mothership        Elo  1000.00  +/-        -  dec    0  cmp     0
+20. Discard: Patrol Mech       Elo  1000.00  +/-        -  dec    0  cmp     0
+21. Discard: Supply Bot        Elo  1000.00  +/-        -  dec    0  cmp     0
+22. Discard: Survey Ship       Elo  1000.00  +/-        -  dec    0  cmp     0
+23. Discard: Trade Bot         Elo  1000.00  +/-        -  dec    0  cmp     0
+24. Hand: Battle Blob          Elo  1000.00  +/-        -  dec    0  cmp     0
+25. Hand: Battle Mech          Elo  1000.00  +/-        -  dec    0  cmp     0
+26. Hand: Battle Pod           Elo  1000.00  +/-        -  dec    0  cmp     0
+27. Hand: Battlecruiser        Elo  1000.00  +/-        -  dec    0  cmp     0
+28. Hand: Blob Carrier         Elo  1000.00  +/-        -  dec    0  cmp     0
+29. Hand: Blob Destroyer       Elo  1000.00  +/-        -  dec    0  cmp     0
+30. Hand: Blob Fighter         Elo  1000.00  +/-        -  dec    0  cmp     0
+31. Hand: Blob Wheel           Elo  1000.00  +/-        -  dec    0  cmp     0
+32. Hand: Blob World           Elo  1000.00  +/-        -  dec    0  cmp     0
+33. Hand: Brain World          Elo  1000.00  +/-        -  dec    0  cmp     0
+34. Hand: Central Office       Elo  1000.00  +/-        -  dec    0  cmp     0
+35. Hand: Command Ship         Elo  1000.00  +/-        -  dec    0  cmp     0
+36. Hand: Corvette             Elo  1000.00  +/-        -  dec    0  cmp     0
+37. Hand: Cutter               Elo  1000.00  +/-        -  dec    0  cmp     0
+38. Hand: Defense Center       Elo  1000.00  +/-        -  dec    0  cmp     0
+39. Hand: Dreadnaught          Elo  1000.00  +/-        -  dec    0  cmp     0
+40. Hand: Embassy Yacht        Elo  1000.00  +/-        -  dec    0  cmp     0
+41. Hand: Explorer             Elo  1000.00  +/-        -  dec    0  cmp     0
+42. Hand: Federation Shuttle   Elo  1000.00  +/-        -  dec    0  cmp     0
+43. Hand: Flagship             Elo  1000.00  +/-        -  dec    0  cmp     0
+44. Hand: Fleet HQ             Elo  1000.00  +/-        -  dec    0  cmp     0
+45. Hand: Freighter            Elo  1000.00  +/-        -  dec    0  cmp     0
+46. Hand: Imperial Fighter     Elo  1000.00  +/-        -  dec    0  cmp     0
+47. Hand: Imperial Frigate     Elo  1000.00  +/-        -  dec    0  cmp     0
+48. Hand: Junkyard             Elo  1000.00  +/-        -  dec    0  cmp     0
+49. Hand: Mech World           Elo  1000.00  +/-        -  dec    0  cmp     0
+50. Hand: Missile Bot          Elo  1000.00  +/-        -  dec    0  cmp     0
+51. Hand: Missile Mech         Elo  1000.00  +/-        -  dec    0  cmp     0
+52. Hand: Mothership           Elo  1000.00  +/-        -  dec    0  cmp     0
+53. Hand: Patrol Mech          Elo  1000.00  +/-        -  dec    0  cmp     0
+54. Hand: Port of Call         Elo  1000.00  +/-        -  dec    0  cmp     0
+55. Hand: Ram                  Elo  1000.00  +/-        -  dec    0  cmp     0
+56. Hand: Scout                Elo  1000.00  +/-        -  dec    0  cmp     0
+57. Hand: Space Station        Elo  1000.00  +/-        -  dec    0  cmp     0
+58. Hand: Stealth Needle       Elo  1000.00  +/-        -  dec    0  cmp     0
+59. Hand: Supply Bot           Elo  1000.00  +/-        -  dec    0  cmp     0
+60. Hand: Survey Ship          Elo  1000.00  +/-        -  dec    0  cmp     0
+61. Hand: The Hive             Elo  1000.00  +/-        -  dec    0  cmp     0
+62. Hand: Trade Bot            Elo  1000.00  +/-        -  dec    0  cmp     0
+63. Hand: Trade Escort         Elo  1000.00  +/-        -  dec    0  cmp     0
+64. Hand: Trade Pod            Elo  1000.00  +/-        -  dec    0  cmp     0
+65. Hand: Trading Post         Elo  1000.00  +/-        -  dec    0  cmp     0
+66. Hand: Viper                Elo  1000.00  +/-        -  dec    0  cmp     0
+67. Hand: War World            Elo  1000.00  +/-        -  dec    0  cmp     0
+68. Discard: The Hive          Elo   997.66  +/-   585.90  dec    1  cmp     1
+69. Discard: Missile Mech      Elo   997.38  +/-   557.06  dec    1  cmp     1
+70. Discard: Trade Escort      Elo   997.10  +/-   533.23  dec    1  cmp     1
+71. Discard: Stealth Needle    Elo   996.93  +/-   520.38  dec    1  cmp     1
+72. Discard: Command Ship      Elo   995.54  +/-   422.92  dec    2  cmp     2
+73. Discard: War World         Elo   994.69  +/-   227.72  dec    3  cmp     3
+74. Hand: Barter World         Elo   994.57  +/-   387.77  dec    2  cmp     2
+75. Discard: Blob Wheel        Elo   994.53  +/-   386.64  dec    2  cmp     2
+76. Hand: Battle Station       Elo   993.82  +/-   366.81  dec    2  cmp     2
+77. Hand: Royal Redoubt        Elo   991.14  +/-   227.07  dec    3  cmp     3
+78. Discard: Trade Pod         Elo   990.13  +/-   353.06  dec    1  cmp     1
+79. Discard: Space Station     Elo   989.34  +/-   129.77  dec   11  cmp    12
+80. Hand: Recycling Station    Elo   988.96  +/-   214.01  dec    5  cmp     5
+81. Discard: Barter World      Elo   987.22  +/-   213.67  dec    4  cmp     4
+82. Discard: Battle Blob       Elo   985.00  +/-   267.24  dec    3  cmp     3
+83. Discard: Fleet HQ          Elo   984.95  +/-   264.96  dec    2  cmp     2
+84. Discard: Blob Carrier      Elo   982.43  +/-   257.49  dec    3  cmp     3
+85. Discard: Machine Base      Elo   982.13  +/-   235.00  dec    4  cmp     4
+86. Discard: Port of Call      Elo   982.08  +/-   177.39  dec    7  cmp     7
+87. Discard: Imperial Frigate  Elo   979.71  +/-   219.95  dec    5  cmp     5
+88. Discard: Freighter         Elo   978.53  +/-   248.46  dec    2  cmp     2
+89. Discard: Battle Station    Elo   971.15  +/-   168.00  dec    8  cmp     8
+90. Discard: Blob Fighter      Elo   969.88  +/-   201.68  dec    5  cmp     5
+91. Discard: Corvette          Elo   967.94  +/-   153.34  dec   11  cmp    11
+92. Discard: Ram               Elo   967.30  +/-   167.12  dec   10  cmp    10
+93. Discard: Mech World        Elo   963.81  +/-   159.38  dec   10  cmp    10
+94. Discard: Recycling Station Elo   962.77  +/-   153.67  dec   12  cmp    12
+95. Discard: Battle Pod        Elo   961.31  +/-   171.77  dec    7  cmp     7
+96. Discard: Royal Redoubt     Elo   951.18  +/-   147.67  dec    8  cmp     8
+97. Discard: Trading Post      Elo   950.28  +/-   100.52  dec   18  cmp    19
+98. Discard: Imperial Fighter  Elo   950.15  +/-   144.34  dec   11  cmp    11
+99. No Scrap                   Elo   690.02  +/-    55.88  dec  104  cmp   104
