@@ -886,10 +886,12 @@ class TrainerGUI(tk.Tk):
 
         self.runs_tree = self._build_tree(
             runs_frame,
-            columns=("status", "iteration", "elo", "best_elo", "matches", "games"),
-            headings=("Status", "Iter", "Elo", "Best Elo", "Matches", "Games"),
+            columns=("status", "created", "fork", "iteration", "elo", "best_elo", "matches", "games"),
+            headings=("Status", "Created", "Forked From", "Iter", "Elo", "Best Elo", "Matches", "Games"),
         )
         self.runs_tree.bind("<<TreeviewSelect>>", self._on_run_tree_select)
+        self.runs_tree.column("created", width=145, stretch=False)
+        self.runs_tree.column("fork", width=190, stretch=True)
 
         self.checkpoints_tree = self._build_tree(
             checkpoints_frame,
@@ -1455,6 +1457,8 @@ class TrainerGUI(tk.Tk):
             (
                 run["run_name"],
                 str(run["status"]),
+                str(run.get("created_datetime") or ""),
+                str(run.get("fork_origin") or "-"),
                 int(run["iteration"]),
                 f"{float(run['current_elo']):.1f}",
                 f"{float(run['best_elo']):.1f}",
@@ -1477,6 +1481,8 @@ class TrainerGUI(tk.Tk):
                         text=run["run_name"],
                         values=(
                             run["status"],
+                            run.get("created_datetime") or "-",
+                            run.get("fork_origin") or "-",
                             run["iteration"],
                             f"{run['current_elo']:.1f}",
                             f"{run['best_elo']:.1f}",
@@ -1758,6 +1764,8 @@ class TrainerGUI(tk.Tk):
         details = [
             f"Run: {run_name}",
             f"Directory: {summary.get('run_dir', '-')}",
+            f"Created: {summary.get('created_datetime') or state.get('created_datetime') or '-'}",
+            f"Forked from: {summary.get('fork_origin') or state.get('fork_origin') or sp._fork_origin_label(forked_from)}",
             "",
             "Progress",
             f"- Status: {summary.get('status')}",
@@ -1851,6 +1859,7 @@ class TrainerGUI(tk.Tk):
             f"- Target hidden size: {forked_from.get('target_hidden_size', '-')}",
             f"- Requested model type: {forked_from.get('requested_model_type', '-')}",
             f"- Conversion mode: {forked_from.get('conversion_mode', '-')}",
+            f"- Fork created: {sp._format_timestamp(forked_from.get('created_at')) or '-'}",
             "",
             "Config",
             *(config_lines or ["- No saved config"]),
@@ -1909,6 +1918,10 @@ class TrainerGUI(tk.Tk):
                 "last_rating_pass": None,
                 "live_progress": None,
                 "last_error": None,
+                "created_at": None,
+                "created_datetime": "-",
+                "forked_from": None,
+                "fork_origin": "-",
                 "runtime": "-",
                 "device_backend": "cpu",
                 "device_repr": "cpu",
@@ -1941,6 +1954,10 @@ class TrainerGUI(tk.Tk):
         return {
             "run_name": state.get("run_name", run_name),
             "status": state.get("status", "idle"),
+            "created_at": state.get("created_at"),
+            "created_datetime": state.get("created_datetime") or sp._format_timestamp(state.get("created_at")),
+            "forked_from": state.get("forked_from"),
+            "fork_origin": state.get("fork_origin") or sp._fork_origin_label(state.get("forked_from")),
             "iteration": int(state.get("iteration", 0)),
             "total_matches": int(state.get("total_matches", 0)),
             "total_games": int(state.get("total_games", 0)),

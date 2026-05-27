@@ -19,6 +19,7 @@ import threading
 import time
 import warnings
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -250,6 +251,29 @@ def _format_seconds(seconds: float) -> str:
     if minutes > 0:
         return f"{minutes}m {secs:02d}s"
     return f"{secs}s"
+
+
+def _format_timestamp(timestamp: Any) -> str:
+    try:
+        return datetime.fromtimestamp(float(timestamp)).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError, OSError, OverflowError):
+        return ""
+
+
+def _fork_origin_label(forked_from: Any) -> str:
+    if not isinstance(forked_from, dict) or not forked_from:
+        return "-"
+    source_run = str(forked_from.get("run_name") or "").strip()
+    source_checkpoint = str(
+        forked_from.get("resolved_checkpoint")
+        or forked_from.get("checkpoint")
+        or ""
+    ).strip()
+    if source_run and source_checkpoint:
+        return f"{source_run}/{source_checkpoint}"
+    if source_run:
+        return source_run
+    return "-"
 
 
 def _format_mebibytes(byte_count: int) -> str:
@@ -2546,6 +2570,7 @@ def new_run_overrides(
 
 
 def _default_training_state(config: TrainingConfig) -> Dict[str, Any]:
+    created_at = _timestamp()
     return {
         "status": "idle",
         "run_name": LATEST_RUN_NAME,
@@ -2553,8 +2578,10 @@ def _default_training_state(config: TrainingConfig) -> Dict[str, Any]:
         "iteration": 0,
         "total_matches": 0,
         "total_games": 0,
-        "created_at": _timestamp(),
-        "updated_at": _timestamp(),
+        "created_at": created_at,
+        "created_datetime": _format_timestamp(created_at),
+        "updated_at": created_at,
+        "forked_from": None,
         "strategy": "champion_league_v2",
         "strategy_version": 2,
         "current_elo": INITIAL_ELO,
@@ -2674,6 +2701,19 @@ def _ensure_checkpoint_entry(state: Dict[str, Any], checkpoint_name: str, iterat
 def _migrate_run_state(files: RunFiles, policy: PolicyNetwork, state: Dict[str, Any], config: TrainingConfig) -> Tuple[PolicyNetwork, Dict[str, Any], bool]:
     dirty = False
     state["run_name"] = state.get("run_name", files.run_name)
+    if state.get("created_at") is None:
+        try:
+            state["created_at"] = files.training_state_file.stat().st_mtime
+        except OSError:
+            state["created_at"] = _timestamp()
+        dirty = True
+    created_datetime = _format_timestamp(state.get("created_at"))
+    if state.get("created_datetime") != created_datetime:
+        state["created_datetime"] = created_datetime
+        dirty = True
+    if "forked_from" not in state:
+        state["forked_from"] = None
+        dirty = True
     state["checkpoints"] = list(state.get("checkpoints") or [])
 
     for checkpoint in state["checkpoints"]:
@@ -2952,6 +2992,9 @@ def list_runs() -> List[Dict[str, Any]]:
         state_path = run_dir / "training_state.json"
         state = _load_cached_json_or_none(state_path) or {}
         checkpoints = list(state.get("checkpoints") or [])
+        created_at = state.get("created_at")
+        created_datetime = state.get("created_datetime") or _format_timestamp(created_at)
+        forked_from = state.get("forked_from")
         runs.append(
             {
                 "run_name": state.get("run_name", run_dir.name),
@@ -2965,7 +3008,10 @@ def list_runs() -> List[Dict[str, Any]]:
                 "latest_checkpoint": state.get("latest_checkpoint"),
                 "promotions": int(state.get("promotions", 0)),
                 "checkpoint_count": len(checkpoints),
-                "created_at": state.get("created_at"),
+                "created_at": created_at,
+                "created_datetime": created_datetime,
+                "forked_from": forked_from,
+                "fork_origin": _fork_origin_label(forked_from),
                 "updated_at": state.get("updated_at"),
                 "last_match": state.get("last_match"),
                 "last_update": state.get("last_update"),
@@ -3018,6 +3064,8 @@ def get_run_state(run_name: str = LATEST_RUN_NAME) -> Dict[str, Any]:
     if not state:
         return {}
     state["run_name"] = state.get("run_name", run_name)
+    state["created_datetime"] = state.get("created_datetime") or _format_timestamp(state.get("created_at"))
+    state["fork_origin"] = _fork_origin_label(state.get("forked_from"))
     state["run_dir"] = str(files.run_dir)
     state["candidate_policy_file"] = str(files.candidate_policy_file)
     return state
@@ -4870,6 +4918,10 @@ class SelfPlayTrainer:
         return {
             "run_name": self.run_name,
             "status": self.state.get("status", "idle"),
+            "created_at": self.state.get("created_at"),
+            "created_datetime": self.state.get("created_datetime") or _format_timestamp(self.state.get("created_at")),
+            "forked_from": self.state.get("forked_from"),
+            "fork_origin": _fork_origin_label(self.state.get("forked_from")),
             "iteration": self.state.get("iteration", 0),
             "total_matches": self.state.get("total_matches", 0),
             "total_games": self.state.get("total_games", 0),
