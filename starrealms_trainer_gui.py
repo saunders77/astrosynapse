@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import os
 import queue
 import sys
@@ -492,7 +493,10 @@ class TrainerGUI(tk.Tk):
         self.new_run_matches_var = tk.StringVar(value="5")
         self.new_run_games_var = tk.StringVar(value="16")
         self.new_run_decisions_var = tk.StringVar(value=sp.TRAINING_DECISIONS_PER_GAME_ALL)
+        self.new_run_learning_rate_var = tk.StringVar(value="0.0019")
+        self.new_run_epsilon_var = tk.StringVar(value="0.07")
         self.new_run_train_temperature_var = tk.StringVar(value="0.9")
+        self.new_run_ppo_clip_var = tk.StringVar(value="0.2")
         self.new_run_promotion_games_var = tk.StringVar(value="24")
         self.new_run_promotion_threshold_var = tk.StringVar(value="0.6")
         self.fork_source_run_var = tk.StringVar(value=sp.LATEST_RUN_NAME)
@@ -503,7 +507,10 @@ class TrainerGUI(tk.Tk):
         self.include_candidate_var = tk.BooleanVar(value=True)
         self.human_name_var = tk.StringVar(value="Human")
         self.policy_name_var = tk.StringVar(value="Policy")
+        self.run_learning_rate_var = tk.StringVar(value="0.0019")
+        self.run_epsilon_var = tk.StringVar(value="0.07")
         self.run_train_temperature_var = tk.StringVar(value="0.9")
+        self.run_ppo_clip_var = tk.StringVar(value="0.2")
         self.run_promotion_threshold_var = tk.StringVar(value="0.6")
         self.run_workers_var = tk.StringVar(value=str(sp.SIMULATION_WORKERS_AUTO))
         self._loaded_run_settings_run_name: Optional[str] = None
@@ -758,14 +765,24 @@ class TrainerGUI(tk.Tk):
             state="readonly",
             width=6,
         ).pack(side="left", padx=(6, 16))
-        ttk.Label(new_run_row, text="Train Temp").pack(side="left")
-        ttk.Entry(new_run_row, textvariable=self.new_run_train_temperature_var, width=6).pack(side="left", padx=(6, 16))
-        ttk.Label(new_run_row, text="Promotion Games").pack(side="left")
-        ttk.Entry(new_run_row, textvariable=self.new_run_promotion_games_var, width=8).pack(side="left", padx=(6, 16))
-        ttk.Label(new_run_row, text="Promote Win %").pack(side="left")
-        ttk.Entry(new_run_row, textvariable=self.new_run_promotion_threshold_var, width=6).pack(side="left", padx=(6, 16))
+
+        new_run_policy_row = tk.Frame(controls, bg=WINDOW_BG)
+        new_run_policy_row.grid(row=4, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        ttk.Label(new_run_policy_row, text="New Run Training").pack(side="left")
+        ttk.Label(new_run_policy_row, text="LR").pack(side="left", padx=(16, 0))
+        ttk.Entry(new_run_policy_row, textvariable=self.new_run_learning_rate_var, width=8).pack(side="left", padx=(6, 16))
+        ttk.Label(new_run_policy_row, text="Epsilon").pack(side="left")
+        ttk.Entry(new_run_policy_row, textvariable=self.new_run_epsilon_var, width=6).pack(side="left", padx=(6, 16))
+        ttk.Label(new_run_policy_row, text="Train Temp").pack(side="left")
+        ttk.Entry(new_run_policy_row, textvariable=self.new_run_train_temperature_var, width=6).pack(side="left", padx=(6, 16))
+        ttk.Label(new_run_policy_row, text="PPO Clip").pack(side="left")
+        ttk.Entry(new_run_policy_row, textvariable=self.new_run_ppo_clip_var, width=6).pack(side="left", padx=(6, 16))
+        ttk.Label(new_run_policy_row, text="Promotion Games").pack(side="left")
+        ttk.Entry(new_run_policy_row, textvariable=self.new_run_promotion_games_var, width=8).pack(side="left", padx=(6, 16))
+        ttk.Label(new_run_policy_row, text="Promote Win %").pack(side="left")
+        ttk.Entry(new_run_policy_row, textvariable=self.new_run_promotion_threshold_var, width=6).pack(side="left", padx=(6, 16))
         new_run_tip = tk.Label(
-            new_run_row,
+            new_run_policy_row,
             text="These settings are used when creating a fresh run or forking from a checkpoint.",
             bg=WINDOW_BG,
             fg=MUTED,
@@ -775,7 +792,7 @@ class TrainerGUI(tk.Tk):
         new_run_tip.pack(side="left")
 
         fork_row = tk.Frame(controls, bg=WINDOW_BG)
-        fork_row.grid(row=4, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        fork_row.grid(row=5, column=0, columnspan=7, sticky="ew", pady=(10, 0))
         ttk.Label(fork_row, text="Fork Source Run").pack(side="left")
         self.fork_source_run_combo = ttk.Combobox(
             fork_row,
@@ -804,10 +821,17 @@ class TrainerGUI(tk.Tk):
         fork_tip.pack(side="left")
 
         run_config_row = tk.Frame(controls, bg=WINDOW_BG)
-        run_config_row.grid(row=5, column=0, columnspan=7, sticky="ew", pady=(10, 0))
-        ttk.Label(run_config_row, text="Selected Run Train Temp").pack(side="left")
+        run_config_row.grid(row=6, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        ttk.Label(run_config_row, text="Selected Run Settings").pack(side="left")
+        ttk.Label(run_config_row, text="LR").pack(side="left", padx=(16, 0))
+        ttk.Entry(run_config_row, textvariable=self.run_learning_rate_var, width=8).pack(side="left", padx=(6, 16))
+        ttk.Label(run_config_row, text="Epsilon").pack(side="left")
+        ttk.Entry(run_config_row, textvariable=self.run_epsilon_var, width=6).pack(side="left", padx=(6, 16))
+        ttk.Label(run_config_row, text="Train Temp").pack(side="left")
         ttk.Entry(run_config_row, textvariable=self.run_train_temperature_var, width=6).pack(side="left", padx=(6, 16))
-        ttk.Label(run_config_row, text="Selected Run Promote Win %").pack(side="left")
+        ttk.Label(run_config_row, text="PPO Clip").pack(side="left")
+        ttk.Entry(run_config_row, textvariable=self.run_ppo_clip_var, width=6).pack(side="left", padx=(6, 16))
+        ttk.Label(run_config_row, text="Promote Win %").pack(side="left")
         ttk.Entry(run_config_row, textvariable=self.run_promotion_threshold_var, width=6).pack(side="left", padx=(6, 16))
         ttk.Label(run_config_row, text="Workers").pack(side="left")
         ttk.Entry(run_config_row, textvariable=self.run_workers_var, width=6).pack(side="left", padx=(6, 16))
@@ -823,7 +847,7 @@ class TrainerGUI(tk.Tk):
         ).pack(side="left")
 
         rating_row = tk.Frame(controls, bg=WINDOW_BG)
-        rating_row.grid(row=6, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        rating_row.grid(row=7, column=0, columnspan=7, sticky="ew", pady=(10, 0))
         ttk.Label(rating_row, text="Rating Policies").pack(side="left")
         ttk.Entry(rating_row, textvariable=self.rating_models_var, width=8).pack(side="left", padx=(6, 16))
         ttk.Label(rating_row, text="Games / Pair").pack(side="left")
@@ -844,7 +868,7 @@ class TrainerGUI(tk.Tk):
         rating_tip.pack(side="left", padx=(16, 0))
 
         name_row = tk.Frame(controls, bg=WINDOW_BG)
-        name_row.grid(row=7, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        name_row.grid(row=8, column=0, columnspan=7, sticky="ew", pady=(10, 0))
         ttk.Label(name_row, text="Human Name").pack(side="left")
         ttk.Entry(name_row, textvariable=self.human_name_var, width=18).pack(side="left", padx=(6, 16))
         ttk.Label(name_row, text="Policy Display Name").pack(side="left")
@@ -925,11 +949,29 @@ class TrainerGUI(tk.Tk):
 
         self.checkpoints_tree = self._build_tree(
             checkpoints_frame,
-            columns=("iteration", "elo", "flags"),
-            headings=("Iter", "Elo", "Flags"),
+            columns=(
+                "iteration",
+                "elo",
+                "promote_win",
+                "learning_rate",
+                "epsilon_random",
+                "train_temperature",
+                "ppo_clip",
+                "promote_threshold",
+                "flags",
+            ),
+            headings=("Iter", "Elo", "Promote %", "LR", "Eps", "Temp", "PPO", "Req %", "Flags"),
             selectmode="extended",
         )
         self.checkpoints_tree.bind("<<TreeviewSelect>>", self._on_checkpoint_tree_select)
+        self.checkpoints_tree.column("iteration", width=56, stretch=False)
+        self.checkpoints_tree.column("elo", width=72, stretch=False)
+        self.checkpoints_tree.column("promote_win", width=82, stretch=False)
+        self.checkpoints_tree.column("learning_rate", width=72, stretch=False)
+        self.checkpoints_tree.column("epsilon_random", width=60, stretch=False)
+        self.checkpoints_tree.column("train_temperature", width=60, stretch=False)
+        self.checkpoints_tree.column("ppo_clip", width=60, stretch=False)
+        self.checkpoints_tree.column("promote_threshold", width=64, stretch=False)
         checkpoint_actions = tk.Frame(checkpoints_frame, bg=WINDOW_BG)
         checkpoint_actions.pack(fill="x", pady=(8, 0))
         self.delete_checkpoint_button = self._button(
@@ -1307,9 +1349,27 @@ class TrainerGUI(tk.Tk):
         except ValueError as exc:
             raise ValueError(str(exc))
 
+    def _new_run_learning_rate(self) -> float:
+        try:
+            return sp.normalize_learning_rate(self.new_run_learning_rate_var.get().strip())
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
+    def _new_run_epsilon_random(self) -> float:
+        try:
+            return sp.normalize_epsilon_random(self.new_run_epsilon_var.get().strip())
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
     def _new_run_train_temperature(self) -> float:
         try:
             return sp.normalize_train_temperature(self.new_run_train_temperature_var.get().strip())
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
+    def _new_run_ppo_clip(self) -> float:
+        try:
+            return sp.normalize_ppo_clip(self.new_run_ppo_clip_var.get().strip())
         except ValueError as exc:
             raise ValueError(str(exc))
 
@@ -1340,6 +1400,24 @@ class TrainerGUI(tk.Tk):
         except ValueError as exc:
             raise ValueError(str(exc))
 
+    def _selected_run_learning_rate(self) -> float:
+        try:
+            return sp.normalize_learning_rate(self.run_learning_rate_var.get().strip())
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
+    def _selected_run_epsilon_random(self) -> float:
+        try:
+            return sp.normalize_epsilon_random(self.run_epsilon_var.get().strip())
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
+    def _selected_run_ppo_clip(self) -> float:
+        try:
+            return sp.normalize_ppo_clip(self.run_ppo_clip_var.get().strip())
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
     def _selected_run_promotion_threshold(self) -> float:
         try:
             return sp.normalize_promotion_score_threshold(self.run_promotion_threshold_var.get().strip())
@@ -1360,7 +1438,10 @@ class TrainerGUI(tk.Tk):
             training_matches_per_iteration=self._new_run_training_matches(),
             training_games_per_match=self._new_run_games_per_match(),
             training_decisions_per_game=self._new_run_decisions_per_game(),
+            learning_rate=self._new_run_learning_rate(),
+            epsilon_random=self._new_run_epsilon_random(),
             train_temperature=self._new_run_train_temperature(),
+            ppo_clip=self._new_run_ppo_clip(),
             promotion_games=self._new_run_promotion_games(),
             promotion_score_threshold=self._new_run_promotion_threshold(),
         )
@@ -1540,11 +1621,17 @@ class TrainerGUI(tk.Tk):
             return
         config = state.get("config") or {}
         if config:
+            self.run_learning_rate_var.set(str(config.get("learning_rate", 0.0019)))
+            self.run_epsilon_var.set(str(config.get("epsilon_random", 0.07)))
             self.run_train_temperature_var.set(str(config.get("train_temperature", 0.9)))
+            self.run_ppo_clip_var.set(str(config.get("ppo_clip", 0.2)))
             self.run_promotion_threshold_var.set(str(config.get("promotion_score_threshold", 0.6)))
             self.run_workers_var.set(str(config.get("simulation_workers", sp.SIMULATION_WORKERS_AUTO)))
         else:
+            self.run_learning_rate_var.set("0.0019")
+            self.run_epsilon_var.set("0.07")
             self.run_train_temperature_var.set("0.9")
+            self.run_ppo_clip_var.set("0.2")
             self.run_promotion_threshold_var.set("0.6")
             self.run_workers_var.set(str(sp.SIMULATION_WORKERS_AUTO))
         self._loaded_run_settings_run_name = run_name
@@ -1703,40 +1790,88 @@ class TrainerGUI(tk.Tk):
         selected_items = list(self.checkpoints_tree.selection())
         selected_checkpoint = selected_items[-1] if selected_items else None
 
+        def optional_float(value: Any) -> Optional[float]:
+            try:
+                if value is None:
+                    return None
+                number = float(value)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(number):
+                return None
+            return number
+
+        def promotion_score(checkpoint: Dict[str, Any]) -> Optional[float]:
+            score = optional_float(checkpoint.get("promotion_score"))
+            if score is not None:
+                return score
+            percent = optional_float(checkpoint.get("promotion_win_percent"))
+            if percent is not None:
+                return percent / 100.0
+            eval_summary = checkpoint.get("promotion_eval") or {}
+            games_played = optional_float(eval_summary.get("games_played"))
+            if games_played is None or games_played <= 0.0:
+                return None
+            wins = optional_float(eval_summary.get("wins_a"))
+            if wins is None:
+                wins = optional_float(eval_summary.get("wins"))
+            if wins is None:
+                return None
+            return wins / games_played
+
+        def format_number(value: Any, precision: int = 4) -> str:
+            number = optional_float(value)
+            if number is None:
+                return "-"
+            return f"{number:.{precision}g}"
+
+        def format_percent_score(score: Optional[float]) -> str:
+            if score is None:
+                return "-"
+            return f"{score * 100.0:.1f}%"
+
+        checkpoint_rows = []
+        for checkpoint in checkpoints:
+            flags = []
+            if checkpoint.get("is_latest"):
+                flags.append("latest")
+            if checkpoint.get("is_best"):
+                flags.append("best")
+            if checkpoint.get("is_candidate"):
+                flags.append("candidate")
+            settings = checkpoint.get("promotion_settings") or {}
+            values = (
+                checkpoint.get("iteration", 0),
+                f"{float(checkpoint.get('elo', sp.INITIAL_ELO)):.1f}",
+                format_percent_score(promotion_score(checkpoint)),
+                format_number(settings.get("learning_rate"), precision=4),
+                format_number(settings.get("epsilon_random"), precision=3),
+                format_number(settings.get("train_temperature"), precision=3),
+                format_number(settings.get("ppo_clip"), precision=3),
+                format_percent_score(optional_float(settings.get("promotion_score_threshold"))),
+                ", ".join(flags) or "-",
+            )
+            checkpoint_rows.append((checkpoint, values))
+
         checkpoint_tree_key = (
             run_name,
             tuple(
                 (
                     checkpoint["name"],
-                    int(checkpoint.get("iteration", 0)),
-                    f"{float(checkpoint.get('elo', sp.INITIAL_ELO)):.1f}",
-                    bool(checkpoint.get("is_latest")),
-                    bool(checkpoint.get("is_best")),
-                    bool(checkpoint.get("is_candidate")),
+                    *values,
                 )
-                for checkpoint in checkpoints
+                for checkpoint, values in checkpoint_rows
             ),
         )
         if checkpoint_tree_key != self._last_checkpoint_tree_key:
             self.checkpoints_tree.delete(*self.checkpoints_tree.get_children())
-            for checkpoint in checkpoints:
-                flags = []
-                if checkpoint.get("is_latest"):
-                    flags.append("latest")
-                if checkpoint.get("is_best"):
-                    flags.append("best")
-                if checkpoint.get("is_candidate"):
-                    flags.append("candidate")
+            for checkpoint, values in checkpoint_rows:
                 self.checkpoints_tree.insert(
                     "",
                     "end",
                     iid=checkpoint["name"],
                     text=checkpoint["name"],
-                    values=(
-                        checkpoint.get("iteration", 0),
-                        f"{float(checkpoint.get('elo', sp.INITIAL_ELO)):.1f}",
-                        ", ".join(flags) or "-",
-                    ),
+                    values=values,
                 )
             self._last_checkpoint_tree_key = checkpoint_tree_key
 
@@ -2410,7 +2545,10 @@ class TrainerGUI(tk.Tk):
                 f"and {config.get('training_matches_per_iteration')} match(es)/iter, "
                 f"{config.get('training_games_per_match')} game(s)/match, "
                 f"{config.get('training_decisions_per_game')} decision(s)/game, "
+                f"learning_rate={config.get('learning_rate')}, "
+                f"epsilon_random={config.get('epsilon_random')}, "
                 f"train_temperature={config.get('train_temperature')}, "
+                f"ppo_clip={config.get('ppo_clip')}, "
                 f"promotion_threshold={config.get('promotion_score_threshold')}, "
                 f"{config.get('promotion_games')} promotion game(s), "
                 f"simulation_workers={config.get('simulation_workers')}."
@@ -2444,7 +2582,10 @@ class TrainerGUI(tk.Tk):
                 training_matches_per_iteration=overrides["training_matches_per_iteration"],
                 training_games_per_match=overrides["training_games_per_match"],
                 training_decisions_per_game=overrides["training_decisions_per_game"],
+                learning_rate=overrides["learning_rate"],
+                epsilon_random=overrides["epsilon_random"],
                 train_temperature=overrides["train_temperature"],
+                ppo_clip=overrides["ppo_clip"],
                 promotion_games=overrides["promotion_games"],
                 promotion_score_threshold=overrides["promotion_score_threshold"],
                 simulation_workers=overrides["simulation_workers"],
@@ -2462,7 +2603,10 @@ class TrainerGUI(tk.Tk):
                 f"and {config.get('training_matches_per_iteration')} match(es)/iter, "
                 f"{config.get('training_games_per_match')} game(s)/match, "
                 f"{config.get('training_decisions_per_game')} decision(s)/game, "
+                f"learning_rate={config.get('learning_rate')}, "
+                f"epsilon_random={config.get('epsilon_random')}, "
                 f"train_temperature={config.get('train_temperature')}, "
+                f"ppo_clip={config.get('ppo_clip')}, "
                 f"promotion_threshold={config.get('promotion_score_threshold')}, "
                 f"{config.get('promotion_games')} promotion game(s), "
                 f"simulation_workers={config.get('simulation_workers')}."
@@ -2482,7 +2626,10 @@ class TrainerGUI(tk.Tk):
             messagebox.showerror("Run does not exist", f"Run '{run_name}' does not exist yet.", parent=self)
             return
         try:
+            learning_rate = self._selected_run_learning_rate()
+            epsilon_random = self._selected_run_epsilon_random()
             train_temperature = self._selected_run_train_temperature()
+            ppo_clip = self._selected_run_ppo_clip()
             promotion_threshold = self._selected_run_promotion_threshold()
             simulation_workers = self._selected_run_simulation_workers()
         except ValueError as exc:
@@ -2492,7 +2639,10 @@ class TrainerGUI(tk.Tk):
         def action() -> Dict[str, Any]:
             return sp.update_run_config(
                 run_name=run_name,
+                learning_rate=learning_rate,
+                epsilon_random=epsilon_random,
                 train_temperature=train_temperature,
+                ppo_clip=ppo_clip,
                 promotion_score_threshold=promotion_threshold,
                 simulation_workers=simulation_workers,
             )
@@ -2503,7 +2653,10 @@ class TrainerGUI(tk.Tk):
             self._loaded_run_settings_run_name = None
             self.log(
                 f"Updated run settings for '{run_name}': "
+                f"learning_rate={config.get('learning_rate')}, "
+                f"epsilon_random={config.get('epsilon_random')}, "
                 f"train_temperature={config.get('train_temperature')}, "
+                f"ppo_clip={config.get('ppo_clip')}, "
                 f"promotion_score_threshold={config.get('promotion_score_threshold')}, "
                 f"simulation_workers={config.get('simulation_workers')}."
             )

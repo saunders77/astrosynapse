@@ -2602,6 +2602,48 @@ def train_temperature_overrides(train_temperature: float) -> Dict[str, float]:
     return {"train_temperature": normalized_temperature}
 
 
+def normalize_learning_rate(value: Any) -> float:
+    try:
+        learning_rate = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("learning_rate must be a number.")
+    if not math.isfinite(learning_rate) or learning_rate <= 0.0:
+        raise ValueError("learning_rate must be greater than 0.")
+    return learning_rate
+
+
+def normalize_epsilon_random(value: Any) -> float:
+    try:
+        epsilon_random = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("epsilon_random must be a number.")
+    if not math.isfinite(epsilon_random) or epsilon_random < 0.0 or epsilon_random > 1.0:
+        raise ValueError("epsilon_random must be between 0 and 1.")
+    return epsilon_random
+
+
+def normalize_ppo_clip(value: Any) -> float:
+    try:
+        ppo_clip = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("ppo_clip must be a number.")
+    if not math.isfinite(ppo_clip) or ppo_clip <= 0.0:
+        raise ValueError("ppo_clip must be greater than 0.")
+    return ppo_clip
+
+
+def training_hyperparameter_overrides(
+    learning_rate: float,
+    epsilon_random: float,
+    ppo_clip: float,
+) -> Dict[str, float]:
+    return {
+        "learning_rate": round(normalize_learning_rate(learning_rate), 12),
+        "epsilon_random": round(normalize_epsilon_random(epsilon_random), 6),
+        "ppo_clip": round(normalize_ppo_clip(ppo_clip), 6),
+    }
+
+
 def normalize_promotion_score_threshold(value: Any) -> float:
     try:
         threshold = float(value)
@@ -2617,7 +2659,10 @@ def new_run_overrides(
     training_matches_per_iteration: int = 5,
     training_games_per_match: int = 16,
     training_decisions_per_game: str = TRAINING_DECISIONS_PER_GAME_ALL,
+    learning_rate: float = 0.0019,
+    epsilon_random: float = 0.07,
     train_temperature: float = 0.9,
+    ppo_clip: float = 0.2,
     promotion_games: int = 24,
     promotion_score_threshold: float = 0.6,
     simulation_workers: int = SIMULATION_WORKERS_AUTO,
@@ -2632,6 +2677,7 @@ def new_run_overrides(
 
     overrides = model_type_overrides(model_type)
     overrides.update(train_temperature_overrides(train_temperature))
+    overrides.update(training_hyperparameter_overrides(learning_rate, epsilon_random, ppo_clip))
     overrides.update(
         {
             "device_preference": str(device_preference or DEVICE_AUTO).strip().lower(),
@@ -2900,6 +2946,7 @@ def _ensure_run(run_name: str, config_overrides: Optional[Dict[str, Any]] = None
         architecture=config.model_architecture,
         device_preference=config.device_preference,
     )
+    policy._reset_optimizer(config.learning_rate)
     state = _default_training_state(config)
     state["run_name"] = run_name
     state["device_plan"] = policy.device_summary()
@@ -2939,6 +2986,17 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
         saved_config["simulation_workers"] = SIMULATION_WORKERS_AUTO
     else:
         saved_config["simulation_workers"] = normalize_simulation_workers(saved_config.get("simulation_workers"))
+    for key, default_value, normalizer in (
+        ("learning_rate", 0.0019, normalize_learning_rate),
+        ("epsilon_random", 0.07, normalize_epsilon_random),
+        ("ppo_clip", 0.2, normalize_ppo_clip),
+        ("train_temperature", 0.9, normalize_train_temperature),
+        ("promotion_score_threshold", 0.6, normalize_promotion_score_threshold),
+    ):
+        if key not in saved_config:
+            saved_config[key] = default_value
+        else:
+            saved_config[key] = normalizer(saved_config.get(key))
     for removed_schedule_key in (
         "min_learning_rate",
         "min_ppo_clip",
@@ -3731,6 +3789,21 @@ def _extend_sample_reservoir(
     return seen
 
 
+def _promotion_settings_snapshot(config: TrainingConfig) -> Dict[str, Any]:
+    return {
+        "learning_rate": float(config.learning_rate),
+        "epsilon_random": float(config.epsilon_random),
+        "train_temperature": float(config.train_temperature),
+        "ppo_clip": float(config.ppo_clip),
+        "promotion_score_threshold": float(config.promotion_score_threshold),
+        "promotion_games": int(config.promotion_games),
+        "training_matches_per_iteration": int(config.training_matches_per_iteration),
+        "training_games_per_match": int(config.training_games_per_match),
+        "training_decisions_per_game": normalize_training_decisions_per_game(config.training_decisions_per_game),
+        "simulation_workers": int(config.simulation_workers),
+    }
+
+
 class SelfPlayTrainer:
     def __init__(self, run_name: str = LATEST_RUN_NAME, config_overrides: Optional[Dict[str, Any]] = None) -> None:
         files, policy, state, config = _load_policy_and_state(run_name, config_overrides=config_overrides)
@@ -4444,7 +4517,13 @@ class SelfPlayTrainer:
         candidate_state["rating_pass_elo"] = float(self.state.get("current_elo", INITIAL_ELO))
         self.state["candidate"] = candidate_state
 
-    def _promote_candidate(self, iteration: int, eval_summary: Dict[str, Any], training_summary: Dict[str, Any]) -> str:
+    def _promote_candidate(
+        self,
+        iteration: int,
+        eval_summary: Dict[str, Any],
+        training_summary: Dict[str, Any],
+        promotion_config: TrainingConfig,
+    ) -> str:
         previous_checkpoint = self.state.get("latest_checkpoint", "checkpoint_000000.json")
         previous_entry = _ensure_checkpoint_entry(
             self.state,
@@ -4454,7 +4533,7 @@ class SelfPlayTrainer:
         )
         previous_elo = float(previous_entry.get("elo", self.state.get("current_elo", INITIAL_ELO)))
         score = float(eval_summary.get("wins_a", 0)) / max(int(eval_summary.get("games_played", 0)), 1)
-        new_candidate_elo, updated_previous_elo = _elo_update(previous_elo, previous_elo, score, self.config.elo_k)
+        new_candidate_elo, updated_previous_elo = _elo_update(previous_elo, previous_elo, score, promotion_config.elo_k)
         previous_entry["elo"] = updated_previous_elo
         previous_entry["last_defense"] = eval_summary
 
@@ -4468,6 +4547,9 @@ class SelfPlayTrainer:
         promoted_entry["created_at"] = promoted_at
         promoted_entry["promoted_from"] = previous_checkpoint
         promoted_entry["promotion_eval"] = eval_summary
+        promoted_entry["promotion_score"] = score
+        promoted_entry["promotion_win_percent"] = round(score * 100.0, 6)
+        promoted_entry["promotion_settings"] = _promotion_settings_snapshot(promotion_config)
         promoted_entry["training_summary"] = training_summary
 
         self.policy = self.candidate_policy.clone()
@@ -4845,7 +4927,12 @@ class SelfPlayTrainer:
         }
 
         if promoted:
-            promoted_checkpoint = self._promote_candidate(next_iteration, eval_summary, training_summary)
+            promoted_checkpoint = self._promote_candidate(
+                next_iteration,
+                eval_summary,
+                training_summary,
+                scheduled_config,
+            )
             total_promotions += 1
             self.state["promotions"] = int(self.state.get("promotions", 0)) + 1
             action = "promoted"
@@ -5041,6 +5128,7 @@ class SelfPlayTrainer:
             "learning_rate": float(scheduled_config.learning_rate),
             "epsilon_random": float(scheduled_config.epsilon_random),
             "train_temperature": float(scheduled_config.train_temperature),
+            "ppo_clip": float(scheduled_config.ppo_clip),
         }
 
 
@@ -5152,11 +5240,16 @@ def train_iterations(
 def create_run(
     run_name: str,
     model_type: str = MODEL_TYPE_DEEP,
+    model_architecture: Optional[str] = None,
+    hidden_size: Optional[int] = None,
     device_preference: str = DEVICE_AUTO,
     training_matches_per_iteration: int = 5,
     training_games_per_match: int = 16,
     training_decisions_per_game: str = TRAINING_DECISIONS_PER_GAME_ALL,
+    learning_rate: float = 0.0019,
+    epsilon_random: float = 0.07,
     train_temperature: float = 0.9,
+    ppo_clip: float = 0.2,
     promotion_games: int = 24,
     promotion_score_threshold: float = 0.6,
     simulation_workers: int = SIMULATION_WORKERS_AUTO,
@@ -5172,11 +5265,18 @@ def create_run(
         training_matches_per_iteration=training_matches_per_iteration,
         training_games_per_match=training_games_per_match,
         training_decisions_per_game=training_decisions_per_game,
+        learning_rate=learning_rate,
+        epsilon_random=epsilon_random,
         train_temperature=train_temperature,
+        ppo_clip=ppo_clip,
         promotion_games=promotion_games,
         promotion_score_threshold=promotion_score_threshold,
         simulation_workers=simulation_workers,
     )
+    if model_architecture is not None:
+        overrides["model_architecture"] = str(model_architecture)
+    if hidden_size is not None:
+        overrides["hidden_size"] = int(hidden_size)
     _ensure_run(run_name, config_overrides=overrides)
     trainer = _get_trainer(run_name, overrides)
     return trainer.progress_summary()
@@ -5187,11 +5287,16 @@ def create_run_from_checkpoint(
     source_run_name: str,
     source_checkpoint: str = "latest",
     model_type: str = MODEL_TYPE_DEEP,
+    model_architecture: Optional[str] = None,
+    hidden_size: Optional[int] = None,
     device_preference: str = DEVICE_AUTO,
     training_matches_per_iteration: int = 5,
     training_games_per_match: int = 16,
     training_decisions_per_game: str = TRAINING_DECISIONS_PER_GAME_ALL,
+    learning_rate: float = 0.0019,
+    epsilon_random: float = 0.07,
     train_temperature: float = 0.9,
+    ppo_clip: float = 0.2,
     promotion_games: int = 24,
     promotion_score_threshold: float = 0.6,
     simulation_workers: int = SIMULATION_WORKERS_AUTO,
@@ -5207,6 +5312,10 @@ def create_run_from_checkpoint(
     source_state = get_run_state(source_run_name)
     resolved_source_checkpoint = _resolve_checkpoint_name(source_state, source_checkpoint) or source_checkpoint
     target_model = model_type_overrides(model_type)
+    if model_architecture is not None:
+        target_model["model_architecture"] = str(model_architecture)
+    if hidden_size is not None:
+        target_model["hidden_size"] = int(hidden_size)
 
     config = TrainingConfig().merged(
         {
@@ -5216,6 +5325,9 @@ def create_run_from_checkpoint(
             "training_matches_per_iteration": int(training_matches_per_iteration),
             "training_games_per_match": int(training_games_per_match),
             "training_decisions_per_game": normalize_training_decisions_per_game(training_decisions_per_game),
+            "learning_rate": normalize_learning_rate(learning_rate),
+            "epsilon_random": normalize_epsilon_random(epsilon_random),
+            "ppo_clip": normalize_ppo_clip(ppo_clip),
             "promotion_games": int(promotion_games),
             "promotion_score_threshold": normalize_promotion_score_threshold(promotion_score_threshold),
             "simulation_workers": normalize_simulation_workers(simulation_workers),
@@ -5274,7 +5386,10 @@ def create_run_from_checkpoint(
 
 def update_run_config(
     run_name: str,
+    learning_rate: Optional[float] = None,
+    epsilon_random: Optional[float] = None,
     train_temperature: Optional[float] = None,
+    ppo_clip: Optional[float] = None,
     promotion_score_threshold: Optional[float] = None,
     simulation_workers: Optional[int] = None,
 ) -> Dict[str, Any]:
@@ -5286,8 +5401,14 @@ def update_run_config(
         raise RuntimeError(f"Run '{run_name}' is currently training. Interrupt it before changing run settings.")
 
     overrides: Dict[str, Any] = {}
+    if learning_rate is not None:
+        overrides["learning_rate"] = normalize_learning_rate(learning_rate)
+    if epsilon_random is not None:
+        overrides["epsilon_random"] = normalize_epsilon_random(epsilon_random)
     if train_temperature is not None:
         overrides.update(train_temperature_overrides(train_temperature))
+    if ppo_clip is not None:
+        overrides["ppo_clip"] = normalize_ppo_clip(ppo_clip)
     if promotion_score_threshold is not None:
         overrides["promotion_score_threshold"] = normalize_promotion_score_threshold(promotion_score_threshold)
     if simulation_workers is not None:
@@ -5296,6 +5417,10 @@ def update_run_config(
         return trainer.progress_summary()
 
     trainer.config = trainer.config.merged(overrides)
+    if "learning_rate" in overrides:
+        for policy in (trainer.policy, trainer.candidate_policy):
+            for group in policy.optimizer.param_groups:
+                group["lr"] = float(overrides["learning_rate"])
     trainer._save()
     return trainer.progress_summary()
 
