@@ -49,7 +49,7 @@ ROOT_DIR = Path(__file__).resolve().parent
 RUNS_DIR = ROOT_DIR / "starrealms_policies"
 LATEST_RUN_NAME = "default"
 INITIAL_ELO = 1000.0
-CONFIG_DEFAULTS_VERSION = 4
+CONFIG_DEFAULTS_VERSION = 5
 CARD_ACQUIRE_ELO_TEST_GAMES = 200
 CARD_ACQUIRE_ELO_K_FACTOR = 24.0
 ELO_LOGISTIC_SCALE = math.log(10.0) / 400.0
@@ -1093,9 +1093,9 @@ class TrainingConfig:
     league_best_weight: float = 0.2
     league_recent_weight: float = 0.25
     league_historical_weight: float = 0.1
-    opponent_normal_weight: float = 0.4
-    opponent_learnable_weight: float = 0.45
-    opponent_chaotic_weight: float = 0.15
+    opponent_normal_weight: float = 0.6
+    opponent_learnable_weight: float = 0.3
+    opponent_chaotic_weight: float = 0.1
     opponent_learnable_temperature: float = 1.4
     opponent_chaotic_temperature: float = 1.9
     opponent_learnable_epsilon_random: float = 0.1
@@ -2864,6 +2864,23 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
                     saved_config[key] = new_value
         if config_defaults_version < 3:
             saved_config.update(derive_temperature_schedule_overrides(saved_config.get("train_temperature", 0.9)))
+        if config_defaults_version < 5:
+            opponent_mix_default_updates = {
+                "opponent_normal_weight": ((0.4,), 0.6),
+                "opponent_learnable_weight": ((0.45,), 0.3),
+                "opponent_chaotic_weight": ((0.15,), 0.1),
+            }
+            for key, (old_values, new_value) in opponent_mix_default_updates.items():
+                current_value = saved_config.get(key)
+                if current_value is None:
+                    saved_config[key] = new_value
+                    continue
+                try:
+                    numeric_value = float(current_value)
+                except (TypeError, ValueError):
+                    continue
+                if any(abs(numeric_value - float(old_value)) <= 1e-12 for old_value in old_values):
+                    saved_config[key] = new_value
         state_payload["config_defaults_version"] = CONFIG_DEFAULTS_VERSION
     if policy_payload is not None:
         payload_architecture = policy_payload.get("architecture")
