@@ -1,19 +1,19 @@
 {
   "status": "idle",
   "run_name": "s-1g7m64p",
-  "iteration": 2264,
-  "total_matches": 18112,
-  "total_games": 147446,
+  "iteration": 2307,
+  "total_matches": 18456,
+  "total_games": 150499,
   "created_at": 1776922755.833662,
-  "updated_at": 1779853583.9505103,
+  "updated_at": 1779888643.5409415,
   "strategy": "champion_league_v2",
   "strategy_version": 2,
-  "current_elo": 1619.2652191820055,
-  "best_elo": 1619.2652191820055,
-  "best_checkpoint": "champion_002262.json",
-  "latest_checkpoint": "champion_002262.json",
-  "promotions": 215,
-  "last_promotion_iteration": 2262,
+  "current_elo": 1621.8902191820055,
+  "best_elo": 1621.8902191820055,
+  "best_checkpoint": "champion_002306.json",
+  "latest_checkpoint": "champion_002306.json",
+  "promotions": 216,
+  "last_promotion_iteration": 2306,
   "config": {
     "hidden_size": 24,
     "model_architecture": "legacy_v1",
@@ -28,14 +28,16 @@
     "grad_clip": 1.0,
     "epsilon_random": 0.07,
     "min_epsilon_random": 0.015,
-    "train_temperature": 0.9,
-    "min_train_temperature": 0.9,
+    "train_temperature": 0.5,
+    "min_train_temperature": 0.5,
     "eval_temperature": 0.35,
     "checkpoint_interval": 1,
     "training_matches_per_iteration": 7,
     "training_games_per_match": 1,
+    "training_decisions_per_game": "ALL",
     "promotion_games": 64,
-    "promotion_score_threshold": 0.6,
+    "promotion_score_threshold": 0.55,
+    "simulation_workers": 0,
     "candidate_patience": 8,
     "candidate_reset_threshold": 0.35,
     "league_recent_window": 10,
@@ -43,6 +45,13 @@
     "league_best_weight": 0.2,
     "league_recent_weight": 0.25,
     "league_historical_weight": 0.1,
+    "opponent_normal_weight": 0.6,
+    "opponent_learnable_weight": 0.3,
+    "opponent_chaotic_weight": 0.1,
+    "opponent_learnable_temperature": 1.4,
+    "opponent_chaotic_temperature": 1.9,
+    "opponent_learnable_epsilon_random": 0.1,
+    "opponent_chaotic_epsilon_random": 0.14,
     "anneal_steps": 3000,
     "plateau_start_iterations_without_promotion": 12,
     "plateau_full_iterations_without_promotion": 36,
@@ -51,145 +60,214 @@
     "plateau_temperature_boost": 1.0,
     "plateau_max_learning_rate": 0.0033,
     "plateau_max_epsilon_random": 0.16,
-    "plateau_max_train_temperature": 0.9,
+    "plateau_max_train_temperature": 0.5,
     "elo_k": 24.0,
     "max_training_samples_per_match": 256,
-    "max_turns_per_game": 400,
-    "max_actions_per_turn": 200,
-    "max_iterations": null,
-    "training_decisions_per_game": "ALL",
-    "simulation_workers": 0,
     "max_training_samples_per_iteration": 8192,
     "min_available_memory_mb": 1024,
-    "opponent_normal_weight": 0.6,
-    "opponent_learnable_weight": 0.3,
-    "opponent_chaotic_weight": 0.1,
-    "opponent_learnable_temperature": 1.4,
-    "opponent_chaotic_temperature": 1.9,
-    "opponent_learnable_epsilon_random": 0.1,
-    "opponent_chaotic_epsilon_random": 0.14
+    "max_turns_per_game": 400,
+    "max_actions_per_turn": 200,
+    "max_iterations": null
   },
   "last_match": {
-    "wins": 1,
-    "losses": 6,
+    "wins": 3,
+    "losses": 4,
     "games_played": 7,
-    "return_value": -0.7142857142857143,
-    "duration_seconds": 2.9702658653259277,
+    "return_value": -0.14285714285714285,
+    "duration_seconds": 0.6956362724304199,
     "matches_played": 7,
     "opponents": [
       {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_002262.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_002262.json"
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002306.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.5,
+          "epsilon_random": 0.02772333333333333
+        }
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_002262.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_002262.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002262.json"
+        "checkpoint": "champion_002306.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.5,
+          "epsilon_random": 0.02772333333333333
+        }
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_002262.json"
+        "checkpoint": "champion_002306.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.5,
+          "epsilon_random": 0.02772333333333333
+        }
       },
       {
         "label": "historical",
         "source": "historical",
-        "checkpoint": "champion_002262.json"
+        "checkpoint": "champion_000001.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.5,
+          "epsilon_random": 0.02772333333333333
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002306.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_001804.json",
+        "exploration": {
+          "style": "chaotic",
+          "temperature": 1.9,
+          "epsilon_random": 0.14
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_002262.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
       }
     ]
   },
   "last_update": {
-    "samples": 912.0,
-    "policy_loss": 0.35524953516167507,
-    "value_loss": 0.3364935104261365,
-    "clip_fraction": 0.051535087719298246,
-    "avg_ratio": 2.0530032601873747,
-    "avg_value_prediction": -0.3813335598801802,
-    "learning_rate": 0.0007685000000000001,
-    "epsilon_random": 0.02851166666666667,
-    "train_temperature": 0.73792,
-    "ppo_clip": 0.12456666666666667,
-    "iterations_since_promotion": 1,
+    "samples": 866.0,
+    "policy_loss": 100.64713716099155,
+    "value_loss": 0.303117645392517,
+    "clip_fraction": 0.06293302540415704,
+    "avg_ratio": 163.30674200758503,
+    "avg_value_prediction": -0.18223191563934776,
+    "learning_rate": 0.0007469999999999998,
+    "epsilon_random": 0.02772333333333333,
+    "train_temperature": 0.5,
+    "ppo_clip": 0.12313333333333333,
+    "simulation_workers": 0,
+    "resolved_simulation_workers": 14,
+    "active_simulation_runs": [
+      "s-1g7m64p"
+    ],
+    "iterations_since_promotion": 0,
     "promotion_drought_progress": 0.0,
     "learning_rate_multiplier": 1.0,
     "epsilon_multiplier": 1.0,
     "temperature_multiplier": 1.0,
-    "matches_collected": 7
+    "matches_collected": 7,
+    "samples_collected": 866,
+    "sample_candidates": 866,
+    "max_training_samples_per_iteration": 8192
   },
   "last_eval": {
-    "wins": 33,
-    "losses": 31,
+    "wins": 32,
+    "losses": 32,
     "games_played": 64,
-    "score": 0.515625,
+    "score": 0.5,
     "promoted": false,
     "action": "keep_training",
     "promoted_checkpoint": null,
-    "champion_checkpoint": "champion_002262.json",
-    "duration_seconds": 25.633517503738403
+    "champion_checkpoint": "champion_002306.json",
+    "duration_seconds": 6.14565634727478
   },
   "last_rating_pass": null,
   "candidate": {
-    "base_checkpoint": "champion_002262.json",
-    "base_iteration": 2262,
-    "attempts_since_reset": 2,
-    "total_attempts": 2264,
-    "resets": 292,
-    "promotions": 215,
-    "rating_pass_elo": 1619.2652191820055,
-    "last_score": 0.515625,
+    "base_checkpoint": "champion_002306.json",
+    "base_iteration": 2306,
+    "attempts_since_reset": 1,
+    "total_attempts": 2307,
+    "resets": 297,
+    "promotions": 216,
+    "rating_pass_elo": 1621.8902191820055,
+    "last_score": 0.5,
     "last_result": "keep_training",
-    "last_reset_reason": "Promoted to champion_002262.json",
+    "last_reset_reason": "Promoted to champion_002306.json",
     "last_opponents": [
       {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_002262.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_002262.json"
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002306.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.5,
+          "epsilon_random": 0.02772333333333333
+        }
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_002262.json"
-      },
-      {
-        "label": "recent",
-        "source": "recent",
-        "checkpoint": "champion_002262.json"
-      },
-      {
-        "label": "champion",
-        "source": "champion",
-        "checkpoint": "champion_002262.json"
+        "checkpoint": "champion_002306.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.5,
+          "epsilon_random": 0.02772333333333333
+        }
       },
       {
         "label": "champion",
         "source": "champion",
-        "checkpoint": "champion_002262.json"
+        "checkpoint": "champion_002306.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.5,
+          "epsilon_random": 0.02772333333333333
+        }
       },
       {
         "label": "historical",
         "source": "historical",
-        "checkpoint": "champion_002262.json"
+        "checkpoint": "champion_000001.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.5,
+          "epsilon_random": 0.02772333333333333
+        }
+      },
+      {
+        "label": "champion",
+        "source": "champion",
+        "checkpoint": "champion_002306.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_001804.json",
+        "exploration": {
+          "style": "chaotic",
+          "temperature": 1.9,
+          "epsilon_random": 0.14
+        }
+      },
+      {
+        "label": "recent",
+        "source": "recent",
+        "checkpoint": "champion_002262.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
       }
     ]
   },
@@ -3080,7 +3158,7 @@
     {
       "name": "champion_002262.json",
       "iteration": 2262,
-      "elo": 1619.2652191820055,
+      "elo": 1616.6402191820055,
       "created_at": 1776963028.129516,
       "promoted_from": "champion_002245.json",
       "promotion_eval": {
@@ -3191,6 +3269,245 @@
             "checkpoint": "champion_002245.json"
           }
         ]
+      },
+      "last_defense": {
+        "wins_a": 39,
+        "wins_b": 25,
+        "games_played": 64,
+        "return_value": 0.21875,
+        "per_game_winners": [
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "ended_by_limit_games": 1,
+        "duration_seconds": 5.754695653915405
+      }
+    },
+    {
+      "name": "champion_002306.json",
+      "iteration": 2306,
+      "elo": 1621.8902191820055,
+      "created_at": 1779888631.5499063,
+      "promoted_from": "champion_002262.json",
+      "promotion_eval": {
+        "wins_a": 39,
+        "wins_b": 25,
+        "games_played": 64,
+        "return_value": 0.21875,
+        "per_game_winners": [
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_a",
+          "policy_b",
+          "policy_b",
+          "policy_b",
+          "policy_a",
+          "policy_a",
+          "policy_a"
+        ],
+        "trajectory": [],
+        "trajectory_by_game": [],
+        "ended_by_limit_games": 1,
+        "duration_seconds": 5.754695653915405
+      },
+      "training_summary": {
+        "wins": 2,
+        "losses": 5,
+        "games_played": 7,
+        "return_value": -0.42857142857142855,
+        "duration_seconds": 0.6653666496276855,
+        "matches_played": 7,
+        "opponents": [
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002262.json",
+            "exploration": {
+              "style": "normal",
+              "temperature": 0.5,
+              "epsilon_random": 0.06658000000000001
+            }
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_000278.json",
+            "exploration": {
+              "style": "chaotic",
+              "temperature": 1.9,
+              "epsilon_random": 0.14
+            }
+          },
+          {
+            "label": "historical",
+            "source": "historical",
+            "checkpoint": "champion_000001.json",
+            "exploration": {
+              "style": "normal",
+              "temperature": 0.5,
+              "epsilon_random": 0.06658000000000001
+            }
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002262.json",
+            "exploration": {
+              "style": "learnable",
+              "temperature": 1.4,
+              "epsilon_random": 0.1
+            }
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002262.json",
+            "exploration": {
+              "style": "learnable",
+              "temperature": 1.4,
+              "epsilon_random": 0.1
+            }
+          },
+          {
+            "label": "recent",
+            "source": "recent",
+            "checkpoint": "champion_000836.json",
+            "exploration": {
+              "style": "normal",
+              "temperature": 0.5,
+              "epsilon_random": 0.06658000000000001
+            }
+          },
+          {
+            "label": "champion",
+            "source": "champion",
+            "checkpoint": "champion_002262.json",
+            "exploration": {
+              "style": "normal",
+              "temperature": 0.5,
+              "epsilon_random": 0.06658000000000001
+            }
+          }
+        ]
       }
     }
   ],
@@ -3205,6 +3522,23 @@
   },
   "created_datetime": "2026-04-22 22:39:15",
   "forked_from": null,
-  "last_promotion_at": 1776963028.129516,
-  "last_promotion_datetime": "2026-04-23 09:50:28"
+  "last_promotion_at": 1779888631.5499063,
+  "last_promotion_datetime": "2026-05-27 06:30:31",
+  "live_progress": {
+    "kind": "training_iteration",
+    "stage": "complete",
+    "iteration_number": 2307,
+    "training_matches_completed": 7,
+    "training_matches_total": 7,
+    "training_games_completed": 7,
+    "training_games_total": 7,
+    "promotion_games_completed": 64,
+    "promotion_games_total": 64,
+    "iteration_games_completed": 71,
+    "iteration_games_total": 71,
+    "training_stage_complete": true,
+    "promotion_stage_complete": true,
+    "iteration_complete": true,
+    "updated_at": 1779888642.6840227
+  }
 }

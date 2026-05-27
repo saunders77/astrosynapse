@@ -54,9 +54,17 @@ INITIAL_ELO = 1000.0
 CONFIG_DEFAULTS_VERSION = 5
 CARD_ACQUIRE_ELO_TEST_GAMES = 200
 CARD_ACQUIRE_ELO_K_FACTOR = 24.0
-CROSS_RUN_RATING_VERSION = 1
-CROSS_RUN_ELO_K_FACTOR = 16.0
-CROSS_RUN_CONFIDENCE_95_SCALE = 680.0
+CROSS_RUN_RATING_VERSION = 2
+CROSS_RUN_RATING_MODEL = "glicko_2"
+CROSS_RUN_GLICKO2_SCALE = 173.7178
+CROSS_RUN_GLICKO2_DEFAULT_RD = 350.0
+CROSS_RUN_GLICKO2_MAX_RD = 350.0
+CROSS_RUN_GLICKO2_MIN_RD = 1.0
+CROSS_RUN_GLICKO2_DEFAULT_VOLATILITY = 0.06
+CROSS_RUN_GLICKO2_TAU = 0.5
+CROSS_RUN_GLICKO2_INHERITED_RD_FLOOR = 80.0
+CROSS_RUN_CONFIDENCE_SIGMAS = 1.96
+CROSS_RUN_LEGACY_CONFIDENCE_95_SCALE = 680.0
 ELO_LOGISTIC_SCALE = math.log(10.0) / 400.0
 CARD_ZONE_SCALE = 15.0
 NUMERIC_OPTION_SCALE = 10.0
@@ -3810,26 +3818,11 @@ class SelfPlayTrainer:
     def _scheduled_training_config(self) -> TrainingConfig:
         anneal_steps = max(1, int(self.config.anneal_steps))
         progress = _clip(float(self.state.get("iteration", 0)) / float(anneal_steps), 0.0, 1.0)
-        scheduled = self.config.merged(
+        return self.config.merged(
             {
                 "learning_rate": _lerp(self.config.learning_rate, self.config.min_learning_rate, progress),
                 "epsilon_random": _lerp(self.config.epsilon_random, self.config.min_epsilon_random, progress),
                 "ppo_clip": _lerp(self.config.ppo_clip, self.config.min_ppo_clip, progress),
-            }
-        )
-        boost = self._promotion_drought_boost()
-        if boost["progress"] <= 0.0:
-            return scheduled
-        return scheduled.merged(
-            {
-                "learning_rate": min(
-                    float(self.config.plateau_max_learning_rate),
-                    float(scheduled.learning_rate) * float(boost["learning_rate_multiplier"]),
-                ),
-                "epsilon_random": min(
-                    float(self.config.plateau_max_epsilon_random),
-                    float(scheduled.epsilon_random) * float(boost["epsilon_multiplier"]),
-                ),
             }
         )
 
@@ -3842,25 +3835,6 @@ class SelfPlayTrainer:
 
     def _iterations_since_promotion(self) -> int:
         return max(0, int(self.state.get("iteration", 0)) - self._last_promotion_iteration())
-
-    def _promotion_drought_boost(self) -> Dict[str, float]:
-        iterations_since_promotion = self._iterations_since_promotion()
-        start = max(0, int(self.config.plateau_start_iterations_without_promotion))
-        full = max(start + 1, int(self.config.plateau_full_iterations_without_promotion))
-        progress = 0.0
-        if iterations_since_promotion > start:
-            progress = _clip(
-                float(iterations_since_promotion - start) / float(max(1, full - start)),
-                0.0,
-                1.0,
-            )
-        return {
-            "iterations_since_promotion": float(iterations_since_promotion),
-            "progress": progress,
-            "learning_rate_multiplier": _lerp(1.0, self.config.plateau_learning_rate_boost, progress),
-            "epsilon_multiplier": _lerp(1.0, self.config.plateau_epsilon_boost, progress),
-            "temperature_multiplier": 1.0,
-        }
 
     def _rating_pass_pool(self, max_policies: int, include_candidate: bool) -> List[Dict[str, Any]]:
         checkpoints = self._checkpoint_entries_sorted()
@@ -4722,7 +4696,6 @@ class SelfPlayTrainer:
     def train_iteration(self) -> Dict[str, Any]:
         scheduled_config = self._scheduled_training_config()
         _check_memory_safety(scheduled_config, "starting training iteration")
-        drought_boost = self._promotion_drought_boost()
         candidate_state = self._candidate_state()
         next_iteration = int(self.state.get("iteration", 0)) + 1
         training_games_total = (
@@ -4852,11 +4825,7 @@ class SelfPlayTrainer:
                 allocation_key=self.run_name,
             ),
             "active_simulation_runs": active_simulation_runs(),
-            "iterations_since_promotion": int(drought_boost["iterations_since_promotion"]),
-            "promotion_drought_progress": round(float(drought_boost["progress"]), 4),
-            "learning_rate_multiplier": round(float(drought_boost["learning_rate_multiplier"]), 4),
-            "epsilon_multiplier": round(float(drought_boost["epsilon_multiplier"]), 4),
-            "temperature_multiplier": round(float(drought_boost["temperature_multiplier"]), 4),
+            "iterations_since_promotion": self._iterations_since_promotion(),
             "matches_collected": len(training_matches),
             "samples_collected": len(training_samples),
             "sample_candidates": int(training_sample_candidates),
@@ -5004,7 +4973,6 @@ class SelfPlayTrainer:
         runtime = 0.0
         if "created_at" in self.state and self.state["created_at"] is not None:
             runtime = _timestamp() - float(self.state["created_at"])
-        drought_boost = self._promotion_drought_boost()
         scheduled_config = self._scheduled_training_config()
         device_plan = self.policy.device_summary()
         return {
@@ -5048,11 +5016,7 @@ class SelfPlayTrainer:
             "active_simulation_runs": active_simulation_runs(),
             "logical_processors": int(os.cpu_count() or 1),
             "last_promotion_iteration": self._last_promotion_iteration(),
-            "iterations_since_promotion": int(drought_boost["iterations_since_promotion"]),
-            "promotion_drought_progress": round(float(drought_boost["progress"]), 4),
-            "learning_rate_multiplier": round(float(drought_boost["learning_rate_multiplier"]), 4),
-            "epsilon_multiplier": round(float(drought_boost["epsilon_multiplier"]), 4),
-            "temperature_multiplier": round(float(drought_boost["temperature_multiplier"]), 4),
+            "iterations_since_promotion": self._iterations_since_promotion(),
             "scheduled_learning_rate": float(scheduled_config.learning_rate),
             "scheduled_epsilon_random": float(scheduled_config.epsilon_random),
             "scheduled_train_temperature": float(scheduled_config.train_temperature),
@@ -5110,19 +5074,12 @@ def summarize_training_progress(run_name: str = LATEST_RUN_NAME) -> str:
             f" Last eval {last_eval.get('wins', 0)}-{last_eval.get('losses', 0)} "
             f"({last_eval.get('action', 'keep_training')})."
         )
-    boost_text = ""
-    if float(summary.get("promotion_drought_progress", 0.0)) > 0.0:
-        boost_text = (
-            f" Exploration boost active after {summary.get('iterations_since_promotion', 0)} "
-            f"non-promotion iteration(s): lr x{summary.get('learning_rate_multiplier', 1.0)}, "
-            f"eps x{summary.get('epsilon_multiplier', 1.0)}, temp x{summary.get('temperature_multiplier', 1.0)}."
-        )
     return (
         f"Run '{summary['run_name']}' is {summary['status']}. "
         f"Iteration {summary['iteration']}, total matches {summary['total_matches']}, "
         f"Elo {summary['current_elo']} (best {summary['best_elo']}), promotions {summary.get('promotions', 0)}, "
         f"device {summary.get('device_backend', DEVICE_CPU)}, "
-        f"{match_text}.{eval_text}{boost_text} "
+        f"{match_text}.{eval_text} "
         f"Artifacts: {summary['run_dir']}."
     )
 
@@ -5356,6 +5313,7 @@ def _default_cross_run_rating_state() -> Dict[str, Any]:
         "created_at": now,
         "created_datetime": _format_timestamp(now),
         "updated_at": now,
+        "rating_model": CROSS_RUN_RATING_MODEL,
         "total_games": 0,
         "ratings": {},
         "pairings": {},
@@ -5369,6 +5327,7 @@ def _load_cross_run_rating_state() -> Dict[str, Any]:
     state.setdefault("created_at", _timestamp())
     state["created_datetime"] = state.get("created_datetime") or _format_timestamp(state.get("created_at"))
     state.setdefault("updated_at", state.get("created_at"))
+    state["rating_model"] = CROSS_RUN_RATING_MODEL
     state.setdefault("total_games", 0)
     state.setdefault("ratings", {})
     state.setdefault("pairings", {})
@@ -5378,18 +5337,238 @@ def _load_cross_run_rating_state() -> Dict[str, Any]:
 
 def _save_cross_run_rating_state(state: Dict[str, Any]) -> None:
     state["version"] = CROSS_RUN_RATING_VERSION
+    state["rating_model"] = CROSS_RUN_RATING_MODEL
     state["updated_at"] = _timestamp()
     _atomic_write_json(CROSS_RUN_RATINGS_FILE, state)
 
 
-def _cross_run_confidence_radius(games: Any) -> Optional[float]:
+def _cross_run_float(value: Any, default: float) -> float:
     try:
-        game_count = int(games)
+        number = float(value)
     except (TypeError, ValueError):
+        return float(default)
+    if not math.isfinite(number):
+        return float(default)
+    return number
+
+
+def _clamp_cross_run_rd(rating_deviation: Any) -> float:
+    return _clip(
+        _cross_run_float(rating_deviation, CROSS_RUN_GLICKO2_DEFAULT_RD),
+        CROSS_RUN_GLICKO2_MIN_RD,
+        CROSS_RUN_GLICKO2_MAX_RD,
+    )
+
+
+def _clamp_cross_run_volatility(volatility: Any) -> float:
+    return _clip(
+        _cross_run_float(volatility, CROSS_RUN_GLICKO2_DEFAULT_VOLATILITY),
+        1e-6,
+        1.2,
+    )
+
+
+def _cross_run_legacy_rating_deviation(existing: Dict[str, Any]) -> float:
+    if "rating_deviation" in existing:
+        return _clamp_cross_run_rd(existing.get("rating_deviation"))
+
+    confidence = _cross_run_float(existing.get("confidence_radius"), 0.0)
+    if confidence <= 0.0:
+        try:
+            games = int(existing.get("games", 0) or 0)
+        except (TypeError, ValueError):
+            games = 0
+        if games > 0:
+            confidence = CROSS_RUN_LEGACY_CONFIDENCE_95_SCALE / math.sqrt(float(games))
+
+    if confidence > 0.0:
+        return _clamp_cross_run_rd(confidence / CROSS_RUN_CONFIDENCE_SIGMAS)
+    return CROSS_RUN_GLICKO2_DEFAULT_RD
+
+
+def _cross_run_confidence_radius_from_entry(entry: Dict[str, Any]) -> Optional[float]:
+    rating_deviation = _clamp_cross_run_rd(entry.get("rating_deviation"))
+    return float(rating_deviation) * CROSS_RUN_CONFIDENCE_SIGMAS
+
+
+def _cross_run_inherited_rating_deviation(source_entry: Dict[str, Any]) -> float:
+    if "rating_deviation" in source_entry:
+        source_rd = _clamp_cross_run_rd(source_entry.get("rating_deviation"))
+    else:
+        source_rd = _cross_run_legacy_rating_deviation(source_entry)
+    return _clamp_cross_run_rd(max(source_rd, CROSS_RUN_GLICKO2_INHERITED_RD_FLOOR))
+
+
+def _run_state_checkpoint_entry(state: Dict[str, Any], checkpoint_name: str) -> Optional[Dict[str, Any]]:
+    resolved_name = str(checkpoint_name or "").strip()
+    if not resolved_name:
         return None
-    if game_count <= 0:
+    for item in list(state.get("checkpoints") or []):
+        if str(item.get("name") or "") == resolved_name:
+            return dict(item)
+    return None
+
+
+def _cross_run_seed_from_entry(
+    source_entry: Dict[str, Any],
+    *,
+    source_type: str,
+    source_run_name: str,
+    source_checkpoint: str,
+    event_at: Optional[float],
+) -> Dict[str, Any]:
+    return {
+        "event_at": 0.0 if event_at is None else float(event_at),
+        "elo": _cross_run_float(source_entry.get("elo"), INITIAL_ELO),
+        "rating_deviation": _cross_run_inherited_rating_deviation(source_entry),
+        "volatility": _clamp_cross_run_volatility(source_entry.get("volatility")),
+        "source": {
+            "type": source_type,
+            "run_name": str(source_run_name),
+            "checkpoint": str(source_checkpoint),
+            "event_at": event_at,
+            "event_datetime": _format_timestamp(event_at),
+        },
+    }
+
+
+def _cross_run_parent_rating_seed(
+    state: Dict[str, Any],
+    participant: Dict[str, Any],
+    checkpoint: str,
+    existing: Dict[str, Any],
+    previous_checkpoint: str,
+) -> Optional[Dict[str, Any]]:
+    run_name = str(participant.get("run_name") or "").strip()
+    if not run_name:
         return None
-    return CROSS_RUN_CONFIDENCE_95_SCALE / math.sqrt(float(game_count))
+    run_state = get_run_state(run_name)
+    checkpoint_entry = _run_state_checkpoint_entry(run_state, checkpoint)
+    candidates: List[Dict[str, Any]] = []
+
+    promoted_from = str((checkpoint_entry or {}).get("promoted_from") or "").strip()
+    if promoted_from and existing and previous_checkpoint == promoted_from:
+        candidates.append(
+            _cross_run_seed_from_entry(
+                existing,
+                source_type="promoted_from",
+                source_run_name=run_name,
+                source_checkpoint=promoted_from,
+                event_at=_optional_timestamp((checkpoint_entry or {}).get("created_at")),
+            )
+        )
+
+    forked_from = run_state.get("forked_from")
+    if isinstance(forked_from, dict):
+        source_run_name = str(forked_from.get("run_name") or "").strip()
+        source_checkpoint = str(
+            forked_from.get("resolved_checkpoint")
+            or forked_from.get("checkpoint")
+            or ""
+        ).strip()
+        source_entry = dict((state.get("ratings") or {}).get(source_run_name) or {})
+        source_entry_checkpoint = str(source_entry.get("best_checkpoint") or "").strip()
+        if source_entry and source_run_name and (
+            not source_checkpoint
+            or not source_entry_checkpoint
+            or source_checkpoint == source_entry_checkpoint
+        ):
+            candidates.append(
+                _cross_run_seed_from_entry(
+                    source_entry,
+                    source_type="forked_from",
+                    source_run_name=source_run_name,
+                    source_checkpoint=source_checkpoint or source_entry_checkpoint,
+                    event_at=_optional_timestamp(forked_from.get("created_at"))
+                    or _optional_timestamp(run_state.get("created_at")),
+                )
+            )
+
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: float(item.get("event_at", 0.0)))
+
+
+def _glicko2_reduce_impact(phi: float) -> float:
+    return 1.0 / math.sqrt(1.0 + (3.0 * phi * phi) / (math.pi * math.pi))
+
+
+def _glicko2_expected_score(mu: float, opponent_mu: float, opponent_phi: float) -> float:
+    return 1.0 / (1.0 + math.exp(-_glicko2_reduce_impact(opponent_phi) * (mu - opponent_mu)))
+
+
+def _cross_run_glicko2_update(
+    rating: float,
+    rating_deviation: float,
+    volatility: float,
+    outcomes: Sequence[Tuple[float, float, float]],
+) -> Tuple[float, float, float]:
+    mu = (float(rating) - INITIAL_ELO) / CROSS_RUN_GLICKO2_SCALE
+    phi = _clamp_cross_run_rd(rating_deviation) / CROSS_RUN_GLICKO2_SCALE
+    sigma = _clamp_cross_run_volatility(volatility)
+    matches = list(outcomes)
+
+    if not matches:
+        phi_prime = min(
+            math.sqrt(phi * phi + sigma * sigma) * CROSS_RUN_GLICKO2_SCALE,
+            CROSS_RUN_GLICKO2_MAX_RD,
+        )
+        return float(rating), phi_prime, sigma
+
+    variance_inverse = 0.0
+    score_delta = 0.0
+    for opponent_rating, opponent_rd, score in matches:
+        opponent_mu = (float(opponent_rating) - INITIAL_ELO) / CROSS_RUN_GLICKO2_SCALE
+        opponent_phi = _clamp_cross_run_rd(opponent_rd) / CROSS_RUN_GLICKO2_SCALE
+        impact = _glicko2_reduce_impact(opponent_phi)
+        expected = _glicko2_expected_score(mu, opponent_mu, opponent_phi)
+        variance_inverse += impact * impact * expected * (1.0 - expected)
+        score_delta += impact * (float(score) - expected)
+
+    if variance_inverse <= 0.0:
+        return float(rating), _clamp_cross_run_rd(rating_deviation), sigma
+
+    variance = 1.0 / variance_inverse
+    delta = variance * score_delta
+    a = math.log(sigma * sigma)
+    tau_squared = CROSS_RUN_GLICKO2_TAU * CROSS_RUN_GLICKO2_TAU
+
+    def volatility_objective(x_value: float) -> float:
+        exp_x = math.exp(x_value)
+        numerator = exp_x * (delta * delta - phi * phi - variance - exp_x)
+        denominator = 2.0 * (phi * phi + variance + exp_x) ** 2
+        return (numerator / denominator) - ((x_value - a) / tau_squared)
+
+    lower = a
+    if delta * delta > phi * phi + variance:
+        upper = math.log(delta * delta - phi * phi - variance)
+    else:
+        step = 1
+        upper = a - step * CROSS_RUN_GLICKO2_TAU
+        while volatility_objective(upper) < 0.0:
+            step += 1
+            upper = a - step * CROSS_RUN_GLICKO2_TAU
+
+    f_lower = volatility_objective(lower)
+    f_upper = volatility_objective(upper)
+    while abs(upper - lower) > 1e-6:
+        candidate = lower + (lower - upper) * f_lower / (f_upper - f_lower)
+        f_candidate = volatility_objective(candidate)
+        if f_candidate * f_upper < 0.0:
+            lower = upper
+            f_lower = f_upper
+        else:
+            f_lower *= 0.5
+        upper = candidate
+        f_upper = f_candidate
+
+    new_sigma = _clamp_cross_run_volatility(math.exp(lower / 2.0))
+    phi_star = math.sqrt(phi * phi + new_sigma * new_sigma)
+    new_phi = 1.0 / math.sqrt((1.0 / (phi_star * phi_star)) + (1.0 / variance))
+    new_mu = mu + new_phi * new_phi * score_delta
+    new_rating = INITIAL_ELO + CROSS_RUN_GLICKO2_SCALE * new_mu
+    new_rd = _clamp_cross_run_rd(new_phi * CROSS_RUN_GLICKO2_SCALE)
+    return float(new_rating), float(new_rd), float(new_sigma)
 
 
 def _round_optional_float(value: Any, digits: int = 2) -> Optional[float]:
@@ -5425,6 +5604,17 @@ def _cross_run_best_participants(runs: Optional[Sequence[Dict[str, Any]]] = None
     return participants
 
 
+def _cross_run_parent_seed_order(participants: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def sort_key(participant: Dict[str, Any]) -> Tuple[float, str]:
+        try:
+            created_at = float(participant.get("created_at") or 0.0)
+        except (TypeError, ValueError):
+            created_at = 0.0
+        return created_at, str(participant.get("run_name") or "")
+
+    return sorted((dict(participant) for participant in participants), key=sort_key)
+
+
 def _ensure_cross_run_rating_entry(state: Dict[str, Any], participant: Dict[str, Any]) -> Dict[str, Any]:
     ratings = state.setdefault("ratings", {})
     run_name = str(participant.get("run_name") or "").strip()
@@ -5435,9 +5625,21 @@ def _ensure_cross_run_rating_entry(state: Dict[str, Any], participant: Dict[str,
     existing = dict(ratings.get(run_name) or {})
     previous_checkpoint = str(existing.get("best_checkpoint") or "").strip()
     checkpoint_changed = bool(existing) and previous_checkpoint and previous_checkpoint != checkpoint
+    parent_seed = (
+        _cross_run_parent_rating_seed(state, participant, checkpoint, existing, previous_checkpoint)
+        if (not existing or checkpoint_changed)
+        else None
+    )
+    inherited_rd = (
+        float(parent_seed["rating_deviation"])
+        if parent_seed is not None
+        else (_cross_run_legacy_rating_deviation(existing) if existing else CROSS_RUN_GLICKO2_DEFAULT_RD)
+    )
     entry = {
         "run_name": run_name,
-        "elo": float(existing.get("elo", INITIAL_ELO)),
+        "elo": float(parent_seed["elo"]) if parent_seed is not None else _cross_run_float(existing.get("elo"), INITIAL_ELO),
+        "rating_deviation": inherited_rd,
+        "volatility": float(parent_seed["volatility"]) if parent_seed is not None else _clamp_cross_run_volatility(existing.get("volatility")),
         "games": int(existing.get("games", 0)),
         "wins": int(existing.get("wins", 0)),
         "losses": int(existing.get("losses", 0)),
@@ -5450,6 +5652,10 @@ def _ensure_cross_run_rating_entry(state: Dict[str, Any], participant: Dict[str,
         "first_rated_at": existing.get("first_rated_at") or now,
         "last_played_at": existing.get("last_played_at"),
     }
+    if parent_seed is not None:
+        entry["rating_seed"] = parent_seed["source"]
+    elif existing.get("rating_seed") is not None:
+        entry["rating_seed"] = existing.get("rating_seed")
     if checkpoint_changed:
         entry["previous_best_checkpoint"] = previous_checkpoint
         entry["best_changed_at"] = now
@@ -5458,7 +5664,12 @@ def _ensure_cross_run_rating_entry(state: Dict[str, Any], participant: Dict[str,
         entry["losses"] = 0
         entry["draws"] = 0
         entry["last_played_at"] = None
-    confidence = _cross_run_confidence_radius(entry["games"])
+        entry["rating_deviation"] = inherited_rd
+        if parent_seed is None:
+            entry["rating_deviation"] = _clamp_cross_run_rd(
+                max(entry["rating_deviation"], CROSS_RUN_GLICKO2_INHERITED_RD_FLOOR)
+            )
+    confidence = _cross_run_confidence_radius_from_entry(entry)
     entry["confidence_radius"] = None if confidence is None else float(confidence)
     ratings[run_name] = entry
     return entry
@@ -5503,7 +5714,7 @@ def _cross_run_participant_weights(
     for participant in participants:
         run_name = str(participant.get("run_name") or "")
         entry = ratings.get(run_name) or {}
-        confidence = _cross_run_confidence_radius(entry.get("games", 0))
+        confidence = _cross_run_confidence_radius_from_entry(entry) if entry else None
         uncertainty_weight = 8.0 if confidence is None else _clip(float(confidence) / 100.0, 0.2, 8.0)
         rank = recency_rank.get(run_name, len(participants))
         recency_weight = 1.0 / math.sqrt(float(rank) + 1.0)
@@ -5567,11 +5778,13 @@ def _cross_run_leaderboard_from_state(
         if participant is None:
             continue
         entry = _ensure_cross_run_rating_entry(state, participant)
-        confidence = _cross_run_confidence_radius(entry.get("games", 0))
+        confidence = _cross_run_confidence_radius_from_entry(entry)
         entries.append(
             {
                 "run_name": str(run_name),
                 "elo": round(float(entry.get("elo", INITIAL_ELO)), 2),
+                "rating_deviation": _round_optional_float(entry.get("rating_deviation"), 2),
+                "volatility": _round_optional_float(entry.get("volatility"), 6),
                 "confidence_radius": _round_optional_float(confidence, 2),
                 "games": int(entry.get("games", 0)),
                 "wins": int(entry.get("wins", 0)),
@@ -5596,17 +5809,18 @@ def cross_run_rating_summary() -> Dict[str, Any]:
     with _CROSS_RUN_RATING_LOCK:
         state = _load_cross_run_rating_state()
         participants = _cross_run_best_participants()
-        for participant in participants:
+        for participant in _cross_run_parent_seed_order(participants):
             _ensure_cross_run_rating_entry(state, participant)
         leaderboard = _cross_run_leaderboard_from_state(state, participants)
         return {
             "status": "available" if len(participants) >= 2 else "needs_two_runs",
+            "rating_model": CROSS_RUN_RATING_MODEL,
             "participant_count": len(participants),
             "total_games": int(state.get("total_games", 0)),
             "updated_at": state.get("updated_at"),
             "updated_datetime": _format_timestamp(state.get("updated_at")),
             "confidence_level": "approx_95_percent",
-            "confidence_formula": f"+/- {CROSS_RUN_CONFIDENCE_95_SCALE:.0f} / sqrt(cross-run games)",
+            "confidence_formula": f"+/- {CROSS_RUN_CONFIDENCE_SIGMAS:.2f} * Glicko-2 RD",
             "leaderboard": leaderboard,
             "last_calibration": state.get("last_calibration"),
             "ratings_file": str(CROSS_RUN_RATINGS_FILE),
@@ -5699,9 +5913,11 @@ def _apply_cross_run_pair_result(
     if len(winners) < played:
         winners.extend(["policy_a"] * max(0, int(summary.get("wins_a", 0)) - winners.count("policy_a")))
         winners.extend(["policy_b"] * max(0, int(summary.get("wins_b", 0)) - winners.count("policy_b")))
+        winners.extend(["draw"] * max(0, int(summary.get("draws", 0)) - winners.count("draw")))
+    if len(winners) < played:
+        winners.extend(["draw"] * (played - len(winners)))
+
     for winner in winners[:played]:
-        old_a = float(entry_a.get("elo", INITIAL_ELO))
-        old_b = float(entry_b.get("elo", INITIAL_ELO))
         if winner == "policy_a":
             score_a = 1.0
             entry_a["wins"] = int(entry_a.get("wins", 0)) + 1
@@ -5723,9 +5939,27 @@ def _apply_cross_run_pair_result(
             entry_a["draws"] = int(entry_a.get("draws", 0)) + 1
             entry_b["draws"] = int(entry_b.get("draws", 0)) + 1
             pair_entry["draws"] = int(pair_entry.get("draws", 0)) + 1
-        new_a, new_b = _elo_update(old_a, old_b, score_a, CROSS_RUN_ELO_K_FACTOR)
-        entry_a["elo"] = float(new_a)
-        entry_b["elo"] = float(new_b)
+
+        rating_a_before = _cross_run_float(entry_a.get("elo"), INITIAL_ELO)
+        rating_b_before = _cross_run_float(entry_b.get("elo"), INITIAL_ELO)
+        rd_a_before = _clamp_cross_run_rd(entry_a.get("rating_deviation"))
+        rd_b_before = _clamp_cross_run_rd(entry_b.get("rating_deviation"))
+        volatility_a_before = _clamp_cross_run_volatility(entry_a.get("volatility"))
+        volatility_b_before = _clamp_cross_run_volatility(entry_b.get("volatility"))
+        new_a = _cross_run_glicko2_update(
+            rating_a_before,
+            rd_a_before,
+            volatility_a_before,
+            [(rating_b_before, rd_b_before, float(score_a))],
+        )
+        new_b = _cross_run_glicko2_update(
+            rating_b_before,
+            rd_b_before,
+            volatility_b_before,
+            [(rating_a_before, rd_a_before, 1.0 - float(score_a))],
+        )
+        entry_a["elo"], entry_a["rating_deviation"], entry_a["volatility"] = new_a
+        entry_b["elo"], entry_b["rating_deviation"], entry_b["volatility"] = new_b
         entry_a["games"] = int(entry_a.get("games", 0)) + 1
         entry_b["games"] = int(entry_b.get("games", 0)) + 1
         pair_entry["games"] = int(pair_entry.get("games", 0)) + 1
@@ -5733,8 +5967,8 @@ def _apply_cross_run_pair_result(
     now = _timestamp()
     entry_a["last_played_at"] = now
     entry_b["last_played_at"] = now
-    confidence_a = _cross_run_confidence_radius(entry_a.get("games", 0))
-    confidence_b = _cross_run_confidence_radius(entry_b.get("games", 0))
+    confidence_a = _cross_run_confidence_radius_from_entry(entry_a)
+    confidence_b = _cross_run_confidence_radius_from_entry(entry_b)
     entry_a["confidence_radius"] = None if confidence_a is None else float(confidence_a)
     entry_b["confidence_radius"] = None if confidence_b is None else float(confidence_b)
     state["ratings"][run_name_a] = entry_a
@@ -5792,7 +6026,7 @@ def run_cross_run_calibration_games(
         if len(participants) < 2:
             raise ValueError("Select at least two runs with saved best policies for cross-run calibration.")
         participant_by_name = {str(item["run_name"]): item for item in participants}
-        for participant in participants:
+        for participant in _cross_run_parent_seed_order(participants):
             _ensure_cross_run_rating_entry(state, participant)
         selected_run_names = [str(participant["run_name"]) for participant in participants]
 
@@ -5836,6 +6070,7 @@ def run_cross_run_calibration_games(
                 _apply_cross_run_pair_result(state, participant_a, participant_b, summary)
                 state["last_calibration"] = {
                     "status": "running",
+                    "rating_model": CROSS_RUN_RATING_MODEL,
                     "started_at": started_at,
                     "games_completed": completed_games,
                     "games_target": total_games,
@@ -5901,11 +6136,12 @@ def run_cross_run_calibration_games(
 
     with _CROSS_RUN_RATING_LOCK:
         state = _load_cross_run_rating_state()
-        for participant in participants:
+        for participant in _cross_run_parent_seed_order(participants):
             _ensure_cross_run_rating_entry(state, participant)
         leaderboard = _cross_run_leaderboard_from_state(state, participants)
         state["last_calibration"] = {
             "status": "completed",
+            "rating_model": CROSS_RUN_RATING_MODEL,
             "started_at": started_at,
             "completed_at": _timestamp(),
             "duration_seconds": _timestamp() - started_at,
@@ -5929,7 +6165,9 @@ def run_cross_run_calibration_games(
             "selected_participant_count": len(participants),
             "resolved_simulation_workers": resolved_workers,
             "duration_seconds": _timestamp() - started_at,
+            "rating_model": CROSS_RUN_RATING_MODEL,
             "confidence_level": "approx_95_percent",
+            "confidence_formula": f"+/- {CROSS_RUN_CONFIDENCE_SIGMAS:.2f} * Glicko-2 RD",
             "leaderboard": leaderboard,
             "pair_results": pair_results,
             "ratings_file": str(CROSS_RUN_RATINGS_FILE),
