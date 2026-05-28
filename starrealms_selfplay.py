@@ -18,6 +18,7 @@ import random
 import threading
 import time
 import warnings
+from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from functools import lru_cache
@@ -49,9 +50,12 @@ else:
 ROOT_DIR = Path(__file__).resolve().parent
 RUNS_DIR = ROOT_DIR / "starrealms_policies"
 CROSS_RUN_RATINGS_FILE = RUNS_DIR / "cross_run_ratings.json"
+REPLAY_MEMORY_FILE = RUNS_DIR / "replay_memory.jsonl"
 LATEST_RUN_NAME = "default"
 INITIAL_ELO = 1000.0
-CONFIG_DEFAULTS_VERSION = 9
+CONFIG_DEFAULTS_VERSION = 10
+REPLAY_MEMORY_VERSION = 1
+DEFAULT_REPLAY_TRAINING_PERCENT = 1000.0
 CARD_ACQUIRE_ELO_TEST_GAMES = 500
 CARD_ACQUIRE_ELO_K_FACTOR = 24.0
 SCRAP_ELO_TEST_GAMES = 1000
@@ -105,8 +109,10 @@ SIMULATION_PROGRESS_POLL_SECONDS = 0.25
 SIMULATION_WORKER_POLICY_CACHE_LIMIT = 32
 DEFAULT_MAX_TRAINING_SAMPLES_PER_GAME = 70
 DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION = 8192
+REPLAY_TRAINING_BATCH_GAMES = 16
 DEFAULT_MIN_AVAILABLE_MEMORY_MB = 1024
 MEMORY_SAFETY_CHECK_MATCH_INTERVAL = 16
+_REPLAY_MEMORY_LOCK = threading.Lock()
 
 
 def _normalize_ability(raw_ability: Any) -> str:
@@ -1183,6 +1189,7 @@ class TrainingConfig:
     training_matches_per_iteration: int = 5
     training_games_per_match: int = 16
     training_decisions_per_game: str = TRAINING_DECISIONS_PER_GAME_ALL
+    replay_training_percent: float = DEFAULT_REPLAY_TRAINING_PERCENT
     promotion_games: int = 24
     promotion_score_threshold: float = 0.6
     simulation_workers: int = SIMULATION_WORKERS_AUTO
@@ -2657,11 +2664,33 @@ def normalize_promotion_score_threshold(value: Any) -> float:
     return threshold
 
 
+def normalize_replay_training_percent(value: Any) -> float:
+    try:
+        percent = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("replay_training_percent must be a number.")
+    if not math.isfinite(percent) or percent < 0.0:
+        raise ValueError("replay_training_percent must be greater than or equal to 0.")
+    return percent
+
+
+def replay_training_games_target(config: TrainingConfig) -> int:
+    percent = normalize_replay_training_percent(config.replay_training_percent)
+    if percent <= 0.0:
+        return 0
+    training_games = (
+        max(1, int(config.training_matches_per_iteration))
+        * max(1, int(config.training_games_per_match))
+    )
+    return max(0, int(math.ceil(training_games * percent / 100.0)))
+
+
 def new_run_overrides(
     model_type: str = MODEL_TYPE_DEEP,
     training_matches_per_iteration: int = 5,
     training_games_per_match: int = 16,
     training_decisions_per_game: str = TRAINING_DECISIONS_PER_GAME_ALL,
+    replay_training_percent: float = DEFAULT_REPLAY_TRAINING_PERCENT,
     learning_rate: float = 0.0019,
     epsilon_random: float = 0.07,
     train_temperature: float = 0.9,
@@ -2687,6 +2716,7 @@ def new_run_overrides(
             "training_matches_per_iteration": int(training_matches_per_iteration),
             "training_games_per_match": int(training_games_per_match),
             "training_decisions_per_game": normalize_training_decisions_per_game(training_decisions_per_game),
+            "replay_training_percent": normalize_replay_training_percent(replay_training_percent),
             "promotion_games": int(promotion_games),
             "promotion_score_threshold": normalize_promotion_score_threshold(promotion_score_threshold),
             "simulation_workers": normalize_simulation_workers(simulation_workers),
@@ -3003,6 +3033,7 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
         ("ppo_clip", 0.2, normalize_ppo_clip),
         ("train_temperature", 0.9, normalize_train_temperature),
         ("promotion_score_threshold", 0.6, normalize_promotion_score_threshold),
+        ("replay_training_percent", DEFAULT_REPLAY_TRAINING_PERCENT, normalize_replay_training_percent),
     ):
         if key not in saved_config:
             saved_config[key] = default_value
@@ -3856,12 +3887,220 @@ def _extend_sample_reservoir(
     return seen
 
 
+def _normalize_sample_advantages(samples: Sequence[Dict[str, Any]]) -> None:
+    advantages = [float(sample.get("advantage", 0.0)) for sample in samples]
+    advantage_std = _std(advantages)
+    if advantage_std <= 1e-6:
+        return
+    advantage_mean = _mean(advantages)
+    for sample in samples:
+        sample["advantage"] = (float(sample.get("advantage", 0.0)) - advantage_mean) / advantage_std
+
+
+def _finite_float_vector(value: Any, expected_size: int) -> Optional[List[float]]:
+    if not isinstance(value, (list, tuple)) or len(value) != expected_size:
+        return None
+    vector: List[float] = []
+    for item in value:
+        try:
+            number = float(item)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(number):
+            return None
+        vector.append(number)
+    return vector
+
+
+def _sanitize_replay_step(step: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(step, dict):
+        return None
+    state_vec = _finite_float_vector(step.get("state_vec"), STATE_VECTOR_SIZE)
+    if state_vec is None:
+        return None
+    raw_options = step.get("option_vecs")
+    if not isinstance(raw_options, (list, tuple)) or not raw_options:
+        return None
+    option_vecs: List[List[float]] = []
+    for raw_option in raw_options:
+        option_vec = _finite_float_vector(raw_option, OPTION_VECTOR_SIZE)
+        if option_vec is None:
+            return None
+        option_vecs.append(option_vec)
+    try:
+        action_index = int(step.get("action_index"))
+        old_log_prob = float(step.get("old_log_prob"))
+        value = float(step.get("value"))
+    except (TypeError, ValueError):
+        return None
+    if action_index < 0 or action_index >= len(option_vecs):
+        return None
+    if not math.isfinite(old_log_prob) or not math.isfinite(value):
+        return None
+    return {
+        "state_vec": state_vec,
+        "option_vecs": option_vecs,
+        "action_index": action_index,
+        "old_log_prob": old_log_prob,
+        "value": value,
+        "player_name": str(step.get("player_name", "")),
+    }
+
+
+def _replay_records_from_match(
+    match_summary: Dict[str, Any],
+    *,
+    run_name: str,
+    iteration: int,
+    match_index: int,
+    opponent_meta: Dict[str, Any],
+    config: TrainingConfig,
+    candidate_state: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    trajectories = list(match_summary.get("trajectory_by_game") or [])
+    winners = list(match_summary.get("per_game_winners") or [])
+    record_count = min(len(trajectories), len(winners))
+    if record_count <= 0:
+        return []
+
+    created_at = _timestamp()
+    records: List[Dict[str, Any]] = []
+    for game_index in range(record_count):
+        trajectory: List[Dict[str, Any]] = []
+        for step in list(trajectories[game_index] or []):
+            sanitized = _sanitize_replay_step(step)
+            if sanitized is not None:
+                trajectory.append(sanitized)
+        if not trajectory:
+            continue
+        winner = str(winners[game_index])
+        return_value = 1.0 if winner == "policy_a" else -1.0
+        records.append(
+            {
+                "version": REPLAY_MEMORY_VERSION,
+                "created_at": created_at,
+                "source_run_name": str(run_name),
+                "source_iteration": int(iteration),
+                "source_match_index": int(match_index),
+                "source_game_index": int(game_index),
+                "source_policy": {
+                    "kind": "candidate",
+                    "base_checkpoint": candidate_state.get("base_checkpoint"),
+                    "base_iteration": int(candidate_state.get("base_iteration", 0) or 0),
+                },
+                "opponent": _copy_nested(opponent_meta),
+                "training_decisions_per_game": normalize_training_decisions_per_game(
+                    config.training_decisions_per_game
+                ),
+                "winner": winner,
+                "return_value": return_value,
+                "match_return_value": float(match_summary.get("return_value", 0.0)),
+                "trajectory": trajectory,
+                "decision_count": len(trajectory),
+            }
+        )
+    return records
+
+
+def _append_replay_game_records(records: Sequence[Dict[str, Any]]) -> int:
+    if not records:
+        return 0
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    with _REPLAY_MEMORY_LOCK:
+        with REPLAY_MEMORY_FILE.open("a", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(json.dumps(record, separators=(",", ":")))
+                handle.write("\n")
+    return len(records)
+
+
+def _load_recent_replay_game_records(max_games: int) -> List[Dict[str, Any]]:
+    limit = max(0, int(max_games))
+    if limit <= 0 or not REPLAY_MEMORY_FILE.exists():
+        return []
+    selected: deque[Dict[str, Any]] = deque(maxlen=limit)
+    with _REPLAY_MEMORY_LOCK:
+        with REPLAY_MEMORY_FILE.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(payload, dict):
+                    selected.append(payload)
+    return list(reversed(selected))
+
+
+def _replay_record_to_training_samples(record: Dict[str, Any], config: TrainingConfig) -> List[Dict[str, Any]]:
+    try:
+        return_value = float(record.get("return_value"))
+    except (TypeError, ValueError):
+        winner = str(record.get("winner", ""))
+        return_value = 1.0 if winner == "policy_a" else -1.0
+    if not math.isfinite(return_value):
+        return []
+
+    samples: List[Dict[str, Any]] = []
+    for step in _sample_training_game_trajectory(
+        list(record.get("trajectory") or []),
+        config.training_decisions_per_game,
+    ):
+        sample = _sanitize_replay_step(step)
+        if sample is None:
+            continue
+        sample["return"] = return_value
+        sample["advantage"] = return_value - float(sample["value"])
+        sample["replay"] = True
+        sample["source_run_name"] = record.get("source_run_name")
+        sample["source_iteration"] = record.get("source_iteration")
+        samples.append(sample)
+    return samples
+
+
+def _empty_training_stats() -> Dict[str, float]:
+    return {
+        "samples": 0.0,
+        "policy_loss": 0.0,
+        "value_loss": 0.0,
+        "clip_fraction": 0.0,
+        "avg_ratio": 1.0,
+        "avg_value_prediction": 0.0,
+    }
+
+
+def _combine_training_stats(stats_items: Sequence[Dict[str, Any]]) -> Dict[str, float]:
+    total_samples = sum(max(0.0, float(stats.get("samples", 0.0) or 0.0)) for stats in stats_items)
+    if total_samples <= 0.0:
+        return _empty_training_stats()
+
+    combined = {"samples": total_samples}
+    for key, default_value in (
+        ("policy_loss", 0.0),
+        ("value_loss", 0.0),
+        ("clip_fraction", 0.0),
+        ("avg_ratio", 1.0),
+        ("avg_value_prediction", 0.0),
+    ):
+        weighted_total = 0.0
+        for stats in stats_items:
+            samples = max(0.0, float(stats.get("samples", 0.0) or 0.0))
+            if samples <= 0.0:
+                continue
+            weighted_total += float(stats.get(key, default_value) or default_value) * samples
+        combined[key] = weighted_total / total_samples
+    return combined
+
+
 def _promotion_settings_snapshot(config: TrainingConfig) -> Dict[str, Any]:
     return {
         "learning_rate": float(config.learning_rate),
         "epsilon_random": float(config.epsilon_random),
         "train_temperature": float(config.train_temperature),
         "ppo_clip": float(config.ppo_clip),
+        "replay_training_percent": float(config.replay_training_percent),
         "promotion_score_threshold": float(config.promotion_score_threshold),
         "promotion_games": int(config.promotion_games),
         "candidate_reset_threshold": float(config.candidate_reset_threshold),
@@ -4094,10 +4333,24 @@ class SelfPlayTrainer:
         training_matches_completed: int,
         training_stage_complete: bool,
         promotion_stage_complete: bool,
+        replay_games_completed: int = 0,
+        replay_games_total: Optional[int] = None,
+        replay_stage_complete: Optional[bool] = None,
     ) -> Dict[str, Any]:
         training_matches_total = max(1, int(scheduled_config.training_matches_per_iteration))
         training_games_per_match = max(1, int(scheduled_config.training_games_per_match))
         training_games_total = training_matches_total * training_games_per_match
+        resolved_replay_games_total = (
+            replay_training_games_target(scheduled_config)
+            if replay_games_total is None
+            else max(0, int(replay_games_total))
+        )
+        resolved_replay_games_completed = max(0, int(replay_games_completed))
+        resolved_replay_stage_complete = (
+            resolved_replay_games_total <= 0
+            if replay_stage_complete is None
+            else bool(replay_stage_complete)
+        )
         promotion_games_total = max(1, int(scheduled_config.promotion_games))
         return {
             "kind": "training_iteration",
@@ -4107,13 +4360,24 @@ class SelfPlayTrainer:
             "training_matches_total": int(training_matches_total),
             "training_games_completed": max(0, int(training_games_completed)),
             "training_games_total": int(training_games_total),
+            "replay_games_completed": resolved_replay_games_completed,
+            "replay_games_total": int(resolved_replay_games_total),
+            "replay_games_target": int(replay_training_games_target(scheduled_config)),
             "promotion_games_completed": max(0, int(promotion_games_completed)),
             "promotion_games_total": int(promotion_games_total),
-            "iteration_games_completed": max(0, int(training_games_completed) + int(promotion_games_completed)),
-            "iteration_games_total": int(training_games_total + promotion_games_total),
+            "iteration_games_completed": max(
+                0,
+                int(training_games_completed)
+                + resolved_replay_games_completed
+                + int(promotion_games_completed),
+            ),
+            "iteration_games_total": int(training_games_total + resolved_replay_games_total + promotion_games_total),
             "training_stage_complete": bool(training_stage_complete),
+            "replay_stage_complete": resolved_replay_stage_complete,
             "promotion_stage_complete": bool(promotion_stage_complete),
-            "iteration_complete": bool(training_stage_complete and promotion_stage_complete),
+            "iteration_complete": bool(
+                training_stage_complete and resolved_replay_stage_complete and promotion_stage_complete
+            ),
             "updated_at": _timestamp(),
         }
 
@@ -4691,12 +4955,7 @@ class SelfPlayTrainer:
         if not selected_trajectory:
             return []
 
-        advantages = [step["advantage"] for step in selected_trajectory]
-        advantage_mean = _mean(advantages)
-        advantage_std = _std(advantages)
-        if advantage_std > 1e-6:
-            for step in selected_trajectory:
-                step["advantage"] = (step["advantage"] - advantage_mean) / advantage_std
+        _normalize_sample_advantages(selected_trajectory)
         return selected_trajectory
 
     def _summarize_training_matches(self, match_summaries: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
@@ -4845,7 +5104,7 @@ class SelfPlayTrainer:
         scheduled_config: TrainingConfig,
         next_iteration: int,
         simulation_pool: Optional[_SimulationPool] = None,
-    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], int, int]:
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], int, int, List[Dict[str, Any]]]:
         match_count = max(1, int(scheduled_config.training_matches_per_iteration))
         games_per_match = max(1, int(scheduled_config.training_games_per_match))
         total_games = match_count * games_per_match
@@ -4854,16 +5113,30 @@ class SelfPlayTrainer:
             worker_count = min(max(1, int(simulation_pool.worker_count)), total_games)
         training_matches: List[Dict[str, Any]] = []
         training_samples: List[Dict[str, Any]] = []
+        replay_records: List[Dict[str, Any]] = []
         opponent_summaries: List[Dict[str, Any]] = []
         training_games_completed = 0
         training_sample_candidates = 0
         max_iteration_samples = DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION
         opponent_exploration_plan = _training_opponent_exploration_plan(scheduled_config, match_count)
+        candidate_state_snapshot = _copy_nested(self._candidate_state())
         _check_memory_safety(scheduled_config, "starting training match collection")
 
         def record_completed_match(match_summary: Dict[str, Any], opponent_meta: Dict[str, Any]) -> None:
             nonlocal training_sample_candidates
             match_summary["opponent"] = opponent_meta
+            match_index = len(training_matches)
+            replay_records.extend(
+                _replay_records_from_match(
+                    match_summary,
+                    run_name=self.run_name,
+                    iteration=next_iteration,
+                    match_index=match_index,
+                    opponent_meta=opponent_meta,
+                    config=scheduled_config,
+                    candidate_state=candidate_state_snapshot,
+                )
+            )
             samples = self._match_to_training_samples(match_summary)
             training_sample_candidates = _extend_sample_reservoir(
                 training_samples,
@@ -4921,6 +5194,7 @@ class SelfPlayTrainer:
                 opponent_summaries,
                 training_games_completed,
                 training_sample_candidates,
+                replay_records,
             )
 
         candidate_payload = _policy_payload_for_simulation(self.candidate_policy)
@@ -5033,6 +5307,7 @@ class SelfPlayTrainer:
                 opponent_summaries,
                 training_games_completed,
                 training_sample_candidates,
+                replay_records,
             )
 
         progress_context, progress_queue = _create_simulation_progress_queue()
@@ -5061,7 +5336,111 @@ class SelfPlayTrainer:
             opponent_summaries,
             training_games_completed,
             training_sample_candidates,
+            replay_records,
         )
+
+    def _train_replay_games(
+        self,
+        scheduled_config: TrainingConfig,
+        next_iteration: int,
+        *,
+        training_games_completed: int,
+        training_matches_completed: int,
+    ) -> Dict[str, Any]:
+        replay_games_target = replay_training_games_target(scheduled_config)
+        if replay_games_target <= 0:
+            return {
+                "stats": _empty_training_stats(),
+                "replay_games_target": 0,
+                "replay_games_loaded": 0,
+                "replay_games_used": 0,
+                "replay_samples": 0,
+                "replay_sample_candidates": 0,
+            }
+
+        records = _load_recent_replay_game_records(replay_games_target)
+        replay_games_loaded = len(records)
+        self._set_live_progress(
+            self._build_training_live_progress(
+                scheduled_config,
+                stage="replay",
+                iteration_number=next_iteration,
+                training_games_completed=training_games_completed,
+                replay_games_completed=0,
+                replay_games_total=replay_games_loaded,
+                promotion_games_completed=0,
+                training_matches_completed=training_matches_completed,
+                training_stage_complete=True,
+                replay_stage_complete=(replay_games_loaded <= 0),
+                promotion_stage_complete=False,
+            ),
+            force_persist=True,
+        )
+        if replay_games_loaded <= 0:
+            return {
+                "stats": _empty_training_stats(),
+                "replay_games_target": replay_games_target,
+                "replay_games_loaded": 0,
+                "replay_games_used": 0,
+                "replay_samples": 0,
+                "replay_sample_candidates": 0,
+            }
+
+        stats_items: List[Dict[str, Any]] = []
+        completed_records = 0
+        replay_games_used = 0
+        replay_samples = 0
+        replay_sample_candidates = 0
+
+        for batch_start in range(0, replay_games_loaded, REPLAY_TRAINING_BATCH_GAMES):
+            batch_records = records[batch_start:batch_start + REPLAY_TRAINING_BATCH_GAMES]
+            batch_samples: List[Dict[str, Any]] = []
+            batch_games_used = 0
+            for record in batch_records:
+                raw_trajectory = list(record.get("trajectory") or [])
+                replay_sample_candidates += len(raw_trajectory)
+                record_samples = _replay_record_to_training_samples(record, scheduled_config)
+                if record_samples:
+                    batch_games_used += 1
+                    batch_samples.extend(record_samples)
+
+            if batch_samples:
+                _normalize_sample_advantages(batch_samples)
+                batch_stats = self.candidate_policy.train_on_samples(batch_samples, scheduled_config)
+                stats_items.append(batch_stats)
+                replay_samples += len(batch_samples)
+                replay_games_used += batch_games_used
+
+            completed_records += len(batch_records)
+            if completed_records % max(REPLAY_TRAINING_BATCH_GAMES, MEMORY_SAFETY_CHECK_MATCH_INTERVAL) == 0:
+                _check_memory_safety(
+                    scheduled_config,
+                    f"replay training game {completed_records} of {replay_games_loaded}",
+                )
+            self._set_live_progress(
+                self._build_training_live_progress(
+                    scheduled_config,
+                    stage="replay",
+                    iteration_number=next_iteration,
+                    training_games_completed=training_games_completed,
+                    replay_games_completed=completed_records,
+                    replay_games_total=replay_games_loaded,
+                    promotion_games_completed=0,
+                    training_matches_completed=training_matches_completed,
+                    training_stage_complete=True,
+                    replay_stage_complete=(completed_records >= replay_games_loaded),
+                    promotion_stage_complete=False,
+                )
+            )
+
+        return {
+            "stats": _combine_training_stats(stats_items),
+            "replay_games_target": replay_games_target,
+            "replay_games_loaded": replay_games_loaded,
+            "replay_games_used": replay_games_used,
+            "replay_samples": replay_samples,
+            "replay_sample_candidates": replay_sample_candidates,
+        }
 
     def train_iteration(self) -> Dict[str, Any]:
         scheduled_config = self._scheduled_training_config()
@@ -5101,6 +5480,7 @@ class SelfPlayTrainer:
             opponent_summaries,
             training_games_completed,
             training_sample_candidates,
+            replay_records_to_store,
         ) = self._play_training_matches(
             scheduled_config,
             next_iteration,
@@ -5121,17 +5501,31 @@ class SelfPlayTrainer:
             force_persist=True,
         )
         _check_memory_safety(scheduled_config, "starting PPO optimization")
-        update_stats = self.candidate_policy.train_on_samples(training_samples, scheduled_config)
+        fresh_update_stats = self.candidate_policy.train_on_samples(training_samples, scheduled_config)
+        replay_summary = self._train_replay_games(
+            scheduled_config,
+            next_iteration,
+            training_games_completed=training_games_completed,
+            training_matches_completed=len(training_matches),
+        )
+        replay_records_stored = _append_replay_game_records(replay_records_to_store)
+        replay_stats = dict(replay_summary.get("stats") or _empty_training_stats())
+        update_stats = _combine_training_stats([fresh_update_stats, replay_stats])
         training_summary = self._summarize_training_matches(training_matches)
+        replay_games_completed = int(replay_summary.get("replay_games_loaded", 0) or 0)
+        replay_games_total = replay_games_completed
         self._set_live_progress(
             self._build_training_live_progress(
                 scheduled_config,
                 stage="promotion",
                 iteration_number=next_iteration,
                 training_games_completed=training_games_completed,
+                replay_games_completed=replay_games_completed,
+                replay_games_total=replay_games_total,
                 promotion_games_completed=0,
                 training_matches_completed=len(training_matches),
                 training_stage_complete=True,
+                replay_stage_complete=True,
                 promotion_stage_complete=False,
             ),
             force_persist=True,
@@ -5158,9 +5552,12 @@ class SelfPlayTrainer:
                     stage="promotion",
                     iteration_number=next_iteration,
                     training_games_completed=training_games_completed,
+                    replay_games_completed=replay_games_completed,
+                    replay_games_total=replay_games_total,
                     promotion_games_completed=int(progress.get("games_completed", 0)),
                     training_matches_completed=len(training_matches),
                     training_stage_complete=True,
+                    replay_stage_complete=True,
                     promotion_stage_complete=False,
                 )
             ),
@@ -5197,8 +5594,17 @@ class SelfPlayTrainer:
             "active_simulation_runs": active_simulation_runs(),
             "iterations_since_promotion": self._iterations_since_promotion(),
             "matches_collected": len(training_matches),
+            "fresh_samples": int(fresh_update_stats.get("samples", 0)),
             "samples_collected": len(training_samples),
             "sample_candidates": int(training_sample_candidates),
+            "replay_training_percent": float(scheduled_config.replay_training_percent),
+            "replay_games_target": int(replay_summary.get("replay_games_target", 0) or 0),
+            "replay_games_loaded": int(replay_summary.get("replay_games_loaded", 0) or 0),
+            "replay_games_used": int(replay_summary.get("replay_games_used", 0) or 0),
+            "replay_samples": int(replay_summary.get("replay_samples", 0) or 0),
+            "replay_sample_candidates": int(replay_summary.get("replay_sample_candidates", 0) or 0),
+            "replay_records_stored": int(replay_records_stored),
+            "replay_memory_file": str(REPLAY_MEMORY_FILE),
             "max_training_samples_per_game": DEFAULT_MAX_TRAINING_SAMPLES_PER_GAME,
             "sample_reservoir_limit": DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION,
         }
@@ -5299,9 +5705,12 @@ class SelfPlayTrainer:
                 stage="complete",
                 iteration_number=next_iteration,
                 training_games_completed=training_games_completed,
+                replay_games_completed=replay_games_completed,
+                replay_games_total=replay_games_total,
                 promotion_games_completed=int(eval_summary.get("games_played", 0)),
                 training_matches_completed=len(training_matches),
                 training_stage_complete=True,
+                replay_stage_complete=True,
                 promotion_stage_complete=True,
             ),
             force_persist=True,
@@ -5311,6 +5720,7 @@ class SelfPlayTrainer:
             "match": training_summary,
             "evaluation": self.state["last_eval"],
             "update": update_stats,
+            "replay": replay_summary,
             "iteration": self.state["iteration"],
             "current_elo": self.state.get("current_elo", INITIAL_ELO),
             "action": action,
@@ -5435,6 +5845,7 @@ class SelfPlayTrainer:
             "epsilon_random": float(scheduled_config.epsilon_random),
             "train_temperature": float(scheduled_config.train_temperature),
             "ppo_clip": float(scheduled_config.ppo_clip),
+            "replay_training_percent": float(scheduled_config.replay_training_percent),
         }
 
 
@@ -5488,12 +5899,16 @@ def summarize_training_progress(run_name: str = LATEST_RUN_NAME) -> str:
     summary = trainer.progress_summary()
     last_match = summary.get("last_match") or {}
     last_eval = summary.get("last_eval") or {}
+    last_update = summary.get("last_update") or {}
     match_text = "no completed matches yet"
     if last_match:
         match_text = (
             f"last match {last_match.get('wins', 0)}-{last_match.get('losses', 0)} "
             f"over {last_match.get('games_played', 0)} games"
         )
+    replay_text = ""
+    if last_update:
+        replay_text = f" Replay games used last iteration: {last_update.get('replay_games_used', 0)}."
     eval_text = ""
     if last_eval:
         eval_text = (
@@ -5505,7 +5920,7 @@ def summarize_training_progress(run_name: str = LATEST_RUN_NAME) -> str:
         f"Iteration {summary['iteration']}, total matches {summary['total_matches']}, "
         f"Elo {summary['current_elo']} (best {summary['best_elo']}), promotions {summary.get('promotions', 0)}, "
         f"device {summary.get('device_backend', DEVICE_CPU)}, "
-        f"{match_text}.{eval_text} "
+        f"{match_text}.{replay_text}{eval_text} "
         f"Artifacts: {summary['run_dir']}."
     )
 
@@ -5552,6 +5967,7 @@ def create_run(
     training_matches_per_iteration: int = 5,
     training_games_per_match: int = 16,
     training_decisions_per_game: str = TRAINING_DECISIONS_PER_GAME_ALL,
+    replay_training_percent: float = DEFAULT_REPLAY_TRAINING_PERCENT,
     learning_rate: float = 0.0019,
     epsilon_random: float = 0.07,
     train_temperature: float = 0.9,
@@ -5571,6 +5987,7 @@ def create_run(
         training_matches_per_iteration=training_matches_per_iteration,
         training_games_per_match=training_games_per_match,
         training_decisions_per_game=training_decisions_per_game,
+        replay_training_percent=replay_training_percent,
         learning_rate=learning_rate,
         epsilon_random=epsilon_random,
         train_temperature=train_temperature,
@@ -5599,6 +6016,7 @@ def create_run_from_checkpoint(
     training_matches_per_iteration: int = 5,
     training_games_per_match: int = 16,
     training_decisions_per_game: str = TRAINING_DECISIONS_PER_GAME_ALL,
+    replay_training_percent: float = DEFAULT_REPLAY_TRAINING_PERCENT,
     learning_rate: float = 0.0019,
     epsilon_random: float = 0.07,
     train_temperature: float = 0.9,
@@ -5631,6 +6049,7 @@ def create_run_from_checkpoint(
             "training_matches_per_iteration": int(training_matches_per_iteration),
             "training_games_per_match": int(training_games_per_match),
             "training_decisions_per_game": normalize_training_decisions_per_game(training_decisions_per_game),
+            "replay_training_percent": normalize_replay_training_percent(replay_training_percent),
             "learning_rate": normalize_learning_rate(learning_rate),
             "epsilon_random": normalize_epsilon_random(epsilon_random),
             "ppo_clip": normalize_ppo_clip(ppo_clip),
@@ -5696,6 +6115,7 @@ def update_run_config(
     epsilon_random: Optional[float] = None,
     train_temperature: Optional[float] = None,
     ppo_clip: Optional[float] = None,
+    replay_training_percent: Optional[float] = None,
     promotion_score_threshold: Optional[float] = None,
     simulation_workers: Optional[int] = None,
 ) -> Dict[str, Any]:
@@ -5715,6 +6135,8 @@ def update_run_config(
         overrides.update(train_temperature_overrides(train_temperature))
     if ppo_clip is not None:
         overrides["ppo_clip"] = normalize_ppo_clip(ppo_clip)
+    if replay_training_percent is not None:
+        overrides["replay_training_percent"] = normalize_replay_training_percent(replay_training_percent)
     if promotion_score_threshold is not None:
         overrides["promotion_score_threshold"] = normalize_promotion_score_threshold(promotion_score_threshold)
     if simulation_workers is not None:

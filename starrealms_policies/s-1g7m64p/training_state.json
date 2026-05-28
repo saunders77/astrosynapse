@@ -5,7 +5,7 @@
   "total_matches": 18456,
   "total_games": 150499,
   "created_at": 1776922755.833662,
-  "updated_at": 1779920431.5907588,
+  "updated_at": 1779926338.906781,
   "strategy": "champion_league_v2",
   "strategy_version": 2,
   "current_elo": 1621.8902191820055,
@@ -35,7 +35,7 @@
     "promotion_score_threshold": 0.55,
     "simulation_workers": 0,
     "candidate_patience": 8,
-    "candidate_reset_threshold": 0.35,
+    "candidate_reset_threshold": 0.47,
     "league_recent_window": 10,
     "league_champion_weight": 0.0,
     "league_best_weight": 1.0,
@@ -52,7 +52,8 @@
     "min_available_memory_mb": 1024,
     "max_turns_per_game": 400,
     "max_actions_per_turn": 200,
-    "max_iterations": null
+    "max_iterations": null,
+    "candidate_soft_reset_threshold": 0.5
   },
   "last_match": {
     "wins": 3,
@@ -181,6 +182,8 @@
     "promotions": 216,
     "rating_pass_elo": 1621.8902191820055,
     "last_score": 0.5,
+    "score_history": [],
+    "score_average_since_reset": null,
     "last_result": "keep_training",
     "last_reset_reason": "Promoted to champion_002306.json",
     "last_opponents": [
@@ -2950,7 +2953,7 @@
     }
   ],
   "last_error": null,
-  "config_defaults_version": 7,
+  "config_defaults_version": 8,
   "device_plan": {
     "requested_backend": "cpu",
     "backend": "cpu",

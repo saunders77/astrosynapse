@@ -2,8 +2,8 @@
   "version": 2,
   "created_at": 1779853568.0189946,
   "created_datetime": "2026-05-26 20:46:08",
-  "updated_at": 1779920546.0645893,
-  "total_games": 49200,
+  "updated_at": 1779926694.1606355,
+  "total_games": 50400,
   "ratings": {
     "s-1g500m1001p": {
       "run_name": "s-1g500m1001p",
@@ -320,12 +320,12 @@
     },
     "s-1g7m64p": {
       "run_name": "s-1g7m64p",
-      "elo": 1289.9597939644405,
-      "rating_deviation": 40.52491153031114,
-      "volatility": 0.05999368080784995,
-      "games": 4457,
-      "wins": 1807,
-      "losses": 2650,
+      "elo": 1345.9113729835608,
+      "rating_deviation": 76.31414295506428,
+      "volatility": 0.059987061282152726,
+      "games": 4850,
+      "wins": 2136,
+      "losses": 2714,
       "draws": 0,
       "best_checkpoint": "champion_002306.json",
       "best_iteration": 2307,
@@ -333,8 +333,8 @@
       "created_datetime": "2026-04-22 22:39:15",
       "fork_origin": "-",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779920462.724099,
-      "confidence_radius": 79.42882659940983
+      "last_played_at": 1779926690.3075159,
+      "confidence_radius": 149.575720191926
     },
     "s-1g7m42p": {
       "run_name": "s-1g7m42p",
@@ -608,12 +608,12 @@
     },
     "sd-16g32m1000p-t.5": {
       "run_name": "sd-16g32m1000p-t.5",
-      "elo": 1406.935064892479,
-      "rating_deviation": 51.626280160272984,
-      "volatility": 0.06000144948505127,
-      "games": 4980,
-      "wins": 3043,
-      "losses": 1937,
+      "elo": 1441.5745851552588,
+      "rating_deviation": 62.266901996517014,
+      "volatility": 0.060012366818664474,
+      "games": 5430,
+      "wins": 3449,
+      "losses": 1981,
       "draws": 0,
       "best_checkpoint": "checkpoint_000000.json",
       "best_iteration": 16,
@@ -621,8 +621,8 @@
       "created_datetime": "2026-05-26 20:25:46",
       "fork_origin": "sd-16g32m1000p/champion_000111.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779920462.6530309,
-      "confidence_radius": 101.18750911413504
+      "last_played_at": 1779926693.3654952,
+      "confidence_radius": 122.04312791317335
     },
     "sd-16g32m1000p-t.75": {
       "run_name": "sd-16g32m1000p-t.75",
@@ -932,20 +932,20 @@
     },
     "sd-32g64m1000p": {
       "run_name": "sd-32g64m1000p",
-      "elo": 1424.0864628588563,
-      "rating_deviation": 60.47412107309455,
-      "volatility": 0.060099249910130145,
-      "games": 1153,
-      "wins": 590,
-      "losses": 563,
+      "elo": 1342.4687558660703,
+      "rating_deviation": 64.16689350924862,
+      "volatility": 0.060103085804444074,
+      "games": 1656,
+      "wins": 1046,
+      "losses": 610,
       "draws": 0,
       "best_checkpoint": "champion_000145.json",
-      "best_iteration": 197,
+      "best_iteration": 233,
       "created_at": 1779891377.5844939,
       "created_datetime": "2026-05-27 07:16:17",
       "fork_origin": "sd-16g32m1000p/champion_000773.json",
       "first_rated_at": 1779891377.8584247,
-      "last_played_at": 1779920545.3051913,
+      "last_played_at": 1779926693.3654952,
       "rating_seed": {
         "type": "promoted_from",
         "run_name": "sd-32g64m1000p",
@@ -953,7 +953,57 @@
         "event_at": 1779915869.573226,
         "event_datetime": "2026-05-27 14:04:29"
       },
-      "confidence_radius": 118.52927730326532
+      "confidence_radius": 125.7671112781273
+    },
+    "sd-16g16m100p": {
+      "run_name": "sd-16g16m100p",
+      "elo": 1424.0864628588563,
+      "rating_deviation": 80.0,
+      "volatility": 0.060099249910130145,
+      "games": 0,
+      "wins": 0,
+      "losses": 0,
+      "draws": 0,
+      "best_checkpoint": "champion_000167.json",
+      "best_iteration": 169,
+      "created_at": 1779921044.7919745,
+      "created_datetime": "2026-05-27 15:30:44",
+      "fork_origin": "sd-32g64m1000p/champion_000145.json",
+      "first_rated_at": 1779921320.4924064,
+      "last_played_at": null,
+      "rating_seed": {
+        "type": "promoted_from",
+        "run_name": "sd-16g16m100p",
+        "checkpoint": "champion_000164.json",
+        "event_at": 1779925919.0501606,
+        "event_datetime": "2026-05-27 16:51:59"
+      },
+      "confidence_radius": 156.8
+    },
+    "s-32g32m1000p": {
+      "run_name": "s-32g32m1000p",
+      "elo": 799.3870321594476,
+      "rating_deviation": 148.50723194185878,
+      "volatility": 0.059990122574159296,
+      "games": 477,
+      "wins": 9,
+      "losses": 468,
+      "draws": 0,
+      "best_checkpoint": "champion_000004.json",
+      "best_iteration": 8,
+      "created_at": 1779926108.543104,
+      "created_datetime": "2026-05-27 16:55:08",
+      "fork_origin": "-",
+      "first_rated_at": 1779926108.8481781,
+      "last_played_at": 1779926688.2339056,
+      "rating_seed": {
+        "type": "promoted_from",
+        "run_name": "s-32g32m1000p",
+        "checkpoint": "champion_000003.json",
+        "event_at": 1779926435.5069473,
+        "event_datetime": "2026-05-27 17:00:35"
+      },
+      "confidence_radius": 291.0741746060432
     }
   },
   "pairings": {
@@ -7136,9 +7186,9 @@
     "s-1g7m64p||sd-16g32m1000p-t.5": {
       "run_a": "s-1g7m64p",
       "run_b": "sd-16g32m1000p-t.5",
-      "games": 622,
-      "wins_a": 218,
-      "wins_b": 404,
+      "games": 656,
+      "wins_a": 232,
+      "wins_b": 424,
       "draws": 0
     },
     "s-1g7m64p||sd-16g32m1000p-t.75": {
@@ -11168,17 +11218,17 @@
     "s-1g7m64p||sd-32g64m1000p": {
       "run_a": "s-1g7m64p",
       "run_b": "sd-32g64m1000p",
-      "games": 188,
-      "wins_a": 60,
-      "wins_b": 128,
+      "games": 244,
+      "wins_a": 76,
+      "wins_b": 168,
       "draws": 0
     },
     "sd-16g32m1000p-t.5||sd-32g64m1000p": {
       "run_a": "sd-16g32m1000p-t.5",
       "run_b": "sd-32g64m1000p",
-      "games": 401,
-      "wins_a": 190,
-      "wins_b": 211,
+      "games": 457,
+      "wins_a": 219,
+      "wins_b": 238,
       "draws": 0
     },
     "sd-16g32m1000p-t.75||sd-32g64m1000p": {
@@ -11292,24 +11342,50 @@
       "wins_a": 11,
       "wins_b": 225,
       "draws": 0
+    },
+    "s-32g32m1000p||sd-32g64m1000p": {
+      "run_a": "s-32g32m1000p",
+      "run_b": "sd-32g64m1000p",
+      "games": 391,
+      "wins_a": 2,
+      "wins_b": 389,
+      "draws": 0
+    },
+    "s-1g7m64p||s-32g32m1000p": {
+      "run_a": "s-1g7m64p",
+      "run_b": "s-32g32m1000p",
+      "games": 303,
+      "wins_a": 299,
+      "wins_b": 4,
+      "draws": 0
+    },
+    "s-32g32m1000p||sd-16g32m1000p-t.5": {
+      "run_a": "s-32g32m1000p",
+      "run_b": "sd-16g32m1000p-t.5",
+      "games": 360,
+      "wins_a": 3,
+      "wins_b": 357,
+      "draws": 0
     }
   },
   "last_calibration": {
     "status": "completed",
     "rating_model": "glicko_2",
-    "started_at": 1779920489.4025645,
-    "completed_at": 1779920546.0645893,
-    "duration_seconds": 56.66202473640442,
-    "games_completed": 1000,
-    "games_target": 1000,
-    "pairings_completed": 2,
-    "pairings_total": 2,
+    "started_at": 1779926662.4645176,
+    "completed_at": 1779926694.1606355,
+    "duration_seconds": 31.696117877960205,
+    "games_completed": 600,
+    "games_target": 600,
+    "pairings_completed": 12,
+    "pairings_total": 12,
     "resolved_simulation_workers": 7,
     "selected_run_names": [
+      "s-32g32m1000p",
       "sd-32g64m1000p",
-      "sd-16g32m1000p"
+      "s-1g7m64p",
+      "sd-16g32m1000p-t.5"
     ],
-    "selected_participant_count": 2
+    "selected_participant_count": 4
   },
   "rating_model": "glicko_2"
 }
