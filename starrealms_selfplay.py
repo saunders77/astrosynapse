@@ -18,7 +18,6 @@ import random
 import threading
 import time
 import warnings
-from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from functools import lru_cache
@@ -109,7 +108,8 @@ SIMULATION_PROGRESS_POLL_SECONDS = 0.25
 SIMULATION_WORKER_POLICY_CACHE_LIMIT = 32
 DEFAULT_MAX_TRAINING_SAMPLES_PER_GAME = 70
 DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION = 8192
-REPLAY_TRAINING_BATCH_GAMES = 16
+REPLAY_TRAINING_BATCH_GAMES = 64
+REPLAY_MEMORY_TAIL_READ_CHUNK_BYTES = 1024 * 1024
 DEFAULT_MIN_AVAILABLE_MEMORY_MB = 1024
 MEMORY_SAFETY_CHECK_MATCH_INTERVAL = 16
 _REPLAY_MEMORY_LOCK = threading.Lock()
@@ -4014,24 +4014,64 @@ def _append_replay_game_records(records: Sequence[Dict[str, Any]]) -> int:
     return len(records)
 
 
+def _read_replay_memory_tail_lines(max_lines: int) -> List[bytes]:
+    limit = max(0, int(max_lines))
+    if limit <= 0 or not REPLAY_MEMORY_FILE.exists():
+        return []
+
+    lines: List[bytes] = []
+    chunk_size = max(4096, int(REPLAY_MEMORY_TAIL_READ_CHUNK_BYTES))
+    with REPLAY_MEMORY_FILE.open("rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        position = handle.tell()
+        buffer = b""
+        while position > 0 and len(lines) < limit:
+            read_size = min(chunk_size, position)
+            position -= read_size
+            handle.seek(position)
+            buffer = handle.read(read_size) + buffer
+            parts = buffer.split(b"\n")
+            if position > 0:
+                buffer = parts[0]
+                complete_parts = parts[1:]
+            else:
+                buffer = b""
+                complete_parts = parts
+
+            for raw_line in reversed(complete_parts):
+                if len(lines) >= limit:
+                    break
+                raw_line = raw_line.strip()
+                if not raw_line:
+                    continue
+                lines.append(raw_line)
+    return lines
+
+
 def _load_recent_replay_game_records(max_games: int) -> List[Dict[str, Any]]:
     limit = max(0, int(max_games))
     if limit <= 0 or not REPLAY_MEMORY_FILE.exists():
         return []
-    selected: deque[Dict[str, Any]] = deque(maxlen=limit)
+    selected: List[Dict[str, Any]] = []
     with _REPLAY_MEMORY_LOCK:
-        with REPLAY_MEMORY_FILE.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    payload = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(payload, dict):
-                    selected.append(payload)
-    return list(reversed(selected))
+        for line in _read_replay_memory_tail_lines(limit + 32):
+            try:
+                payload = json.loads(line)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            if isinstance(payload, dict):
+                selected.append(payload)
+                if len(selected) >= limit:
+                    break
+    return selected
+
+
+def _load_recent_replay_game_record_payloads(max_games: int) -> List[bytes]:
+    limit = max(0, int(max_games))
+    if limit <= 0 or not REPLAY_MEMORY_FILE.exists():
+        return []
+    with _REPLAY_MEMORY_LOCK:
+        return _read_replay_memory_tail_lines(limit)
 
 
 def _replay_record_to_training_samples(record: Dict[str, Any], config: TrainingConfig) -> List[Dict[str, Any]]:
@@ -4058,6 +4098,48 @@ def _replay_record_to_training_samples(record: Dict[str, Any], config: TrainingC
         sample["source_iteration"] = record.get("source_iteration")
         samples.append(sample)
     return samples
+
+
+def _replay_records_to_sample_batch(
+    records: Sequence[Any],
+    config: TrainingConfig,
+) -> Dict[str, Any]:
+    samples: List[Dict[str, Any]] = []
+    games_used = 0
+    sample_candidates = 0
+    records_processed = 0
+    for raw_record in records:
+        records_processed += 1
+        if isinstance(raw_record, dict):
+            record = raw_record
+        else:
+            try:
+                decoded_record = json.loads(raw_record)
+            except (TypeError, json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            if not isinstance(decoded_record, dict):
+                continue
+            record = decoded_record
+        raw_trajectory = list(record.get("trajectory") or [])
+        sample_candidates += len(raw_trajectory)
+        record_samples = _replay_record_to_training_samples(record, config)
+        if record_samples:
+            games_used += 1
+            samples.extend(record_samples)
+    return {
+        "records_processed": records_processed,
+        "games_used": games_used,
+        "samples": samples,
+        "sample_candidates": sample_candidates,
+    }
+
+
+def _replay_records_to_sample_batch_worker(task: Dict[str, Any]) -> Dict[str, Any]:
+    _configure_simulation_worker_runtime()
+    config = _config_from_payload(task["config_payload"])
+    result = _replay_records_to_sample_batch(list(task.get("records") or []), config)
+    result["batch_index"] = int(task.get("batch_index", 0))
+    return result
 
 
 def _empty_training_stats() -> Dict[str, float]:
@@ -4861,15 +4943,6 @@ class SelfPlayTrainer:
     def _sample_league_opponent(self) -> Tuple[PolicyNetwork, Dict[str, Any]]:
         latest_name = self.state.get("latest_checkpoint")
         best_name = self.state.get("best_checkpoint")
-        if best_name:
-            selected = {
-                "label": "best",
-                "source": "best",
-                "checkpoint": best_name,
-            }
-            if best_name == latest_name:
-                return self.policy, selected
-            return _cached_policy(self.run_name, best_name), selected
 
         historical_names = [item["name"] for item in self._checkpoint_entries_sorted() if item.get("name")]
         historical_names = [name for name in historical_names if name != latest_name]
@@ -4889,7 +4962,7 @@ class SelfPlayTrainer:
             )
         ]
 
-        if best_name and best_name != latest_name:
+        if best_name:
             choices.append(
                 (
                     {
@@ -4923,7 +4996,14 @@ class SelfPlayTrainer:
                 )
             )
 
-        selected = _weighted_choice(choices)
+        if sum(max(0.0, weight) for _, weight in choices) <= 0.0:
+            selected = {
+                "label": "champion",
+                "source": "champion",
+                "checkpoint": latest_name,
+            }
+        else:
+            selected = _weighted_choice(choices)
         checkpoint_name = selected.get("checkpoint")
         if selected["source"] == "champion" or checkpoint_name in (None, latest_name):
             return self.policy, selected
@@ -5356,10 +5436,11 @@ class SelfPlayTrainer:
                 "replay_games_used": 0,
                 "replay_samples": 0,
                 "replay_sample_candidates": 0,
+                "replay_resolved_workers": 0,
             }
 
-        records = _load_recent_replay_game_records(replay_games_target)
-        replay_games_loaded = len(records)
+        record_payloads = _load_recent_replay_game_record_payloads(replay_games_target)
+        replay_games_loaded = len(record_payloads)
         self._set_live_progress(
             self._build_training_live_progress(
                 scheduled_config,
@@ -5384,39 +5465,21 @@ class SelfPlayTrainer:
                 "replay_games_used": 0,
                 "replay_samples": 0,
                 "replay_sample_candidates": 0,
+                "replay_resolved_workers": 0,
             }
 
+        replay_worker_count = resolve_simulation_workers(
+            scheduled_config.simulation_workers,
+            replay_games_loaded,
+            allocation_key=self.run_name,
+        )
         stats_items: List[Dict[str, Any]] = []
         completed_records = 0
         replay_games_used = 0
         replay_samples = 0
         replay_sample_candidates = 0
 
-        for batch_start in range(0, replay_games_loaded, REPLAY_TRAINING_BATCH_GAMES):
-            batch_records = records[batch_start:batch_start + REPLAY_TRAINING_BATCH_GAMES]
-            batch_samples: List[Dict[str, Any]] = []
-            batch_games_used = 0
-            for record in batch_records:
-                raw_trajectory = list(record.get("trajectory") or [])
-                replay_sample_candidates += len(raw_trajectory)
-                record_samples = _replay_record_to_training_samples(record, scheduled_config)
-                if record_samples:
-                    batch_games_used += 1
-                    batch_samples.extend(record_samples)
-
-            if batch_samples:
-                _normalize_sample_advantages(batch_samples)
-                batch_stats = self.candidate_policy.train_on_samples(batch_samples, scheduled_config)
-                stats_items.append(batch_stats)
-                replay_samples += len(batch_samples)
-                replay_games_used += batch_games_used
-
-            completed_records += len(batch_records)
-            if completed_records % max(REPLAY_TRAINING_BATCH_GAMES, MEMORY_SAFETY_CHECK_MATCH_INTERVAL) == 0:
-                _check_memory_safety(
-                    scheduled_config,
-                    f"replay training game {completed_records} of {replay_games_loaded}",
-                )
+        def persist_replay_progress() -> None:
             self._set_live_progress(
                 self._build_training_live_progress(
                     scheduled_config,
@@ -5433,6 +5496,74 @@ class SelfPlayTrainer:
                 )
             )
 
+        def consume_replay_batch(batch_result: Dict[str, Any]) -> None:
+            nonlocal completed_records, replay_games_used, replay_samples, replay_sample_candidates
+            batch_samples = list(batch_result.get("samples") or [])
+            if batch_samples:
+                _normalize_sample_advantages(batch_samples)
+                batch_stats = self.candidate_policy.train_on_samples(batch_samples, scheduled_config)
+                stats_items.append(batch_stats)
+                replay_samples += len(batch_samples)
+            replay_games_used += int(batch_result.get("games_used", 0) or 0)
+            replay_sample_candidates += int(batch_result.get("sample_candidates", 0) or 0)
+            completed_records = min(
+                replay_games_loaded,
+                completed_records + int(batch_result.get("records_processed", 0) or 0),
+            )
+            if (
+                completed_records >= replay_games_loaded
+                or completed_records % max(REPLAY_TRAINING_BATCH_GAMES, MEMORY_SAFETY_CHECK_MATCH_INTERVAL) == 0
+            ):
+                _check_memory_safety(
+                    scheduled_config,
+                    f"replay training game {completed_records} of {replay_games_loaded}",
+                )
+            persist_replay_progress()
+
+        def iter_replay_batches() -> Iterable[Tuple[int, List[bytes]]]:
+            batch_index = 0
+            for batch_start in range(0, replay_games_loaded, REPLAY_TRAINING_BATCH_GAMES):
+                yield batch_index, record_payloads[batch_start:batch_start + REPLAY_TRAINING_BATCH_GAMES]
+                batch_index += 1
+
+        if replay_worker_count <= 1:
+            for batch_index, batch_records in iter_replay_batches():
+                batch_result = _replay_records_to_sample_batch(batch_records, scheduled_config)
+                batch_result["batch_index"] = batch_index
+                consume_replay_batch(batch_result)
+        else:
+            replay_pool = self._get_simulation_pool(replay_worker_count)
+            if replay_pool is None:
+                for batch_index, batch_records in iter_replay_batches():
+                    batch_result = _replay_records_to_sample_batch(batch_records, scheduled_config)
+                    batch_result["batch_index"] = batch_index
+                    consume_replay_batch(batch_result)
+            else:
+                replay_pool.wait_until_ready()
+                progress_queue = replay_pool.progress_queue
+                _drain_simulation_progress_queue(progress_queue)
+                config_payload = _config_payload_for_simulation(scheduled_config)
+
+                def iter_replay_tasks() -> Iterable[Dict[str, Any]]:
+                    for batch_index, batch_records in iter_replay_batches():
+                        yield {
+                            "batch_index": batch_index,
+                            "records": batch_records,
+                            "config_payload": config_payload,
+                        }
+
+                task_count = max(1, math.ceil(replay_games_loaded / max(1, REPLAY_TRAINING_BATCH_GAMES)))
+                _consume_simulation_task_iterator(
+                    replay_pool.executor,
+                    _replay_records_to_sample_batch_worker,
+                    iter_replay_tasks(),
+                    max_in_flight=_max_in_flight_simulation_tasks(replay_worker_count, task_count),
+                    progress_queue=progress_queue,
+                    progress_callback=lambda _delta: None,
+                    result_callback=consume_replay_batch,
+                )
+                _drain_simulation_progress_queue(progress_queue)
+
         return {
             "stats": _combine_training_stats(stats_items),
             "replay_games_target": replay_games_target,
@@ -5440,6 +5571,7 @@ class SelfPlayTrainer:
             "replay_games_used": replay_games_used,
             "replay_samples": replay_samples,
             "replay_sample_candidates": replay_sample_candidates,
+            "replay_resolved_workers": replay_worker_count,
         }
 
     def train_iteration(self) -> Dict[str, Any]:
@@ -5603,6 +5735,7 @@ class SelfPlayTrainer:
             "replay_games_used": int(replay_summary.get("replay_games_used", 0) or 0),
             "replay_samples": int(replay_summary.get("replay_samples", 0) or 0),
             "replay_sample_candidates": int(replay_summary.get("replay_sample_candidates", 0) or 0),
+            "replay_resolved_workers": int(replay_summary.get("replay_resolved_workers", 0) or 0),
             "replay_records_stored": int(replay_records_stored),
             "replay_memory_file": str(REPLAY_MEMORY_FILE),
             "max_training_samples_per_game": DEFAULT_MAX_TRAINING_SAMPLES_PER_GAME,
@@ -6118,6 +6251,18 @@ def update_run_config(
     replay_training_percent: Optional[float] = None,
     promotion_score_threshold: Optional[float] = None,
     simulation_workers: Optional[int] = None,
+    league_champion_weight: Optional[float] = None,
+    league_best_weight: Optional[float] = None,
+    league_recent_weight: Optional[float] = None,
+    league_historical_weight: Optional[float] = None,
+    league_recent_window: Optional[int] = None,
+    opponent_normal_weight: Optional[float] = None,
+    opponent_learnable_weight: Optional[float] = None,
+    opponent_chaotic_weight: Optional[float] = None,
+    opponent_learnable_temperature: Optional[float] = None,
+    opponent_chaotic_temperature: Optional[float] = None,
+    opponent_learnable_epsilon_random: Optional[float] = None,
+    opponent_chaotic_epsilon_random: Optional[float] = None,
 ) -> Dict[str, Any]:
     if not run_exists(run_name):
         raise ValueError(f"Run '{run_name}' does not exist.")
@@ -6141,6 +6286,30 @@ def update_run_config(
         overrides["promotion_score_threshold"] = normalize_promotion_score_threshold(promotion_score_threshold)
     if simulation_workers is not None:
         overrides["simulation_workers"] = normalize_simulation_workers(simulation_workers)
+    for key, value in (
+        ("league_champion_weight", league_champion_weight),
+        ("league_best_weight", league_best_weight),
+        ("league_recent_weight", league_recent_weight),
+        ("league_historical_weight", league_historical_weight),
+        ("opponent_normal_weight", opponent_normal_weight),
+        ("opponent_learnable_weight", opponent_learnable_weight),
+        ("opponent_chaotic_weight", opponent_chaotic_weight),
+        ("opponent_learnable_temperature", opponent_learnable_temperature),
+        ("opponent_chaotic_temperature", opponent_chaotic_temperature),
+        ("opponent_learnable_epsilon_random", opponent_learnable_epsilon_random),
+        ("opponent_chaotic_epsilon_random", opponent_chaotic_epsilon_random),
+    ):
+        if value is None:
+            continue
+        number = float(value)
+        if not math.isfinite(number) or number < 0.0:
+            raise ValueError(f"{key} must be greater than or equal to 0.")
+        overrides[key] = number
+    if league_recent_window is not None:
+        window = int(league_recent_window)
+        if window < 0:
+            raise ValueError("league_recent_window must be greater than or equal to 0.")
+        overrides["league_recent_window"] = window
     if not overrides:
         return trainer.progress_summary()
 
