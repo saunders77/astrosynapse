@@ -494,7 +494,6 @@ class TrainerGUI(tk.Tk):
         self.new_run_matches_var = tk.StringVar(value="5")
         self.new_run_games_var = tk.StringVar(value="16")
         self.new_run_decisions_var = tk.StringVar(value=sp.TRAINING_DECISIONS_PER_GAME_ALL)
-        self.new_run_replay_training_percent_var = tk.StringVar(value=str(int(sp.DEFAULT_REPLAY_TRAINING_PERCENT)))
         self.new_run_learning_rate_var = tk.StringVar(value="0.0019")
         self.new_run_epsilon_var = tk.StringVar(value="0.07")
         self.new_run_train_temperature_var = tk.StringVar(value="0.9")
@@ -513,7 +512,6 @@ class TrainerGUI(tk.Tk):
         self.run_epsilon_var = tk.StringVar(value="0.07")
         self.run_train_temperature_var = tk.StringVar(value="0.9")
         self.run_ppo_clip_var = tk.StringVar(value="0.2")
-        self.run_replay_training_percent_var = tk.StringVar(value=str(int(sp.DEFAULT_REPLAY_TRAINING_PERCENT)))
         self.run_promotion_threshold_var = tk.StringVar(value="0.6")
         self.run_workers_var = tk.StringVar(value=str(sp.SIMULATION_WORKERS_AUTO))
         self._loaded_run_settings_run_name: Optional[str] = None
@@ -534,13 +532,11 @@ class TrainerGUI(tk.Tk):
         self.summary_progress_value_vars = {
             "iteration": tk.DoubleVar(value=0.0),
             "training": tk.DoubleVar(value=0.0),
-            "replay": tk.DoubleVar(value=0.0),
             "promotion": tk.DoubleVar(value=0.0),
         }
         self.summary_progress_text_vars = {
             "iteration": tk.StringVar(value="Idle"),
             "training": tk.StringVar(value="Idle"),
-            "replay": tk.StringVar(value="Idle"),
             "promotion": tk.StringVar(value="Idle"),
         }
         self.activity_progress_value_vars = {
@@ -620,7 +616,6 @@ class TrainerGUI(tk.Tk):
         progressbar_styles = {
             "SummaryIteration.Horizontal.TProgressbar": ACCENT,
             "SummaryTraining.Horizontal.TProgressbar": "#5aa9e6",
-            "SummaryReplay.Horizontal.TProgressbar": "#c9a227",
             "SummaryPromotion.Horizontal.TProgressbar": "#7bd389",
             "ActivityAcquire.Horizontal.TProgressbar": "#f08a5d",
             "ActivityScrap.Horizontal.TProgressbar": "#c06c84",
@@ -783,8 +778,6 @@ class TrainerGUI(tk.Tk):
         ttk.Entry(new_run_policy_row, textvariable=self.new_run_train_temperature_var, width=6).pack(side="left", padx=(6, 16))
         ttk.Label(new_run_policy_row, text="PPO Clip").pack(side="left")
         ttk.Entry(new_run_policy_row, textvariable=self.new_run_ppo_clip_var, width=6).pack(side="left", padx=(6, 16))
-        ttk.Label(new_run_policy_row, text="Replay %").pack(side="left")
-        ttk.Entry(new_run_policy_row, textvariable=self.new_run_replay_training_percent_var, width=7).pack(side="left", padx=(6, 16))
         ttk.Label(new_run_policy_row, text="Promotion Games").pack(side="left")
         ttk.Entry(new_run_policy_row, textvariable=self.new_run_promotion_games_var, width=8).pack(side="left", padx=(6, 16))
         ttk.Label(new_run_policy_row, text="Promote Win %").pack(side="left")
@@ -839,8 +832,6 @@ class TrainerGUI(tk.Tk):
         ttk.Entry(run_config_row, textvariable=self.run_train_temperature_var, width=6).pack(side="left", padx=(6, 16))
         ttk.Label(run_config_row, text="PPO Clip").pack(side="left")
         ttk.Entry(run_config_row, textvariable=self.run_ppo_clip_var, width=6).pack(side="left", padx=(6, 16))
-        ttk.Label(run_config_row, text="Replay %").pack(side="left")
-        ttk.Entry(run_config_row, textvariable=self.run_replay_training_percent_var, width=7).pack(side="left", padx=(6, 16))
         ttk.Label(run_config_row, text="Promote Win %").pack(side="left")
         ttk.Entry(run_config_row, textvariable=self.run_promotion_threshold_var, width=6).pack(side="left", padx=(6, 16))
         ttk.Label(run_config_row, text="Workers").pack(side="left")
@@ -911,7 +902,7 @@ class TrainerGUI(tk.Tk):
         self._summary_pair(summary, 2, 0, "Device", self.status_vars["device"])
         summary_progress = tk.Frame(summary, bg=WINDOW_BG)
         summary_progress.grid(row=3, column=0, columnspan=5, sticky="ew", padx=6, pady=(8, 2))
-        for column in range(4):
+        for column in range(3):
             summary_progress.grid_columnconfigure(column, weight=1)
         self._summary_progress_card(
             summary_progress,
@@ -930,13 +921,6 @@ class TrainerGUI(tk.Tk):
         self._summary_progress_card(
             summary_progress,
             2,
-            "Replay Stage",
-            "replay",
-            "SummaryReplay.Horizontal.TProgressbar",
-        )
-        self._summary_progress_card(
-            summary_progress,
-            3,
             "Promotion Stage",
             "promotion",
             "SummaryPromotion.Horizontal.TProgressbar",
@@ -1258,7 +1242,6 @@ class TrainerGUI(tk.Tk):
         labels = {
             "training": "Training",
             "optimizing": "Policy Update",
-            "replay": "Replay",
             "promotion": "Promotion",
             "complete": "Complete",
             "idle": "Idle",
@@ -1407,12 +1390,6 @@ class TrainerGUI(tk.Tk):
         except ValueError as exc:
             raise ValueError(str(exc))
 
-    def _new_run_replay_training_percent(self) -> float:
-        try:
-            return sp.normalize_replay_training_percent(self.new_run_replay_training_percent_var.get().strip())
-        except ValueError as exc:
-            raise ValueError(str(exc))
-
     def _new_run_promotion_games(self) -> int:
         try:
             value = int(self.new_run_promotion_games_var.get().strip())
@@ -1458,12 +1435,6 @@ class TrainerGUI(tk.Tk):
         except ValueError as exc:
             raise ValueError(str(exc))
 
-    def _selected_run_replay_training_percent(self) -> float:
-        try:
-            return sp.normalize_replay_training_percent(self.run_replay_training_percent_var.get().strip())
-        except ValueError as exc:
-            raise ValueError(str(exc))
-
     def _selected_run_promotion_threshold(self) -> float:
         try:
             return sp.normalize_promotion_score_threshold(self.run_promotion_threshold_var.get().strip())
@@ -1488,7 +1459,6 @@ class TrainerGUI(tk.Tk):
             epsilon_random=self._new_run_epsilon_random(),
             train_temperature=self._new_run_train_temperature(),
             ppo_clip=self._new_run_ppo_clip(),
-            replay_training_percent=self._new_run_replay_training_percent(),
             promotion_games=self._new_run_promotion_games(),
             promotion_score_threshold=self._new_run_promotion_threshold(),
         )
@@ -1672,9 +1642,6 @@ class TrainerGUI(tk.Tk):
             self.run_epsilon_var.set(str(config.get("epsilon_random", 0.07)))
             self.run_train_temperature_var.set(str(config.get("train_temperature", 0.9)))
             self.run_ppo_clip_var.set(str(config.get("ppo_clip", 0.2)))
-            self.run_replay_training_percent_var.set(
-                str(config.get("replay_training_percent", sp.DEFAULT_REPLAY_TRAINING_PERCENT))
-            )
             self.run_promotion_threshold_var.set(str(config.get("promotion_score_threshold", 0.6)))
             self.run_workers_var.set(str(config.get("simulation_workers", sp.SIMULATION_WORKERS_AUTO)))
         else:
@@ -1682,7 +1649,6 @@ class TrainerGUI(tk.Tk):
             self.run_epsilon_var.set("0.07")
             self.run_train_temperature_var.set("0.9")
             self.run_ppo_clip_var.set("0.2")
-            self.run_replay_training_percent_var.set(str(int(sp.DEFAULT_REPLAY_TRAINING_PERCENT)))
             self.run_promotion_threshold_var.set("0.6")
             self.run_workers_var.set(str(sp.SIMULATION_WORKERS_AUTO))
         self._loaded_run_settings_run_name = run_name
@@ -2031,33 +1997,22 @@ class TrainerGUI(tk.Tk):
         training_games_per_match = max(1, int(config.get("training_games_per_match", 1) or 1))
         promotion_games = max(1, int(config.get("promotion_games", 1) or 1))
         training_total = training_matches * training_games_per_match
-        try:
-            replay_percent = sp.normalize_replay_training_percent(
-                config.get("replay_training_percent", sp.DEFAULT_REPLAY_TRAINING_PERCENT)
-            )
-        except ValueError:
-            replay_percent = sp.DEFAULT_REPLAY_TRAINING_PERCENT
-        replay_total = max(0, int(math.ceil(training_total * replay_percent / 100.0)))
-        iteration_total = training_total + replay_total + promotion_games
+        iteration_total = training_total + promotion_games
         live_progress = summary.get("live_progress") or state.get("live_progress") or {}
         if live_progress.get("kind") == "training_iteration":
             stage = self._stage_label(str(live_progress.get("stage", "idle")))
             iteration_number = int(live_progress.get("iteration_number", int(summary.get("iteration", 0)) + 1))
             training_completed = max(0, int(live_progress.get("training_games_completed", 0)))
-            replay_completed = max(0, int(live_progress.get("replay_games_completed", 0)))
             promotion_completed = max(0, int(live_progress.get("promotion_games_completed", 0)))
             iteration_completed = max(
                 0,
-                int(live_progress.get("iteration_games_completed", training_completed + replay_completed + promotion_completed)),
+                int(live_progress.get("iteration_games_completed", training_completed + promotion_completed)),
             )
             matches_completed = max(0, int(live_progress.get("training_matches_completed", 0)))
             training_total = max(1, int(live_progress.get("training_games_total", training_total)))
-            replay_total = max(0, int(live_progress.get("replay_games_total", replay_total)))
-            replay_target = max(0, int(live_progress.get("replay_games_target", replay_total)))
             promotion_games = max(1, int(live_progress.get("promotion_games_total", promotion_games)))
-            iteration_total = max(1, int(live_progress.get("iteration_games_total", training_total + replay_total + promotion_games)))
+            iteration_total = max(1, int(live_progress.get("iteration_games_total", training_total + promotion_games)))
             training_complete = bool(live_progress.get("training_stage_complete"))
-            replay_complete = bool(live_progress.get("replay_stage_complete"))
             promotion_complete = bool(live_progress.get("promotion_stage_complete"))
             training_value = self._stage_startup_progress_value(
                 live_progress,
@@ -2065,17 +2020,6 @@ class TrainerGUI(tk.Tk):
                 training_completed,
                 training_total,
                 complete=training_complete,
-            )
-            replay_value = (
-                100.0
-                if replay_complete
-                else self._stage_startup_progress_value(
-                    live_progress,
-                    "replay",
-                    replay_completed,
-                    max(1, replay_total),
-                    complete=replay_complete,
-                )
             )
             promotion_value = self._stage_startup_progress_value(
                 live_progress,
@@ -2085,11 +2029,10 @@ class TrainerGUI(tk.Tk):
                 complete=promotion_complete,
             )
             visual_training_completed = training_total * training_value / 100.0
-            visual_replay_completed = replay_total * replay_value / 100.0
             visual_promotion_completed = promotion_games * promotion_value / 100.0
             visual_iteration_completed = max(
                 float(iteration_completed),
-                min(float(iteration_total), visual_training_completed + visual_replay_completed + visual_promotion_completed),
+                min(float(iteration_total), visual_training_completed + visual_promotion_completed),
             )
             self.summary_progress_value_vars["iteration"].set(
                 100.0
@@ -2112,20 +2055,6 @@ class TrainerGUI(tk.Tk):
                 )
                 + (" | complete" if training_complete else "")
             )
-            self.summary_progress_value_vars["replay"].set(replay_value)
-            replay_target_text = f" | max {replay_target}" if replay_target and replay_target != replay_total else ""
-            self.summary_progress_text_vars["replay"].set(
-                f"{replay_completed} / {replay_total} replay games{replay_target_text}"
-                + (
-                    " | preparing"
-                    if str(live_progress.get("stage", "")).strip().lower() == "replay"
-                    and replay_completed == 0
-                    and not replay_complete
-                    and replay_value > 0.0
-                    else ""
-                )
-                + (" | complete" if replay_complete else f" | {stage}")
-            )
             self.summary_progress_value_vars["promotion"].set(promotion_value)
             self.summary_progress_text_vars["promotion"].set(
                 f"{promotion_completed} / {promotion_games} games"
@@ -2146,24 +2075,15 @@ class TrainerGUI(tk.Tk):
         last_update = summary.get("last_update") or {}
         if int(summary.get("iteration", 0)) > 0 and last_eval:
             training_completed = max(0, int(last_match.get("games_played", 0)))
-            replay_completed = max(0, int(last_update.get("replay_games_loaded", 0) or 0))
-            replay_target = max(0, int(last_update.get("replay_games_target", replay_completed) or 0))
-            replay_used = max(0, int(last_update.get("replay_games_used", replay_completed) or 0))
-            replay_samples = max(0, int(last_update.get("replay_samples", 0) or 0))
             promotion_completed = max(0, int(last_eval.get("games_played", 0)))
-            iteration_total = training_total + replay_completed + promotion_games
+            iteration_total = training_total + promotion_games
             self.summary_progress_value_vars["iteration"].set(100.0)
             self.summary_progress_text_vars["iteration"].set(
-                f"Last completed iteration: {training_completed + replay_completed + promotion_completed} / {iteration_total} training units"
+                f"Last completed iteration: {training_completed + promotion_completed} / {iteration_total} training units"
             )
             self.summary_progress_value_vars["training"].set(100.0)
             self.summary_progress_text_vars["training"].set(
                 f"{training_completed} / {training_total} games | {training_matches} / {training_matches} matches | complete"
-            )
-            self.summary_progress_value_vars["replay"].set(100.0)
-            replay_target_text = f" / {replay_target} max" if replay_target else ""
-            self.summary_progress_text_vars["replay"].set(
-                f"{replay_used}{replay_target_text} replay games | {replay_samples} samples | complete"
             )
             self.summary_progress_value_vars["promotion"].set(100.0)
             self.summary_progress_text_vars["promotion"].set(
@@ -2231,7 +2151,12 @@ class TrainerGUI(tk.Tk):
             )
 
         config = state.get("config") or {}
-        config_lines = [f"- {key}: {config[key]}" for key in sorted(config.keys())]
+        hidden_config_keys = {"replay_training_percent"}
+        config_lines = [
+            f"- {key}: {config[key]}"
+            for key in sorted(config.keys())
+            if key not in hidden_config_keys
+        ]
         runtime_info = self._runtime_info
 
         last_match = summary.get("last_match") or {}
@@ -2295,12 +2220,6 @@ class TrainerGUI(tk.Tk):
             "Last Update",
             f"- Samples: {last_update.get('samples', '-')}",
             f"- Fresh samples: {last_update.get('fresh_samples', '-')}",
-            f"- Replay training percent: {last_update.get('replay_training_percent', '-')}",
-            f"- Replay games used: {last_update.get('replay_games_used', '-')}",
-            f"- Replay games loaded: {last_update.get('replay_games_loaded', '-')}",
-            f"- Replay games target: {last_update.get('replay_games_target', '-')}",
-            f"- Replay samples: {last_update.get('replay_samples', '-')}",
-            f"- Replay records stored: {last_update.get('replay_records_stored', '-')}",
             f"- Policy loss: {last_update.get('policy_loss', '-')}",
             f"- Value loss: {last_update.get('value_loss', '-')}",
             f"- Clip fraction: {last_update.get('clip_fraction', '-')}",
@@ -2678,11 +2597,9 @@ class TrainerGUI(tk.Tk):
             return sp.train_iterations(iterations, run_name=run_name, **(overrides or {}))
 
         def on_success(result: Dict[str, Any]) -> None:
-            last_update = result.get("last_update") or {}
             self.log(
                 f"Train chunk finished for '{run_name}': iteration {result.get('iteration')}, "
-                f"elo {result.get('current_elo')}, "
-                f"replay games used {last_update.get('replay_games_used', 0)}."
+                f"elo {result.get('current_elo')}."
             )
 
         self._run_async(
@@ -2741,7 +2658,6 @@ class TrainerGUI(tk.Tk):
                 f"epsilon_random={config.get('epsilon_random')}, "
                 f"train_temperature={config.get('train_temperature')}, "
                 f"ppo_clip={config.get('ppo_clip')}, "
-                f"replay_training_percent={config.get('replay_training_percent')}, "
                 f"promotion_threshold={config.get('promotion_score_threshold')}, "
                 f"{config.get('promotion_games')} promotion game(s), "
                 f"simulation_workers={config.get('simulation_workers')}."
@@ -2779,7 +2695,6 @@ class TrainerGUI(tk.Tk):
                 epsilon_random=overrides["epsilon_random"],
                 train_temperature=overrides["train_temperature"],
                 ppo_clip=overrides["ppo_clip"],
-                replay_training_percent=overrides["replay_training_percent"],
                 promotion_games=overrides["promotion_games"],
                 promotion_score_threshold=overrides["promotion_score_threshold"],
                 simulation_workers=overrides["simulation_workers"],
@@ -2801,7 +2716,6 @@ class TrainerGUI(tk.Tk):
                 f"epsilon_random={config.get('epsilon_random')}, "
                 f"train_temperature={config.get('train_temperature')}, "
                 f"ppo_clip={config.get('ppo_clip')}, "
-                f"replay_training_percent={config.get('replay_training_percent')}, "
                 f"promotion_threshold={config.get('promotion_score_threshold')}, "
                 f"{config.get('promotion_games')} promotion game(s), "
                 f"simulation_workers={config.get('simulation_workers')}."
@@ -2825,7 +2739,6 @@ class TrainerGUI(tk.Tk):
             epsilon_random = self._selected_run_epsilon_random()
             train_temperature = self._selected_run_train_temperature()
             ppo_clip = self._selected_run_ppo_clip()
-            replay_training_percent = self._selected_run_replay_training_percent()
             promotion_threshold = self._selected_run_promotion_threshold()
             simulation_workers = self._selected_run_simulation_workers()
         except ValueError as exc:
@@ -2839,7 +2752,6 @@ class TrainerGUI(tk.Tk):
                 epsilon_random=epsilon_random,
                 train_temperature=train_temperature,
                 ppo_clip=ppo_clip,
-                replay_training_percent=replay_training_percent,
                 promotion_score_threshold=promotion_threshold,
                 simulation_workers=simulation_workers,
             )
@@ -2854,7 +2766,6 @@ class TrainerGUI(tk.Tk):
                 f"epsilon_random={config.get('epsilon_random')}, "
                 f"train_temperature={config.get('train_temperature')}, "
                 f"ppo_clip={config.get('ppo_clip')}, "
-                f"replay_training_percent={config.get('replay_training_percent')}, "
                 f"promotion_score_threshold={config.get('promotion_score_threshold')}, "
                 f"simulation_workers={config.get('simulation_workers')}."
             )

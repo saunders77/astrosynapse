@@ -2,12 +2,12 @@
   "status": "idle",
   "run_name": "sd-1g200m1020p-r1000",
   "config_defaults_version": 10,
-  "iteration": 2,
-  "total_matches": 402,
-  "total_games": 2400,
+  "iteration": 4,
+  "total_matches": 804,
+  "total_games": 4800,
   "created_at": 1779996780.7634335,
   "created_datetime": "2026-05-28 12:33:00",
-  "updated_at": 1779999046.875997,
+  "updated_at": 1780000497.2791293,
   "forked_from": {
     "run_name": "sd-1g200m202p",
     "checkpoint": "best",
@@ -73,11 +73,11 @@
     "max_iterations": null
   },
   "last_match": {
-    "wins": 92,
-    "losses": 108,
+    "wins": 94,
+    "losses": 106,
     "games_played": 200,
-    "return_value": -0.08,
-    "duration_seconds": 47.2395453453064,
+    "return_value": -0.06,
+    "duration_seconds": 40.91321039199829,
     "matches_played": 200,
     "opponents": [
       {
@@ -335,1079 +335,569 @@
         "source": "best",
         "checkpoint": "checkpoint_000000.json",
         "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "chaotic",
+          "temperature": 1.9,
+          "epsilon_random": 0.14
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
           "style": "learnable",
           "temperature": 1.4,
           "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
         }
       },
       {
@@ -1765,9 +1255,9 @@
         "source": "best",
         "checkpoint": "checkpoint_000000.json",
         "exploration": {
-          "style": "chaotic",
-          "temperature": 1.9,
-          "epsilon_random": 0.14
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
         }
       },
       {
@@ -1988,6 +1478,516 @@
           "style": "normal",
           "temperature": 0.735,
           "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
         }
       },
       {
@@ -2083,12 +2083,12 @@
     ]
   },
   "last_update": {
-    "samples": 148192.0,
-    "policy_loss": 83832049.74221343,
-    "value_loss": 0.2774887101837766,
-    "clip_fraction": 0.10246504534657741,
-    "avg_ratio": 243308518.765779,
-    "avg_value_prediction": 0.004351271909207192,
+    "samples": 148175.0,
+    "policy_loss": 86144764.43198688,
+    "value_loss": 0.25690761892484215,
+    "clip_fraction": 0.10288847646364097,
+    "avg_ratio": 326862518.59012765,
+    "avg_value_prediction": -0.009139003166687493,
     "learning_rate": 0.0024,
     "epsilon_random": 0.126,
     "train_temperature": 0.735,
@@ -2098,34 +2098,35 @@
     "active_simulation_runs": [
       "sd-1g200m1020p-r1000"
     ],
-    "iterations_since_promotion": 2,
+    "iterations_since_promotion": 4,
     "matches_collected": 200,
     "fresh_samples": 8192,
     "samples_collected": 8192,
-    "sample_candidates": 13988,
+    "sample_candidates": 14000,
     "replay_training_percent": 1000.0,
     "replay_games_target": 2000,
     "replay_games_loaded": 2000,
     "replay_games_used": 2000,
-    "replay_samples": 140000,
-    "replay_sample_candidates": 140000,
+    "replay_samples": 139983,
+    "replay_sample_candidates": 139983,
+    "replay_resolved_workers": 7,
     "replay_records_stored": 200,
     "replay_memory_file": "C:\\Users\\micha\\Documents\\GitHub\\astrosynapse\\starrealms_policies\\replay_memory.jsonl",
     "max_training_samples_per_game": 70,
     "sample_reservoir_limit": 8192
   },
   "last_eval": {
-    "iteration": 2,
-    "wins": 484,
-    "losses": 516,
+    "iteration": 4,
+    "wins": 504,
+    "losses": 496,
     "games_played": 1000,
-    "score": 0.484,
+    "score": 0.504,
     "promoted": false,
-    "action": "reset_candidate",
+    "action": "keep_training",
     "promoted_checkpoint": null,
     "champion_checkpoint": "checkpoint_000000.json",
-    "duration_seconds": 32.28791308403015,
-    "recorded_at": 1779999045.6221895
+    "duration_seconds": 32.449692249298096,
+    "recorded_at": 1780000495.908749
   },
   "promotion_history": [
     {
@@ -2187,13 +2188,73 @@
         "training_decisions_per_game": "ALL",
         "simulation_workers": 0
       }
+    },
+    {
+      "iteration": 3,
+      "wins": 476,
+      "losses": 524,
+      "games_played": 1000,
+      "promoted": false,
+      "action": "reset_candidate",
+      "promoted_checkpoint": null,
+      "champion_checkpoint": "checkpoint_000000.json",
+      "duration_seconds": 41.1951105594635,
+      "recorded_at": 1779999941.9146752,
+      "score": 0.476,
+      "score_percent": 47.6,
+      "promotion_settings": {
+        "learning_rate": 0.0024,
+        "epsilon_random": 0.126,
+        "train_temperature": 0.735,
+        "ppo_clip": 0.168,
+        "replay_training_percent": 1000.0,
+        "promotion_score_threshold": 0.54,
+        "promotion_games": 1000,
+        "candidate_reset_threshold": 0.49,
+        "candidate_soft_reset_threshold": 0.5,
+        "candidate_patience": 8,
+        "training_matches_per_iteration": 200,
+        "training_games_per_match": 1,
+        "training_decisions_per_game": "ALL",
+        "simulation_workers": 0
+      }
+    },
+    {
+      "iteration": 4,
+      "wins": 504,
+      "losses": 496,
+      "games_played": 1000,
+      "promoted": false,
+      "action": "keep_training",
+      "promoted_checkpoint": null,
+      "champion_checkpoint": "checkpoint_000000.json",
+      "duration_seconds": 32.449692249298096,
+      "recorded_at": 1780000495.908749,
+      "score": 0.504,
+      "score_percent": 50.4,
+      "promotion_settings": {
+        "learning_rate": 0.0024,
+        "epsilon_random": 0.126,
+        "train_temperature": 0.735,
+        "ppo_clip": 0.168,
+        "replay_training_percent": 1000.0,
+        "promotion_score_threshold": 0.54,
+        "promotion_games": 1000,
+        "candidate_reset_threshold": 0.49,
+        "candidate_soft_reset_threshold": 0.5,
+        "candidate_patience": 8,
+        "training_matches_per_iteration": 200,
+        "training_games_per_match": 1,
+        "training_decisions_per_game": "ALL",
+        "simulation_workers": 0
+      }
     }
   ],
   "last_rating_pass": null,
   "live_progress": {
     "kind": "training_iteration",
     "stage": "complete",
-    "iteration_number": 2,
+    "iteration_number": 4,
     "training_matches_completed": 200,
     "training_matches_total": 200,
     "training_games_completed": 200,
@@ -2209,7 +2270,7 @@
     "replay_stage_complete": true,
     "promotion_stage_complete": true,
     "iteration_complete": true,
-    "updated_at": 1779999045.6221895
+    "updated_at": 1780000495.908749
   },
   "device_plan": {
     "requested_backend": "cpu",
@@ -2220,17 +2281,19 @@
   },
   "candidate": {
     "base_checkpoint": "checkpoint_000000.json",
-    "base_iteration": 2,
-    "attempts_since_reset": 0,
-    "total_attempts": 2,
-    "resets": 1,
+    "base_iteration": 3,
+    "attempts_since_reset": 1,
+    "total_attempts": 4,
+    "resets": 2,
     "promotions": 0,
     "rating_pass_elo": 1000.0,
-    "last_score": 0.484,
-    "score_history": [],
-    "score_average_since_reset": null,
-    "last_result": "reset",
-    "last_reset_reason": "Candidate hard reset after score 0.484 at or below threshold 0.490.",
+    "last_score": 0.504,
+    "score_history": [
+      0.504
+    ],
+    "score_average_since_reset": 0.504,
+    "last_result": "keep_training",
+    "last_reset_reason": "Candidate hard reset after score 0.476 at or below threshold 0.490.",
     "last_opponents": [
       {
         "label": "best",
@@ -2487,1079 +2550,569 @@
         "source": "best",
         "checkpoint": "checkpoint_000000.json",
         "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "chaotic",
+          "temperature": 1.9,
+          "epsilon_random": 0.14
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
           "style": "learnable",
           "temperature": 1.4,
           "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "learnable",
-          "temperature": 1.4,
-          "epsilon_random": 0.1
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
-        }
-      },
-      {
-        "label": "best",
-        "source": "best",
-        "checkpoint": "checkpoint_000000.json",
-        "exploration": {
-          "style": "normal",
-          "temperature": 0.735,
-          "epsilon_random": 0.126
         }
       },
       {
@@ -3917,9 +3470,9 @@
         "source": "best",
         "checkpoint": "checkpoint_000000.json",
         "exploration": {
-          "style": "chaotic",
-          "temperature": 1.9,
-          "epsilon_random": 0.14
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
         }
       },
       {
@@ -4140,6 +3693,516 @@
           "style": "normal",
           "temperature": 0.735,
           "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "normal",
+          "temperature": 0.735,
+          "epsilon_random": 0.126
+        }
+      },
+      {
+        "label": "best",
+        "source": "best",
+        "checkpoint": "checkpoint_000000.json",
+        "exploration": {
+          "style": "learnable",
+          "temperature": 1.4,
+          "epsilon_random": 0.1
         }
       },
       {
