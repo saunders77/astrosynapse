@@ -1262,6 +1262,7 @@ class TrainerGUI(tk.Tk):
     def _stage_label(self, stage: str) -> str:
         labels = {
             "training": "Training",
+            "processing": "Processing Samples",
             "optimizing": "Policy Update",
             "promotion": "Promotion",
             "complete": "Complete",

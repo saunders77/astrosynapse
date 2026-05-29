@@ -4421,6 +4421,7 @@ class SelfPlayTrainer:
         self._thread: Optional[threading.Thread] = None
         self._training_active = False
         self._last_live_progress_save_at = 0.0
+        self._last_match_progress_save_at = 0.0
         self._simulation_pool: Optional[_SimulationPool] = None
 
     @property
@@ -5125,8 +5126,12 @@ class SelfPlayTrainer:
         self.state["total_matches"] = int(self.state.get("total_matches", 0)) + 1
         self.state["total_games"] = int(self.state.get("total_games", 0)) + int(match_summary.get("games_played", 0))
         if kind == "training":
-            self.state["last_match"] = self._summarize_training_matches(completed_training_matches)
-            self._save_state_only()
+            now = _timestamp()
+            last_saved_at = float(getattr(self, "_last_match_progress_save_at", 0.0) or 0.0)
+            if now - last_saved_at >= LIVE_PROGRESS_SAVE_INTERVAL_SECONDS:
+                self.state["last_match"] = self._summarize_training_matches(completed_training_matches)
+                self._last_match_progress_save_at = now
+                self._save_state_only()
         else:
             self.state["last_eval"] = {
                 "iteration": int(self.state.get("iteration", 0)) + 1,
@@ -5251,13 +5256,14 @@ class SelfPlayTrainer:
         training_matches: List[Dict[str, Any]] = []
         training_samples: List[Dict[str, Any]] = []
         opponent_summaries: List[Dict[str, Any]] = []
+        completed_match_results: List[Tuple[int, Dict[str, Any], Dict[str, Any]]] = []
         training_games_completed = 0
         training_sample_candidates = 0
         max_iteration_samples = DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION
         opponent_exploration_plan = _training_opponent_exploration_plan(scheduled_config, match_count)
         _check_memory_safety(scheduled_config, "starting training match collection")
 
-        def record_completed_match(match_summary: Dict[str, Any], opponent_meta: Dict[str, Any]) -> None:
+        def process_completed_match(match_summary: Dict[str, Any], opponent_meta: Dict[str, Any]) -> None:
             nonlocal training_sample_candidates
             match_summary["opponent"] = opponent_meta
             samples = self._match_to_training_samples(match_summary)
@@ -5276,6 +5282,38 @@ class SelfPlayTrainer:
                     f"collecting training match {len(training_matches)} of {match_count}",
                 )
             self._record_live_match_progress(compact_summary, "training", training_matches)
+
+        def process_completed_matches() -> None:
+            nonlocal training_games_completed
+            completed_match_results.sort(key=lambda item: item[0])
+            training_games_completed = max(training_games_completed, total_games)
+            self._set_live_progress(
+                self._build_training_live_progress(
+                    scheduled_config,
+                    stage="processing",
+                    iteration_number=next_iteration,
+                    training_games_completed=training_games_completed,
+                    promotion_games_completed=0,
+                    training_matches_completed=0,
+                    training_stage_complete=False,
+                    promotion_stage_complete=False,
+                ),
+                force_persist=True,
+            )
+            for _match_index, match_summary, opponent_meta in completed_match_results:
+                process_completed_match(match_summary, opponent_meta)
+                self._set_live_progress(
+                    self._build_training_live_progress(
+                        scheduled_config,
+                        stage="processing",
+                        iteration_number=next_iteration,
+                        training_games_completed=training_games_completed,
+                        promotion_games_completed=0,
+                        training_matches_completed=len(training_matches),
+                        training_stage_complete=False,
+                        promotion_stage_complete=False,
+                    )
+                )
 
         if worker_count <= 1:
             for match_index in range(match_count):
@@ -5310,7 +5348,8 @@ class SelfPlayTrainer:
                     ),
                 )
                 training_games_completed += int(match_summary.get("games_played", 0))
-                record_completed_match(match_summary, opponent_meta)
+                completed_match_results.append((match_index, match_summary, opponent_meta))
+            process_completed_matches()
             return (
                 training_matches,
                 training_samples,
@@ -5371,16 +5410,16 @@ class SelfPlayTrainer:
                         batch_policy_payloads[policy_b_cache_key] = opponent_payload_by_key[policy_b_cache_key]
                     batch_chunks.append(
                         {
-                        "match_index": match_index,
-                        "policy_b_cache_key": policy_b_cache_key,
-                        "game_count": games_in_chunk,
-                        "seed": _random_seed(),
-                        "collect_a": True,
-                        "deterministic_a": False,
-                        "deterministic_b": False,
-                        "temperature_b": float(opponent_style["temperature"]),
-                        "epsilon_random_b": float(opponent_style["epsilon_random"]),
-                        "opponent": opponent_meta,
+                            "match_index": match_index,
+                            "policy_b_cache_key": policy_b_cache_key,
+                            "game_count": games_in_chunk,
+                            "seed": _random_seed(),
+                            "collect_a": True,
+                            "deterministic_a": False,
+                            "deterministic_b": False,
+                            "temperature_b": float(opponent_style["temperature"]),
+                            "epsilon_random_b": float(opponent_style["epsilon_random"]),
+                            "opponent": opponent_meta,
                         }
                     )
                     if len(batch_chunks) >= chunks_per_task:
@@ -5410,7 +5449,7 @@ class SelfPlayTrainer:
                     iteration_number=next_iteration,
                     training_games_completed=training_games_completed,
                     promotion_games_completed=0,
-                    training_matches_completed=completed_matches,
+                    training_matches_completed=0,
                     training_stage_complete=False,
                     promotion_stage_complete=False,
                 )
@@ -5432,7 +5471,7 @@ class SelfPlayTrainer:
             if len(partials) >= expected_chunks_by_match.get(match_index, 0):
                 match_summary = _combine_match_partials(partials)
                 opponent_meta = opponent_by_match.pop(match_index, {})
-                record_completed_match(match_summary, opponent_meta)
+                completed_match_results.append((match_index, match_summary, opponent_meta))
                 partials.clear()
                 partials_by_match.pop(match_index, None)
                 expected_chunks_by_match.pop(match_index, None)
@@ -5459,6 +5498,7 @@ class SelfPlayTrainer:
                 result_callback=on_result,
             )
             _drain_simulation_progress_queue(progress_queue)
+            process_completed_matches()
             return (
                 training_matches,
                 training_samples,
@@ -5487,6 +5527,7 @@ class SelfPlayTrainer:
         finally:
             _close_simulation_progress_queue(progress_queue)
 
+        process_completed_matches()
         return (
             training_matches,
             training_samples,
