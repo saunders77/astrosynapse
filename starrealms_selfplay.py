@@ -1911,19 +1911,23 @@ def _training_opponent_exploration_plan(config: TrainingConfig, match_count: int
     return plan
 
 
-def _policy_from_simulation_payload(task: Dict[str, Any], payload_key: str, cache_key_key: str) -> PolicyNetwork:
-    cache_key = str(task.get(cache_key_key) or "")
+def _policy_from_payload_or_cache(payload: Dict[str, Any], cache_key: str = "") -> PolicyNetwork:
+    cache_key = str(cache_key or "")
     if cache_key:
         cached = _SIMULATION_WORKER_POLICY_CACHE.get(cache_key)
         if cached is not None:
             return cached
 
-    policy = PolicyNetwork.from_dict(task[payload_key])
+    policy = PolicyNetwork.from_dict(payload)
     if cache_key:
         if len(_SIMULATION_WORKER_POLICY_CACHE) >= SIMULATION_WORKER_POLICY_CACHE_LIMIT:
             _SIMULATION_WORKER_POLICY_CACHE.clear()
         _SIMULATION_WORKER_POLICY_CACHE[cache_key] = policy
     return policy
+
+
+def _policy_from_simulation_payload(task: Dict[str, Any], payload_key: str, cache_key_key: str) -> PolicyNetwork:
+    return _policy_from_payload_or_cache(task[payload_key], str(task.get(cache_key_key) or ""))
 
 
 def _simulation_worker_init(
@@ -2262,6 +2266,39 @@ def _simulate_payload_match_chunk_worker(task: Dict[str, Any]) -> Dict[str, Any]
     if "opponent" in task:
         result["opponent"] = _copy_nested(task["opponent"])
     return result
+
+
+def _simulate_payload_training_batch_worker(task: Dict[str, Any]) -> Dict[str, Any]:
+    _configure_simulation_worker_runtime()
+    policy_a = _policy_from_simulation_payload(task, "policy_a_payload", "policy_a_cache_key")
+    config = _config_from_payload(task["config_payload"])
+    policy_b_payloads = dict(task.get("policy_b_payloads") or {})
+    partials: List[Dict[str, Any]] = []
+    for chunk in list(task.get("chunks") or []):
+        policy_b_cache_key = str(chunk.get("policy_b_cache_key") or "")
+        policy_b_payload = policy_b_payloads.get(policy_b_cache_key) or chunk.get("policy_b_payload")
+        if policy_b_payload is None:
+            raise RuntimeError(f"Missing training opponent payload for cache key '{policy_b_cache_key}'.")
+        policy_b = _policy_from_payload_or_cache(policy_b_payload, policy_b_cache_key)
+        result = _simulate_match_games(
+            policy_a,
+            policy_b,
+            config,
+            game_count=int(chunk["game_count"]),
+            seed=int(chunk["seed"]),
+            collect_a=bool(chunk.get("collect_a", True)),
+            deterministic_a=bool(chunk.get("deterministic_a", False)),
+            deterministic_b=bool(chunk.get("deterministic_b", False)),
+            temperature_a=chunk.get("temperature_a"),
+            epsilon_random_a=chunk.get("epsilon_random_a"),
+            temperature_b=chunk.get("temperature_b"),
+            epsilon_random_b=chunk.get("epsilon_random_b"),
+        )
+        result["match_index"] = int(chunk["match_index"])
+        if "opponent" in chunk:
+            result["opponent"] = _copy_nested(chunk["opponent"])
+        partials.append(result)
+    return {"partials": partials}
 
 
 def _simulate_payload_balanced_chunk_worker(task: Dict[str, Any]) -> Dict[str, Any]:
@@ -2674,6 +2711,16 @@ def normalize_promotion_score_threshold(value: Any) -> float:
     if not math.isfinite(threshold) or threshold < 0.5 or threshold > 1.0:
         raise ValueError("promotion_score_threshold must be between 0.5 and 1.0.")
     return threshold
+
+
+def _normalize_positive_int(value: Any, name: str) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be an integer.")
+    if number <= 0:
+        raise ValueError(f"{name} must be positive.")
+    return number
 
 
 def normalize_replay_training_percent(value: Any) -> float:
@@ -5277,11 +5324,17 @@ class SelfPlayTrainer:
         candidate_cache_key = f"{self.run_name}:iteration:{next_iteration}:candidate:training"
         chunk_size = _training_match_chunk_size(match_count, games_per_match, worker_count)
         chunks_per_match = max(1, math.ceil(games_per_match / max(1, chunk_size)))
-        total_task_count = max(1, match_count * chunks_per_match)
-        max_in_flight = _max_in_flight_simulation_tasks(worker_count, total_task_count)
+        total_chunk_count = max(1, match_count * chunks_per_match)
+        target_task_count = min(
+            total_chunk_count,
+            max(worker_count, worker_count * SIMULATION_TASKS_PER_WORKER),
+        )
+        chunks_per_task = max(1, math.ceil(total_chunk_count / max(1, target_task_count)))
+        max_in_flight = _max_in_flight_simulation_tasks(worker_count, target_task_count)
 
         expected_chunks_by_match: Dict[int, int] = {}
         opponent_by_match: Dict[int, Dict[str, Any]] = {}
+        opponent_payload_by_key: Dict[str, Dict[str, Any]] = {}
         partials_by_match: Dict[int, List[Dict[str, Any]]] = {}
         completed_matches = 0
         completed_from_results = 0
@@ -5289,7 +5342,15 @@ class SelfPlayTrainer:
         if progress_queue is not None:
             _drain_simulation_progress_queue(progress_queue)
 
+        def opponent_cache_key(opponent_meta: Dict[str, Any], match_index: int) -> str:
+            checkpoint = str(opponent_meta.get("checkpoint") or "").strip()
+            if checkpoint:
+                return f"{self.run_name}:training:opponent:{checkpoint}"
+            return f"{self.run_name}:iteration:{next_iteration}:opponent:{match_index}"
+
         def iter_training_tasks() -> Any:
+            batch_chunks: List[Dict[str, Any]] = []
+            batch_policy_payloads: Dict[str, Dict[str, Any]] = {}
             for match_index in range(match_count):
                 opponent_policy, opponent_meta = self._sample_league_opponent()
                 opponent_style = opponent_exploration_plan[match_index]
@@ -5297,21 +5358,21 @@ class SelfPlayTrainer:
                     **opponent_meta,
                     "exploration": _copy_nested(opponent_style),
                 }
-                opponent_payload = _policy_payload_for_simulation(opponent_policy)
-                opponent_cache_key = f"{self.run_name}:iteration:{next_iteration}:opponent:{match_index}"
+                policy_b_cache_key = opponent_cache_key(opponent_meta, match_index)
+                if policy_b_cache_key not in opponent_payload_by_key:
+                    opponent_payload_by_key[policy_b_cache_key] = _policy_payload_for_simulation(opponent_policy)
                 opponent_by_match[match_index] = opponent_meta
                 expected_chunks_by_match[match_index] = chunks_per_match
                 remaining_games = games_per_match
                 while remaining_games > 0:
                     games_in_chunk = min(chunk_size, remaining_games)
                     remaining_games -= games_in_chunk
-                    yield {
+                    if policy_b_cache_key not in batch_policy_payloads:
+                        batch_policy_payloads[policy_b_cache_key] = opponent_payload_by_key[policy_b_cache_key]
+                    batch_chunks.append(
+                        {
                         "match_index": match_index,
-                        "policy_a_payload": candidate_payload,
-                        "policy_b_payload": opponent_payload,
-                        "policy_a_cache_key": candidate_cache_key,
-                        "policy_b_cache_key": opponent_cache_key,
-                        "config_payload": config_payload,
+                        "policy_b_cache_key": policy_b_cache_key,
                         "game_count": games_in_chunk,
                         "seed": _random_seed(),
                         "collect_a": True,
@@ -5320,7 +5381,26 @@ class SelfPlayTrainer:
                         "temperature_b": float(opponent_style["temperature"]),
                         "epsilon_random_b": float(opponent_style["epsilon_random"]),
                         "opponent": opponent_meta,
-                    }
+                        }
+                    )
+                    if len(batch_chunks) >= chunks_per_task:
+                        yield {
+                            "policy_a_payload": candidate_payload,
+                            "policy_a_cache_key": candidate_cache_key,
+                            "config_payload": config_payload,
+                            "policy_b_payloads": batch_policy_payloads,
+                            "chunks": batch_chunks,
+                        }
+                        batch_chunks = []
+                        batch_policy_payloads = {}
+            if batch_chunks:
+                yield {
+                    "policy_a_payload": candidate_payload,
+                    "policy_a_cache_key": candidate_cache_key,
+                    "config_payload": config_payload,
+                    "policy_b_payloads": batch_policy_payloads,
+                    "chunks": batch_chunks,
+                }
 
         def persist_training_progress() -> None:
             self._set_live_progress(
@@ -5341,7 +5421,7 @@ class SelfPlayTrainer:
             training_games_completed = min(total_games, training_games_completed + int(delta))
             persist_training_progress()
 
-        def on_result(partial: Dict[str, Any]) -> None:
+        def on_partial_result(partial: Dict[str, Any]) -> None:
             nonlocal training_games_completed, completed_matches, completed_from_results
             match_index = int(partial["match_index"])
             partials = partials_by_match.setdefault(match_index, [])
@@ -5360,11 +5440,18 @@ class SelfPlayTrainer:
 
             persist_training_progress()
 
+        def on_result(batch_result: Dict[str, Any]) -> None:
+            partials = list(batch_result.get("partials") or [])
+            if not partials and "match_index" in batch_result:
+                partials = [batch_result]
+            for partial in partials:
+                on_partial_result(partial)
+
         if simulation_pool is not None:
             simulation_pool.wait_until_ready()
             _consume_simulation_task_iterator(
                 simulation_pool.executor,
-                _simulate_payload_match_chunk_worker,
+                _simulate_payload_training_batch_worker,
                 iter_training_tasks(),
                 max_in_flight=max_in_flight,
                 progress_queue=progress_queue,
@@ -5390,7 +5477,7 @@ class SelfPlayTrainer:
             ) as executor:
                 _consume_simulation_task_iterator(
                     executor,
-                    _simulate_payload_match_chunk_worker,
+                    _simulate_payload_training_batch_worker,
                     iter_training_tasks(),
                     max_in_flight=max_in_flight,
                     progress_queue=progress_queue,
@@ -6203,6 +6290,9 @@ def update_run_config(
     epsilon_random: Optional[float] = None,
     train_temperature: Optional[float] = None,
     ppo_clip: Optional[float] = None,
+    training_matches_per_iteration: Optional[int] = None,
+    training_games_per_match: Optional[int] = None,
+    promotion_games: Optional[int] = None,
     replay_training_percent: Optional[float] = None,
     promotion_score_threshold: Optional[float] = None,
     simulation_workers: Optional[int] = None,
@@ -6235,6 +6325,18 @@ def update_run_config(
         overrides.update(train_temperature_overrides(train_temperature))
     if ppo_clip is not None:
         overrides["ppo_clip"] = normalize_ppo_clip(ppo_clip)
+    if training_matches_per_iteration is not None:
+        overrides["training_matches_per_iteration"] = _normalize_positive_int(
+            training_matches_per_iteration,
+            "training_matches_per_iteration",
+        )
+    if training_games_per_match is not None:
+        overrides["training_games_per_match"] = _normalize_positive_int(
+            training_games_per_match,
+            "training_games_per_match",
+        )
+    if promotion_games is not None:
+        overrides["promotion_games"] = _normalize_positive_int(promotion_games, "promotion_games")
     if replay_training_percent is not None:
         overrides["replay_training_percent"] = DEFAULT_REPLAY_TRAINING_PERCENT
     if promotion_score_threshold is not None:

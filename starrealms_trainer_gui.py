@@ -512,6 +512,9 @@ class TrainerGUI(tk.Tk):
         self.run_epsilon_var = tk.StringVar(value="0.07")
         self.run_train_temperature_var = tk.StringVar(value="0.9")
         self.run_ppo_clip_var = tk.StringVar(value="0.2")
+        self.run_matches_var = tk.StringVar(value="5")
+        self.run_games_var = tk.StringVar(value="16")
+        self.run_promotion_games_var = tk.StringVar(value="24")
         self.run_promotion_threshold_var = tk.StringVar(value="0.6")
         self.run_workers_var = tk.StringVar(value=str(sp.SIMULATION_WORKERS_AUTO))
         self._loaded_run_settings_run_name: Optional[str] = None
@@ -847,8 +850,26 @@ class TrainerGUI(tk.Tk):
             font=("Segoe UI", 9),
         ).pack(side="left")
 
+        run_schedule_row = tk.Frame(controls, bg=WINDOW_BG)
+        run_schedule_row.grid(row=7, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        ttk.Label(run_schedule_row, text="Selected Run Schedule").pack(side="left")
+        ttk.Label(run_schedule_row, text="Matches / Iter").pack(side="left", padx=(16, 0))
+        ttk.Entry(run_schedule_row, textvariable=self.run_matches_var, width=8).pack(side="left", padx=(6, 16))
+        ttk.Label(run_schedule_row, text="Games / Match").pack(side="left")
+        ttk.Entry(run_schedule_row, textvariable=self.run_games_var, width=8).pack(side="left", padx=(6, 16))
+        ttk.Label(run_schedule_row, text="Promotion Games").pack(side="left")
+        ttk.Entry(run_schedule_row, textvariable=self.run_promotion_games_var, width=8).pack(side="left", padx=(6, 16))
+        tk.Label(
+            run_schedule_row,
+            text="Applied with the selected run settings above.",
+            bg=WINDOW_BG,
+            fg=MUTED,
+            anchor="w",
+            font=("Segoe UI", 9),
+        ).pack(side="left")
+
         rating_row = tk.Frame(controls, bg=WINDOW_BG)
-        rating_row.grid(row=7, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        rating_row.grid(row=8, column=0, columnspan=7, sticky="ew", pady=(10, 0))
         ttk.Label(rating_row, text="Rating Policies").pack(side="left")
         ttk.Entry(rating_row, textvariable=self.rating_models_var, width=8).pack(side="left", padx=(6, 16))
         ttk.Label(rating_row, text="Games / Pair").pack(side="left")
@@ -869,7 +890,7 @@ class TrainerGUI(tk.Tk):
         rating_tip.pack(side="left", padx=(16, 0))
 
         name_row = tk.Frame(controls, bg=WINDOW_BG)
-        name_row.grid(row=8, column=0, columnspan=7, sticky="ew", pady=(10, 0))
+        name_row.grid(row=9, column=0, columnspan=7, sticky="ew", pady=(10, 0))
         ttk.Label(name_row, text="Human Name").pack(side="left")
         ttk.Entry(name_row, textvariable=self.human_name_var, width=18).pack(side="left", padx=(6, 16))
         ttk.Label(name_row, text="Policy Display Name").pack(side="left")
@@ -1435,6 +1456,33 @@ class TrainerGUI(tk.Tk):
         except ValueError as exc:
             raise ValueError(str(exc))
 
+    def _selected_run_training_matches(self) -> int:
+        try:
+            value = int(self.run_matches_var.get().strip())
+        except ValueError:
+            raise ValueError("Selected run matches per iteration must be an integer.")
+        if value <= 0:
+            raise ValueError("Selected run matches per iteration must be positive.")
+        return value
+
+    def _selected_run_games_per_match(self) -> int:
+        try:
+            value = int(self.run_games_var.get().strip())
+        except ValueError:
+            raise ValueError("Selected run games per match must be an integer.")
+        if value <= 0:
+            raise ValueError("Selected run games per match must be positive.")
+        return value
+
+    def _selected_run_promotion_games(self) -> int:
+        try:
+            value = int(self.run_promotion_games_var.get().strip())
+        except ValueError:
+            raise ValueError("Selected run promotion games must be an integer.")
+        if value <= 0:
+            raise ValueError("Selected run promotion games must be positive.")
+        return value
+
     def _selected_run_promotion_threshold(self) -> float:
         try:
             return sp.normalize_promotion_score_threshold(self.run_promotion_threshold_var.get().strip())
@@ -1642,6 +1690,9 @@ class TrainerGUI(tk.Tk):
             self.run_epsilon_var.set(str(config.get("epsilon_random", 0.07)))
             self.run_train_temperature_var.set(str(config.get("train_temperature", 0.9)))
             self.run_ppo_clip_var.set(str(config.get("ppo_clip", 0.2)))
+            self.run_matches_var.set(str(config.get("training_matches_per_iteration", 5)))
+            self.run_games_var.set(str(config.get("training_games_per_match", 16)))
+            self.run_promotion_games_var.set(str(config.get("promotion_games", 24)))
             self.run_promotion_threshold_var.set(str(config.get("promotion_score_threshold", 0.6)))
             self.run_workers_var.set(str(config.get("simulation_workers", sp.SIMULATION_WORKERS_AUTO)))
         else:
@@ -1649,6 +1700,9 @@ class TrainerGUI(tk.Tk):
             self.run_epsilon_var.set("0.07")
             self.run_train_temperature_var.set("0.9")
             self.run_ppo_clip_var.set("0.2")
+            self.run_matches_var.set("5")
+            self.run_games_var.set("16")
+            self.run_promotion_games_var.set("24")
             self.run_promotion_threshold_var.set("0.6")
             self.run_workers_var.set(str(sp.SIMULATION_WORKERS_AUTO))
         self._loaded_run_settings_run_name = run_name
@@ -2739,6 +2793,9 @@ class TrainerGUI(tk.Tk):
             epsilon_random = self._selected_run_epsilon_random()
             train_temperature = self._selected_run_train_temperature()
             ppo_clip = self._selected_run_ppo_clip()
+            training_matches_per_iteration = self._selected_run_training_matches()
+            training_games_per_match = self._selected_run_games_per_match()
+            promotion_games = self._selected_run_promotion_games()
             promotion_threshold = self._selected_run_promotion_threshold()
             simulation_workers = self._selected_run_simulation_workers()
         except ValueError as exc:
@@ -2752,6 +2809,9 @@ class TrainerGUI(tk.Tk):
                 epsilon_random=epsilon_random,
                 train_temperature=train_temperature,
                 ppo_clip=ppo_clip,
+                training_matches_per_iteration=training_matches_per_iteration,
+                training_games_per_match=training_games_per_match,
+                promotion_games=promotion_games,
                 promotion_score_threshold=promotion_threshold,
                 simulation_workers=simulation_workers,
             )
@@ -2766,6 +2826,9 @@ class TrainerGUI(tk.Tk):
                 f"epsilon_random={config.get('epsilon_random')}, "
                 f"train_temperature={config.get('train_temperature')}, "
                 f"ppo_clip={config.get('ppo_clip')}, "
+                f"training_matches_per_iteration={config.get('training_matches_per_iteration')}, "
+                f"training_games_per_match={config.get('training_games_per_match')}, "
+                f"promotion_games={config.get('promotion_games')}, "
                 f"promotion_score_threshold={config.get('promotion_score_threshold')}, "
                 f"simulation_workers={config.get('simulation_workers')}."
             )
