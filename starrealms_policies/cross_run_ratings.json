@@ -2,8 +2,8 @@
   "version": 2,
   "created_at": 1779853568.0189946,
   "created_datetime": "2026-05-26 20:46:08",
-  "updated_at": 1779926694.1606355,
-  "total_games": 50400,
+  "updated_at": 1780084879.2433085,
+  "total_games": 51400,
   "ratings": {
     "s-1g500m1001p": {
       "run_name": "s-1g500m1001p",
@@ -104,21 +104,21 @@
     },
     "sd-1g200m202p": {
       "run_name": "sd-1g200m202p",
-      "elo": 1366.4647895830462,
-      "rating_deviation": 39.149502428190736,
-      "volatility": 0.0600013225587615,
-      "games": 11753,
-      "wins": 6232,
-      "losses": 5521,
+      "elo": 1231.204450429499,
+      "rating_deviation": 61.047892923169975,
+      "volatility": 0.06009544228613152,
+      "games": 1000,
+      "wins": 645,
+      "losses": 355,
       "draws": 0,
-      "best_checkpoint": "champion_000910.json",
-      "best_iteration": 965,
+      "best_checkpoint": "champion_001139.json",
+      "best_iteration": 1140,
       "created_at": 1777513113.3662157,
       "created_datetime": "2026-04-29 18:38:33",
       "fork_origin": "sd-1g50m201p/champion_002624.json",
       "first_rated_at": 1779853568.1231198,
-      "last_played_at": 1779920462.5783706,
-      "confidence_radius": 76.73302475925384
+      "last_played_at": 1780084878.3747716,
+      "confidence_radius": 119.65387012941315
     },
     "sd-1g50m201p": {
       "run_name": "sd-1g50m201p",
@@ -933,19 +933,19 @@
     "sd-32g64m1000p": {
       "run_name": "sd-32g64m1000p",
       "elo": 1342.4687558660703,
-      "rating_deviation": 64.16689350924862,
+      "rating_deviation": 80.0,
       "volatility": 0.060103085804444074,
-      "games": 1656,
-      "wins": 1046,
-      "losses": 610,
+      "games": 0,
+      "wins": 0,
+      "losses": 0,
       "draws": 0,
-      "best_checkpoint": "champion_000145.json",
-      "best_iteration": 233,
+      "best_checkpoint": "champion_000547.json",
+      "best_iteration": 583,
       "created_at": 1779891377.5844939,
       "created_datetime": "2026-05-27 07:16:17",
       "fork_origin": "sd-16g32m1000p/champion_000773.json",
       "first_rated_at": 1779891377.8584247,
-      "last_played_at": 1779926693.3654952,
+      "last_played_at": null,
       "rating_seed": {
         "type": "promoted_from",
         "run_name": "sd-32g64m1000p",
@@ -953,7 +953,7 @@
         "event_at": 1779915869.573226,
         "event_datetime": "2026-05-27 14:04:29"
       },
-      "confidence_radius": 125.7671112781273
+      "confidence_radius": 156.8
     },
     "sd-16g16m100p": {
       "run_name": "sd-16g16m100p",
@@ -990,7 +990,7 @@
       "losses": 468,
       "draws": 0,
       "best_checkpoint": "champion_000004.json",
-      "best_iteration": 8,
+      "best_iteration": 12,
       "created_at": 1779926108.543104,
       "created_datetime": "2026-05-27 16:55:08",
       "fork_origin": "-",
@@ -1004,6 +1004,78 @@
         "event_datetime": "2026-05-27 17:00:35"
       },
       "confidence_radius": 291.0741746060432
+    },
+    "sd-1g1m1000p": {
+      "run_name": "sd-1g1m1000p",
+      "elo": 1000.0,
+      "rating_deviation": 350.0,
+      "volatility": 0.06,
+      "games": 0,
+      "wins": 0,
+      "losses": 0,
+      "draws": 0,
+      "best_checkpoint": "champion_000878.json",
+      "best_iteration": 921,
+      "created_at": 1779927235.1096575,
+      "created_datetime": "2026-05-27 17:13:55",
+      "fork_origin": "sd-32g64m1000p/champion_000145.json",
+      "first_rated_at": 1780075010.675474,
+      "last_played_at": null,
+      "confidence_radius": 686.0
+    },
+    "sd-1g200m1020p-r1000": {
+      "run_name": "sd-1g200m1020p-r1000",
+      "elo": 1000.0,
+      "rating_deviation": 350.0,
+      "volatility": 0.06,
+      "games": 0,
+      "wins": 0,
+      "losses": 0,
+      "draws": 0,
+      "best_checkpoint": "checkpoint_000000.json",
+      "best_iteration": 4,
+      "created_at": 1779996780.7634335,
+      "created_datetime": "2026-05-28 12:33:00",
+      "fork_origin": "sd-1g200m202p/champion_000910.json",
+      "first_rated_at": 1780075010.676469,
+      "last_played_at": null,
+      "confidence_radius": 686.0
+    },
+    "scratch2-1g10000m1000p": {
+      "run_name": "scratch2-1g10000m1000p",
+      "elo": 1000.0,
+      "rating_deviation": 350.0,
+      "volatility": 0.06,
+      "games": 0,
+      "wins": 0,
+      "losses": 0,
+      "draws": 0,
+      "best_checkpoint": "checkpoint_000000.json",
+      "best_iteration": 0,
+      "created_at": 1780008108.1581233,
+      "created_datetime": "2026-05-28 15:41:48",
+      "fork_origin": "-",
+      "first_rated_at": 1780075010.676469,
+      "last_played_at": null,
+      "confidence_radius": 686.0
+    },
+    "scratch-1g1000m1000p": {
+      "run_name": "scratch-1g1000m1000p",
+      "elo": 1285.48924362649,
+      "rating_deviation": 61.047874171220414,
+      "volatility": 0.0600954039137705,
+      "games": 1000,
+      "wins": 355,
+      "losses": 645,
+      "draws": 0,
+      "best_checkpoint": "champion_000110.json",
+      "best_iteration": 180,
+      "created_at": 1780011984.26307,
+      "created_datetime": "2026-05-28 16:46:24",
+      "fork_origin": "-",
+      "first_rated_at": 1780075010.676469,
+      "last_played_at": 1780084878.3747716,
+      "confidence_radius": 119.65383337559201
     }
   },
   "pairings": {
@@ -11366,26 +11438,32 @@
       "wins_a": 3,
       "wins_b": 357,
       "draws": 0
+    },
+    "scratch-1g1000m1000p||sd-1g200m202p": {
+      "run_a": "scratch-1g1000m1000p",
+      "run_b": "sd-1g200m202p",
+      "games": 1000,
+      "wins_a": 355,
+      "wins_b": 645,
+      "draws": 0
     }
   },
   "last_calibration": {
     "status": "completed",
     "rating_model": "glicko_2",
-    "started_at": 1779926662.4645176,
-    "completed_at": 1779926694.1606355,
-    "duration_seconds": 31.696117877960205,
-    "games_completed": 600,
-    "games_target": 600,
-    "pairings_completed": 12,
-    "pairings_total": 12,
+    "started_at": 1780084835.3181021,
+    "completed_at": 1780084879.2433085,
+    "duration_seconds": 43.925206422805786,
+    "games_completed": 1000,
+    "games_target": 1000,
+    "pairings_completed": 2,
+    "pairings_total": 2,
     "resolved_simulation_workers": 7,
     "selected_run_names": [
-      "s-32g32m1000p",
-      "sd-32g64m1000p",
-      "s-1g7m64p",
-      "sd-16g32m1000p-t.5"
+      "scratch-1g1000m1000p",
+      "sd-1g200m202p"
     ],
-    "selected_participant_count": 4
+    "selected_participant_count": 2
   },
   "rating_model": "glicko_2"
 }

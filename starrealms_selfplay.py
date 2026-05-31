@@ -13,10 +13,15 @@ import json
 import math
 import multiprocessing
 import os
+import pickle
 import queue
 import random
+import shutil
+import socket
 import threading
 import time
+import urllib.error
+import urllib.request
 import warnings
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -50,6 +55,9 @@ ROOT_DIR = Path(__file__).resolve().parent
 RUNS_DIR = ROOT_DIR / "starrealms_policies"
 CROSS_RUN_RATINGS_FILE = RUNS_DIR / "cross_run_ratings.json"
 REPLAY_MEMORY_FILE = RUNS_DIR / "replay_memory.jsonl"
+ITERATION_REPORT_URL = "https://www.michael-saunders.com/astrosynapse/report.php"
+ITERATION_REPORT_SCHEMA_VERSION = 1
+ITERATION_REPORT_TIMEOUT_SECONDS = 8.0
 LATEST_RUN_NAME = "default"
 INITIAL_ELO = 1000.0
 CONFIG_DEFAULTS_VERSION = 11
@@ -59,6 +67,10 @@ CARD_ACQUIRE_ELO_TEST_GAMES = 500
 CARD_ACQUIRE_ELO_K_FACTOR = 24.0
 SCRAP_ELO_TEST_GAMES = 1000
 SCRAP_ELO_K_FACTOR = 24.0
+CHOICE_ELO_ADAPTIVE_K_REFERENCE_DECISIONS = 16.0
+CHOICE_ELO_ADAPTIVE_K_PRIOR_DECISIONS = 1.0
+CHOICE_ELO_ADAPTIVE_K_MIN_MULTIPLIER = 0.25
+CHOICE_ELO_ADAPTIVE_K_MAX_MULTIPLIER = 4.0
 CROSS_RUN_RATING_VERSION = 2
 CROSS_RUN_RATING_MODEL = "glicko_2"
 CROSS_RUN_GLICKO2_SCALE = 173.7178
@@ -105,9 +117,11 @@ SIMULATION_IN_FLIGHT_TASKS_PER_WORKER = 2
 SIMULATION_WORKER_CPU_RESERVE = 2
 SIMULATION_WORKER_TORCH_THREADS = 1
 SIMULATION_PROGRESS_POLL_SECONDS = 0.25
+SIMULATION_PROGRESS_HEARTBEAT_SECONDS = 5.0
 SIMULATION_WORKER_POLICY_CACHE_LIMIT = 32
 DEFAULT_MAX_TRAINING_SAMPLES_PER_GAME = 300
-DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION = 8192
+TRAINING_SAMPLE_DISK_BATCH_SIZE = 16384
+TRAINING_PROGRESS_REPORT_SECONDS = 5.0
 REPLAY_TRAINING_BATCH_GAMES = 64
 REPLAY_MEMORY_TAIL_READ_CHUNK_BYTES = 1024 * 1024
 DEFAULT_MIN_AVAILABLE_MEMORY_MB = 1024
@@ -857,6 +871,117 @@ def runtime_environment() -> Dict[str, Any]:
     }
 
 
+def _env_flag_enabled(name: str) -> bool:
+    return str(os.environ.get(name, "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _json_report_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_report_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_report_safe(item) for item in value]
+    if isinstance(value, bool) or value is None or isinstance(value, str):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, Path):
+        return str(value)
+    return str(value)
+
+
+def _iteration_report_timeout_seconds() -> float:
+    raw_timeout = os.environ.get("ASTROSYNAPSE_REPORT_TIMEOUT_SECONDS")
+    try:
+        timeout = float(raw_timeout) if raw_timeout is not None else ITERATION_REPORT_TIMEOUT_SECONDS
+    except (TypeError, ValueError):
+        timeout = ITERATION_REPORT_TIMEOUT_SECONDS
+    if not math.isfinite(timeout):
+        timeout = ITERATION_REPORT_TIMEOUT_SECONDS
+    return max(0.5, min(60.0, timeout))
+
+
+def _iteration_report_endpoint() -> str:
+    return str(os.environ.get("ASTROSYNAPSE_REPORT_URL") or ITERATION_REPORT_URL).strip()
+
+
+def _post_iteration_report(payload: Dict[str, Any]) -> Dict[str, Any]:
+    reported_at = _timestamp()
+    reported_datetime = _format_timestamp(reported_at)
+    if _env_flag_enabled("ASTROSYNAPSE_REPORT_DISABLED"):
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "ASTROSYNAPSE_REPORT_DISABLED is enabled.",
+            "reported_at": reported_at,
+            "reported_datetime": reported_datetime,
+        }
+
+    endpoint = _iteration_report_endpoint()
+    if not endpoint:
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "No iteration report endpoint configured.",
+            "reported_at": reported_at,
+            "reported_datetime": reported_datetime,
+        }
+
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json; charset=utf-8",
+        "User-Agent": "AstroSynapse-SelfPlay/1.0",
+    }
+    report_token = str(os.environ.get("ASTROSYNAPSE_REPORT_TOKEN") or "").strip()
+    if report_token:
+        headers["X-Astrosynapse-Token"] = report_token
+
+    body = json.dumps(_json_report_safe(payload), separators=(",", ":")).encode("utf-8")
+    request = urllib.request.Request(endpoint, data=body, headers=headers, method="POST")
+    started_at = _timestamp()
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=_iteration_report_timeout_seconds(),
+        ) as response:
+            status_code = int(getattr(response, "status", response.getcode() or 0))
+            response_body = response.read(8192).decode("utf-8", errors="replace")
+        return {
+            "ok": 200 <= status_code < 300,
+            "status_code": status_code,
+            "response_body": response_body,
+            "url": endpoint,
+            "reported_at": reported_at,
+            "reported_datetime": reported_datetime,
+            "duration_seconds": round(_timestamp() - started_at, 3),
+        }
+    except urllib.error.HTTPError as exc:
+        try:
+            response_body = exc.read(8192).decode("utf-8", errors="replace")
+        except Exception:
+            response_body = ""
+        return {
+            "ok": False,
+            "status_code": int(exc.code),
+            "error": f"HTTP {exc.code}: {exc.reason}",
+            "response_body": response_body,
+            "url": endpoint,
+            "reported_at": reported_at,
+            "reported_datetime": reported_datetime,
+            "duration_seconds": round(_timestamp() - started_at, 3),
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "url": endpoint,
+            "reported_at": reported_at,
+            "reported_datetime": reported_datetime,
+            "duration_seconds": round(_timestamp() - started_at, 3),
+        }
+
+
 def resolve_device_backend(preference: str = DEVICE_AUTO) -> str:
     _, backend = _select_torch_device(preference)
     return backend
@@ -893,6 +1018,17 @@ def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
             f"Permission error while saving {path}. "
             "Another process may still have the file open; please wait a moment and try again."
         ) from last_error
+
+
+def _write_pickle_file(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as handle:
+        pickle.dump(payload, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def _read_pickle_file(path: Path) -> Any:
+    with path.open("rb") as handle:
+        return pickle.load(handle)
 
 
 def _is_card_tuple(value: Any) -> bool:
@@ -1670,81 +1806,182 @@ class PolicyNetwork:
             advantage_tensor,
         )
 
-    def train_on_samples(self, samples: List[Dict[str, Any]], config: TrainingConfig) -> Dict[str, float]:
+    def _train_sample_batch(self, sample_batch: Sequence[Dict[str, Any]], config: TrainingConfig) -> Dict[str, float]:
+        if not sample_batch:
+            return _empty_training_stats()
+        (
+            state_tensor,
+            option_tensor,
+            option_mask,
+            action_tensor,
+            old_log_prob_tensor,
+            return_tensor,
+            advantage_tensor,
+        ) = self._sample_batch_tensors(sample_batch)
+
+        logits, value = self.model(state_tensor, option_tensor)
+        masked_logits = self._masked_logits(logits, option_mask)
+        log_probs = torch.log_softmax(masked_logits, dim=1)
+        chosen_log_probs = log_probs.gather(1, action_tensor.unsqueeze(1)).squeeze(1)
+        ratio = torch.exp(chosen_log_probs - old_log_prob_tensor)
+        clipped_ratio = torch.clamp(ratio, 1.0 - config.ppo_clip, 1.0 + config.ppo_clip)
+        surrogate_one = ratio * advantage_tensor
+        surrogate_two = clipped_ratio * advantage_tensor
+        policy_loss = -torch.min(surrogate_one, surrogate_two).mean()
+        value_loss = 0.5 * torch.square(value - return_tensor).mean()
+        loss = policy_loss + config.value_coef * value_loss
+
+        self.optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        if config.grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), config.grad_clip)
+        self.optimizer.step()
+
+        ratio_values = [float(value) for value in ratio.detach().cpu().tolist()]
+        clipped_flags = (
+            (ratio < (1.0 - config.ppo_clip)) | (ratio > (1.0 + config.ppo_clip))
+        ).detach().cpu().tolist()
+        value_batch = [float(prediction) for prediction in value.detach().cpu().tolist()]
+
+        clipped_values = [1.0 if was_clipped else 0.0 for was_clipped in clipped_flags]
+
+        return {
+            "samples": float(len(sample_batch)),
+            "policy_loss": float(policy_loss.item()),
+            "value_loss": float(value_loss.item()),
+            "clip_fraction": _mean(clipped_values),
+            "avg_ratio": _mean(ratio_values),
+            "avg_value_prediction": _mean(value_batch),
+        }
+
+    def train_on_samples(
+        self,
+        samples: List[Dict[str, Any]],
+        config: TrainingConfig,
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ) -> Dict[str, float]:
         if not samples:
-            return {
-                "samples": 0,
-                "policy_loss": 0.0,
-                "value_loss": 0.0,
-                "clip_fraction": 0.0,
-                "avg_ratio": 1.0,
-                "avg_value_prediction": 0.0,
-            }
+            return _empty_training_stats()
 
         self.model.train()
         self.optimizer.param_groups[0]["lr"] = config.learning_rate
 
-        policy_losses: List[float] = []
-        value_losses: List[float] = []
-        ratios: List[float] = []
-        clipped: List[float] = []
-        value_predictions: List[float] = []
+        stats_items: List[Dict[str, Any]] = []
         minibatch_size = max(1, min(int(config.ppo_minibatch_size), len(samples)))
+        epochs = max(1, int(config.ppo_epochs))
+        sample_passes_total = len(samples) * epochs
+        sample_passes_completed = 0
+        batch_count = math.ceil(len(samples) / minibatch_size) * epochs
+        batches_completed = 0
+        last_progress_at = 0.0
 
-        for _ in range(config.ppo_epochs):
+        def emit_progress(epoch_number: int, *, force: bool = False) -> None:
+            nonlocal last_progress_at
+            if progress_callback is None:
+                return
+            now = _timestamp()
+            if not force and (now - last_progress_at) < TRAINING_PROGRESS_REPORT_SECONDS:
+                return
+            last_progress_at = now
+            progress_callback(
+                {
+                    "epoch": int(epoch_number),
+                    "epochs": int(epochs),
+                    "samples_completed": int(sample_passes_completed),
+                    "samples_total": int(sample_passes_total),
+                    "unique_samples_total": int(len(samples)),
+                    "batches_completed": int(batches_completed),
+                    "batches_total": int(batch_count),
+                }
+            )
+
+        emit_progress(1, force=True)
+
+        for epoch_index in range(epochs):
             random.shuffle(samples)
             for batch_start in range(0, len(samples), minibatch_size):
                 sample_batch = samples[batch_start:batch_start + minibatch_size]
-                (
-                    state_tensor,
-                    option_tensor,
-                    option_mask,
-                    action_tensor,
-                    old_log_prob_tensor,
-                    return_tensor,
-                    advantage_tensor,
-                ) = self._sample_batch_tensors(sample_batch)
+                stats_items.append(self._train_sample_batch(sample_batch, config))
+                sample_passes_completed += len(sample_batch)
+                batches_completed += 1
+                emit_progress(epoch_index + 1)
 
-                logits, value = self.model(state_tensor, option_tensor)
-                masked_logits = self._masked_logits(logits, option_mask)
-                log_probs = torch.log_softmax(masked_logits, dim=1)
-                chosen_log_probs = log_probs.gather(1, action_tensor.unsqueeze(1)).squeeze(1)
-                ratio = torch.exp(chosen_log_probs - old_log_prob_tensor)
-                clipped_ratio = torch.clamp(ratio, 1.0 - config.ppo_clip, 1.0 + config.ppo_clip)
-                surrogate_one = ratio * advantage_tensor
-                surrogate_two = clipped_ratio * advantage_tensor
-                policy_loss = -torch.min(surrogate_one, surrogate_two).mean()
-                value_loss = 0.5 * torch.square(value - return_tensor).mean()
-                loss = policy_loss + config.value_coef * value_loss
+        emit_progress(epochs, force=True)
+        stats = _combine_training_stats(stats_items)
+        stats["samples"] = float(len(samples))
+        return stats
 
-                self.optimizer.zero_grad(set_to_none=True)
-                loss.backward()
-                if config.grad_clip > 0:
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), config.grad_clip)
-                self.optimizer.step()
+    def train_on_sample_files(
+        self,
+        sample_files: Sequence[Dict[str, Any]],
+        config: TrainingConfig,
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ) -> Dict[str, float]:
+        resolved_files: List[Tuple[Path, int]] = []
+        for item in sample_files:
+            path = Path(str(item.get("path", "")))
+            count = max(0, int(item.get("count", 0) or 0))
+            if count > 0:
+                resolved_files.append((path, count))
+        total_samples = sum(count for _path, count in resolved_files)
+        if total_samples <= 0:
+            return _empty_training_stats()
 
-                ratio_values = ratio.detach().cpu().tolist()
-                clipped_flags = (
-                    (ratio < (1.0 - config.ppo_clip)) | (ratio > (1.0 + config.ppo_clip))
-                ).detach().cpu().tolist()
-                value_batch = value.detach().cpu().tolist()
+        self.model.train()
+        self.optimizer.param_groups[0]["lr"] = config.learning_rate
 
-                policy_loss_value = float(policy_loss.item())
-                value_loss_value = float(value_loss.item())
-                policy_losses.extend([policy_loss_value] * len(sample_batch))
-                value_losses.extend([value_loss_value] * len(sample_batch))
-                ratios.extend(float(ratio_value) for ratio_value in ratio_values)
-                clipped.extend(1.0 if was_clipped else 0.0 for was_clipped in clipped_flags)
-                value_predictions.extend(float(prediction) for prediction in value_batch)
+        stats_items: List[Dict[str, Any]] = []
+        minibatch_size = max(1, min(int(config.ppo_minibatch_size), total_samples))
+        epochs = max(1, int(config.ppo_epochs))
+        batches_per_epoch = sum(math.ceil(count / minibatch_size) for _path, count in resolved_files)
+        batches_total = batches_per_epoch * epochs
+        sample_passes_total = total_samples * epochs
+        sample_passes_completed = 0
+        batches_completed = 0
+        last_progress_at = 0.0
 
-        return {
-            "samples": float(len(samples)),
-            "policy_loss": _mean(policy_losses),
-            "value_loss": _mean(value_losses),
-            "clip_fraction": _mean(clipped),
-            "avg_ratio": _mean(ratios),
-            "avg_value_prediction": _mean(value_predictions),
-        }
+        def emit_progress(epoch_number: int, files_completed: int, *, force: bool = False) -> None:
+            nonlocal last_progress_at
+            if progress_callback is None:
+                return
+            now = _timestamp()
+            if not force and (now - last_progress_at) < TRAINING_PROGRESS_REPORT_SECONDS:
+                return
+            last_progress_at = now
+            progress_callback(
+                {
+                    "epoch": int(epoch_number),
+                    "epochs": int(epochs),
+                    "samples_completed": int(sample_passes_completed),
+                    "samples_total": int(sample_passes_total),
+                    "unique_samples_total": int(total_samples),
+                    "batches_completed": int(batches_completed),
+                    "batches_total": int(batches_total),
+                    "sample_files_completed": int(files_completed),
+                    "sample_files_total": int(len(resolved_files)),
+                }
+            )
+
+        emit_progress(1, 0, force=True)
+
+        for epoch_index in range(epochs):
+            files_for_epoch = list(resolved_files)
+            random.shuffle(files_for_epoch)
+            for file_index, (sample_path, _sample_count) in enumerate(files_for_epoch):
+                samples = list(_read_pickle_file(sample_path) or [])
+                random.shuffle(samples)
+                for batch_start in range(0, len(samples), minibatch_size):
+                    sample_batch = samples[batch_start:batch_start + minibatch_size]
+                    stats_items.append(self._train_sample_batch(sample_batch, config))
+                    sample_passes_completed += len(sample_batch)
+                    batches_completed += 1
+                    emit_progress(epoch_index + 1, file_index)
+                emit_progress(epoch_index + 1, file_index + 1)
+
+        emit_progress(epochs, len(resolved_files), force=True)
+        stats = _combine_training_stats(stats_items)
+        stats["samples"] = float(total_samples)
+        return stats
 
 
 class PolicyActor:
@@ -1755,6 +1992,7 @@ class PolicyActor:
         temperature: float = 1.0,
         epsilon_random: float = 0.0,
         collector: Optional[List[Dict[str, Any]]] = None,
+        collector_limit: Optional[int] = None,
         decision_callback: Optional[Any] = None,
     ) -> None:
         self.policy = policy
@@ -1762,12 +2000,27 @@ class PolicyActor:
         self.temperature = temperature
         self.epsilon_random = epsilon_random
         self.collector = collector
+        self.collector_limit = None if collector_limit is None else max(1, int(collector_limit))
+        self.collector_seen = 0
         self.decision_callback = decision_callback
 
     def choose(self, player_name: str, options: Sequence[Sequence[Any]], known_game_state: Dict[str, Any]) -> int:
         state_vec = state_to_vector(known_game_state, legal_option_count=len(options))
         option_vecs = [option_to_vector(option, known_game_state) for option in options]
-        collect_details = self.collector is not None
+        collect_details = False
+        replace_index: Optional[int] = None
+        if self.collector is not None:
+            if self.collector_limit is None:
+                collect_details = True
+            else:
+                self.collector_seen += 1
+                if len(self.collector) < self.collector_limit:
+                    collect_details = True
+                else:
+                    candidate_index = random.randrange(max(1, self.collector_seen))
+                    if candidate_index < self.collector_limit:
+                        collect_details = True
+                        replace_index = candidate_index
         selection = self.policy.select_action(
             state_vec,
             option_vecs,
@@ -1778,16 +2031,18 @@ class PolicyActor:
             need_value=collect_details,
         )
         if collect_details:
-            self.collector.append(
-                {
-                    "state_vec": state_vec,
-                    "option_vecs": option_vecs,
-                    "action_index": selection["action_index"],
-                    "old_log_prob": selection["log_prob"],
-                    "value": selection["value"],
-                    "player_name": player_name,
-                }
-            )
+            record = {
+                "state_vec": state_vec,
+                "option_vecs": option_vecs,
+                "action_index": selection["action_index"],
+                "old_log_prob": selection["log_prob"],
+                "value": selection["value"],
+                "player_name": player_name,
+            }
+            if replace_index is None:
+                self.collector.append(record)
+            else:
+                self.collector[replace_index] = record
         if self.decision_callback is not None:
             self.decision_callback(player_name, options, known_game_state, selection["action_index"])
         return selection["action_index"]
@@ -2052,6 +2307,7 @@ def _consume_simulation_futures(
     result_callback: Callable[[Dict[str, Any]], None],
 ) -> None:
     pending = set(futures)
+    last_progress_callback_at = _timestamp()
     while pending:
         done, pending = concurrent.futures.wait(
             pending,
@@ -2059,8 +2315,13 @@ def _consume_simulation_futures(
             return_when=concurrent.futures.FIRST_COMPLETED,
         )
         progress_delta = _drain_simulation_progress_queue(progress_queue)
+        now = _timestamp()
         if progress_delta > 0:
             progress_callback(progress_delta)
+            last_progress_callback_at = now
+        elif (now - last_progress_callback_at) >= SIMULATION_PROGRESS_HEARTBEAT_SECONDS:
+            progress_callback(0)
+            last_progress_callback_at = now
         for future in done:
             result_callback(future.result())
 
@@ -2082,6 +2343,7 @@ def _consume_simulation_task_iterator(
     task_iter = iter(tasks)
     pending = set()
     exhausted = False
+    last_progress_callback_at = _timestamp()
 
     def submit_until_full() -> None:
         nonlocal exhausted
@@ -2102,8 +2364,13 @@ def _consume_simulation_task_iterator(
                 return_when=concurrent.futures.FIRST_COMPLETED,
             )
             progress_delta = _drain_simulation_progress_queue(progress_queue)
+            now = _timestamp()
             if progress_delta > 0:
                 progress_callback(progress_delta)
+                last_progress_callback_at = now
+            elif (now - last_progress_callback_at) >= SIMULATION_PROGRESS_HEARTBEAT_SECONDS:
+                progress_callback(0)
+                last_progress_callback_at = now
             for future in done:
                 result_callback(future.result())
             submit_until_full()
@@ -2140,6 +2407,7 @@ def _simulate_match_games(
     epsilon_random_a: Optional[float] = None,
     temperature_b: Optional[float] = None,
     epsilon_random_b: Optional[float] = None,
+    collection_limit_per_game: Optional[int] = None,
     progress_queue: Optional[Any] = None,
 ) -> Dict[str, Any]:
     _seed_simulation(seed)
@@ -2149,6 +2417,7 @@ def _simulate_match_games(
     wins_b = 0
     per_game_winners: List[str] = []
     ended_by_limit_games = 0
+    decision_candidates = 0
     started_at = _timestamp()
 
     for _ in range(max(0, int(game_count))):
@@ -2159,6 +2428,7 @@ def _simulate_match_games(
             temperature=_actor_temperature(config, deterministic_a, temperature_a),
             epsilon_random=_actor_epsilon_random(config, deterministic_a, epsilon_random_a),
             collector=game_collector,
+            collector_limit=collection_limit_per_game,
         )
         actor_b = PolicyActor(
             policy_b,
@@ -2183,6 +2453,8 @@ def _simulate_match_games(
             wins_b += 1
         if game.ended_by_limit:
             ended_by_limit_games += 1
+        if collect_a:
+            decision_candidates += int(actor_a.collector_seen)
         if collect_a and collector is not None and trajectory_by_game is not None and game_collector is not None:
             selected_game_collector = _sample_training_game_trajectory(
                 game_collector,
@@ -2200,6 +2472,7 @@ def _simulate_match_games(
         "per_game_winners": per_game_winners,
         "trajectory": collector or [],
         "trajectory_by_game": trajectory_by_game or [],
+        "decision_candidates": decision_candidates,
         "ended_by_limit_games": ended_by_limit_games,
         "worker_duration_seconds": _timestamp() - started_at,
     }
@@ -2221,6 +2494,7 @@ def _simulate_initialized_match_chunk_worker(task: Dict[str, Any]) -> Dict[str, 
         epsilon_random_a=task.get("epsilon_random_a"),
         temperature_b=task.get("temperature_b"),
         epsilon_random_b=task.get("epsilon_random_b"),
+        collection_limit_per_game=task.get("collection_limit_per_game"),
     )
 
 
@@ -2260,6 +2534,7 @@ def _simulate_payload_match_chunk_worker(task: Dict[str, Any]) -> Dict[str, Any]
         epsilon_random_a=task.get("epsilon_random_a"),
         temperature_b=task.get("temperature_b"),
         epsilon_random_b=task.get("epsilon_random_b"),
+        collection_limit_per_game=task.get("collection_limit_per_game"),
     )
     if "match_index" in task:
         result["match_index"] = int(task["match_index"])
@@ -2273,7 +2548,37 @@ def _simulate_payload_training_batch_worker(task: Dict[str, Any]) -> Dict[str, A
     policy_a = _policy_from_simulation_payload(task, "policy_a_payload", "policy_a_cache_key")
     config = _config_from_payload(task["config_payload"])
     policy_b_payloads = dict(task.get("policy_b_payloads") or {})
+    direct_sample_files = bool(task.get("direct_sample_files", False))
+    sample_output_dir = Path(str(task.get("sample_output_dir", ""))) if direct_sample_files else None
+    task_index = int(task.get("task_index", 0) or 0)
     partials: List[Dict[str, Any]] = []
+    direct_matches: List[Dict[str, Any]] = []
+    sample_files: List[Dict[str, Any]] = []
+    pending_samples: List[Dict[str, Any]] = []
+    sample_count = 0
+    sample_candidates = 0
+
+    def flush_worker_samples(*, force: bool = False) -> None:
+        nonlocal pending_samples, sample_count
+        if sample_output_dir is None or not pending_samples:
+            return
+        if not force and len(pending_samples) < TRAINING_SAMPLE_DISK_BATCH_SIZE:
+            return
+        samples_to_write = pending_samples
+        pending_samples = []
+        sample_path = (
+            sample_output_dir
+            / f"samples_worker_{os.getpid()}_{task_index:06d}_{len(sample_files):04d}.pkl"
+        )
+        _write_pickle_file(sample_path, samples_to_write)
+        sample_files.append(
+            {
+                "path": str(sample_path),
+                "count": len(samples_to_write),
+            }
+        )
+        sample_count += len(samples_to_write)
+
     for chunk in list(task.get("chunks") or []):
         policy_b_cache_key = str(chunk.get("policy_b_cache_key") or "")
         policy_b_payload = policy_b_payloads.get(policy_b_cache_key) or chunk.get("policy_b_payload")
@@ -2293,12 +2598,39 @@ def _simulate_payload_training_batch_worker(task: Dict[str, Any]) -> Dict[str, A
             epsilon_random_a=chunk.get("epsilon_random_a"),
             temperature_b=chunk.get("temperature_b"),
             epsilon_random_b=chunk.get("epsilon_random_b"),
+            collection_limit_per_game=chunk.get("collection_limit_per_game"),
         )
         result["match_index"] = int(chunk["match_index"])
         if "opponent" in chunk:
             result["opponent"] = _copy_nested(chunk["opponent"])
-        partials.append(result)
-    return {"partials": partials}
+        if direct_sample_files and sample_output_dir is not None:
+            match_summary = _combine_match_partials([result])
+            opponent_meta = _copy_nested(chunk.get("opponent") or {})
+            samples = _match_summary_to_training_samples(match_summary, config)
+            sample_candidates += max(
+                int(match_summary.get("decision_candidates", 0) or 0),
+                len(samples),
+            )
+            if samples:
+                pending_samples.extend(samples)
+                flush_worker_samples()
+            direct_matches.append(
+                {
+                    "match_index": int(chunk["match_index"]),
+                    "match_summary": _compact_training_match_summary(match_summary),
+                    "opponent": opponent_meta,
+                }
+            )
+        else:
+            partials.append(result)
+    flush_worker_samples(force=True)
+    return {
+        "partials": partials,
+        "direct_matches": direct_matches,
+        "sample_files": sample_files,
+        "sample_count": int(sample_count),
+        "sample_candidates": int(sample_candidates),
+    }
 
 
 def _simulate_payload_balanced_chunk_worker(task: Dict[str, Any]) -> Dict[str, Any]:
@@ -2331,11 +2663,13 @@ def _combine_match_partials(partials: Sequence[Dict[str, Any]], *, started_at: O
     trajectory: List[Dict[str, Any]] = []
     trajectory_by_game: List[List[Dict[str, Any]]] = []
     ended_by_limit_games = 0
+    decision_candidates = 0
     for partial in partials:
         per_game_winners.extend(str(winner) for winner in partial.get("per_game_winners", []))
         trajectory.extend(list(partial.get("trajectory") or []))
         trajectory_by_game.extend(list(partial.get("trajectory_by_game") or []))
         ended_by_limit_games += int(partial.get("ended_by_limit_games", 0))
+        decision_candidates += int(partial.get("decision_candidates", 0) or 0)
     duration_seconds = (
         _timestamp() - float(started_at)
         if started_at is not None
@@ -2349,6 +2683,7 @@ def _combine_match_partials(partials: Sequence[Dict[str, Any]], *, started_at: O
         "per_game_winners": per_game_winners,
         "trajectory": trajectory,
         "trajectory_by_game": trajectory_by_game,
+        "decision_candidates": decision_candidates,
         "ended_by_limit_games": ended_by_limit_games,
         "duration_seconds": duration_seconds,
     }
@@ -3115,7 +3450,6 @@ def _load_policy_and_state(run_name: str, config_overrides: Optional[Dict[str, A
         last_update.pop("max_training_samples_per_match", None)
         if "max_training_samples_per_iteration" in last_update:
             last_update.pop("max_training_samples_per_iteration", None)
-            last_update.setdefault("sample_reservoir_limit", DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION)
     if "min_available_memory_mb" not in saved_config:
         saved_config["min_available_memory_mb"] = DEFAULT_MIN_AVAILABLE_MEMORY_MB
     else:
@@ -3610,6 +3944,7 @@ def _play_match(
     epsilon_random_a: Optional[float] = None,
     temperature_b: Optional[float] = None,
     epsilon_random_b: Optional[float] = None,
+    collection_limit_per_game: Optional[int] = None,
 ) -> Dict[str, Any]:
     total_games = max(1, int(games_per_match))
     started_at = _timestamp()
@@ -3654,6 +3989,7 @@ def _play_match(
                 epsilon_random_a=epsilon_random_a,
                 temperature_b=temperature_b,
                 epsilon_random_b=epsilon_random_b,
+                collection_limit_per_game=collection_limit_per_game,
             )
             partials.append(partial)
             completed_games += int(partial.get("games_played", 0))
@@ -3687,6 +4023,7 @@ def _play_match(
                 "epsilon_random_a": epsilon_random_a,
                 "temperature_b": temperature_b,
                 "epsilon_random_b": epsilon_random_b,
+                "collection_limit_per_game": collection_limit_per_game,
             }
             for chunk_size in chunk_sizes
         ]
@@ -3733,6 +4070,7 @@ def _play_match(
                         "epsilon_random_a": epsilon_random_a,
                         "temperature_b": temperature_b,
                         "epsilon_random_b": epsilon_random_b,
+                        "collection_limit_per_game": collection_limit_per_game,
                     },
                 )
                 for chunk_size in chunk_sizes
@@ -3924,24 +4262,37 @@ def _compact_training_match_summary(match_summary: Dict[str, Any]) -> Dict[str, 
     return compact
 
 
-def _extend_sample_reservoir(
-    reservoir: List[Dict[str, Any]],
-    incoming_samples: Sequence[Dict[str, Any]],
-    *,
-    max_samples: int,
-    seen_count: int,
-) -> int:
-    limit = max(1, int(max_samples))
-    seen = max(0, int(seen_count))
-    for sample in incoming_samples:
-        seen += 1
-        if len(reservoir) < limit:
-            reservoir.append(sample)
+def _match_summary_to_training_samples(
+    match_summary: Dict[str, Any],
+    config: TrainingConfig,
+) -> List[Dict[str, Any]]:
+    trajectory_by_game = list(match_summary.get("trajectory_by_game") or [])
+    if not trajectory_by_game:
+        flat_trajectory = list(match_summary.get("trajectory") or [])
+        if flat_trajectory:
+            trajectory_by_game = [flat_trajectory]
+    if not trajectory_by_game:
+        return []
+    return_value = float(match_summary["return_value"])
+    selected_trajectory: List[Dict[str, Any]] = []
+
+    for game_trajectory in trajectory_by_game:
+        if not game_trajectory:
             continue
-        replacement_index = random.randrange(seen)
-        if replacement_index < limit:
-            reservoir[replacement_index] = sample
-    return seen
+        sampled_game_trajectory = _sample_training_game_trajectory(
+            game_trajectory,
+            config.training_decisions_per_game,
+        )
+        for step in sampled_game_trajectory:
+            step["return"] = return_value
+            step["advantage"] = return_value - float(step["value"])
+        selected_trajectory.extend(sampled_game_trajectory)
+
+    if not selected_trajectory:
+        return []
+
+    _normalize_sample_advantages(selected_trajectory)
+    return selected_trajectory
 
 
 def _normalize_sample_advantages(samples: Sequence[Dict[str, Any]]) -> None:
@@ -4462,6 +4813,87 @@ class SelfPlayTrainer:
         self.state["updated_at"] = _timestamp()
         _atomic_write_json(self.files.training_state_file, self.state)
 
+    def _build_iteration_completion_report(
+        self,
+        *,
+        result: Dict[str, Any],
+        scheduled_config: TrainingConfig,
+        iteration_started_at: float,
+        iteration_completed_at: float,
+    ) -> Dict[str, Any]:
+        iteration = int(result.get("iteration", self.state.get("iteration", 0)) or 0)
+        training_games_total = (
+            max(1, int(scheduled_config.training_matches_per_iteration))
+            * max(1, int(scheduled_config.training_games_per_match))
+        )
+        replay_games_target = replay_training_games_target(scheduled_config)
+        promotion_games_total = max(1, int(scheduled_config.promotion_games))
+        last_update = _copy_nested(self.state.get("last_update") or {})
+        last_eval = _copy_nested(self.state.get("last_eval") or {})
+        last_match = _copy_nested(self.state.get("last_match") or {})
+        completed_training_games = int(last_match.get("games_played", 0) or 0)
+        completed_promotion_games = int(last_eval.get("games_played", 0) or 0)
+        completed_replay_games = int(last_update.get("replay_games_used", 0) or 0)
+        current_elo = round(float(self.state.get("current_elo", INITIAL_ELO)), 2)
+        best_elo = round(float(self.state.get("best_elo", INITIAL_ELO)), 2)
+        summary = self.progress_summary()
+        return {
+            "schema_version": ITERATION_REPORT_SCHEMA_VERSION,
+            "event": "training_iteration_completed",
+            "event_id": f"{self.run_name}:{iteration}:{int(iteration_completed_at * 1000)}",
+            "generated_at": iteration_completed_at,
+            "generated_datetime": _format_timestamp(iteration_completed_at),
+            "host": socket.gethostname(),
+            "pid": os.getpid(),
+            "run_name": self.run_name,
+            "run_dir": str(self.files.run_dir),
+            "iteration": iteration,
+            "iteration_started_at": iteration_started_at,
+            "iteration_started_datetime": _format_timestamp(iteration_started_at),
+            "iteration_completed_at": iteration_completed_at,
+            "iteration_completed_datetime": _format_timestamp(iteration_completed_at),
+            "iteration_duration_seconds": round(iteration_completed_at - iteration_started_at, 3),
+            "action": str(result.get("action") or last_eval.get("action") or ""),
+            "outcome": {
+                "promoted": bool(last_eval.get("promoted", False)),
+                "candidate_score": last_eval.get("score"),
+                "promoted_checkpoint": last_eval.get("promoted_checkpoint"),
+                "champion_checkpoint": last_eval.get("champion_checkpoint"),
+                "current_elo": current_elo,
+                "best_elo": best_elo,
+            },
+            "training": {
+                "matches_completed": int(last_update.get("matches_collected", 0) or 0),
+                "matches_target": int(scheduled_config.training_matches_per_iteration),
+                "games_completed": completed_training_games,
+                "games_target": training_games_total,
+                "samples_collected": int(last_update.get("samples_collected", 0) or 0),
+                "sample_candidates": int(last_update.get("sample_candidates", 0) or 0),
+                "summary": last_match,
+            },
+            "replay_training": {
+                "games_target": replay_games_target,
+                "games_loaded": int(last_update.get("replay_games_loaded", 0) or 0),
+                "games_used": completed_replay_games,
+                "samples": int(last_update.get("replay_samples", 0) or 0),
+                "sample_candidates": int(last_update.get("replay_sample_candidates", 0) or 0),
+            },
+            "promotion_evaluation": {
+                "games_completed": completed_promotion_games,
+                "games_target": promotion_games_total,
+                "summary": last_eval,
+            },
+            "iteration_totals": {
+                "games_completed": completed_training_games + completed_replay_games + completed_promotion_games,
+                "games_target": training_games_total + replay_games_target + promotion_games_total,
+            },
+            "update": _copy_nested(result.get("update") or last_update),
+            "result": _copy_nested(result),
+            "summary": summary,
+            "config": asdict(scheduled_config),
+            "runtime_environment": runtime_environment(),
+        }
+
     def _build_training_live_progress(
         self,
         scheduled_config: TrainingConfig,
@@ -4476,6 +4908,15 @@ class SelfPlayTrainer:
         replay_games_completed: int = 0,
         replay_games_total: Optional[int] = None,
         replay_stage_complete: Optional[bool] = None,
+        samples_completed: Optional[int] = None,
+        samples_total: Optional[int] = None,
+        unique_samples_total: Optional[int] = None,
+        sample_files_completed: Optional[int] = None,
+        sample_files_total: Optional[int] = None,
+        learning_epoch: Optional[int] = None,
+        learning_epochs: Optional[int] = None,
+        learning_batches_completed: Optional[int] = None,
+        learning_batches_total: Optional[int] = None,
     ) -> Dict[str, Any]:
         training_matches_total = max(1, int(scheduled_config.training_matches_per_iteration))
         training_games_per_match = max(1, int(scheduled_config.training_games_per_match))
@@ -4492,7 +4933,7 @@ class SelfPlayTrainer:
             else bool(replay_stage_complete)
         )
         promotion_games_total = max(1, int(scheduled_config.promotion_games))
-        return {
+        payload = {
             "kind": "training_iteration",
             "stage": str(stage),
             "iteration_number": int(iteration_number),
@@ -4520,6 +4961,25 @@ class SelfPlayTrainer:
             ),
             "updated_at": _timestamp(),
         }
+        if samples_completed is not None:
+            payload["samples_completed"] = max(0, int(samples_completed))
+        if samples_total is not None:
+            payload["samples_total"] = max(0, int(samples_total))
+        if unique_samples_total is not None:
+            payload["unique_samples_total"] = max(0, int(unique_samples_total))
+        if sample_files_completed is not None:
+            payload["sample_files_completed"] = max(0, int(sample_files_completed))
+        if sample_files_total is not None:
+            payload["sample_files_total"] = max(0, int(sample_files_total))
+        if learning_epoch is not None:
+            payload["learning_epoch"] = max(0, int(learning_epoch))
+        if learning_epochs is not None:
+            payload["learning_epochs"] = max(0, int(learning_epochs))
+        if learning_batches_completed is not None:
+            payload["learning_batches_completed"] = max(0, int(learning_batches_completed))
+        if learning_batches_total is not None:
+            payload["learning_batches_total"] = max(0, int(learning_batches_total))
+        return payload
 
     def _set_live_progress(self, payload: Optional[Dict[str, Any]], *, force_persist: bool = False) -> None:
         self.state["live_progress"] = None if payload is None else _copy_nested(payload)
@@ -5068,33 +5528,7 @@ class SelfPlayTrainer:
         return _cached_policy(self.run_name, checkpoint_name), selected
 
     def _match_to_training_samples(self, match_summary: Dict[str, Any]) -> List[Dict[str, Any]]:
-        trajectory_by_game = list(match_summary.get("trajectory_by_game") or [])
-        if not trajectory_by_game:
-            flat_trajectory = list(match_summary.get("trajectory") or [])
-            if flat_trajectory:
-                trajectory_by_game = [flat_trajectory]
-        if not trajectory_by_game:
-            return []
-        return_value = match_summary["return_value"]
-        selected_trajectory: List[Dict[str, Any]] = []
-
-        for game_trajectory in trajectory_by_game:
-            if not game_trajectory:
-                continue
-            sampled_game_trajectory = _sample_training_game_trajectory(
-                game_trajectory,
-                self.config.training_decisions_per_game,
-            )
-            for step in sampled_game_trajectory:
-                step["return"] = return_value
-                step["advantage"] = return_value - step["value"]
-            selected_trajectory.extend(sampled_game_trajectory)
-
-        if not selected_trajectory:
-            return []
-
-        _normalize_sample_advantages(selected_trajectory)
-        return selected_trajectory
+        return _match_summary_to_training_samples(match_summary, self.config)
 
     def _summarize_training_matches(self, match_summaries: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         if not match_summaries:
@@ -5246,7 +5680,7 @@ class SelfPlayTrainer:
         scheduled_config: TrainingConfig,
         next_iteration: int,
         simulation_pool: Optional[_SimulationPool] = None,
-    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], int, int]:
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], List[Dict[str, Any]], int, int]:
         match_count = max(1, int(scheduled_config.training_matches_per_iteration))
         games_per_match = max(1, int(scheduled_config.training_games_per_match))
         total_games = match_count * games_per_match
@@ -5254,25 +5688,44 @@ class SelfPlayTrainer:
         if simulation_pool is not None:
             worker_count = min(max(1, int(simulation_pool.worker_count)), total_games)
         training_matches: List[Dict[str, Any]] = []
-        training_samples: List[Dict[str, Any]] = []
         opponent_summaries: List[Dict[str, Any]] = []
-        completed_match_results: List[Tuple[int, Dict[str, Any], Dict[str, Any]]] = []
+        sample_work_dir = (
+            self.files.run_dir
+            / "training_sample_batches"
+            / f"iteration_{next_iteration:06d}_{os.getpid()}_{int(_timestamp() * 1000)}"
+        )
+        raw_match_dir = sample_work_dir / "raw_matches"
+        sample_batch_dir = sample_work_dir / "samples"
+        raw_match_dir.mkdir(parents=True, exist_ok=True)
+        sample_batch_dir.mkdir(parents=True, exist_ok=True)
+        completed_match_files: List[Tuple[int, Path, Dict[str, Any]]] = []
+        direct_completed_matches: List[Tuple[int, Dict[str, Any], Dict[str, Any]]] = []
+        pending_samples: List[Dict[str, Any]] = []
+        sample_batch_index = 0
         training_games_completed = 0
         training_sample_candidates = 0
-        max_iteration_samples = DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION
+        collection_limit_per_game = training_samples_per_game_limit(
+            scheduled_config.training_decisions_per_game
+        )
+        training_sample_store: Dict[str, Any] = {
+            "storage": "disk",
+            "work_dir": str(sample_work_dir),
+            "sample_dir": str(sample_batch_dir),
+            "sample_files": [],
+            "sample_count": 0,
+            "sample_candidates": 0,
+            "collection_limit_per_game": int(collection_limit_per_game),
+            "max_training_samples_per_game": DEFAULT_MAX_TRAINING_SAMPLES_PER_GAME,
+        }
         opponent_exploration_plan = _training_opponent_exploration_plan(scheduled_config, match_count)
         _check_memory_safety(scheduled_config, "starting training match collection")
 
-        def process_completed_match(match_summary: Dict[str, Any], opponent_meta: Dict[str, Any]) -> None:
-            nonlocal training_sample_candidates
-            match_summary["opponent"] = opponent_meta
-            samples = self._match_to_training_samples(match_summary)
-            training_sample_candidates = _extend_sample_reservoir(
-                training_samples,
-                samples,
-                max_samples=max_iteration_samples,
-                seen_count=training_sample_candidates,
-            )
+        def write_completed_match(match_index: int, match_summary: Dict[str, Any], opponent_meta: Dict[str, Any]) -> None:
+            path = raw_match_dir / f"match_{int(match_index):06d}.pkl"
+            _write_pickle_file(path, match_summary)
+            completed_match_files.append((int(match_index), path, opponent_meta))
+
+        def record_training_match_summary(match_summary: Dict[str, Any], opponent_meta: Dict[str, Any]) -> None:
             compact_summary = _compact_training_match_summary(match_summary)
             training_matches.append(compact_summary)
             opponent_summaries.append(opponent_meta)
@@ -5281,11 +5734,57 @@ class SelfPlayTrainer:
                     scheduled_config,
                     f"collecting training match {len(training_matches)} of {match_count}",
                 )
-            self._record_live_match_progress(compact_summary, "training", training_matches)
+
+        def flush_sample_batch(*, force: bool = False) -> None:
+            nonlocal pending_samples, sample_batch_index
+            if not pending_samples:
+                return
+            if not force and len(pending_samples) < TRAINING_SAMPLE_DISK_BATCH_SIZE:
+                return
+            samples_to_write = pending_samples
+            pending_samples = []
+            path = sample_batch_dir / f"samples_{sample_batch_index:06d}.pkl"
+            _write_pickle_file(path, samples_to_write)
+            sample_count = len(samples_to_write)
+            training_sample_store["sample_files"].append(
+                {
+                    "path": str(path),
+                    "count": int(sample_count),
+                }
+            )
+            training_sample_store["sample_count"] = int(training_sample_store.get("sample_count", 0)) + sample_count
+            sample_batch_index += 1
+
+        def process_completed_match_file(match_path: Path, opponent_meta: Dict[str, Any]) -> None:
+            nonlocal training_sample_candidates
+            match_summary = dict(_read_pickle_file(match_path) or {})
+            try:
+                match_path.unlink()
+            except OSError:
+                pass
+            match_summary["opponent"] = opponent_meta
+            samples = self._match_to_training_samples(match_summary)
+            training_sample_candidates += max(
+                int(match_summary.get("decision_candidates", 0) or 0),
+                len(samples),
+            )
+            pending_samples.extend(samples)
+            flush_sample_batch()
+            training_sample_store["sample_candidates"] = int(training_sample_candidates)
+            record_training_match_summary(match_summary, opponent_meta)
 
         def process_completed_matches() -> None:
             nonlocal training_games_completed
-            completed_match_results.sort(key=lambda item: item[0])
+            processing_progress_saved_at = 0.0
+            completed_items: List[Tuple[int, str, Any, Dict[str, Any]]] = [
+                (match_index, "raw", match_path, opponent_meta)
+                for match_index, match_path, opponent_meta in completed_match_files
+            ]
+            completed_items.extend(
+                (match_index, "direct", match_summary, opponent_meta)
+                for match_index, match_summary, opponent_meta in direct_completed_matches
+            )
+            completed_items.sort(key=lambda item: item[0])
             training_games_completed = max(training_games_completed, total_games)
             self._set_live_progress(
                 self._build_training_live_progress(
@@ -5297,11 +5796,22 @@ class SelfPlayTrainer:
                     training_matches_completed=0,
                     training_stage_complete=False,
                     promotion_stage_complete=False,
+                    samples_completed=0,
+                    samples_total=0,
+                    unique_samples_total=0,
+                    sample_files_completed=0,
+                    sample_files_total=0,
                 ),
                 force_persist=True,
             )
-            for _match_index, match_summary, opponent_meta in completed_match_results:
-                process_completed_match(match_summary, opponent_meta)
+
+            def emit_processing_progress(*, force: bool = False) -> None:
+                nonlocal processing_progress_saved_at
+                now = _timestamp()
+                if not force and (now - processing_progress_saved_at) < TRAINING_PROGRESS_REPORT_SECONDS:
+                    return
+                processing_progress_saved_at = now
+                samples_prepared = int(training_sample_store.get("sample_count", 0)) + len(pending_samples)
                 self._set_live_progress(
                     self._build_training_live_progress(
                         scheduled_config,
@@ -5312,8 +5822,47 @@ class SelfPlayTrainer:
                         training_matches_completed=len(training_matches),
                         training_stage_complete=False,
                         promotion_stage_complete=False,
+                        samples_completed=samples_prepared,
+                        samples_total=samples_prepared,
+                        unique_samples_total=samples_prepared,
+                        sample_files_completed=len(training_sample_store["sample_files"]),
+                        sample_files_total=len(training_sample_store["sample_files"]),
                     )
                 )
+
+            for _match_index, item_kind, payload, opponent_meta in completed_items:
+                if item_kind == "raw":
+                    process_completed_match_file(Path(payload), opponent_meta)
+                else:
+                    record_training_match_summary(dict(payload or {}), opponent_meta)
+                emit_processing_progress()
+            flush_sample_batch(force=True)
+            training_sample_store["sample_candidates"] = int(training_sample_candidates)
+            self.state["total_matches"] = int(self.state.get("total_matches", 0)) + len(training_matches)
+            self.state["total_games"] = int(self.state.get("total_games", 0)) + sum(
+                int(match.get("games_played", 0) or 0)
+                for match in training_matches
+            )
+            self.state["last_match"] = self._summarize_training_matches(training_matches)
+            self._last_match_progress_save_at = _timestamp()
+            self._set_live_progress(
+                self._build_training_live_progress(
+                    scheduled_config,
+                    stage="processing",
+                    iteration_number=next_iteration,
+                    training_games_completed=training_games_completed,
+                    promotion_games_completed=0,
+                    training_matches_completed=len(training_matches),
+                    training_stage_complete=False,
+                    promotion_stage_complete=False,
+                    samples_completed=int(training_sample_store.get("sample_count", 0)),
+                    samples_total=int(training_sample_store.get("sample_count", 0)),
+                    unique_samples_total=int(training_sample_store.get("sample_count", 0)),
+                    sample_files_completed=len(training_sample_store["sample_files"]),
+                    sample_files_total=len(training_sample_store["sample_files"]),
+                ),
+                force_persist=True,
+            )
 
         if worker_count <= 1:
             for match_index in range(match_count):
@@ -5334,6 +5883,7 @@ class SelfPlayTrainer:
                     games_per_match=games_per_match,
                     temperature_b=float(opponent_style["temperature"]),
                     epsilon_random_b=float(opponent_style["epsilon_random"]),
+                    collection_limit_per_game=collection_limit_per_game,
                     game_progress_callback=lambda progress, match_index=match_index, completed_before_match=completed_before_match: self._set_live_progress(
                         self._build_training_live_progress(
                             scheduled_config,
@@ -5348,11 +5898,11 @@ class SelfPlayTrainer:
                     ),
                 )
                 training_games_completed += int(match_summary.get("games_played", 0))
-                completed_match_results.append((match_index, match_summary, opponent_meta))
+                write_completed_match(match_index, match_summary, opponent_meta)
             process_completed_matches()
             return (
                 training_matches,
-                training_samples,
+                training_sample_store,
                 opponent_summaries,
                 training_games_completed,
                 training_sample_candidates,
@@ -5363,6 +5913,8 @@ class SelfPlayTrainer:
         candidate_cache_key = f"{self.run_name}:iteration:{next_iteration}:candidate:training"
         chunk_size = _training_match_chunk_size(match_count, games_per_match, worker_count)
         chunks_per_match = max(1, math.ceil(games_per_match / max(1, chunk_size)))
+        direct_worker_sample_files = chunks_per_match == 1
+        training_sample_store["direct_worker_sample_files"] = bool(direct_worker_sample_files)
         total_chunk_count = max(1, match_count * chunks_per_match)
         target_task_count = min(
             total_chunk_count,
@@ -5390,6 +5942,7 @@ class SelfPlayTrainer:
         def iter_training_tasks() -> Any:
             batch_chunks: List[Dict[str, Any]] = []
             batch_policy_payloads: Dict[str, Dict[str, Any]] = {}
+            task_index = 0
             for match_index in range(match_count):
                 opponent_policy, opponent_meta = self._sample_league_opponent()
                 opponent_style = opponent_exploration_plan[match_index]
@@ -5415,6 +5968,7 @@ class SelfPlayTrainer:
                             "game_count": games_in_chunk,
                             "seed": _random_seed(),
                             "collect_a": True,
+                            "collection_limit_per_game": collection_limit_per_game,
                             "deterministic_a": False,
                             "deterministic_b": False,
                             "temperature_b": float(opponent_style["temperature"]),
@@ -5429,7 +5983,11 @@ class SelfPlayTrainer:
                             "config_payload": config_payload,
                             "policy_b_payloads": batch_policy_payloads,
                             "chunks": batch_chunks,
+                            "task_index": task_index,
+                            "direct_sample_files": direct_worker_sample_files,
+                            "sample_output_dir": str(sample_batch_dir) if direct_worker_sample_files else "",
                         }
+                        task_index += 1
                         batch_chunks = []
                         batch_policy_payloads = {}
             if batch_chunks:
@@ -5439,6 +5997,9 @@ class SelfPlayTrainer:
                     "config_payload": config_payload,
                     "policy_b_payloads": batch_policy_payloads,
                     "chunks": batch_chunks,
+                    "task_index": task_index,
+                    "direct_sample_files": direct_worker_sample_files,
+                    "sample_output_dir": str(sample_batch_dir) if direct_worker_sample_files else "",
                 }
 
         def persist_training_progress() -> None:
@@ -5471,7 +6032,7 @@ class SelfPlayTrainer:
             if len(partials) >= expected_chunks_by_match.get(match_index, 0):
                 match_summary = _combine_match_partials(partials)
                 opponent_meta = opponent_by_match.pop(match_index, {})
-                completed_match_results.append((match_index, match_summary, opponent_meta))
+                write_completed_match(match_index, match_summary, opponent_meta)
                 partials.clear()
                 partials_by_match.pop(match_index, None)
                 expected_chunks_by_match.pop(match_index, None)
@@ -5480,6 +6041,34 @@ class SelfPlayTrainer:
             persist_training_progress()
 
         def on_result(batch_result: Dict[str, Any]) -> None:
+            nonlocal training_games_completed, completed_matches, completed_from_results, training_sample_candidates
+            direct_matches = list(batch_result.get("direct_matches") or [])
+            if direct_matches:
+                files_from_worker = list(batch_result.get("sample_files") or [])
+                if files_from_worker:
+                    training_sample_store["sample_files"].extend(files_from_worker)
+                    training_sample_store["sample_count"] = int(training_sample_store.get("sample_count", 0)) + sum(
+                        max(0, int(item.get("count", 0) or 0))
+                        for item in files_from_worker
+                    )
+                training_sample_candidates += int(batch_result.get("sample_candidates", 0) or 0)
+                training_sample_store["sample_candidates"] = int(training_sample_candidates)
+
+                completed_games_delta = 0
+                for item in direct_matches:
+                    match_index = int(item.get("match_index", 0) or 0)
+                    match_summary = dict(item.get("match_summary") or {})
+                    opponent_meta = _copy_nested(item.get("opponent") or opponent_by_match.pop(match_index, {}))
+                    direct_completed_matches.append((match_index, match_summary, opponent_meta))
+                    completed_games_delta += int(match_summary.get("games_played", 0) or 0)
+                    expected_chunks_by_match.pop(match_index, None)
+                    opponent_by_match.pop(match_index, None)
+                    completed_matches += 1
+                completed_from_results += completed_games_delta
+                training_games_completed = max(training_games_completed, min(total_games, completed_from_results))
+                persist_training_progress()
+                return
+
             partials = list(batch_result.get("partials") or [])
             if not partials and "match_index" in batch_result:
                 partials = [batch_result]
@@ -5501,7 +6090,7 @@ class SelfPlayTrainer:
             process_completed_matches()
             return (
                 training_matches,
-                training_samples,
+                training_sample_store,
                 opponent_summaries,
                 training_games_completed,
                 training_sample_candidates,
@@ -5530,7 +6119,7 @@ class SelfPlayTrainer:
         process_completed_matches()
         return (
             training_matches,
-            training_samples,
+            training_sample_store,
             opponent_summaries,
             training_games_completed,
             training_sample_candidates,
@@ -5692,6 +6281,7 @@ class SelfPlayTrainer:
         }
 
     def train_iteration(self) -> Dict[str, Any]:
+        iteration_started_at = _timestamp()
         scheduled_config = self._scheduled_training_config()
         _check_memory_safety(scheduled_config, "starting training iteration")
         candidate_state = self._candidate_state()
@@ -5725,7 +6315,7 @@ class SelfPlayTrainer:
 
         (
             training_matches,
-            training_samples,
+            training_sample_store,
             opponent_summaries,
             training_games_completed,
             training_sample_candidates,
@@ -5738,18 +6328,84 @@ class SelfPlayTrainer:
         self._set_live_progress(
             self._build_training_live_progress(
                 scheduled_config,
-                stage="optimizing",
+                stage="learning",
                 iteration_number=next_iteration,
                 training_games_completed=training_games_completed,
                 promotion_games_completed=0,
                 training_matches_completed=len(training_matches),
                 training_stage_complete=True,
                 promotion_stage_complete=False,
+                samples_completed=0,
+                samples_total=max(
+                    0,
+                    int(training_sample_store.get("sample_count", 0) or 0)
+                    * max(1, int(scheduled_config.ppo_epochs)),
+                ),
+                unique_samples_total=int(training_sample_store.get("sample_count", 0) or 0),
+                sample_files_completed=0,
+                sample_files_total=len(training_sample_store.get("sample_files") or []),
+                learning_epoch=1,
+                learning_epochs=max(1, int(scheduled_config.ppo_epochs)),
+                learning_batches_completed=0,
             ),
             force_persist=True,
         )
         _check_memory_safety(scheduled_config, "starting PPO optimization")
-        fresh_update_stats = self.candidate_policy.train_on_samples(training_samples, scheduled_config)
+        sample_files = list(training_sample_store.get("sample_files") or [])
+
+        def learning_progress_callback(progress: Dict[str, Any]) -> None:
+            samples_completed = int(progress.get("samples_completed", 0) or 0)
+            samples_total = int(progress.get("samples_total", 0) or 0)
+            self._set_live_progress(
+                self._build_training_live_progress(
+                    scheduled_config,
+                    stage="learning",
+                    iteration_number=next_iteration,
+                    training_games_completed=training_games_completed,
+                    promotion_games_completed=0,
+                    training_matches_completed=len(training_matches),
+                    training_stage_complete=True,
+                    promotion_stage_complete=False,
+                    samples_completed=samples_completed,
+                    samples_total=samples_total,
+                    unique_samples_total=int(
+                        progress.get("unique_samples_total", training_sample_store.get("sample_count", 0)) or 0
+                    ),
+                    sample_files_completed=int(progress.get("sample_files_completed", 0) or 0),
+                    sample_files_total=int(
+                        progress.get("sample_files_total", len(training_sample_store.get("sample_files") or [])) or 0
+                    ),
+                    learning_epoch=int(progress.get("epoch", 0) or 0),
+                    learning_epochs=int(progress.get("epochs", scheduled_config.ppo_epochs) or 0),
+                    learning_batches_completed=int(progress.get("batches_completed", 0) or 0),
+                    learning_batches_total=int(progress.get("batches_total", 0) or 0),
+                ),
+                force_persist=(samples_completed <= 0 or (samples_total > 0 and samples_completed >= samples_total)),
+            )
+
+        try:
+            fresh_update_stats = self.candidate_policy.train_on_sample_files(
+                sample_files,
+                scheduled_config,
+                progress_callback=learning_progress_callback,
+            )
+        finally:
+            sample_work_dir_value = str(training_sample_store.get("work_dir", "")).strip()
+            if sample_work_dir_value:
+                sample_work_dir = Path(sample_work_dir_value)
+                sample_root = self.files.run_dir / "training_sample_batches"
+                try:
+                    resolved_work_dir = sample_work_dir.resolve()
+                    resolved_sample_root = sample_root.resolve()
+                except OSError:
+                    resolved_work_dir = sample_work_dir
+                    resolved_sample_root = sample_root
+                if (
+                    resolved_work_dir.exists()
+                    and resolved_work_dir != resolved_sample_root
+                    and resolved_sample_root in resolved_work_dir.parents
+                ):
+                    shutil.rmtree(resolved_work_dir, ignore_errors=True)
         update_stats = fresh_update_stats
         training_summary = self._summarize_training_matches(training_matches)
         self._set_live_progress(
@@ -5827,10 +6483,13 @@ class SelfPlayTrainer:
             "iterations_since_promotion": self._iterations_since_promotion(),
             "matches_collected": len(training_matches),
             "fresh_samples": int(fresh_update_stats.get("samples", 0)),
-            "samples_collected": len(training_samples),
+            "samples_collected": int(training_sample_store.get("sample_count", 0) or 0),
             "sample_candidates": int(training_sample_candidates),
+            "sample_files": len(training_sample_store.get("sample_files") or []),
+            "sample_storage": str(training_sample_store.get("storage", "disk")),
+            "direct_worker_sample_files": bool(training_sample_store.get("direct_worker_sample_files", False)),
+            "collection_limit_per_game": int(training_sample_store.get("collection_limit_per_game", 0) or 0),
             "max_training_samples_per_game": DEFAULT_MAX_TRAINING_SAMPLES_PER_GAME,
-            "sample_reservoir_limit": DEFAULT_MAX_TRAINING_SAMPLES_PER_ITERATION,
         }
 
         if promoted:
@@ -5937,7 +6596,7 @@ class SelfPlayTrainer:
             force_persist=True,
         )
         self._save()
-        return {
+        result = {
             "match": training_summary,
             "evaluation": self.state["last_eval"],
             "update": update_stats,
@@ -5945,6 +6604,34 @@ class SelfPlayTrainer:
             "current_elo": self.state.get("current_elo", INITIAL_ELO),
             "action": action,
         }
+        iteration_completed_at = _timestamp()
+        try:
+            report_payload = self._build_iteration_completion_report(
+                result=result,
+                scheduled_config=scheduled_config,
+                iteration_started_at=iteration_started_at,
+                iteration_completed_at=iteration_completed_at,
+            )
+            report_result = _post_iteration_report(report_payload)
+        except Exception as exc:
+            failed_at = _timestamp()
+            report_result = {
+                "ok": False,
+                "error": f"{type(exc).__name__}: {exc}",
+                "reported_at": failed_at,
+                "reported_datetime": _format_timestamp(failed_at),
+            }
+        self.state["last_report"] = report_result
+        if report_result.get("ok"):
+            self.state["last_reported_iteration"] = self.state["iteration"]
+            self.state["last_reported_at"] = report_result.get("reported_at")
+            self.state["last_reported_datetime"] = report_result.get("reported_datetime")
+        try:
+            self._save_state_only()
+        except Exception as exc:
+            report_result["state_save_error"] = f"{type(exc).__name__}: {exc}"
+        result["report"] = report_result
+        return result
 
     def _training_loop(self) -> None:
         active_simulation_key = _register_active_simulation_run(
@@ -7339,6 +8026,46 @@ def summarize_cross_run_rating(games: int = 200) -> str:
     )
 
 
+def _choice_adaptive_k_multiplier(decision_count: int) -> float:
+    seen = max(0.0, float(decision_count))
+    prior = max(EPSILON, float(CHOICE_ELO_ADAPTIVE_K_PRIOR_DECISIONS))
+    reference = max(0.0, float(CHOICE_ELO_ADAPTIVE_K_REFERENCE_DECISIONS))
+    multiplier = math.sqrt((reference + prior) / (seen + prior))
+    return max(
+        float(CHOICE_ELO_ADAPTIVE_K_MIN_MULTIPLIER),
+        min(float(CHOICE_ELO_ADAPTIVE_K_MAX_MULTIPLIER), multiplier),
+    )
+
+
+def _choice_adaptive_k_factor(k_factor: float, decision_count: int) -> float:
+    return float(k_factor) * _choice_adaptive_k_multiplier(decision_count)
+
+
+def _choice_adaptive_k_settings(k_factor: float) -> Dict[str, float]:
+    return {
+        "base_k_factor": float(k_factor),
+        "reference_decisions": float(CHOICE_ELO_ADAPTIVE_K_REFERENCE_DECISIONS),
+        "prior_decisions": float(CHOICE_ELO_ADAPTIVE_K_PRIOR_DECISIONS),
+        "min_multiplier": float(CHOICE_ELO_ADAPTIVE_K_MIN_MULTIPLIER),
+        "max_multiplier": float(CHOICE_ELO_ADAPTIVE_K_MAX_MULTIPLIER),
+        "unseen_k_factor": _choice_adaptive_k_factor(float(k_factor), 0),
+    }
+
+
+def _format_choice_adaptive_k_summary(settings: Dict[str, Any]) -> str:
+    base_k = float(settings.get("base_k_factor", 0.0))
+    reference = float(settings.get("reference_decisions", CHOICE_ELO_ADAPTIVE_K_REFERENCE_DECISIONS))
+    prior = float(settings.get("prior_decisions", CHOICE_ELO_ADAPTIVE_K_PRIOR_DECISIONS))
+    min_multiplier = float(settings.get("min_multiplier", CHOICE_ELO_ADAPTIVE_K_MIN_MULTIPLIER))
+    max_multiplier = float(settings.get("max_multiplier", CHOICE_ELO_ADAPTIVE_K_MAX_MULTIPLIER))
+    unseen_k = float(settings.get("unseen_k_factor", _choice_adaptive_k_factor(base_k, 0)))
+    return (
+        f"Adaptive K: base {base_k:.2f}; effective K = base * "
+        f"clamp(sqrt(({reference:.1f} + {prior:.1f}) / (seen_decisions + {prior:.1f})), "
+        f"{min_multiplier:.2f}, {max_multiplier:.2f}). Unseen effective K: {unseen_k:.2f}."
+    )
+
+
 def _initial_card_choice_rating_state() -> Dict[str, Dict[str, Any]]:
     return {
         "ratings": {card_name: INITIAL_ELO for card_name in CARD_NAME_ORDER},
@@ -7401,12 +8128,17 @@ def _apply_card_acquire_choice_result(
     information = rating_state["information"]
 
     probabilities = _card_choice_probabilities(ratings, participant_names)
+    prior_decision_counts = {
+        card_name: int(decision_counts.get(card_name, 0))
+        for card_name in participant_names
+    }
     deltas: Dict[str, float] = {}
     participant_count = len(participant_names)
     for card_name in participant_names:
         expected_probability = float(probabilities.get(card_name, 0.0))
         actual_score = 1.0 if card_name == winner_name else 0.0
-        deltas[card_name] = float(k_factor) * (actual_score - expected_probability)
+        effective_k = _choice_adaptive_k_factor(k_factor, prior_decision_counts.get(card_name, 0))
+        deltas[card_name] = effective_k * (actual_score - expected_probability)
         decision_counts[card_name] = int(decision_counts.get(card_name, 0)) + 1
         pairwise_counts[card_name] = int(pairwise_counts.get(card_name, 0)) + max(participant_count - 1, 0)
         information[card_name] = float(information.get(card_name, 0.0)) + expected_probability * (1.0 - expected_probability)
@@ -7430,6 +8162,7 @@ def _card_rating_uncertainty_from_information(information_value: float) -> Optio
 
 def _normalized_card_choice_leaderboard(
     rating_state: Dict[str, Dict[str, Any]],
+    k_factor: float = CARD_ACQUIRE_ELO_K_FACTOR,
 ) -> Tuple[List[Dict[str, Any]], float, float]:
     ratings = rating_state["ratings"]
     explorer_rating = float(ratings.get("Explorer", INITIAL_ELO))
@@ -7441,6 +8174,8 @@ def _normalized_card_choice_leaderboard(
     for card_name in CARD_NAME_ORDER:
         raw_rating = float(ratings.get(card_name, INITIAL_ELO))
         raw_uncertainty = _card_rating_uncertainty_from_information(float(rating_state["information"].get(card_name, 0.0)))
+        decision_count = int(rating_state["decision_counts"].get(card_name, 0))
+        k_multiplier = _choice_adaptive_k_multiplier(decision_count)
         normalized_rating = raw_rating / normalization_factor
         normalized_uncertainty = None if raw_uncertainty is None else raw_uncertainty / normalization_factor
         leaderboard.append(
@@ -7450,10 +8185,12 @@ def _normalized_card_choice_leaderboard(
                 "raw_elo": round(raw_rating, 4),
                 "uncertainty": None if normalized_uncertainty is None else round(normalized_uncertainty, 4),
                 "raw_uncertainty": None if raw_uncertainty is None else round(raw_uncertainty, 4),
-                "decision_count": int(rating_state["decision_counts"].get(card_name, 0)),
+                "decision_count": decision_count,
                 "pairwise_comparisons": int(rating_state["pairwise_counts"].get(card_name, 0)),
                 "wins": int(rating_state["win_counts"].get(card_name, 0)),
                 "losses": int(rating_state["loss_counts"].get(card_name, 0)),
+                "k_multiplier": round(k_multiplier, 4),
+                "next_k_factor": round(_choice_adaptive_k_factor(k_factor, decision_count), 4),
             }
         )
     leaderboard.sort(key=lambda entry: (-float(entry["elo"]), str(entry["card_name"])))
@@ -7629,6 +8366,10 @@ def _apply_scrap_choice_result(
     information = rating_state["information"]
 
     participant_keys = [winner_key, *[loser_option["option_key"] for loser_option in unique_losers]]
+    prior_decision_counts = {
+        option_key: int(decision_counts.get(option_key, 0))
+        for option_key in participant_keys
+    }
     for option_key in participant_keys:
         decision_counts[option_key] = int(decision_counts.get(option_key, 0)) + 1
 
@@ -7641,9 +8382,11 @@ def _apply_scrap_choice_result(
     for loser_option in unique_losers:
         loser_key = loser_option["option_key"]
         expected_winner = _elo_expected(base_winner_rating, base_ratings[loser_key])
-        delta = float(k_factor) * (1.0 - expected_winner)
-        deltas[winner_key] = deltas.get(winner_key, 0.0) + delta
-        deltas[loser_key] = deltas.get(loser_key, 0.0) - delta
+        score_delta = 1.0 - expected_winner
+        winner_delta = _choice_adaptive_k_factor(k_factor, prior_decision_counts.get(winner_key, 0)) * score_delta
+        loser_delta = _choice_adaptive_k_factor(k_factor, prior_decision_counts.get(loser_key, 0)) * score_delta
+        deltas[winner_key] = deltas.get(winner_key, 0.0) + winner_delta
+        deltas[loser_key] = deltas.get(loser_key, 0.0) - loser_delta
         pairwise_counts[winner_key] = int(pairwise_counts.get(winner_key, 0)) + 1
         pairwise_counts[loser_key] = int(pairwise_counts.get(loser_key, 0)) + 1
         win_counts[winner_key] = int(win_counts.get(winner_key, 0)) + 1
@@ -7658,7 +8401,10 @@ def _apply_scrap_choice_result(
     return len(unique_losers)
 
 
-def _scrap_choice_leaderboard(rating_state: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _scrap_choice_leaderboard(
+    rating_state: Dict[str, Dict[str, Any]],
+    k_factor: float = SCRAP_ELO_K_FACTOR,
+) -> List[Dict[str, Any]]:
     leaderboard: List[Dict[str, Any]] = []
     option_keys = list(rating_state.get("option_order") or [])
     for option_key in rating_state.get("ratings", {}).keys():
@@ -7670,6 +8416,8 @@ def _scrap_choice_leaderboard(rating_state: Dict[str, Dict[str, Any]]) -> List[D
         raw_uncertainty = _card_rating_uncertainty_from_information(
             float(rating_state["information"].get(option_key, 0.0))
         )
+        decision_count = int(rating_state["decision_counts"].get(option_key, 0))
+        k_multiplier = _choice_adaptive_k_multiplier(decision_count)
         leaderboard.append(
             {
                 "option_key": option_key,
@@ -7678,10 +8426,12 @@ def _scrap_choice_leaderboard(rating_state: Dict[str, Dict[str, Any]]) -> List[D
                 "option_label": str(meta.get("option_label") or option_key),
                 "elo": round(raw_rating, 4),
                 "uncertainty": None if raw_uncertainty is None else round(raw_uncertainty, 4),
-                "decision_count": int(rating_state["decision_counts"].get(option_key, 0)),
+                "decision_count": decision_count,
                 "pairwise_comparisons": int(rating_state["pairwise_counts"].get(option_key, 0)),
                 "wins": int(rating_state["win_counts"].get(option_key, 0)),
                 "losses": int(rating_state["loss_counts"].get(option_key, 0)),
+                "k_multiplier": round(k_multiplier, 4),
+                "next_k_factor": round(_choice_adaptive_k_factor(k_factor, decision_count), 4),
             }
         )
     leaderboard.sort(key=lambda entry: (-float(entry["elo"]), str(entry["option_label"])))
@@ -7693,6 +8443,10 @@ def format_card_acquire_elo_test_report(result: Dict[str, Any]) -> str:
     immediate_trade = dict(result.get("immediate_trade") or {})
     future_leaderboard = list(future_trade.get("leaderboard") or [])
     immediate_leaderboard = list(immediate_trade.get("leaderboard") or [])
+    adaptive_k = dict(
+        result.get("adaptive_k")
+        or _choice_adaptive_k_settings(float(result.get("k_factor", CARD_ACQUIRE_ELO_K_FACTOR)))
+    )
     lines = [
         f"Card Acquire Elo Test for {result.get('run_name', '-')}/{result.get('checkpoint', '-')}",
         f"Resolved checkpoint: {result.get('resolved_checkpoint', '-')}",
@@ -7709,7 +8463,8 @@ def format_card_acquire_elo_test_report(result: Dict[str, Any]) -> str:
         f"Future-trade normalization factor: {round(float(future_trade.get('normalization_factor', 1.0)), 6)}",
         f"Immediate-trade Explorer raw Elo: {round(float(immediate_trade.get('explorer_raw_elo', INITIAL_ELO)), 4)}",
         f"Immediate-trade normalization factor: {round(float(immediate_trade.get('normalization_factor', 1.0)), 6)}",
-        "Rating update model: multinomial Elo / Plackett-Luce choice update (per decision, updates sum to zero).",
+        "Rating update model: multinomial Elo / Plackett-Luce choice update with exposure-adaptive K.",
+        _format_choice_adaptive_k_summary(adaptive_k),
         "Uncertainty: approximate 1-sigma Elo standard error from diagonal Fisher information of the same choice model.",
         f"Duration: {_format_seconds(float(result.get('duration_seconds', 0.0)))}",
         "",
@@ -7723,7 +8478,8 @@ def format_card_acquire_elo_test_report(result: Dict[str, Any]) -> str:
             f"Elo {float(entry.get('elo', 0.0)):>8.2f}  "
             f"+/- {uncertainty_text:>8}  "
             f"dec {int(entry.get('decision_count', 0)):>4}  "
-            f"cmp {int(entry.get('pairwise_comparisons', 0)):>5}"
+            f"cmp {int(entry.get('pairwise_comparisons', 0)):>5}  "
+            f"nextK {float(entry.get('next_k_factor', 0.0)):>6.2f}"
         )
     lines.append("")
     lines.append("Immediate-Trade-Only Rankings")
@@ -7735,7 +8491,8 @@ def format_card_acquire_elo_test_report(result: Dict[str, Any]) -> str:
             f"Elo {float(entry.get('elo', 0.0)):>8.2f}  "
             f"+/- {uncertainty_text:>8}  "
             f"dec {int(entry.get('decision_count', 0)):>4}  "
-            f"cmp {int(entry.get('pairwise_comparisons', 0)):>5}"
+            f"cmp {int(entry.get('pairwise_comparisons', 0)):>5}  "
+            f"nextK {float(entry.get('next_k_factor', 0.0)):>6.2f}"
         )
     return "\n".join(lines)
 
@@ -8054,10 +8811,12 @@ def run_card_acquire_elo_test(
                     apply_chunk_result(chunk_result)
 
     future_trade_leaderboard, future_trade_normalization_factor, future_trade_explorer_raw_elo = _normalized_card_choice_leaderboard(
-        future_trade_state
+        future_trade_state,
+        float(k_factor),
     )
     immediate_trade_leaderboard, immediate_trade_normalization_factor, immediate_trade_explorer_raw_elo = _normalized_card_choice_leaderboard(
-        immediate_trade_state
+        immediate_trade_state,
+        float(k_factor),
     )
 
     duration_seconds = time.time() - start_time
@@ -8073,7 +8832,8 @@ def run_card_acquire_elo_test(
         "ended_by_limit_games": ended_by_limit_games,
         "turn_summaries": turn_summaries,
         "eligible_single_acquire_turns": eligible_single_acquire_turns,
-        "rating_model": "multinomial_elo_plackett_luce",
+        "rating_model": "multinomial_elo_plackett_luce_adaptive_k",
+        "adaptive_k": _choice_adaptive_k_settings(float(k_factor)),
         "future_trade": {
             "scored_decisions": future_trade_scored_decisions,
             "pairwise_comparisons": future_trade_pairwise_comparisons,
@@ -8114,6 +8874,10 @@ def run_card_acquire_elo_test(
 
 def format_scrap_elo_test_report(result: Dict[str, Any]) -> str:
     leaderboard = list(result.get("leaderboard") or [])
+    adaptive_k = dict(
+        result.get("adaptive_k")
+        or _choice_adaptive_k_settings(float(result.get("k_factor", SCRAP_ELO_K_FACTOR)))
+    )
     lines = [
         f"Scrap Elo Test for {result.get('run_name', '-')}/{result.get('checkpoint', '-')}",
         f"Resolved checkpoint: {result.get('resolved_checkpoint', '-')}",
@@ -8124,7 +8888,9 @@ def format_scrap_elo_test_report(result: Dict[str, Any]) -> str:
         f"Eligible scrapany decisions: {result.get('eligible_scrapany_decisions', 0)}",
         f"Scored decisions: {result.get('scored_decisions', 0)}",
         f"Pairwise comparisons: {result.get('pairwise_comparisons', 0)}",
-        "Rating update model: pairwise Elo; the selected option wins one match against each unselected unique option.",
+        "Rating update model: pairwise Elo with exposure-adaptive K.",
+        _format_choice_adaptive_k_summary(adaptive_k),
+        "The selected option wins one match against each unselected unique option.",
         "Options are unique by source plus exact card title; noscrap is its own option.",
         "Higher Elo means the policy is more likely to choose that option when resolving scrapany.",
         "Uncertainty: approximate 1-sigma Elo standard error from diagonal Fisher information of the same pairwise model.",
@@ -8140,7 +8906,8 @@ def format_scrap_elo_test_report(result: Dict[str, Any]) -> str:
             f"Elo {float(entry.get('elo', 0.0)):>8.2f}  "
             f"+/- {uncertainty_text:>8}  "
             f"dec {int(entry.get('decision_count', 0)):>4}  "
-            f"cmp {int(entry.get('pairwise_comparisons', 0)):>5}"
+            f"cmp {int(entry.get('pairwise_comparisons', 0)):>5}  "
+            f"nextK {float(entry.get('next_k_factor', 0.0)):>6.2f}"
         )
     return "\n".join(lines)
 
@@ -8383,7 +9150,7 @@ def run_scrap_elo_test(
                     games_completed = max(games_completed, min(int(games), completed_from_results))
                     apply_chunk_result(chunk_result)
 
-    leaderboard = _scrap_choice_leaderboard(rating_state)
+    leaderboard = _scrap_choice_leaderboard(rating_state, float(k_factor))
     duration_seconds = time.time() - start_time
     result: Dict[str, Any] = {
         "run_name": run_name,
@@ -8399,7 +9166,8 @@ def run_scrap_elo_test(
         "eligible_scrapany_decisions": eligible_scrapany_decisions,
         "scored_decisions": scored_decisions,
         "pairwise_comparisons": pairwise_comparisons,
-        "rating_model": "pairwise_elo",
+        "rating_model": "pairwise_elo_adaptive_k",
+        "adaptive_k": _choice_adaptive_k_settings(float(k_factor)),
         "leaderboard": leaderboard,
         "duration_seconds": duration_seconds,
     }

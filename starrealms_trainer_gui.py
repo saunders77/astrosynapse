@@ -1263,6 +1263,7 @@ class TrainerGUI(tk.Tk):
         labels = {
             "training": "Training",
             "processing": "Processing Samples",
+            "learning": "Learning",
             "optimizing": "Policy Update",
             "promotion": "Promotion",
             "complete": "Complete",
@@ -2056,6 +2057,7 @@ class TrainerGUI(tk.Tk):
         live_progress = summary.get("live_progress") or state.get("live_progress") or {}
         if live_progress.get("kind") == "training_iteration":
             stage = self._stage_label(str(live_progress.get("stage", "idle")))
+            stage_key = str(live_progress.get("stage", "")).strip().lower()
             iteration_number = int(live_progress.get("iteration_number", int(summary.get("iteration", 0)) + 1))
             training_completed = max(0, int(live_progress.get("training_games_completed", 0)))
             promotion_completed = max(0, int(live_progress.get("promotion_games_completed", 0)))
@@ -2083,6 +2085,21 @@ class TrainerGUI(tk.Tk):
                 promotion_games,
                 complete=promotion_complete,
             )
+            if stage_key == "processing":
+                training_value = self._progress_value(
+                    matches_completed,
+                    training_matches,
+                    complete=matches_completed >= training_matches,
+                )
+            elif stage_key == "learning":
+                sample_passes_done = max(0, int(live_progress.get("samples_completed", 0) or 0))
+                sample_passes_total = max(0, int(live_progress.get("samples_total", 0) or 0))
+                if sample_passes_total > 0:
+                    training_value = self._progress_value(
+                        sample_passes_done,
+                        sample_passes_total,
+                        complete=sample_passes_done >= sample_passes_total,
+                    )
             visual_training_completed = training_total * training_value / 100.0
             visual_promotion_completed = promotion_games * promotion_value / 100.0
             visual_iteration_completed = max(
@@ -2094,15 +2111,36 @@ class TrainerGUI(tk.Tk):
                 if bool(live_progress.get("iteration_complete"))
                 else max(0.0, min(100.0, (100.0 * visual_iteration_completed) / float(iteration_total)))
             )
+            sample_detail = ""
+            if stage_key == "processing":
+                samples_ready = max(0, int(live_progress.get("samples_total", 0) or 0))
+                sample_files = max(0, int(live_progress.get("sample_files_total", 0) or 0))
+                if samples_ready > 0:
+                    sample_detail = f" | {samples_ready} samples prepared"
+                    if sample_files > 0:
+                        sample_detail += f" in {sample_files} files"
+            elif stage_key == "learning":
+                sample_passes_done = max(0, int(live_progress.get("samples_completed", 0) or 0))
+                sample_passes_total = max(0, int(live_progress.get("samples_total", 0) or 0))
+                unique_samples = max(0, int(live_progress.get("unique_samples_total", 0) or 0))
+                epoch = max(0, int(live_progress.get("learning_epoch", 0) or 0))
+                epochs = max(0, int(live_progress.get("learning_epochs", 0) or 0))
+                if sample_passes_total > 0:
+                    sample_detail = f" | {sample_passes_done} / {sample_passes_total} sample passes"
+                    if unique_samples > 0:
+                        sample_detail += f" ({unique_samples} unique)"
+                if epoch > 0 and epochs > 0:
+                    sample_detail += f" | epoch {epoch} / {epochs}"
             self.summary_progress_text_vars["iteration"].set(
                 f"Iteration {iteration_number}: {iteration_completed} / {iteration_total} training units | {stage}"
             )
             self.summary_progress_value_vars["training"].set(training_value)
             self.summary_progress_text_vars["training"].set(
                 f"{training_completed} / {training_total} games | {matches_completed} / {training_matches} matches"
+                + sample_detail
                 + (
                     " | starting workers"
-                    if str(live_progress.get("stage", "")).strip().lower() == "training"
+                    if stage_key == "training"
                     and training_completed == 0
                     and not training_complete
                     and training_value > 0.0
@@ -2115,7 +2153,7 @@ class TrainerGUI(tk.Tk):
                 f"{promotion_completed} / {promotion_games} games"
                 + (
                     " | starting workers"
-                    if str(live_progress.get("stage", "")).strip().lower() == "promotion"
+                    if stage_key == "promotion"
                     and promotion_completed == 0
                     and not promotion_complete
                     and promotion_value > 0.0
@@ -2275,6 +2313,12 @@ class TrainerGUI(tk.Tk):
             "Last Update",
             f"- Samples: {last_update.get('samples', '-')}",
             f"- Fresh samples: {last_update.get('fresh_samples', '-')}",
+            f"- Samples collected: {last_update.get('samples_collected', '-')}",
+            f"- Sample decisions seen: {last_update.get('sample_candidates', '-')}",
+            f"- Sample files: {last_update.get('sample_files', '-')}",
+            f"- Sample storage: {last_update.get('sample_storage', '-')}",
+            f"- Direct worker sample files: {last_update.get('direct_worker_sample_files', '-')}",
+            f"- Collection limit per game: {last_update.get('collection_limit_per_game', '-')}",
             f"- Policy loss: {last_update.get('policy_loss', '-')}",
             f"- Value loss: {last_update.get('value_loss', '-')}",
             f"- Clip fraction: {last_update.get('clip_fraction', '-')}",
