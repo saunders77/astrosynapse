@@ -65,6 +65,7 @@ REPLAY_MEMORY_VERSION = 1
 DEFAULT_REPLAY_TRAINING_PERCENT = 0.0
 CARD_ACQUIRE_ELO_TEST_GAMES = 500
 CARD_ACQUIRE_ELO_K_FACTOR = 24.0
+CARD_ACQUIRE_ELO_NORMALIZED_EXPLORER_ELO = 2.0
 SCRAP_ELO_TEST_GAMES = 1000
 SCRAP_ELO_K_FACTOR = 24.0
 CHOICE_ELO_ADAPTIVE_K_REFERENCE_DECISIONS = 16.0
@@ -8169,7 +8170,7 @@ def _normalized_card_choice_leaderboard(
     if abs(explorer_rating) <= 1e-9:
         normalization_factor = 1.0
     else:
-        normalization_factor = explorer_rating / 200.0
+        normalization_factor = explorer_rating / CARD_ACQUIRE_ELO_NORMALIZED_EXPLORER_ELO
     leaderboard: List[Dict[str, Any]] = []
     for card_name in CARD_NAME_ORDER:
         raw_rating = float(ratings.get(card_name, INITIAL_ELO))
@@ -8463,6 +8464,7 @@ def format_card_acquire_elo_test_report(result: Dict[str, Any]) -> str:
         f"Future-trade normalization factor: {round(float(future_trade.get('normalization_factor', 1.0)), 6)}",
         f"Immediate-trade Explorer raw Elo: {round(float(immediate_trade.get('explorer_raw_elo', INITIAL_ELO)), 4)}",
         f"Immediate-trade normalization factor: {round(float(immediate_trade.get('normalization_factor', 1.0)), 6)}",
+        f"Normalized Explorer Elo target: {CARD_ACQUIRE_ELO_NORMALIZED_EXPLORER_ELO:.2f}",
         "Rating update model: multinomial Elo / Plackett-Luce choice update with exposure-adaptive K.",
         _format_choice_adaptive_k_summary(adaptive_k),
         "Uncertainty: approximate 1-sigma Elo standard error from diagonal Fisher information of the same choice model.",
@@ -8837,6 +8839,7 @@ def run_card_acquire_elo_test(
         "future_trade": {
             "scored_decisions": future_trade_scored_decisions,
             "pairwise_comparisons": future_trade_pairwise_comparisons,
+            "normalized_explorer_elo": CARD_ACQUIRE_ELO_NORMALIZED_EXPLORER_ELO,
             "normalization_factor": future_trade_normalization_factor,
             "explorer_raw_elo": future_trade_explorer_raw_elo,
             "leaderboard": future_trade_leaderboard,
@@ -8844,6 +8847,7 @@ def run_card_acquire_elo_test(
         "immediate_trade": {
             "scored_decisions": immediate_trade_scored_decisions,
             "pairwise_comparisons": immediate_trade_pairwise_comparisons,
+            "normalized_explorer_elo": CARD_ACQUIRE_ELO_NORMALIZED_EXPLORER_ELO,
             "normalization_factor": immediate_trade_normalization_factor,
             "explorer_raw_elo": immediate_trade_explorer_raw_elo,
             "leaderboard": immediate_trade_leaderboard,
@@ -8851,6 +8855,7 @@ def run_card_acquire_elo_test(
         "scored_decisions": future_trade_scored_decisions,
         "pairwise_comparisons": future_trade_pairwise_comparisons,
         "normalization_factor": future_trade_normalization_factor,
+        "normalized_explorer_elo": CARD_ACQUIRE_ELO_NORMALIZED_EXPLORER_ELO,
         "explorer_raw_elo": future_trade_explorer_raw_elo,
         "leaderboard": future_trade_leaderboard,
         "duration_seconds": duration_seconds,
