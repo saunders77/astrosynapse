@@ -1,0 +1,468 @@
+"""Thread-safe local persistence for runs, metrics, models, and audit events."""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import time
+import uuid
+from collections.abc import Iterable
+from pathlib import Path
+from typing import Any
+
+from .config import RunConfig
+
+SCHEMA_VERSION = 1
+
+
+class Store:
+    def __init__(self, path: str | Path):
+        self.path = Path(path).expanduser().resolve()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._initialize()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path, timeout=30.0)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=NORMAL")
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA busy_timeout=30000")
+        return connection
+
+    def _initialize(self) -> None:
+        with self._connect() as db:
+            db.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS runs (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    phase TEXT NOT NULL,
+                    config_json TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    started_at REAL,
+                    stopped_at REAL,
+                    games INTEGER NOT NULL DEFAULT 0,
+                    decisions INTEGER NOT NULL DEFAULT 0,
+                    updates INTEGER NOT NULL DEFAULT 0,
+                    champion_id TEXT,
+                    last_error TEXT
+                );
+                CREATE TABLE IF NOT EXISTS metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                    seq INTEGER NOT NULL,
+                    created_at REAL NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    UNIQUE(run_id, seq)
+                );
+                CREATE INDEX IF NOT EXISTS idx_metrics_run_seq ON metrics(run_id, seq);
+                CREATE TABLE IF NOT EXISTS checkpoints (
+                    id TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                    parent_id TEXT,
+                    label TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    actor_path TEXT,
+                    games INTEGER NOT NULL,
+                    created_at REAL NOT NULL,
+                    is_champion INTEGER NOT NULL DEFAULT 0,
+                    is_pinned INTEGER NOT NULL DEFAULT 0,
+                    eval_json TEXT NOT NULL DEFAULT '{}'
+                );
+                CREATE INDEX IF NOT EXISTS idx_checkpoints_run_games ON checkpoints(run_id, games);
+                CREATE TABLE IF NOT EXISTS arena_jobs (
+                    id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    model_a TEXT NOT NULL,
+                    model_b TEXT NOT NULL,
+                    config_json TEXT NOT NULL,
+                    result_json TEXT NOT NULL DEFAULT '{}',
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    error TEXT
+                );
+                CREATE TABLE IF NOT EXISTS audit_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT,
+                    created_at REAL NOT NULL,
+                    kind TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    payload_json TEXT NOT NULL DEFAULT '{}'
+                );
+                CREATE INDEX IF NOT EXISTS idx_audit_run_time ON audit_events(run_id, created_at DESC);
+                """
+            )
+            db.execute(
+                "INSERT OR REPLACE INTO metadata(key, value) VALUES('schema_version', ?)",
+                (str(SCHEMA_VERSION),),
+            )
+
+    def create_run(self, config: RunConfig) -> dict[str, Any]:
+        run_id = uuid.uuid4().hex[:12]
+        now = time.time()
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO runs(
+                    id, name, status, phase, config_json, created_at, updated_at
+                ) VALUES(?, ?, 'ready', 'ready', ?, ?, ?)""",
+                (run_id, config.name, config.model_dump_json(), now, now),
+            )
+        self.event(run_id, "run_created", f"Created {config.name}", config.model_dump())
+        return self.get_run(run_id)
+
+    def get_run(self, run_id: str) -> dict[str, Any]:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+        if row is None:
+            raise KeyError(run_id)
+        return self._decode_run(row)
+
+    def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM runs ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [self._decode_run(row) for row in rows]
+
+    @staticmethod
+    def _decode_run(row: sqlite3.Row) -> dict[str, Any]:
+        item = dict(row)
+        item["config"] = json.loads(item.pop("config_json"))
+        return item
+
+    def update_run(self, run_id: str, **fields: Any) -> dict[str, Any]:
+        allowed = {
+            "name",
+            "status",
+            "phase",
+            "config_json",
+            "started_at",
+            "stopped_at",
+            "games",
+            "decisions",
+            "updates",
+            "champion_id",
+            "last_error",
+        }
+        invalid = set(fields) - allowed
+        if invalid:
+            raise ValueError(f"unsupported run fields: {sorted(invalid)}")
+        if not fields:
+            return self.get_run(run_id)
+        fields["updated_at"] = time.time()
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        values = list(fields.values()) + [run_id]
+        with self._connect() as db:
+            cursor = db.execute(f"UPDATE runs SET {assignments} WHERE id = ?", values)
+            if cursor.rowcount != 1:
+                raise KeyError(run_id)
+        return self.get_run(run_id)
+
+    def append_metric(self, run_id: str, seq: int, payload: dict[str, Any]) -> None:
+        with self._connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO metrics(run_id, seq, created_at, payload_json) VALUES(?, ?, ?, ?)",
+                (run_id, seq, time.time(), json.dumps(payload, separators=(",", ":"))),
+            )
+
+    def metrics(self, run_id: str, after: int = -1, limit: int = 2_000) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            if after < 0:
+                rows = db.execute(
+                    """SELECT seq, created_at, payload_json FROM metrics
+                       WHERE run_id = ? ORDER BY seq DESC LIMIT ?""",
+                    (run_id, limit),
+                ).fetchall()[::-1]
+            else:
+                rows = db.execute(
+                    """SELECT seq, created_at, payload_json FROM metrics
+                       WHERE run_id = ? AND seq > ? ORDER BY seq LIMIT ?""",
+                    (run_id, after, limit),
+                ).fetchall()
+        return [
+            {"seq": row["seq"], "created_at": row["created_at"], **json.loads(row["payload_json"])}
+            for row in rows
+        ]
+
+    def add_checkpoint(
+        self,
+        *,
+        run_id: str,
+        label: str,
+        path: str,
+        actor_path: str | None,
+        games: int,
+        parent_id: str | None = None,
+        champion: bool = False,
+        evaluation: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        checkpoint_id = uuid.uuid4().hex[:16]
+        with self._connect() as db:
+            if champion:
+                db.execute("UPDATE checkpoints SET is_champion = 0 WHERE run_id = ?", (run_id,))
+            db.execute(
+                """INSERT INTO checkpoints(
+                    id, run_id, parent_id, label, path, actor_path, games, created_at,
+                    is_champion, eval_json
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    checkpoint_id,
+                    run_id,
+                    parent_id,
+                    label,
+                    path,
+                    actor_path,
+                    games,
+                    time.time(),
+                    int(champion),
+                    json.dumps(evaluation or {}, separators=(",", ":")),
+                ),
+            )
+            if champion:
+                db.execute(
+                    "UPDATE runs SET champion_id = ?, updated_at = ? WHERE id = ?",
+                    (checkpoint_id, time.time(), run_id),
+                )
+        return self.checkpoint(checkpoint_id)
+
+    def checkpoint(self, checkpoint_id: str) -> dict[str, Any]:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM checkpoints WHERE id = ?", (checkpoint_id,)).fetchone()
+        if row is None:
+            raise KeyError(checkpoint_id)
+        item = dict(row)
+        item["evaluation"] = json.loads(item.pop("eval_json"))
+        item["is_champion"] = bool(item["is_champion"])
+        item["is_pinned"] = bool(item["is_pinned"])
+        return item
+
+    def checkpoints(self, run_id: str | None = None) -> list[dict[str, Any]]:
+        query = "SELECT * FROM checkpoints"
+        args: tuple[Any, ...] = ()
+        if run_id:
+            query += " WHERE run_id = ?"
+            args = (run_id,)
+        query += " ORDER BY created_at DESC"
+        with self._connect() as db:
+            rows = db.execute(query, args).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["evaluation"] = json.loads(item.pop("eval_json"))
+            item["is_champion"] = bool(item["is_champion"])
+            item["is_pinned"] = bool(item["is_pinned"])
+            result.append(item)
+        return result
+
+    def update_checkpoint_evaluation(
+        self,
+        checkpoint_id: str,
+        evaluation: dict[str, Any],
+        *,
+        merge: bool = True,
+    ) -> dict[str, Any]:
+        """Persist evaluation metadata without changing champion state."""
+
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT eval_json FROM checkpoints WHERE id = ?", (checkpoint_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(checkpoint_id)
+            value = json.loads(row["eval_json"]) if merge else {}
+            value.update(evaluation)
+            db.execute(
+                "UPDATE checkpoints SET eval_json = ? WHERE id = ?",
+                (json.dumps(value, separators=(",", ":")), checkpoint_id),
+            )
+        return self.checkpoint(checkpoint_id)
+
+    def finalize_checkpoint_arena(
+        self,
+        checkpoint_id: str,
+        arena_evaluation: dict[str, Any],
+        *,
+        promote: bool = False,
+    ) -> dict[str, Any]:
+        """Atomically record an arena result and, if authorized, promote it.
+
+        When ``promote`` is true, the candidate flag, every sibling champion
+        flag, and ``runs.champion_id`` change in one SQLite transaction.
+        Eligibility is deliberately checked by the arena layer before this
+        low-level transaction helper is called.
+        """
+
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT run_id, eval_json FROM checkpoints WHERE id = ?",
+                (checkpoint_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(checkpoint_id)
+            evaluation = json.loads(row["eval_json"])
+            history = list(evaluation.get("arena_history", []))
+            history.append(arena_evaluation)
+            evaluation["arena_history"] = history[-20:]
+            evaluation["latest_arena"] = arena_evaluation
+            db.execute(
+                "UPDATE checkpoints SET eval_json = ? WHERE id = ?",
+                (json.dumps(evaluation, separators=(",", ":")), checkpoint_id),
+            )
+            if promote:
+                run_id = row["run_id"]
+                db.execute("UPDATE checkpoints SET is_champion = 0 WHERE run_id = ?", (run_id,))
+                db.execute(
+                    "UPDATE checkpoints SET is_champion = 1 WHERE id = ?", (checkpoint_id,)
+                )
+                cursor = db.execute(
+                    "UPDATE runs SET champion_id = ?, updated_at = ? WHERE id = ?",
+                    (checkpoint_id, time.time(), run_id),
+                )
+                if cursor.rowcount != 1:
+                    raise KeyError(run_id)
+        return self.checkpoint(checkpoint_id)
+
+    def set_checkpoint_pinned(self, checkpoint_id: str, pinned: bool) -> dict[str, Any]:
+        with self._connect() as db:
+            cursor = db.execute(
+                "UPDATE checkpoints SET is_pinned = ? WHERE id = ?",
+                (int(pinned), checkpoint_id),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(checkpoint_id)
+        return self.checkpoint(checkpoint_id)
+
+    def create_arena_job(
+        self,
+        *,
+        model_a: str,
+        model_b: str,
+        config: dict[str, Any],
+        result: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Persist a queued bounded arena comparison."""
+
+        job_id = uuid.uuid4().hex[:16]
+        now = time.time()
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO arena_jobs(
+                    id, status, model_a, model_b, config_json, result_json,
+                    created_at, updated_at
+                ) VALUES(?, 'queued', ?, ?, ?, ?, ?, ?)""",
+                (
+                    job_id,
+                    model_a,
+                    model_b,
+                    json.dumps(config, separators=(",", ":")),
+                    json.dumps(result or {}, separators=(",", ":")),
+                    now,
+                    now,
+                ),
+            )
+        return self.arena_job(job_id)
+
+    def arena_job(self, job_id: str, *, include_internal: bool = False) -> dict[str, Any]:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM arena_jobs WHERE id = ?", (job_id,)).fetchone()
+        if row is None:
+            raise KeyError(job_id)
+        return self._decode_arena_job(row, include_internal=include_internal)
+
+    def arena_jobs(
+        self, *, limit: int = 50, include_internal: bool = False
+    ) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM arena_jobs ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [self._decode_arena_job(row, include_internal=include_internal) for row in rows]
+
+    @staticmethod
+    def _decode_arena_job(row: sqlite3.Row, *, include_internal: bool = False) -> dict[str, Any]:
+        item = dict(row)
+        item["config"] = json.loads(item.pop("config_json"))
+        result = json.loads(item.pop("result_json"))
+        if not include_internal:
+            result = {key: value for key, value in result.items() if not key.startswith("_")}
+        item["result"] = result
+        return item
+
+    def update_arena_job(
+        self,
+        job_id: str,
+        *,
+        status: str | None = None,
+        result: dict[str, Any] | None = None,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        allowed_statuses = {"queued", "running", "complete", "failed", "cancelled"}
+        if status is not None and status not in allowed_statuses:
+            raise ValueError(f"unsupported arena status: {status}")
+        fields: dict[str, Any] = {"updated_at": time.time()}
+        if status is not None:
+            fields["status"] = status
+        if result is not None:
+            fields["result_json"] = json.dumps(result, separators=(",", ":"))
+        if error is not None or status in {"running", "complete"}:
+            fields["error"] = error
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        values = [*fields.values(), job_id]
+        with self._connect() as db:
+            cursor = db.execute(f"UPDATE arena_jobs SET {assignments} WHERE id = ?", values)
+            if cursor.rowcount != 1:
+                raise KeyError(job_id)
+        return self.arena_job(job_id)
+
+    # Verbose aliases make connector/API code self-documenting while preserving
+    # the concise query names used elsewhere in Store.
+    get_arena_job = arena_job
+    list_arena_jobs = arena_jobs
+
+    def delete_arena_job(self, job_id: str) -> None:
+        with self._connect() as db:
+            cursor = db.execute("DELETE FROM arena_jobs WHERE id = ?", (job_id,))
+            if cursor.rowcount != 1:
+                raise KeyError(job_id)
+
+    def event(
+        self,
+        run_id: str | None,
+        kind: str,
+        message: str,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        with self._connect() as db:
+            db.execute(
+                "INSERT INTO audit_events(run_id, created_at, kind, message, payload_json) VALUES(?, ?, ?, ?, ?)",
+                (
+                    run_id,
+                    time.time(),
+                    kind,
+                    message,
+                    json.dumps(payload or {}, separators=(",", ":")),
+                ),
+            )
+
+    def events(self, run_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+        if run_id:
+            query = "SELECT * FROM audit_events WHERE run_id = ? ORDER BY id DESC LIMIT ?"
+            args: Iterable[Any] = (run_id, limit)
+        else:
+            query = "SELECT * FROM audit_events ORDER BY id DESC LIMIT ?"
+            args = (limit,)
+        with self._connect() as db:
+            rows = db.execute(query, tuple(args)).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["payload"] = json.loads(item.pop("payload_json"))
+            result.append(item)
+        return result

@@ -1,0 +1,35 @@
+{
+  "name": "astrosynapse2-control-center",
+  "version": "0.1.0",
+  "description": "Local-first training, evaluation, and play dashboard for Astrosynapse 2",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "vinext dev --hostname 127.0.0.1",
+    "build": "vinext build",
+    "start": "vinext start --hostname 127.0.0.1",
+    "test": "npm run build && node --test tests/rendered-html.test.mjs",
+    "lint": "eslint app tests --ignore-pattern dist --ignore-pattern .next"
+  },
+  "dependencies": {
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "react-server-dom-webpack": "19.2.6",
+    "typescript": "5.9.3",
+    "vinext": "0.0.50",
+    "vite": "8.0.13"
+  },
+  "type": "module"
+}
