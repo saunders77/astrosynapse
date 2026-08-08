@@ -195,6 +195,7 @@ class GameSession:
                 "human_player": self.human_player,
                 "observation": observation.to_dict(),
                 "board": self.game.state_dict(include_hidden=False),
+                "card_zones": self.game.unordered_card_zones(self.human_player),
                 "decision": (
                     {
                         "family": pending.family.value,

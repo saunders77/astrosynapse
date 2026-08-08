@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
   type FormEvent,
+  type ReactNode,
 } from "react";
 
 /**
@@ -43,6 +44,78 @@ import {
 
 const API_BASE = "http://127.0.0.1:8765/api";
 const POLL_INTERVAL_MS = 1_000;
+
+const jargon = {
+  seed: "A number used to control randomness. Reusing it recreates the same shuffled cards and game conditions, which makes tests fair and repeatable.",
+  pairedSeeds: "Each seed is played twice with the models swapping seats. This helps separate model skill from luck and first-player advantage.",
+  champion: "The current best approved model. A newer checkpoint becomes champion only after it proves stronger in a sufficiently large evaluation.",
+  heldOutStrength: "Win rate in evaluation games that are kept separate from training. It is a better test of real improvement than performance on games the model learned from.",
+  confidenceInterval: "A range around the measured score that shows statistical uncertainty. More evaluation games usually make this range narrower.",
+  checkpoint: "A saved copy of the neural network at a particular moment in training. You can evaluate, compare, download, or resume from it.",
+  selfPlay: "Games where the training model plays against itself or other saved versions, creating examples it can learn from.",
+  replayBuffer: "Stored game decisions used as training examples. The percentage shows how much of this memory is currently filled.",
+  outcomeBce: "Outcome Binary Cross-Entropy: how wrong the model's predicted chance of winning was compared with the final win or loss. Lower is better when comparing similar data; about 0.693 is coin-flip performance.",
+  brierScore: "The average squared error of predicted win probabilities. Lower is better; 0 is perfect, and 0.25 corresponds to always predicting a 50% chance for win/loss games.",
+  explainedVariance: "How much of the variation in game results the model's predictions account for. 1 is ideal, 0 means no useful explanation, and negative values mean it is doing worse than a simple average prediction.",
+  bootstrapUncertainty: "How much the model's independently trained prediction heads disagree. More disagreement suggests the model is less certain about unfamiliar or ambiguous positions.",
+  curriculum: "The current stage of the training plan. Early stages use helpful opponents or examples before shifting toward ordinary self-play.",
+  safetyTruncations: "Games stopped by a turn or action safety limit instead of ending normally. They receive a neutral learning result; lower is generally better.",
+  draws: "Games recorded without a winner. They contribute a neutral 50% outcome to learning and evaluation.",
+  meanTurns: "The average number of turns in completed games. A sudden change can reveal a shift in play style or a game-engine problem.",
+  forcedChoices: "One-option decisions omitted from training because there was nothing meaningful for the model to choose.",
+  uncertainty: "Disagreement among the model's multiple win-prediction heads. Higher values usually mean it is less sure about the position.",
+  actions: "The moves the game rules currently allow. During training, the model scores these choices and selects one; forced one-option choices are skipped.",
+  modelActions: "Controls for this saved model: the diamond pins it so cleanup will keep it, and the down arrow downloads its lightweight game-playing file.",
+  actionValue: "The model's estimated chance that the player making this choice will eventually win. It is a prediction, not a guaranteed result.",
+  outcomeLearning: "Training the model to predict the final win, loss, or draw from each decision it made during a game.",
+  lineage: "The family tree of saved models. A parent is the checkpoint a newer model continued training from.",
+  elo: "A familiar rating-style conversion of the measured head-to-head score. Here it is only a comparison between these models, not a universal rating.",
+  actors: "Separate CPU worker processes that play simulated games and send the resulting decisions to the learner.",
+  learner: "The part of the system that updates the neural network from stored game examples.",
+  hiddenSize: "The width of the neural network's internal representation. Larger values can learn more complex patterns but use more memory and computation.",
+  residualBlocks: "Repeated neural-network layers with shortcut connections that help deeper models train reliably. More blocks increase capacity and cost.",
+  bootstrapHeads: "Several separate win predictors sharing one network. Their disagreement provides an estimate of uncertainty and encourages varied play.",
+  batchSize: "How many stored decisions the learner processes together for one network update. Larger batches use more memory but give smoother updates.",
+  learningRate: "How large each adjustment to the network is. Too high can make learning unstable; too low can make it very slow.",
+  replayCapacity: "The maximum number of past decisions kept as training examples. Old examples are replaced when it fills.",
+  replayWarmup: "How many examples must be collected before neural-network updates begin, preventing learning from a tiny, unrepresentative sample.",
+  epsilon: "The probability of deliberately trying a random legal move instead of the model's favorite, so training explores alternatives.",
+  bootstrapUpdates: "Early learner updates based on games from hand-written starter opponents. They give a new random network useful examples before self-play takes over.",
+  league: "A collection of older saved models used as opponents, helping the current model avoid forgetting how to beat earlier strategies.",
+  baseline: "A fixed hand-written opponent used as a stable reference and to provide useful early training games.",
+  promotionConfidence: "How certain the evaluation must be before a challenger may become champion. Higher confidence requires stronger or more plentiful evidence.",
+  promotionMargin: "The extra win-rate advantage above 50% a challenger must prove before it can become champion.",
+  evaluationPairs: "The number of paired seeds used for comparison. Every pair plays two games with seats swapped, so 5,000 pairs means 10,000 games.",
+  stratifiedReplay: "Stored examples are separated by type of decision so common moves do not crowd out rare but important choices.",
+  decisionFamilies: "Groups of choices with the same meaning, such as buying, discarding, or scrapping. The model learns each group from its own balanced supply of examples.",
+  outcomeEstimate: "The model's predicted chance that the player making the decision will ultimately win the game.",
+} as const;
+
+type JargonKey = keyof typeof jargon;
+
+function Jargon({
+  term,
+  children,
+  side = "top",
+  align = "center",
+}: {
+  term: JargonKey;
+  children: ReactNode;
+  side?: "top" | "bottom";
+  align?: "center" | "right";
+}) {
+  const explanation = jargon[term];
+  return (
+    <span
+      className={`jargon-help tooltip-${side} tooltip-${align}`}
+      tabIndex={0}
+      data-tooltip={explanation}
+      aria-label={`${typeof children === "string" ? children : term}: ${explanation}`}
+    >
+      {children}
+    </span>
+  );
+}
 
 type TabId = "overview" | "train" | "models" | "play" | "diagnostics";
 type RunStatus =
@@ -213,6 +286,9 @@ type GameState = {
   opponentDeckCount: number;
   explorersRemaining: number;
   hand: GameCard[];
+  ownDeck: GameCard[];
+  opponentHand: GameCard[];
+  opponentDeck: GameCard[];
   market: GameCard[];
   humanBases: GameCard[];
   opponentBases: GameCard[];
@@ -630,6 +706,9 @@ const initialGame: GameState = {
   opponentDeckCount: 8,
   explorersRemaining: 10,
   hand: [demoCards.scoutA, demoCards.federation, demoCards.viper, demoCards.tradePod, demoCards.scoutB],
+  ownDeck: [demoCards.scoutA, demoCards.scoutB, demoCards.viper, demoCards.federation],
+  opponentHand: [demoCards.scoutA, demoCards.viper, demoCards.imperial, demoCards.cutter, demoCards.scoutB],
+  opponentDeck: [demoCards.scoutA, demoCards.scoutB, demoCards.viper, demoCards.tradePod, demoCards.missileBot, demoCards.battlePod, demoCards.cutter, demoCards.federation],
   market: [demoCards.battlePod, demoCards.missileBot, demoCards.imperial, demoCards.cutter, demoCards.tradingPost],
   humanBases: [demoCards.tradingPost],
   opponentBases: [demoCards.warWorld],
@@ -1065,6 +1144,9 @@ function normalizeRemoteGame(raw: unknown, previous: GameState): {
   const rawActions = Array.isArray(decision.actions) ? decision.actions : [];
   const rawLog = Array.isArray(raw.action_log) ? raw.action_log : [];
   const result = isRecord(raw.result) ? raw.result : {};
+  const cardZones = isRecord(raw.card_zones) ? raw.card_zones : {};
+  const ownZones = isRecord(cardZones.own) ? cardZones.own : {};
+  const opponentZones = isRecord(cardZones.opponent) ? cardZones.opponent : {};
   const hand = Array.isArray(observation.hand)
     ? observation.hand.map((card, index) => cardFromApi(card, `hand-${index}`))
     : previous.hand;
@@ -1115,6 +1197,15 @@ function normalizeRemoteGame(raw: unknown, previous: GameState): {
       opponentDeckCount: asNumber(observation.opponent_deck_count ?? opponent.deck_count, previous.opponentDeckCount),
       explorersRemaining: asNumber(observation.explorers_remaining ?? board.explorers_remaining, previous.explorersRemaining),
       hand,
+      ownDeck: Array.isArray(ownZones.deck)
+        ? ownZones.deck.map((card, index) => cardFromApi(card, `own-deck-${index}`))
+        : previous.ownDeck,
+      opponentHand: Array.isArray(opponentZones.hand)
+        ? opponentZones.hand.map((card, index) => cardFromApi(card, `opponent-hand-${index}`))
+        : previous.opponentHand,
+      opponentDeck: Array.isArray(opponentZones.deck)
+        ? opponentZones.deck.map((card, index) => cardFromApi(card, `opponent-deck-${index}`))
+        : previous.opponentDeck,
       market,
       humanBases: ownInPlay
         .map((entry, index) => cardFromApi(isRecord(entry) ? entry.card : entry, `own-base-${index}`))
@@ -1422,6 +1513,57 @@ function CardTile({
   return <div className={className}>{content}</div>;
 }
 
+function CardCollection({ label, cards }: { label: string; cards: GameCard[] }) {
+  const groups = Array.from(
+    cards.reduce((items, card) => {
+      const current = items.get(card.name);
+      items.set(card.name, current ? { card, count: current.count + 1 } : { card, count: 1 });
+      return items;
+    }, new Map<string, { card: GameCard; count: number }>()),
+  ).map(([, value]) => value);
+
+  return (
+    <section className="card-collection" aria-label={`${label}, unordered`}>
+      <header><strong>{label}</strong><span>{cards.length} cards · unordered</span></header>
+      <div>
+        {groups.map(({ card, count }) => (
+          <span className={`card-chip faction-${card.faction}`} key={card.name}>
+            <b>{count}×</b><span>{card.name}</span><small>{card.kind} · cost {card.cost}</small>
+          </span>
+        ))}
+        {!cards.length ? <span className="empty-card-zone">No cards</span> : null}
+      </div>
+    </section>
+  );
+}
+
+function CardInventory({ game, onClose }: { game: GameState; onClose: () => void }) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  return (
+    <div className="inventory-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section className="card-inventory" role="dialog" aria-modal="true" aria-labelledby="inventory-title">
+        <header>
+          <div><span className="panel-kicker">Card visibility</span><h2 id="inventory-title">Hands & decks</h2><p>Cards are grouped by name. Deck order is intentionally not shown.</p></div>
+          <button type="button" className="inventory-close" onClick={onClose} aria-label="Close hands and decks">×</button>
+        </header>
+        <div className="inventory-players">
+          <article><h3><span className="player-avatar human-avatar">YOU</span>Your cards</h3><CardCollection label="Hand" cards={game.hand} /><CardCollection label="Deck" cards={game.ownDeck} /></article>
+          <article><h3><span className="player-avatar opponent-avatar">AI</span>Opponent cards</h3><CardCollection label="Hand" cards={game.opponentHand} /><CardCollection label="Deck" cards={game.opponentDeck} /></article>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function EmptyState({ title, detail }: { title: string; detail: string }) {
   return (
     <div className="empty-state">
@@ -1454,6 +1596,7 @@ export default function Home() {
   const [humanStarts, setHumanStarts] = useState(false);
   const [remoteRunId, setRemoteRunId] = useState<string | null>(null);
   const [remoteGame, setRemoteGame] = useState<RemoteGameSession | null>(null);
+  const [inventoryOpen, setInventoryOpen] = useState(false);
   const pollInFlight = useRef(false);
   const hasConnectedRef = useRef(false);
   const activeRunIdRef = useRef<string | null>(null);
@@ -2204,11 +2347,11 @@ export default function Home() {
                     {titleCase(snapshot.run.status)}
                   </span>
                   <span>{snapshot.run.id ? `Run ${snapshot.run.id.slice(0, 12)}` : "Run not created"}</span>
-                  <span>{snapshot.run.id ? `Seed ${snapshot.run.seed}` : "Seed —"}</span>
+                  <span><Jargon term="seed" side="bottom">Seed</Jargon> {snapshot.run.id ? snapshot.run.seed : "—"}</span>
                 </div>
                 <h1 id="overview-title">Training the next champion.</h1>
                 <p>
-                  High-throughput self-play on Apple silicon, evaluated with paired seeds and confidence-aware promotion.
+                  High-throughput <Jargon term="selfPlay">self-play</Jargon> on Apple silicon, evaluated with <Jargon term="pairedSeeds">paired seeds</Jargon> and confidence-aware promotion.
                 </p>
 
                 <div className="control-strip" aria-label="Training controls">
@@ -2315,7 +2458,7 @@ export default function Home() {
             <div className="overview-grid">
               <article className="panel performance-panel">
                 <header className="panel-header">
-                  <div><span className="panel-kicker">Velocity</span><h2>Self-play throughput</h2></div>
+                  <div><span className="panel-kicker">Velocity</span><h2><Jargon term="selfPlay">Self-play</Jargon> throughput</h2></div>
                   <div className="chart-legend"><span className="legend-mint">Games/s</span><span className="legend-blue">Decisions/s ÷ 240</span></div>
                 </header>
                 <div className="metric-headline">
@@ -2329,8 +2472,8 @@ export default function Home() {
 
               <article className="panel quality-panel">
                 <header className="panel-header">
-                  <div><span className="panel-kicker">Signal through noise</span><h2>Held-out strength</h2></div>
-                  <span className="confidence-chip">95% confidence</span>
+                  <div><span className="panel-kicker">Signal through noise</span><h2><Jargon term="heldOutStrength">Held-out strength</Jargon></h2></div>
+                  <span className="confidence-chip"><Jargon term="confidenceInterval">95% confidence</Jargon></span>
                 </header>
                 <div className="quality-score">
                   <strong>{arenaHasSamples || latestMetric.hasEvaluation ? formatPercent(heldOutScore) : "Not evaluated"}</strong>
@@ -2340,18 +2483,18 @@ export default function Home() {
                 {evaluatedMetricPoints.length > 1 ? <MetricCanvas points={evaluatedMetricPoints} mode="quality" height={178} /> : <EmptyState title="Awaiting paired evidence" detail="Run a 5,000-pair arena to estimate strength through game variance." />}
                 <div className="quality-footer">
                   <span><i className="diamond" /> {(arenaResult?.modelALabel ?? snapshot.run.championId.replaceAll("-", " ")) || "No champion yet"}</span>
-                  <span>{arenaHasSamples ? `${arenaResult!.elo >= 0 ? "+" : ""}${arenaResult!.elo.toFixed(0)} Elo equivalent` : "Not evaluated"}</span>
+                  <span>{arenaHasSamples ? <><Jargon term="elo">Elo equivalent</Jargon> {arenaResult!.elo >= 0 ? "+" : ""}{arenaResult!.elo.toFixed(0)}</> : "Not evaluated"}</span>
                 </div>
               </article>
 
               <article className="panel live-stats-panel">
                 <header className="panel-header"><div><span className="panel-kicker">Live instruments</span><h2>Learning pulse</h2></div></header>
                 <div className="instrument-list">
-                  <div><span>Replay buffer</span><strong>{formatPercent(latestMetric.replayFill, 0)}</strong><i><b style={{ width: `${latestMetric.replayFill * 100}%` }} /></i><small>{compactFormatter.format(config.replayCapacity * latestMetric.replayFill)} / {compactFormatter.format(config.replayCapacity)}</small></div>
-                  <div><span>Outcome BCE</span><strong>{latestMetric.hasLearnerDiagnostics ? latestMetric.outcomeLoss.toFixed(3) : "—"}</strong><i><b style={{ width: `${latestMetric.hasLearnerDiagnostics ? Math.min(100, latestMetric.outcomeLoss * 100) : 0}%` }} /></i><small>{latestMetric.hasLearnerDiagnostics ? "binary game outcome" : "replay warming up"}</small></div>
-                  <div><span>Brier score</span><strong>{latestMetric.hasLearnerDiagnostics ? latestMetric.brier.toFixed(3) : "—"}</strong><i><b style={{ width: `${latestMetric.hasLearnerDiagnostics ? Math.min(100, latestMetric.brier * 300) : 0}%` }} /></i><small>{latestMetric.hasLearnerDiagnostics ? "calibration error" : "no learner update yet"}</small></div>
-                  <div><span>Uncertainty</span><strong>{latestMetric.hasLearnerDiagnostics ? latestMetric.uncertainty.toFixed(3) : "—"}</strong><i><b style={{ width: `${latestMetric.hasLearnerDiagnostics ? Math.min(100, latestMetric.uncertainty * 500) : 0}%` }} /></i><small>{latestMetric.hasLearnerDiagnostics ? "bootstrap disagreement" : "no learner update yet"}</small></div>
-                  <div><span>Safety truncations</span><strong>{formatPercent(latestMetric.truncationRate)}</strong><i><b style={{ width: `${Math.min(100, latestMetric.truncationRate * 500)}%` }} /></i><small>{latestMetric.meanTurns ? `${latestMetric.meanTurns.toFixed(1)} mean turns` : "awaiting completed games"}</small></div>
+                  <div><span><Jargon term="replayBuffer">Replay buffer</Jargon></span><strong>{formatPercent(latestMetric.replayFill, 0)}</strong><i><b style={{ width: `${latestMetric.replayFill * 100}%` }} /></i><small>{compactFormatter.format(config.replayCapacity * latestMetric.replayFill)} / {compactFormatter.format(config.replayCapacity)}</small></div>
+                  <div><span><Jargon term="outcomeBce">Outcome BCE</Jargon></span><strong>{latestMetric.hasLearnerDiagnostics ? latestMetric.outcomeLoss.toFixed(3) : "—"}</strong><i><b style={{ width: `${latestMetric.hasLearnerDiagnostics ? Math.min(100, latestMetric.outcomeLoss * 100) : 0}%` }} /></i><small>{latestMetric.hasLearnerDiagnostics ? "prediction error · lower is better" : "replay warming up"}</small></div>
+                  <div><span><Jargon term="brierScore">Brier score</Jargon></span><strong>{latestMetric.hasLearnerDiagnostics ? latestMetric.brier.toFixed(3) : "—"}</strong><i><b style={{ width: `${latestMetric.hasLearnerDiagnostics ? Math.min(100, latestMetric.brier * 300) : 0}%` }} /></i><small>{latestMetric.hasLearnerDiagnostics ? "probability error · lower is better" : "no learner update yet"}</small></div>
+                  <div><span><Jargon term="uncertainty">Uncertainty</Jargon></span><strong>{latestMetric.hasLearnerDiagnostics ? latestMetric.uncertainty.toFixed(3) : "—"}</strong><i><b style={{ width: `${latestMetric.hasLearnerDiagnostics ? Math.min(100, latestMetric.uncertainty * 500) : 0}%` }} /></i><small>{latestMetric.hasLearnerDiagnostics ? "prediction-head disagreement" : "no learner update yet"}</small></div>
+                  <div><span><Jargon term="safetyTruncations">Safety truncations</Jargon></span><strong>{formatPercent(latestMetric.truncationRate)}</strong><i><b style={{ width: `${Math.min(100, latestMetric.truncationRate * 500)}%` }} /></i><small>{latestMetric.meanTurns ? `${latestMetric.meanTurns.toFixed(1)} mean turns` : "awaiting completed games"}</small></div>
                 </div>
               </article>
 
@@ -2400,8 +2543,8 @@ export default function Home() {
                 <div className="field-grid primary-fields">
                   <label><span>Run name</span><input value={config.name} onChange={(event) => updateConfig("name", event.target.value)} /></label>
                   <label><span>Time budget</span><div className="input-suffix"><input type="number" min="1" value={config.durationMinutes} onChange={(event) => updateConfig("durationMinutes", Number(event.target.value))} /><b>min</b></div></label>
-                  <label><span>Actor processes</span><input type="number" min="1" max="16" value={config.actorProcesses} onChange={(event) => updateConfig("actorProcesses", Number(event.target.value))} /></label>
-                  <label><span>Evaluation pairs</span><input type="number" min="8" max="20000" value={config.evaluationPairs} onChange={(event) => updateConfig("evaluationPairs", Number(event.target.value))} /></label>
+                  <label><span><Jargon term="actors">Actor processes</Jargon></span><input type="number" min="1" max="16" value={config.actorProcesses} onChange={(event) => updateConfig("actorProcesses", Number(event.target.value))} /></label>
+                  <label><span><Jargon term="evaluationPairs">Evaluation pairs</Jargon></span><input type="number" min="8" max="20000" value={config.evaluationPairs} onChange={(event) => updateConfig("evaluationPairs", Number(event.target.value))} /></label>
                 </div>
 
                 <button type="button" className="advanced-toggle" onClick={() => setAdvancedOpen((open) => !open)} aria-expanded={advancedOpen}>
@@ -2410,29 +2553,29 @@ export default function Home() {
 
                 {advancedOpen ? (
                   <div className="advanced-fields">
-                    <div className="field-section"><h3>Network & learner</h3><div className="field-grid">
-                      <label><span>Hidden size</span><input type="number" value={config.hiddenSize} onChange={(event) => updateConfig("hiddenSize", Number(event.target.value))} /></label>
-                      <label><span>Residual blocks</span><input type="number" value={config.residualBlocks} onChange={(event) => updateConfig("residualBlocks", Number(event.target.value))} /></label>
-                      <label><span>Bootstrap heads</span><input type="number" value={config.bootstrapHeads} onChange={(event) => updateConfig("bootstrapHeads", Number(event.target.value))} /></label>
-                      <label><span>Batch size</span><input type="number" value={config.batchSize} onChange={(event) => updateConfig("batchSize", Number(event.target.value))} /></label>
-                      <label><span>Learning rate</span><input type="number" step="0.00001" value={config.learningRate} onChange={(event) => updateConfig("learningRate", Number(event.target.value))} /></label>
-                      <label><span>Games / actor batch</span><input type="number" value={config.gamesPerActorBatch} onChange={(event) => updateConfig("gamesPerActorBatch", Number(event.target.value))} /></label>
+                    <div className="field-section"><h3>Network & <Jargon term="learner">learner</Jargon></h3><div className="field-grid">
+                      <label><span><Jargon term="hiddenSize">Hidden size</Jargon></span><input type="number" value={config.hiddenSize} onChange={(event) => updateConfig("hiddenSize", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="residualBlocks">Residual blocks</Jargon></span><input type="number" value={config.residualBlocks} onChange={(event) => updateConfig("residualBlocks", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="bootstrapHeads">Bootstrap heads</Jargon></span><input type="number" value={config.bootstrapHeads} onChange={(event) => updateConfig("bootstrapHeads", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="batchSize">Batch size</Jargon></span><input type="number" value={config.batchSize} onChange={(event) => updateConfig("batchSize", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="learningRate">Learning rate</Jargon></span><input type="number" step="0.00001" value={config.learningRate} onChange={(event) => updateConfig("learningRate", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="actors">Games / actor batch</Jargon></span><input type="number" value={config.gamesPerActorBatch} onChange={(event) => updateConfig("gamesPerActorBatch", Number(event.target.value))} /></label>
                     </div></div>
                     <div className="field-section"><h3>Replay & exploration</h3><div className="field-grid">
-                      <label><span>Replay capacity</span><input type="number" value={config.replayCapacity} onChange={(event) => updateConfig("replayCapacity", Number(event.target.value))} /></label>
-                      <label><span>Replay warmup</span><input type="number" value={config.replayWarmup} onChange={(event) => updateConfig("replayWarmup", Number(event.target.value))} /></label>
-                      <label><span>Epsilon start</span><input type="number" step="0.005" value={config.epsilonStart} onChange={(event) => updateConfig("epsilonStart", Number(event.target.value))} /></label>
-                      <label><span>Epsilon end</span><input type="number" step="0.005" value={config.epsilonEnd} onChange={(event) => updateConfig("epsilonEnd", Number(event.target.value))} /></label>
-                      <label><span>Checkpoint games</span><input type="number" value={config.checkpointEveryGames} onChange={(event) => updateConfig("checkpointEveryGames", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="replayCapacity">Replay capacity</Jargon></span><input type="number" value={config.replayCapacity} onChange={(event) => updateConfig("replayCapacity", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="replayWarmup">Replay warmup</Jargon></span><input type="number" value={config.replayWarmup} onChange={(event) => updateConfig("replayWarmup", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="epsilon">Epsilon start</Jargon></span><input type="number" step="0.005" value={config.epsilonStart} onChange={(event) => updateConfig("epsilonStart", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="epsilon">Epsilon end</Jargon></span><input type="number" step="0.005" value={config.epsilonEnd} onChange={(event) => updateConfig("epsilonEnd", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="checkpoint">Checkpoint games</Jargon></span><input type="number" value={config.checkpointEveryGames} onChange={(event) => updateConfig("checkpointEveryGames", Number(event.target.value))} /></label>
                       <label><span>Evaluation games</span><input type="number" value={config.evaluateEveryGames} onChange={(event) => updateConfig("evaluateEveryGames", Number(event.target.value))} /></label>
                     </div></div>
                     <div className="field-section"><h3>Curriculum, league & promotion</h3><div className="field-grid">
-                      <label><span>Bootstrap updates</span><input type="number" min="0" value={config.heuristicBootstrapUpdates} onChange={(event) => updateConfig("heuristicBootstrapUpdates", Number(event.target.value))} /></label>
-                      <label><span>Current self-play</span><input type="number" min="0" max="1" step="0.01" value={config.currentSelfplayFraction} onChange={(event) => updateConfig("currentSelfplayFraction", Number(event.target.value))} /></label>
-                      <label><span>League opponents</span><input type="number" min="0" max="1" step="0.01" value={config.leagueFraction} onChange={(event) => updateConfig("leagueFraction", Number(event.target.value))} /></label>
-                      <label><span>Baseline anchors</span><input type="number" min="0" max="1" step="0.01" value={config.baselineFraction} onChange={(event) => updateConfig("baselineFraction", Number(event.target.value))} /></label>
-                      <label><span>Promotion confidence</span><input type="number" min="0.8" max="0.999" step="0.01" value={config.promotionConfidence} onChange={(event) => updateConfig("promotionConfidence", Number(event.target.value))} /></label>
-                      <label><span>Promotion margin</span><input type="number" min="0" max="0.25" step="0.005" value={config.promotionMargin} onChange={(event) => updateConfig("promotionMargin", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="bootstrapUpdates">Bootstrap updates</Jargon></span><input type="number" min="0" value={config.heuristicBootstrapUpdates} onChange={(event) => updateConfig("heuristicBootstrapUpdates", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="selfPlay">Current self-play</Jargon></span><input type="number" min="0" max="1" step="0.01" value={config.currentSelfplayFraction} onChange={(event) => updateConfig("currentSelfplayFraction", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="league">League opponents</Jargon></span><input type="number" min="0" max="1" step="0.01" value={config.leagueFraction} onChange={(event) => updateConfig("leagueFraction", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="baseline">Baseline anchors</Jargon></span><input type="number" min="0" max="1" step="0.01" value={config.baselineFraction} onChange={(event) => updateConfig("baselineFraction", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="promotionConfidence">Promotion confidence</Jargon></span><input type="number" min="0.8" max="0.999" step="0.01" value={config.promotionConfidence} onChange={(event) => updateConfig("promotionConfidence", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="promotionMargin">Promotion margin</Jargon></span><input type="number" min="0" max="0.25" step="0.005" value={config.promotionMargin} onChange={(event) => updateConfig("promotionMargin", Number(event.target.value))} /></label>
                     </div></div>
                   </div>
                 ) : null}
@@ -2464,29 +2607,29 @@ export default function Home() {
         {activeTab === "models" ? (
           <section className="tab-panel models-panel" aria-labelledby="models-title">
             <header className="section-heading">
-              <div><span className="section-number">03 / MODELS & ARENA</span><h1 id="models-title">Prove strength, don’t infer it.</h1><p>Every result uses paired seeds, reversed seats, and a confidence interval.</p></div>
-              <div className="section-summary"><span>Current champion</span><strong>{snapshot.models.find((model) => model.isChampion)?.label ?? "—"}</strong><small>{snapshot.models.find((model) => model.isChampion)?.evaluated ? `${formatPercent(snapshot.models.find((model) => model.isChampion)!.score)} held-out score` : "Not evaluated"}</small></div>
+              <div><span className="section-number">03 / MODELS & ARENA</span><h1 id="models-title">Prove strength, don’t infer it.</h1><p>Every result uses <Jargon term="pairedSeeds">paired seeds</Jargon>, reversed seats, and a <Jargon term="confidenceInterval">confidence interval</Jargon>.</p></div>
+              <div className="section-summary"><span>Current <Jargon term="champion">champion</Jargon></span><strong>{snapshot.models.find((model) => model.isChampion)?.label ?? "—"}</strong><small>{snapshot.models.find((model) => model.isChampion)?.evaluated ? <>{formatPercent(snapshot.models.find((model) => model.isChampion)!.score)} <Jargon term="heldOutStrength">held-out score</Jargon></> : "Not evaluated"}</small></div>
             </header>
 
             <div className="arena-layout">
               <article className="panel arena-console">
-                <header className="panel-header"><div><span className="panel-kicker">Head-to-head laboratory</span><h2>Arena match</h2></div><span className="paired-chip">Paired randomness</span></header>
+                <header className="panel-header"><div><span className="panel-kicker">Head-to-head laboratory</span><h2>Arena match</h2></div><span className="paired-chip"><Jargon term="pairedSeeds">Paired randomness</Jargon></span></header>
                 <div className="versus-row">
                   <label><span>Model A</span><select value={snapshot.models.some((model) => model.id === arenaA) || arenaBaselines.some((model) => model.id === arenaA) ? arenaA : "baseline:balanced"} onChange={(event) => setArenaA(event.target.value)}>{snapshot.models.length ? <optgroup label="Checkpoints">{snapshot.models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup> : null}<optgroup label="Reference baselines">{arenaBaselines.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup></select><small>candidate / challenger</small></label>
                   <div className="versus-mark"><span>VS</span><i /></div>
                   <label><span>Model B</span><select value={snapshot.models.some((model) => model.id === arenaB) || arenaBaselines.some((model) => model.id === arenaB) ? arenaB : "baseline:balanced"} onChange={(event) => setArenaB(event.target.value)}>{snapshot.models.length ? <optgroup label="Checkpoints">{snapshot.models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup> : null}<optgroup label="Reference baselines">{arenaBaselines.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup></select><small>champion / baseline</small></label>
                 </div>
-                <div className="arena-settings"><label><span>Seed pairs</span><input type="number" min="1" max="20000" value={arenaPairs} onChange={(event) => setArenaPairs(Math.min(20_000, Math.max(1, Number(event.target.value) || 1)))} /></label><div><span>Games</span><strong>{numberFormatter.format(arenaPairs * 2)}</strong></div><div><span>Interval confidence</span><strong>95%</strong></div><button type="button" className="button button-primary" onClick={runArena} disabled={arenaRunning || snapshot.models.length < 1 || arenaA === arenaB}>{arenaRunning ? "Evaluating…" : snapshot.models.length < 1 ? "Need a checkpoint" : arenaA === arenaB ? "Choose two rivals" : "Run arena"}</button></div>
+                <div className="arena-settings"><label><span><Jargon term="pairedSeeds">Seed pairs</Jargon></span><input type="number" min="1" max="20000" value={arenaPairs} onChange={(event) => setArenaPairs(Math.min(20_000, Math.max(1, Number(event.target.value) || 1)))} /></label><div><span>Games</span><strong>{numberFormatter.format(arenaPairs * 2)}</strong></div><div><span><Jargon term="confidenceInterval">Interval confidence</Jargon></span><strong>95%</strong></div><button type="button" className="button button-primary" onClick={runArena} disabled={arenaRunning || snapshot.models.length < 1 || arenaA === arenaB}>{arenaRunning ? "Evaluating…" : snapshot.models.length < 1 ? "Need a checkpoint" : arenaA === arenaB ? "Choose two rivals" : "Run arena"}</button></div>
                 {arenaRunning || arenaProgress > 0 ? <div className="arena-progress" aria-live="polite"><div><span>Evaluation progress</span><strong>{Math.round(arenaProgress)}%</strong></div><i><b style={{ width: `${arenaProgress}%` }} /></i><p>{arenaRunning ? `${numberFormatter.format((arenaResult?.pairsCompleted ?? Math.round(arenaPairs * arenaProgress / 100)) * 2)} of ${numberFormatter.format((arenaResult?.pairsRequested ?? arenaPairs) * 2)} games · exact seats reversed` : "Complete · paired result persisted with both checkpoints"}</p></div> : null}
                 {arenaResult ? <div className="arena-result">
                   <div className="result-score"><small>{arenaResult.status === "complete" ? "Latest result" : titleCase(arenaResult.status)}</small><strong>{arenaResult.pairsCompleted ? formatPercent(arenaResult.score) : "Pending"}</strong><span>{arenaResult.modelALabel}</span></div>
-                  {arenaResult.pairsCompleted ? <><div className="interval-track"><i className="threshold" /><span style={{ left: `${arenaResult.ciLow * 100}%`, width: `${Math.max(0, arenaResult.ciHigh - arenaResult.ciLow) * 100}%` }} /><b style={{ left: `${arenaResult.score * 100}%` }} /></div><div className="interval-labels"><span>50% tie</span><strong>95% CI {formatPercent(arenaResult.ciLow)}–{formatPercent(arenaResult.ciHigh)}</strong><span>{arenaResult.elo >= 0 ? "+" : ""}{arenaResult.elo.toFixed(0)} Elo</span></div></> : <div className="arena-pending">Waiting for the first paired games…</div>}
+                  {arenaResult.pairsCompleted ? <><div className="interval-track"><i className="threshold" /><span style={{ left: `${arenaResult.ciLow * 100}%`, width: `${Math.max(0, arenaResult.ciHigh - arenaResult.ciLow) * 100}%` }} /><b style={{ left: `${arenaResult.score * 100}%` }} /></div><div className="interval-labels"><span>50% tie</span><strong><Jargon term="confidenceInterval">95% CI</Jargon> {formatPercent(arenaResult.ciLow)}–{formatPercent(arenaResult.ciHigh)}</strong><span>{arenaResult.elo >= 0 ? "+" : ""}{arenaResult.elo.toFixed(0)} <Jargon term="elo">Elo</Jargon></span></div></> : <div className="arena-pending">Waiting for the first paired games…</div>}
                   <p className="arena-recommendation">{arenaResult.recommendation} · {numberFormatter.format(arenaResult.pairsCompleted)} / {numberFormatter.format(arenaResult.pairsRequested)} pairs · {numberFormatter.format(arenaResult.gamesCompleted)} games · seat A {formatPercent(arenaResult.firstSeatScore)} / seat B {formatPercent(arenaResult.secondSeatScore)} · {numberFormatter.format(arenaResult.truncatedGames)} truncations · {titleCase(arenaResult.intervalMethod)}</p>
                 </div> : <EmptyState title={snapshot.models.length < 1 ? "Arena opens after the first checkpoint" : "No arena evidence yet"} detail={snapshot.models.length < 1 ? "Launch training; the first actor snapshot can immediately face a reference baseline." : "Compare a checkpoint with another model or baseline using paired seeds."} />}
               </article>
 
               <article className="panel lineage-panel">
-                <header className="panel-header"><div><span className="panel-kicker">Lineage</span><h2>Champion ascent</h2></div></header>
+                <header className="panel-header"><div><span className="panel-kicker"><Jargon term="lineage">Lineage</Jargon></span><h2><Jargon term="champion">Champion</Jargon> ascent</h2></div></header>
                 <div className="lineage-list">
                   {snapshot.models.slice(0, 4).reverse().map((model) => <div key={model.id} className={model.isChampion ? "is-champion" : ""}><i /><span><small>{compactFormatter.format(model.games)} games</small><strong>{model.label}</strong></span><b>{model.hasElo ? `${model.eloDelta >= 0 ? "+" : ""}${model.eloDelta.toFixed(0)}` : "—"}</b></div>)}
                   {!snapshot.models.length ? <EmptyState title="No lineage yet" detail="The first checkpoint becomes the root of the champion tree." /> : null}
@@ -2495,14 +2638,14 @@ export default function Home() {
             </div>
 
             <article className="panel registry-panel">
-              <header className="panel-header"><div><span className="panel-kicker">Model registry</span><h2>Checkpoints</h2></div><div className="registry-actions"><button type="button" className="button button-quiet" onClick={refreshModels} disabled={commandBusy !== null}>Refresh</button><button type="button" className="button" onClick={() => {
+              <header className="panel-header"><div><span className="panel-kicker">Model registry</span><h2><Jargon term="checkpoint">Checkpoints</Jargon></h2></div><div className="registry-actions"><button type="button" className="button button-quiet" onClick={refreshModels} disabled={commandBusy !== null}>Refresh</button><button type="button" className="button" onClick={() => {
                 const champion = snapshot.models.find((model) => model.isChampion);
                 if (champion) exportModel(champion.id);
                 else showToast("No champion actor is available yet");
               }} disabled={commandBusy !== null || !snapshot.models.some((model) => model.isChampion)}>Export champion</button></div></header>
               <div className="model-table" role="table" aria-label="Model checkpoints">
-                <div className="model-row model-header" role="row"><span role="columnheader">Model</span><span role="columnheader">Games</span><span role="columnheader">Held-out score</span><span role="columnheader">Confidence</span><span role="columnheader">Δ Elo</span><span role="columnheader">Created</span><span role="columnheader">Actions</span></div>
-                {snapshot.models.map((model) => <div className="model-row" role="row" key={model.id}><span role="cell"><i className={model.isChampion ? "champion-gem" : "model-node"} /><span><strong>{model.label}</strong><small>{model.id} · {model.sizeMb === null ? "size —" : `${model.sizeMb.toFixed(1)} MB`}</small></span>{model.isChampion ? <b className="champion-label">Champion</b> : null}</span><span role="cell">{compactFormatter.format(model.games)}</span><span role="cell"><strong>{model.evaluated ? formatPercent(model.score) : "Not evaluated"}</strong></span><span role="cell">{model.evaluated ? `${formatPercent(model.ciLow)}–${formatPercent(model.ciHigh)}` : "—"}</span><span role="cell" className={model.hasElo && model.eloDelta >= 0 ? "positive" : ""}>{model.hasElo ? `${model.eloDelta >= 0 ? "+" : ""}${model.eloDelta.toFixed(0)}` : "—"}</span><span role="cell">{model.created}</span><span role="cell"><button type="button" aria-label={`${model.isPinned ? "Unpin" : "Pin"} ${model.label}`} onClick={() => togglePinned(model.id)} className={model.isPinned ? "is-pinned" : ""} disabled={commandBusy !== null}>◇</button><button type="button" aria-label={`Download actor for ${model.label}`} onClick={() => exportModel(model.id)} disabled={commandBusy !== null}>↓</button></span></div>)}
+                <div className="model-row model-header" role="row"><span role="columnheader">Model</span><span role="columnheader">Games</span><span role="columnheader"><Jargon term="heldOutStrength">Held-out score</Jargon></span><span role="columnheader"><Jargon term="confidenceInterval">Confidence</Jargon></span><span role="columnheader">Δ <Jargon term="elo">Elo</Jargon></span><span role="columnheader">Created</span><span role="columnheader"><Jargon term="modelActions" align="right">Actions</Jargon></span></div>
+                {snapshot.models.map((model) => <div className="model-row" role="row" key={model.id}><span role="cell"><i className={model.isChampion ? "champion-gem" : "model-node"} /><span><strong>{model.label}</strong><small>{model.id} · {model.sizeMb === null ? "size —" : `${model.sizeMb.toFixed(1)} MB`}</small></span>{model.isChampion ? <b className="champion-label"><Jargon term="champion">Champion</Jargon></b> : null}</span><span role="cell">{compactFormatter.format(model.games)}</span><span role="cell"><strong>{model.evaluated ? formatPercent(model.score) : "Not evaluated"}</strong></span><span role="cell">{model.evaluated ? `${formatPercent(model.ciLow)}–${formatPercent(model.ciHigh)}` : "—"}</span><span role="cell" className={model.hasElo && model.eloDelta >= 0 ? "positive" : ""}>{model.hasElo ? `${model.eloDelta >= 0 ? "+" : ""}${model.eloDelta.toFixed(0)}` : "—"}</span><span role="cell">{model.created}</span><span role="cell"><button type="button" aria-label={`${model.isPinned ? "Unpin" : "Pin"} ${model.label}`} onClick={() => togglePinned(model.id)} className={model.isPinned ? "is-pinned" : ""} disabled={commandBusy !== null}>◇</button><button type="button" aria-label={`Download actor for ${model.label}`} onClick={() => exportModel(model.id)} disabled={commandBusy !== null}>↓</button></span></div>)}
                 {!snapshot.models.length ? <EmptyState title="Registry is empty" detail="Checkpoints, actor exports, evaluations, and lineage metadata will appear here." /> : null}
               </div>
             </article>
@@ -2513,13 +2656,13 @@ export default function Home() {
           <section className="tab-panel play-panel" aria-labelledby="play-title">
             <header className="section-heading play-heading">
               <div><span className="section-number">04 / PLAY</span><h1 id="play-title">Enter the arena yourself.</h1><p>Challenge any checkpoint through the same legal-action interface used in self-play.</p></div>
-              <div className="game-setup"><label><span>Opponent</span><select value={snapshot.models.length || playModel === "baseline" ? playModel : "baseline"} onChange={(event) => setPlayModel(event.target.value)}><option value="baseline">Balanced baseline</option>{snapshot.models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</select></label><label className="toggle-label"><input type="checkbox" checked={humanStarts} onChange={(event) => setHumanStarts(event.target.checked)} /><span />You start</label><button type="button" className="button button-primary" onClick={newGame} disabled={commandBusy !== null}>{commandBusy === "game-new" ? "Starting…" : "New game"}</button></div>
+              <div className="game-setup"><label><span>Opponent</span><select value={snapshot.models.length || playModel === "baseline" ? playModel : "baseline"} onChange={(event) => setPlayModel(event.target.value)}><option value="baseline">Balanced baseline</option>{snapshot.models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</select></label><label className="toggle-label"><input type="checkbox" checked={humanStarts} onChange={(event) => setHumanStarts(event.target.checked)} /><span />You start</label><button type="button" className="button card-visibility-button" onClick={() => setInventoryOpen(true)}>Hands & decks</button><button type="button" className="button button-primary" onClick={newGame} disabled={commandBusy !== null}>{commandBusy === "game-new" ? "Starting…" : "New game"}</button></div>
             </header>
 
             {connected && !remoteGame ? <div className="panel connected-game-empty"><EmptyState title="Start a live game" detail="Choose a checkpoint or the balanced baseline, then create a session. Every card and legal action will come from the engine." /></div> : <div className="game-shell">
               <div className="board-column">
                 <section className="player-zone opponent-zone" aria-label="Opponent board">
-                  <header><div><span className="player-avatar opponent-avatar">AI</span><p><strong>Orion</strong><small>{remoteGame?.modelLabel ?? snapshot.models.find((model) => model.id === playModel)?.label ?? "Balanced baseline"}</small></p></div><div className="authority-display"><small>Authority</small><strong>{game.opponentAuthority}</strong></div><div className="deck-display"><i /><span>{game.opponentDeckCount}<small>deck</small></span></div></header>
+                  <header><div><span className="player-avatar opponent-avatar">AI</span><p><strong>Orion</strong><small>{remoteGame?.modelLabel ?? snapshot.models.find((model) => model.id === playModel)?.label ?? "Balanced baseline"}</small></p></div><button type="button" className="zone-cards-button" onClick={() => setInventoryOpen(true)}><b>{game.opponentHand.length}</b><span>hand</span></button><div className="authority-display"><small>Authority</small><strong>{game.opponentAuthority}</strong></div><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View opponent hand and unordered deck"><i /><span>{game.opponentDeckCount}<small>deck</small></span></button></header>
                   <div className="base-row">{game.opponentBases.map((card) => <CardTile key={card.id} card={card} compact />)}<span className="zone-label">Opponent bases</span></div>
                 </section>
 
@@ -2530,7 +2673,7 @@ export default function Home() {
 
                 <section className="player-zone human-zone" aria-label="Your board">
                   <div className="base-row">{game.humanBases.map((card) => <CardTile key={card.id} card={card} compact />)}<span className="zone-label">Your bases</span></div>
-                  <header><div><span className="player-avatar human-avatar">YOU</span><p><strong>Your fleet</strong><small>Turn {game.turn} · main phase</small></p></div><div className="resource-pips"><span className="trade-pip"><b>{game.trade}</b>Trade</span><span className="attack-pip"><b>{game.attack}</b>Combat</span></div><div className="authority-display"><small>Authority</small><strong>{game.humanAuthority}</strong></div><div className="deck-display"><i /><span>{game.deckCount}<small>deck</small></span><span>{game.discardCount}<small>discard</small></span></div></header>
+                  <header><div><span className="player-avatar human-avatar">YOU</span><p><strong>Your fleet</strong><small>Turn {game.turn} · main phase</small></p></div><div className="resource-pips"><span className="trade-pip"><b>{game.trade}</b>Trade</span><span className="attack-pip"><b>{game.attack}</b>Combat</span></div><div className="authority-display"><small>Authority</small><strong>{game.humanAuthority}</strong></div><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View your hand and unordered deck"><i /><span>{game.deckCount}<small>deck</small></span><span>{game.discardCount}<small>discard</small></span></button></header>
                   <div className="hand-row">{game.hand.map((card) => <CardTile key={card.id} card={card} selected={selectedCard === card.id} onClick={() => setSelectedCard(card.id)} />)}{game.hand.length === 0 ? <EmptyState title="Hand played" detail="Spend remaining trade or combat, then end the turn." /> : null}</div>
                 </section>
               </div>
@@ -2538,7 +2681,7 @@ export default function Home() {
               <aside className="action-console">
                 <div className="decision-label"><span className="connection-pulse" /><p><small>{remoteGame?.status === "model_thinking" ? "Opponent thinking" : remoteGame?.status === "complete" ? "Game complete" : "Decision requested"}</small><strong>{remoteGame?.result ?? remoteGame?.prompt ?? "Your main phase"}</strong></p><b>Turn {game.turn}</b></div>
                 <div className="legal-actions">
-                  <span className="panel-kicker">Legal actions</span>
+                  <span className="panel-kicker"><Jargon term="actions">Legal actions</Jargon></span>
                   {remoteGame ? remoteGame.actions.map((action, index) => <button key={action.id} type="button" className={`action-button${action.recommended ? " is-recommended" : ""}`} onClick={() => submitRemoteChoice(action.id)} disabled={commandBusy === "game-choice" || remoteGame.status !== "your_turn"}><b>{titleCase(action.label)}</b><span>{action.modelValue === null ? `${titleCase(remoteGame.family)} · legal engine action` : `${formatPercent(action.modelValue)} acting-player outcome value${action.recommended ? " · model choice" : ""}`}</span><i>{index + 1}</i></button>) : <>
                     {selectedCard && game.hand.some((card) => card.id === selectedCard) ? <button type="button" className="action-button is-recommended" onClick={() => playHandCard(game.hand.find((card) => card.id === selectedCard)!)}><b>Play selected card</b><span>Resolve its primary effect</span><i>↵</i></button> : null}
                     {selectedCard && game.market.some((card) => card.id === selectedCard) ? <button type="button" className="action-button is-recommended" onClick={acquireSelected} disabled={(game.market.find((card) => card.id === selectedCard)?.cost ?? 99) > game.trade}><b>Acquire selected</b><span>Cost {(game.market.find((card) => card.id === selectedCard)?.cost ?? 0)} · {game.trade} trade available</span><i>↵</i></button> : null}
@@ -2549,11 +2692,12 @@ export default function Home() {
                 </div>
                 <div className="choice-inspector"><span className="panel-kicker">Model lens</span>{remoteGame ? (() => {
                   const recommendation = remoteGame.actions.find((action) => action.recommended);
-                  return recommendation && recommendation.modelValue !== null ? <><div><span>Recommended action</span><strong>{titleCase(recommendation.label)}</strong><b>{formatPercent(recommendation.modelValue)}</b></div><div><span>Value semantics</span><strong>Acting-player win outcome</strong><b>Q</b></div><p>Values come directly from the checkpoint actor’s bootstrapped heads. Your choice is sent unchanged.</p></> : <><div><span>Action values</span><strong>Not exposed for this opponent</strong><b>—</b></div><p>Baseline sessions provide legal actions but no model scores; no values are inferred or fabricated.</p></>;
-                })() : <><div><span>Recommended action</span><strong>Play Federation Shuttle</strong><b>42%</b></div><div><span>Outcome estimate</span><strong>Acting-player win value</strong><b>56.4%</b></div><p>Illustrative demo values are replaced by live checkpoint scores when the local service connects.</p></>}</div>
+                  return recommendation && recommendation.modelValue !== null ? <><div><span>Recommended action</span><strong>{titleCase(recommendation.label)}</strong><b>{formatPercent(recommendation.modelValue)}</b></div><div><span><Jargon term="actionValue">Value semantics</Jargon></span><strong>Acting-player win outcome</strong><b>Q</b></div><p>Values come directly from the checkpoint actor’s bootstrapped heads. Your choice is sent unchanged.</p></> : <><div><span><Jargon term="actionValue">Action values</Jargon></span><strong>Not exposed for this opponent</strong><b>—</b></div><p>Baseline sessions provide legal actions but no model scores; no values are inferred or fabricated.</p></>;
+                })() : <><div><span>Recommended action</span><strong>Play Federation Shuttle</strong><b>42%</b></div><div><span><Jargon term="outcomeEstimate">Outcome estimate</Jargon></span><strong>Acting-player win value</strong><b>56.4%</b></div><p>Illustrative demo values are replaced by live checkpoint scores when the local service connects.</p></>}</div>
                 <div className="game-log"><header><span className="panel-kicker">Action log</span><button type="button" onClick={() => setGame((current) => ({ ...current, log: [] }))}>Clear</button></header>{game.log.length ? game.log.map((entry, index) => <p key={`${entry}-${index}`}><span>{String(game.turn - Math.min(index, 2)).padStart(2, "0")}</span>{entry}</p>) : <EmptyState title="No actions yet" detail="Play a card to begin the log." />}</div>
               </aside>
             </div>}
+            {inventoryOpen ? <CardInventory game={game} onClose={() => setInventoryOpen(false)} /> : null}
           </section>
         ) : null}
 
@@ -2565,8 +2709,8 @@ export default function Home() {
             </header>
 
             <div className="diagnostic-grid">
-              <article className="panel loss-panel"><header className="panel-header"><div><span className="panel-kicker">Optimization</span><h2>Outcome learning</h2></div><div className="chart-legend"><span className="legend-blue">Outcome BCE</span><span className="legend-pink">Brier</span></div></header>{snapshot.metrics.some((point) => point.hasLearnerDiagnostics) ? <MetricCanvas points={snapshot.metrics.filter((point) => point.hasLearnerDiagnostics)} mode="loss" /> : <EmptyState title="Learner diagnostics pending" detail="Outcome metrics begin after replay warmup and the first MLX update." />}<dl className="compact-dl"><div><dt>Outcome BCE</dt><dd>{latestMetric.hasLearnerDiagnostics ? latestMetric.outcomeLoss.toFixed(4) : "—"}</dd></div><div><dt>Brier score</dt><dd>{latestMetric.hasLearnerDiagnostics ? latestMetric.brier.toFixed(4) : "—"}</dd></div><div><dt>Explained variance</dt><dd>{latestMetric.hasLearnerDiagnostics ? latestMetric.explainedVariance.toFixed(3) : "—"}</dd></div><div><dt>Bootstrap uncertainty</dt><dd>{latestMetric.hasLearnerDiagnostics ? latestMetric.uncertainty.toFixed(3) : "—"}</dd></div><div><dt>Curriculum</dt><dd>{titleCase(latestMetric.curriculumPhase)}{latestMetric.bootstrapUpdatesRemaining ? ` · ${numberFormatter.format(latestMetric.bootstrapUpdatesRemaining)} left` : ""}</dd></div><div><dt>Safety truncations</dt><dd>{formatPercent(latestMetric.truncationRate)}</dd></div><div><dt>Draws</dt><dd>{formatPercent(latestMetric.drawRate)}</dd></div><div><dt>Mean turns</dt><dd>{latestMetric.meanTurns ? latestMetric.meanTurns.toFixed(1) : "—"}</dd></div><div><dt>Forced choices skipped</dt><dd>{compactFormatter.format(latestMetric.forcedChoices)}</dd></div></dl></article>
-              <article className="panel decision-panel"><header className="panel-header"><div><span className="panel-kicker">Stratified replay</span><h2>Decision families</h2></div></header><div className="decision-bars">{replayFamilyEntries.map((family, index) => {
+              <article className="panel loss-panel"><header className="panel-header"><div><span className="panel-kicker">Optimization</span><h2><Jargon term="outcomeLearning">Outcome learning</Jargon></h2></div><div className="chart-legend"><span className="legend-blue"><Jargon term="outcomeBce">Outcome BCE</Jargon></span><span className="legend-pink"><Jargon term="brierScore">Brier</Jargon></span></div></header>{snapshot.metrics.some((point) => point.hasLearnerDiagnostics) ? <MetricCanvas points={snapshot.metrics.filter((point) => point.hasLearnerDiagnostics)} mode="loss" /> : <EmptyState title="Learner diagnostics pending" detail="Outcome metrics begin after replay warmup and the first MLX update." />}<dl className="compact-dl"><div><dt><Jargon term="outcomeBce">Outcome BCE</Jargon></dt><dd>{latestMetric.hasLearnerDiagnostics ? latestMetric.outcomeLoss.toFixed(4) : "—"}</dd></div><div><dt><Jargon term="brierScore">Brier score</Jargon></dt><dd>{latestMetric.hasLearnerDiagnostics ? latestMetric.brier.toFixed(4) : "—"}</dd></div><div><dt><Jargon term="explainedVariance">Explained variance</Jargon></dt><dd>{latestMetric.hasLearnerDiagnostics ? latestMetric.explainedVariance.toFixed(3) : "—"}</dd></div><div><dt><Jargon term="bootstrapUncertainty">Bootstrap uncertainty</Jargon></dt><dd>{latestMetric.hasLearnerDiagnostics ? latestMetric.uncertainty.toFixed(3) : "—"}</dd></div><div><dt><Jargon term="curriculum">Curriculum</Jargon></dt><dd>{titleCase(latestMetric.curriculumPhase)}{latestMetric.bootstrapUpdatesRemaining ? ` · ${numberFormatter.format(latestMetric.bootstrapUpdatesRemaining)} left` : ""}</dd></div><div><dt><Jargon term="safetyTruncations">Safety truncations</Jargon></dt><dd>{formatPercent(latestMetric.truncationRate)}</dd></div><div><dt><Jargon term="draws">Draws</Jargon></dt><dd>{formatPercent(latestMetric.drawRate)}</dd></div><div><dt><Jargon term="meanTurns">Mean turns</Jargon></dt><dd>{latestMetric.meanTurns ? latestMetric.meanTurns.toFixed(1) : "—"}</dd></div><div><dt><Jargon term="forcedChoices">Forced choices skipped</Jargon></dt><dd>{compactFormatter.format(latestMetric.forcedChoices)}</dd></div></dl></article>
+              <article className="panel decision-panel"><header className="panel-header"><div><span className="panel-kicker"><Jargon term="stratifiedReplay">Stratified replay</Jargon></span><h2><Jargon term="decisionFamilies">Decision families</Jargon></h2></div></header><div className="decision-bars">{replayFamilyEntries.map((family, index) => {
                 const percent = replayFamilyTotal ? (family.size / replayFamilyTotal) * 100 : 0;
                 const colors = ["#e8bd64", "#6aa9ff", "#e58ad4", "#ff7d78", "#5fe6ca", "#92a0b2", "#9b8cff", "#f29f67"];
                 return <div key={family.name}><span>{family.name}</span><i><b style={{ width: `${percent}%`, background: colors[index % colors.length] }} /></i><strong>{percent.toFixed(1)}%</strong></div>;
@@ -2580,14 +2724,14 @@ export default function Home() {
                 <header className="panel-header"><div><span className="panel-kicker">Safe live settings</span><h2>Next boundary update</h2></div><span className="boundary-chip">Applies between batches</span></header>
                 <div className="field-grid">
                   <label><span>Time budget (minutes)</span><input type="number" value={config.durationMinutes} onChange={(event) => updateConfig("durationMinutes", Number(event.target.value))} /></label>
-                  <label><span>Evaluation pairs</span><input type="number" min="8" max="20000" value={config.evaluationPairs} onChange={(event) => updateConfig("evaluationPairs", Number(event.target.value))} /></label>
+                  <label><span><Jargon term="evaluationPairs">Evaluation pairs</Jargon></span><input type="number" min="8" max="20000" value={config.evaluationPairs} onChange={(event) => updateConfig("evaluationPairs", Number(event.target.value))} /></label>
                   <label><span>Evaluate every games</span><input type="number" value={config.evaluateEveryGames} onChange={(event) => updateConfig("evaluateEveryGames", Number(event.target.value))} /></label>
-                  <label><span>Checkpoint every games</span><input type="number" value={config.checkpointEveryGames} onChange={(event) => updateConfig("checkpointEveryGames", Number(event.target.value))} /></label>
-                  <label><span>Current self-play</span><input type="number" step="0.01" value={config.currentSelfplayFraction} onChange={(event) => updateConfig("currentSelfplayFraction", Number(event.target.value))} /></label>
-                  <label><span>League opponents</span><input type="number" step="0.01" value={config.leagueFraction} onChange={(event) => updateConfig("leagueFraction", Number(event.target.value))} /></label>
-                  <label><span>Baseline anchors</span><input type="number" step="0.01" value={config.baselineFraction} onChange={(event) => updateConfig("baselineFraction", Number(event.target.value))} /></label>
-                  <label><span>Promotion confidence</span><input type="number" min="0.8" max="0.999" step="0.01" value={config.promotionConfidence} onChange={(event) => updateConfig("promotionConfidence", Number(event.target.value))} /></label>
-                  <label><span>Promotion margin</span><input type="number" min="0" max="0.25" step="0.005" value={config.promotionMargin} onChange={(event) => updateConfig("promotionMargin", Number(event.target.value))} /></label>
+                  <label><span><Jargon term="checkpoint">Checkpoint every games</Jargon></span><input type="number" value={config.checkpointEveryGames} onChange={(event) => updateConfig("checkpointEveryGames", Number(event.target.value))} /></label>
+                  <label><span><Jargon term="selfPlay">Current self-play</Jargon></span><input type="number" step="0.01" value={config.currentSelfplayFraction} onChange={(event) => updateConfig("currentSelfplayFraction", Number(event.target.value))} /></label>
+                  <label><span><Jargon term="league">League opponents</Jargon></span><input type="number" step="0.01" value={config.leagueFraction} onChange={(event) => updateConfig("leagueFraction", Number(event.target.value))} /></label>
+                  <label><span><Jargon term="baseline">Baseline anchors</Jargon></span><input type="number" step="0.01" value={config.baselineFraction} onChange={(event) => updateConfig("baselineFraction", Number(event.target.value))} /></label>
+                  <label><span><Jargon term="promotionConfidence">Promotion confidence</Jargon></span><input type="number" min="0.8" max="0.999" step="0.01" value={config.promotionConfidence} onChange={(event) => updateConfig("promotionConfidence", Number(event.target.value))} /></label>
+                  <label><span><Jargon term="promotionMargin">Promotion margin</Jargon></span><input type="number" min="0" max="0.25" step="0.005" value={config.promotionMargin} onChange={(event) => updateConfig("promotionMargin", Number(event.target.value))} /></label>
                 </div>
                 <div className="mix-check"><span>Opponent mix</span><i><b style={{ width: `${config.currentSelfplayFraction * 100}%` }} /><b style={{ width: `${config.leagueFraction * 100}%` }} /><b style={{ width: `${config.baselineFraction * 100}%` }} /></i><strong>{Math.round((config.currentSelfplayFraction + config.leagueFraction + config.baselineFraction) * 100)}%</strong></div>
                 <div className="form-actions"><p>Unsafe architecture changes require a new run.</p><button type="submit" className="button button-primary" disabled={commandBusy !== null}>Queue update</button></div>

@@ -90,6 +90,112 @@ code {
   font-size: 0.82em;
 }
 
+.jargon-help {
+  position: relative;
+  display: inline;
+  border-bottom: 1px dotted rgba(112, 169, 255, 0.72);
+  color: inherit;
+  cursor: help;
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+
+.jargon-help::before,
+.jargon-help::after {
+  position: absolute;
+  left: 50%;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.jargon-help::before {
+  bottom: calc(100% + 10px);
+  width: max-content;
+  max-width: min(310px, 72vw);
+  padding: 9px 11px;
+  border: 1px solid rgba(112, 169, 255, 0.32);
+  border-radius: 8px;
+  background: #111c29;
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.48);
+  color: #e7eef6;
+  content: attr(data-tooltip);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 450;
+  letter-spacing: normal;
+  line-height: 1.45;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  transform: translate(-50%, 4px);
+}
+
+.jargon-help::after {
+  bottom: calc(100% + 5px);
+  width: 9px;
+  height: 9px;
+  border-right: 1px solid rgba(112, 169, 255, 0.32);
+  border-bottom: 1px solid rgba(112, 169, 255, 0.32);
+  background: #111c29;
+  content: "";
+  transform: translate(-50%, 0) rotate(45deg);
+}
+
+.jargon-help:hover::before,
+.jargon-help:hover::after,
+.jargon-help:focus-visible::before,
+.jargon-help:focus-visible::after {
+  opacity: 1;
+}
+
+.jargon-help:hover::before,
+.jargon-help:focus-visible::before {
+  transform: translate(-50%, 0);
+}
+
+.jargon-help:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 3px;
+}
+
+.jargon-help.tooltip-bottom::before {
+  top: calc(100% + 10px);
+  bottom: auto;
+  transform: translate(-50%, -4px);
+}
+
+.jargon-help.tooltip-bottom::after {
+  top: calc(100% + 5px);
+  bottom: auto;
+  border: 0;
+  border-top: 1px solid rgba(112, 169, 255, 0.32);
+  border-left: 1px solid rgba(112, 169, 255, 0.32);
+}
+
+.jargon-help.tooltip-bottom:hover::before,
+.jargon-help.tooltip-bottom:focus-visible::before {
+  transform: translate(-50%, 0);
+}
+
+.jargon-help.tooltip-right::before {
+  right: 0;
+  left: auto;
+  transform: translate(0, 4px);
+}
+
+.jargon-help.tooltip-right::after {
+  right: 12px;
+  left: auto;
+  transform: rotate(45deg);
+}
+
+.jargon-help.tooltip-right:hover::before,
+.jargon-help.tooltip-right:focus-visible::before {
+  transform: translate(0, 0);
+}
+
 .control-center {
   position: relative;
   min-height: 100vh;
@@ -334,7 +440,7 @@ code {
 
 .panel {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background:
@@ -2609,6 +2715,150 @@ button.game-card:hover:not(:disabled) {
 }
 .game-log > p > span { color: var(--faint); font-family: var(--mono); }
 
+/* Readable, viewport-sized play surface. */
+.play-panel .section-heading { margin-bottom: 16px; }
+.play-panel .section-heading h1 { font-size: clamp(30px, 3vw, 42px); }
+.play-panel .section-heading p { font-size: 14px; }
+.play-panel .game-setup label > span,
+.play-panel .toggle-label,
+.play-panel .button { font-size: 12px; }
+.card-visibility-button { white-space: nowrap; }
+
+.play-panel .game-shell {
+  grid-template-columns: minmax(0, 1fr) 340px;
+  height: clamp(560px, calc(100vh - 230px), 680px);
+  min-height: 0;
+}
+.play-panel .board-column {
+  grid-template-rows: minmax(118px, 0.72fr) minmax(205px, 1.18fr) minmax(218px, 1.1fr);
+  overflow: hidden;
+}
+.play-panel .player-zone { gap: 8px; min-height: 0; padding: 10px 18px; overflow: hidden; }
+.play-panel .player-zone .base-row { min-height: 62px; overflow-x: auto; }
+.play-panel .human-zone .hand-row { min-height: 0; justify-content: flex-start; overflow-x: auto; padding: 2px 0 8px; }
+.play-panel .market-zone { min-height: 0; padding: 10px 18px 12px; overflow: hidden; }
+.play-panel .market-zone > header { margin-bottom: 8px; font-size: 12px; }
+.play-panel .market-row { justify-content: flex-start; overflow-x: auto; padding: 2px 0 8px; }
+.play-panel .game-card { width: 112px; min-width: 112px; height: 154px; padding: 11px 9px 8px; }
+.play-panel .card-compact { width: 76px; min-width: 76px; height: 72px; }
+.play-panel .game-card > strong { min-height: 27px; font-size: 12px; }
+.play-panel .card-kind { font-size: 10px; }
+.play-panel .card-rule { margin-top: 7px; font-size: 11px; line-height: 1.3; }
+.play-panel .card-stats { gap: 3px 6px; padding-top: 5px; font-size: 10px; }
+.play-panel .card-stats b { font-size: 11px; }
+.play-panel .card-cost { width: 24px; height: 24px; font-size: 12px; }
+.play-panel .card-compact > strong { margin-top: 3px; font-size: 11px; }
+.play-panel .player-avatar { font-size: 11px; }
+.play-panel .player-zone > header p strong { font-size: 13px; }
+.play-panel .player-zone > header p small { font-size: 11px; }
+.play-panel .authority-display small,
+.play-panel .deck-display small { font-size: 10px; }
+.play-panel .deck-display { color: var(--ink-soft); }
+.play-panel button.deck-display { padding: 4px; }
+.play-panel button.deck-display:hover { border-color: var(--mint); }
+.play-panel .zone-label { font-size: 10px; }
+.play-panel .explorer-stack { font-size: 11px; }
+.play-panel .explorer-stack b { font-size: 15px; }
+.play-panel .resource-pips span { font-size: 10px; }
+.play-panel .decision-label small { font-size: 10px; }
+.play-panel .decision-label strong { font-size: 13px; }
+.play-panel .decision-label > b { font-size: 11px; }
+.play-panel .action-console { padding: 16px; overflow-y: auto; }
+.play-panel .legal-actions { gap: 6px; padding: 14px 0; }
+.play-panel .action-button { min-height: 42px; padding: 8px 10px; }
+.play-panel .action-button b { font-size: 12px; }
+.play-panel .action-button span { font-size: 10px; }
+.play-panel .action-button i { font-size: 11px; }
+.play-panel .choice-inspector { gap: 7px; padding: 12px 0; }
+.play-panel .choice-inspector > div span,
+.play-panel .choice-inspector p { font-size: 10px; }
+.play-panel .choice-inspector > div strong,
+.play-panel .choice-inspector > div b { font-size: 11px; }
+.play-panel .game-log { margin-top: 12px; }
+.play-panel .game-log > p { padding: 6px 0; font-size: 11px; }
+
+.zone-cards-button {
+  display: grid;
+  place-items: center;
+  min-width: 48px;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.018);
+  color: var(--muted);
+}
+.zone-cards-button:hover { border-color: var(--blue); }
+.zone-cards-button b { color: var(--ink); font-family: var(--mono); font-size: 14px; }
+.zone-cards-button span { font-size: 10px; text-transform: uppercase; }
+
+.inventory-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 5, 8, 0.82);
+  backdrop-filter: blur(10px);
+}
+.card-inventory {
+  width: min(1040px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: #0a1119;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.58);
+}
+.card-inventory > header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(10, 17, 25, 0.96);
+}
+.card-inventory h2 { margin: 3px 0 0; font-size: 24px; }
+.card-inventory > header p { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
+.inventory-close {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 23px;
+}
+.inventory-players { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); }
+.inventory-players > article { min-width: 0; padding: 20px 22px 24px; background: var(--surface); }
+.inventory-players h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 16px; font-size: 16px; }
+.inventory-players h3 .player-avatar { width: 34px; height: 34px; font-size: 10px; }
+.card-collection + .card-collection { margin-top: 20px; }
+.card-collection > header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.card-collection > header strong { font-size: 14px; }
+.card-collection > header span { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.card-collection > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.card-chip {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1px 8px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line-strong);
+  border-left-width: 3px;
+  border-radius: 7px;
+  background: var(--surface-raised);
+}
+.card-chip > b { grid-row: 1 / span 2; color: var(--mint); font-family: var(--mono); font-size: 13px; }
+.card-chip > span { overflow: hidden; color: var(--ink-soft); font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.card-chip > small { color: var(--muted); font-size: 10px; }
+.empty-card-zone { grid-column: 1 / -1; padding: 12px; color: var(--faint); font-size: 12px; text-align: center; }
+
 .diagnostic-status {
   display: grid;
   gap: 1px;
@@ -2704,6 +2954,9 @@ button.game-card:hover:not(:disabled) {
   .section-heading { align-items: flex-start; flex-direction: column; }
   .section-summary { padding: 0; border: 0; text-align: left; }
   .game-shell { grid-template-columns: 1fr; }
+  .play-panel .game-shell { height: auto; min-height: 0; }
+  .play-panel .board-column { grid-template-rows: auto; }
+  .play-panel .action-console { max-height: 560px; }
   .action-console { border-top: 1px solid var(--line); border-left: 0; }
   .legal-actions { grid-template-columns: repeat(2, 1fr); }
   .legal-actions .panel-kicker { grid-column: 1 / -1; }
@@ -2762,6 +3015,7 @@ button.game-card:hover:not(:disabled) {
   .play-heading { display: block; }
   .game-setup { flex-wrap: wrap; justify-content: flex-start; margin-top: 18px; }
   .game-setup label:first-child { flex: 1 1 100%; }
+  .card-visibility-button { flex: 1; }
   .player-zone { grid-template-columns: 1fr; padding: 16px 13px; }
   .player-zone .base-row { grid-column: 1 / -1; grid-row: 2; }
   .human-zone { grid-template-columns: 1fr; }
@@ -2774,6 +3028,10 @@ button.game-card:hover:not(:disabled) {
   .resource-pips { display: none; }
   .legal-actions { grid-template-columns: 1fr; }
   .legal-actions .panel-kicker { grid-column: auto; }
+  .inventory-backdrop { padding: 10px; }
+  .card-inventory { max-height: calc(100vh - 20px); }
+  .inventory-players { grid-template-columns: 1fr; }
+  .card-collection > div { grid-template-columns: 1fr; }
   .choice-inspector { grid-template-columns: 1fr; }
   .choice-inspector > .panel-kicker,
   .choice-inspector > p { grid-column: auto; }

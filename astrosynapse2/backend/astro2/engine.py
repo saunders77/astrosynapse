@@ -476,6 +476,26 @@ class Game:
             fleet_active=self._fleet_hq_active(own),
         )
 
+    def unordered_card_zones(self, player_id: int) -> dict[str, dict[str, list[dict[str, Any]]]]:
+        """Return both players' hidden zones without revealing any card order.
+
+        This is intended for the local human-play inspector.  Sorting each zone
+        by card id makes the payload a multiset rather than a draw-order leak.
+        """
+
+        if player_id not in (0, 1):
+            raise ValueError("unknown player")
+        own = self.players[player_id]
+        opponent = self.players[1 - player_id]
+
+        def zones(player: _Player) -> dict[str, list[dict[str, Any]]]:
+            return {
+                "hand": [card.to_dict() for card in _card_multiset(player.hand)],
+                "deck": [card.to_dict() for card in _card_multiset(player.deck)],
+            }
+
+        return {"own": zones(own), "opponent": zones(opponent)}
+
     @staticmethod
     def _in_play_observation(cards: Iterable[_InPlay]) -> tuple[InPlayObservation, ...]:
         return tuple(

@@ -41,6 +41,9 @@ test("server-renders the Astrosynapse 2 control center", async () => {
   assert.match(html, /Play/i);
   assert.match(html, /Diagnostics/i);
   assert.match(html, /<canvas/i);
+  assert.match(html, /class="jargon-help\b/i);
+  assert.match(html, /Outcome Binary Cross-Entropy/i);
+  assert.match(html, /A number used to control randomness/i);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site|react-loading-skeleton/i);
 });
 
@@ -68,6 +71,12 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /size_bytes/);
   assert.match(page, /truncation_rate/);
   assert.match(page, /heuristic_bootstrap_updates_remaining/);
+  assert.match(page, /term="lineage"/);
+  assert.match(page, /term="champion"/);
+  assert.match(page, /term="heldOutStrength"/);
+  assert.match(page, /term="actions"/);
+  assert.match(page, /term="explainedVariance"/);
+  assert.match(page, /term="bootstrapUncertainty"/);
   assert.match(page, /model_a_first_seat_score/);
   assert.match(page, /paired_interval_method/);
   assert.match(page, /method === "GET" \? 3_000 : 10_000/);
