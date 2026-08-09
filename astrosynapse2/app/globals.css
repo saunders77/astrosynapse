@@ -2026,6 +2026,29 @@ button.game-card:hover:not(:disabled) {
 .card-compact .card-cost { width: 20px; height: 20px; font-size: 8px; }
 .card-compact > strong { margin-top: 8px; font-size: 8px; }
 
+.card-compact .card-kind { display: none; }
+.play-panel .card-compact > .card-title {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  left: 5px;
+  z-index: 1;
+  display: grid;
+  align-content: center;
+  max-width: none;
+  min-height: 30px;
+  margin: 0;
+  padding: 4px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  background: rgba(3, 7, 11, 0.82);
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 1.15;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
 .resource-pips {
   display: flex;
   align-items: center;
@@ -2688,6 +2711,29 @@ button.game-card:hover:not(:disabled) {
 .player-zone .base-row { min-height: 107px; justify-content: flex-start; }
 .human-zone .hand-row { min-height: 175px; }
 
+.discard-notice {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 190px;
+  padding: 6px 9px;
+  border: 1px solid rgba(242, 197, 94, 0.38);
+  border-radius: 7px;
+  background: rgba(242, 197, 94, 0.08);
+  color: var(--warning);
+}
+.discard-notice > b {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 620;
+}
+.discard-notice > span {
+  font-size: 9px;
+  font-weight: 620;
+  line-height: 1.25;
+}
+
 .authority-display small,
 .deck-display small { display: block; }
 .deck-display > span { text-align: center; }
@@ -2751,6 +2797,7 @@ button.game-card:hover:not(:disabled) {
 .play-panel .player-avatar { font-size: 11px; }
 .play-panel .player-zone > header p strong { font-size: 13px; }
 .play-panel .player-zone > header p small { font-size: 11px; }
+.play-panel .discard-notice > span { font-size: 10px; }
 .play-panel .authority-display small,
 .play-panel .deck-display small { font-size: 10px; }
 .play-panel .deck-display { color: var(--ink-soft); }
@@ -3026,6 +3073,7 @@ button.game-card:hover:not(:disabled) {
   .hand-row .game-card { margin: 0; }
   .game-card { min-width: 108px; }
   .resource-pips { display: none; }
+  .discard-notice { max-width: 155px; }
   .legal-actions { grid-template-columns: 1fr; }
   .legal-actions .panel-kicker { grid-column: auto; }
   .inventory-backdrop { padding: 10px; }
@@ -3063,6 +3111,7 @@ button.game-card:hover:not(:disabled) {
   .toggle-label { flex: 1; }
   .player-zone { grid-template-columns: 1fr; }
   .deck-display { display: none; }
+  .discard-notice { order: 3; width: 100%; max-width: none; }
   .section-heading h1 { font-size: 31px; }
   .diagnostic-status { margin-top: 10px; }
 }

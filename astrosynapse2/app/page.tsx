@@ -287,6 +287,8 @@ type GameState = {
   discardCount: number;
   opponentHandCount: number;
   opponentDeckCount: number;
+  pendingDiscard: number;
+  opponentPendingDiscard: number;
   explorersRemaining: number;
   hand: GameCard[];
   ownDeck: GameCard[];
@@ -708,6 +710,8 @@ const initialGame: GameState = {
   discardCount: 7,
   opponentHandCount: 5,
   opponentDeckCount: 8,
+  pendingDiscard: 0,
+  opponentPendingDiscard: 0,
   explorersRemaining: 10,
   hand: [demoCards.scoutA, demoCards.federation, demoCards.viper, demoCards.tradePod, demoCards.scoutB],
   ownDeck: [demoCards.scoutA, demoCards.scoutB, demoCards.viper, demoCards.federation],
@@ -1199,6 +1203,11 @@ function normalizeRemoteGame(raw: unknown, previous: GameState): {
           : previous.discardCount,
       opponentHandCount: asNumber(observation.opponent_hand_count, previous.opponentHandCount),
       opponentDeckCount: asNumber(observation.opponent_deck_count ?? opponent.deck_count, previous.opponentDeckCount),
+      pendingDiscard: asNumber(observation.pending_discard ?? human.must_discard, previous.pendingDiscard),
+      opponentPendingDiscard: asNumber(
+        observation.opponent_pending_discard ?? opponent.must_discard,
+        previous.opponentPendingDiscard,
+      ),
       explorersRemaining: asNumber(observation.explorers_remaining ?? board.explorers_remaining, previous.explorersRemaining),
       hand,
       ownDeck: Array.isArray(ownZones.deck)
@@ -1495,7 +1504,7 @@ function CardTile({
     <>
       <span className="card-cost" aria-label={`Cost ${card.cost}`}>{card.cost}</span>
       <span className="card-kind">{card.kind}</span>
-      <strong>{card.name}</strong>
+      <strong className="card-title" title={card.name}>{card.name}</strong>
       <span className="card-rule">{card.text}</span>
       <span className="card-stats">
         {card.trade ? <span><b>{card.trade}</b> trade</span> : null}
@@ -1514,6 +1523,18 @@ function CardTile({
     );
   }
   return <div className={className}>{content}</div>;
+}
+
+function DiscardNotice({ count, subject }: { count: number; subject: "You" | "Opponent" }) {
+  if (count <= 0) return null;
+  const cardLabel = count === 1 ? "card" : "cards";
+  const turnOwner = subject === "You" ? "your" : "their";
+  return (
+    <span className="discard-notice" role="status" aria-label={`${subject} must discard ${count} ${cardLabel} at the start of ${turnOwner} next turn`}>
+      <b aria-hidden="true">{count}</b>
+      <span>{subject} must discard {count} {cardLabel} at the start of {turnOwner} next turn</span>
+    </span>
+  );
 }
 
 function CardCollection({ label, cards }: { label: string; cards: GameCard[] }) {
@@ -2668,7 +2689,7 @@ export default function Home() {
             {connected && !remoteGame ? <div className="panel connected-game-empty"><EmptyState title="Start a live game" detail="Choose a checkpoint or the balanced baseline, then create a session. Every card and legal action will come from the engine." /></div> : <div className="game-shell">
               <div className="board-column">
                 <section className="player-zone opponent-zone" aria-label="Opponent board">
-                  <header><div><span className="player-avatar opponent-avatar">AI</span><p><strong>Orion</strong><small>{remoteGame?.modelLabel ?? snapshot.models.find((model) => model.id === playModel)?.label ?? "Balanced baseline"}</small></p></div><button type="button" className="zone-cards-button" onClick={() => setInventoryOpen(true)}><b>{game.opponentHandCount}</b><span>hand</span></button><div className="authority-display"><small>Authority</small><strong>{game.opponentAuthority}</strong></div><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View opponent hidden hand and deck pool"><i /><span>{game.opponentDeckCount}<small>deck</small></span></button></header>
+                  <header><div><span className="player-avatar opponent-avatar">AI</span><p><strong>Orion</strong><small>{remoteGame?.modelLabel ?? snapshot.models.find((model) => model.id === playModel)?.label ?? "Balanced baseline"}</small></p></div><DiscardNotice count={game.opponentPendingDiscard} subject="Opponent" /><button type="button" className="zone-cards-button" onClick={() => setInventoryOpen(true)}><b>{game.opponentHandCount}</b><span>hand</span></button><div className="authority-display"><small>Authority</small><strong>{game.opponentAuthority}</strong></div><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View opponent hidden hand and deck pool"><i /><span>{game.opponentDeckCount}<small>deck</small></span></button></header>
                   <div className="base-row">{game.opponentBases.map((card) => <CardTile key={card.id} card={card} compact />)}<span className="zone-label">Opponent bases</span></div>
                 </section>
 
@@ -2679,7 +2700,7 @@ export default function Home() {
 
                 <section className="player-zone human-zone" aria-label="Your board">
                   <div className="base-row">{game.humanBases.map((card) => <CardTile key={card.id} card={card} compact />)}<span className="zone-label">Your bases</span></div>
-                  <header><div><span className="player-avatar human-avatar">YOU</span><p><strong>Your fleet</strong><small>Turn {game.turn} · main phase</small></p></div><div className="resource-pips"><span className="trade-pip"><b>{game.trade}</b>Trade</span><span className="attack-pip"><b>{game.attack}</b>Combat</span></div><div className="authority-display"><small>Authority</small><strong>{game.humanAuthority}</strong></div><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View your hand and unordered deck"><i /><span>{game.deckCount}<small>deck</small></span><span>{game.discardCount}<small>discard</small></span></button></header>
+                  <header><div><span className="player-avatar human-avatar">YOU</span><p><strong>Your fleet</strong><small>Turn {game.turn} · main phase</small></p></div><DiscardNotice count={game.pendingDiscard} subject="You" /><div className="resource-pips"><span className="trade-pip"><b>{game.trade}</b>Trade</span><span className="attack-pip"><b>{game.attack}</b>Combat</span></div><div className="authority-display"><small>Authority</small><strong>{game.humanAuthority}</strong></div><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View your hand and unordered deck"><i /><span>{game.deckCount}<small>deck</small></span><span>{game.discardCount}<small>discard</small></span></button></header>
                   <div className="hand-row">{game.hand.map((card) => <CardTile key={card.id} card={card} selected={selectedCard === card.id} onClick={() => setSelectedCard(card.id)} />)}{game.hand.length === 0 ? <EmptyState title="Hand played" detail="Spend remaining trade or combat, then end the turn." /> : null}</div>
                 </section>
               </div>

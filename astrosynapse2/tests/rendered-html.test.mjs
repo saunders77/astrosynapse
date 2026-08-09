@@ -81,6 +81,11 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /paired_interval_method/);
   assert.match(page, /method === "GET" \? 3_000 : 10_000/);
   assert.match(page, /<b>\{game\.explorersRemaining\}<\/b>/);
+  assert.match(page, /observation\.pending_discard/);
+  assert.match(page, /observation\.opponent_pending_discard/);
+  assert.match(page, /<DiscardNotice count=\{game\.pendingDiscard\} subject="You"/);
+  assert.match(page, /<DiscardNotice count=\{game\.opponentPendingDiscard\} subject="Opponent"/);
+  assert.match(page, /className="card-title" title=\{card\.name\}/);
   assert.doesNotMatch(page, /Math\.max\(80,/);
   assert.doesNotMatch(page, /paired_seeds:\s*true|SkeletonPreview|_sites-preview/);
 
