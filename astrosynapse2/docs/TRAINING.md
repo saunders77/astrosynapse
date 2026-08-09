@@ -88,8 +88,8 @@ Before ordinary self-play, the replay warmup is filled with games between the ba
 | Heuristic bootstrap | First 2,000 learner updates |
 | Epsilon | 0.20 → 0.025 over 1.5M games |
 | Checkpoint interval | 100,000 games |
-| Evaluation interval | 500,000 games |
-| Promotion evaluation | 5,000 paired seeds / 10,000 games |
+| Mature evaluation interval | 500,000 games |
+| Promotion evaluation | Adaptive 200 → 1,000 → 5,000 paired seeds |
 
 The learning-rate cosine follows active elapsed time. A short update warmup protects a fresh optimizer from the highly correlated first replay batches and is repeated when a resumed run recreates AdamW. Paused time and backend downtime are excluded; consumed active time is recovered from the latest persisted metric when a run resumes.
 
@@ -99,15 +99,17 @@ These values are defaults, not universal optima. Watch measured throughput and m
 
 Every arena seed is run twice with the same isolated game randomness and exact model seat swap. Model-role RNG is also held stable across the pair. The seed pair—not two correlated games—is the statistical unit.
 
-At the configured interval, the trainer checkpoints the candidate and queues it against the current champion. A job can promote automatically only if all of these hold:
+The recommended preset adapts evaluation to model maturity. Before 500,000 training games, every checkpoint is compared with 200 paired seeds. From 500,000 through 999,999 games, comparisons use 1,000 pairs and are spaced by 250,000 games (rounded up to a checkpoint boundary). Starting at 1,000,000 games, comparisons use the configured 5,000 pairs every configured 500,000 games. Early promotions are recorded as `provisional` or `development`; mature promotions are recorded as `full`. Adaptive evaluation can be disabled to use the configured interval and pair count from the beginning.
+
+Every tier remains confidence-gated: a candidate is promoted only when its paired confidence interval's lower bound exceeds 50% (plus any configured promotion margin). A trainer-created job can promote automatically only if all of these hold:
 
 1. both entries are immutable checkpoint actors;
 2. the job was created internally as an automatic evaluation;
-3. at least 5,000 seed pairs completed;
+3. the complete pair count required by its recorded tier completed;
 4. the full requested job completed;
 5. the paired 95% confidence interval's lower bound is above 50%.
 
-The candidate's evaluation record, champion flags, and run champion ID are updated in one SQLite transaction. Small quick-run jobs and every job created manually in the GUI have `automatic: false` and cannot promote anything, regardless of observed win rate.
+The candidate's evaluation record, champion flags, and run champion ID are updated in one SQLite transaction. Small quick-run jobs and every job created manually in the GUI have `automatic: false` and cannot promote anything, regardless of observed win rate. Fixed job sizes are intentional: repeatedly checking an ordinary confidence interval and stopping as soon as it crosses the threshold would overstate confidence without a sequential-testing correction.
 
 Arena output reports overall and seat-split score, Wilson and paired intervals, draws, truncations, games/s, ETA, and recent paired seeds. Elo difference is only a display transform of the measured score; it is not treated as an absolute global rating.
 

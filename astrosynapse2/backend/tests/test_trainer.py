@@ -8,6 +8,7 @@ from astro2.storage import Store
 from astro2.supervisor import InvalidTransition, RunControl, Supervisor, TrainingHandle
 from astro2.trainer import (
     _epsilon,
+    _evaluation_plan,
     _last_scheduled_evaluation_games,
     _learning_rate,
     _make_bootstrap_plan,
@@ -202,9 +203,56 @@ def test_quick_evaluation_is_paired_but_never_automatic(tmp_path):
     assert config.trainer_scheduled is True
 
 
-def test_full_evaluation_uses_conservative_automatic_gate(tmp_path):
+def test_adaptive_evaluation_grows_from_provisional_to_full():
+    config = RunConfig()
+    provisional = _evaluation_plan(config, 100_000)
+    assert (provisional.tier, provisional.cadence_games, provisional.pairs) == (
+        "provisional",
+        100_000,
+        200,
+    )
+    assert provisional.automatic_promotion is True
+
+    development = _evaluation_plan(config, 500_000)
+    assert (development.tier, development.cadence_games, development.pairs) == (
+        "development",
+        250_000,
+        1_000,
+    )
+
+    full = _evaluation_plan(config, 1_000_000)
+    assert (full.tier, full.cadence_games, full.pairs) == (
+        "full",
+        500_000,
+        5_000,
+    )
+
+
+def test_provisional_evaluation_can_promote_with_its_recorded_gate(tmp_path):
     store = Store(tmp_path / "state.sqlite3")
     config = RunConfig()
+    run = store.create_run(config)
+    champion, candidate = _checkpoints(store, run, tmp_path)
+    manager = FakeArenaManager()
+    job = _schedule_evaluation(
+        manager=manager,
+        store=store,
+        run_id=run["id"],
+        checkpoint=candidate,
+        config=config,
+    )
+    assert job["id"] == "automatic-job"
+    kind, model_a, model_b, options = manager.calls[0]
+    assert kind == "automatic"
+    assert (model_a, model_b) == (candidate["id"], champion["id"])
+    assert options["pairs"] == 200
+    assert options["minimum_promotion_pairs"] == 200
+    assert options["promotion_tier"] == "provisional"
+
+
+def test_full_evaluation_uses_conservative_automatic_gate(tmp_path):
+    store = Store(tmp_path / "state.sqlite3")
+    config = RunConfig(adaptive_evaluation=False)
     run = store.create_run(config)
     champion, candidate = _checkpoints(store, run, tmp_path)
     manager = FakeArenaManager()
@@ -224,9 +272,18 @@ def test_full_evaluation_uses_conservative_automatic_gate(tmp_path):
     store.create_arena_job(
         model_a=candidate["id"],
         model_b=champion["id"],
-        config={"automatic_promotion": True, "trainer_scheduled": True},
+        config={
+            "automatic_promotion": True,
+            "trainer_scheduled": True,
+            "promotion_tier": "full",
+        },
     )
     assert _last_scheduled_evaluation_games(store, run["id"]) == candidate["games"]
+    assert (
+        _last_scheduled_evaluation_games(store, run["id"], tier="full")
+        == candidate["games"]
+    )
+    assert _last_scheduled_evaluation_games(store, run["id"], tier="provisional") == 0
 
 
 def test_manual_arena_does_not_delay_trainer_evaluation_schedule(tmp_path):

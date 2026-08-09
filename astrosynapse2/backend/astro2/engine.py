@@ -129,6 +129,9 @@ class Action(_JsonMixin):
         bits = [self.kind.value.replace("_", " ")]
         if card is not None:
             bits.append(card.name)
+        if self.kind == ActionKind.SCRAP_CARD and self.source_zone:
+            zone_label = "discard pile" if self.source_zone == "discard" else self.source_zone
+            bits.append("from " + zone_label.replace("_", " "))
         if target is not None:
             bits.append("-> " + target.name)
         if self.ability:
@@ -477,10 +480,11 @@ class Game:
         )
 
     def unordered_card_zones(self, player_id: int) -> dict[str, dict[str, list[dict[str, Any]]]]:
-        """Return both players' hidden zones without revealing any card order.
+        """Return inspectable hidden cards without revealing any card order or opponent split.
 
-        This is intended for the local human-play inspector.  Sorting each zone
-        by card id makes the payload a multiset rather than a draw-order leak.
+        This is intended for the local human-play inspector. Sorting each zone
+        by card id makes the payload a multiset rather than a draw-order leak;
+        the opponent's hand and deck are also merged into one hidden pool.
         """
 
         if player_id not in (0, 1):
@@ -494,7 +498,16 @@ class Game:
                 "deck": [card.to_dict() for card in _card_multiset(player.deck)],
             }
 
-        return {"own": zones(own), "opponent": zones(opponent)}
+        # The opponent's hand size and deck size are public, but the assignment
+        # of cards between those zones is not.  Expose one shuffled information-
+        # set pool so inspector clients cannot recover that hidden assignment.
+        opponent_hidden = _card_multiset(opponent.hand + opponent.deck)
+        return {
+            "own": zones(own),
+            "opponent": {
+                "hidden": [card.to_dict() for card in opponent_hidden],
+            },
+        }
 
     @staticmethod
     def _in_play_observation(cards: Iterable[_InPlay]) -> tuple[InPlayObservation, ...]:

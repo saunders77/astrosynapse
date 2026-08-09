@@ -51,7 +51,7 @@ Press Control-C in that Terminal to request a safe stop and final checkpoint. A 
 4. If the quick run is healthy, create the **M4 24-hour** preset and launch it.
 5. When the 24-hour budget ends, open **Models & Arena**. If the final candidate was created after the last scheduled gate, compare it with the champion for 5,000 pairs before deciding which actor to export.
 
-The 24-hour preset is a starting point tuned for the base M4/16 GB target: 8 CPU actors, a 192-wide three-block model, 3 bootstrap heads, 900,000 replay decisions, 2,048-sample GPU batches, and conservative 5,000-pair promotion evaluations. Actual throughput and strength depend on learned game length, memory pressure, and the opponents encountered, so the GUI reports measured rates rather than promising a fixed result.
+The 24-hour preset is a starting point tuned for the base M4/16 GB target: 8 CPU actors, a 192-wide three-block model, 3 bootstrap heads, 900,000 replay decisions, 2,048-sample GPU batches, and adaptive promotion evaluations that grow from 200 to 1,000 to a conservative 5,000 paired seeds as training matures. Actual throughput and strength depend on learned game length, memory pressure, and the opponents encountered, so the GUI reports measured rates rather than promising a fixed result.
 
 ## Dashboard guide
 

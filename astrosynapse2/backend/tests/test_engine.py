@@ -42,6 +42,17 @@ def test_card_catalog_and_canonical_market_shape():
     assert game.explorers_remaining == 10
 
 
+def test_scrap_action_labels_identify_the_source_zone():
+    assert (
+        Action(ActionKind.SCRAP_CARD, card_id=SCOUT.card_id, source_zone="hand").label
+        == "scrap card Scout from hand"
+    )
+    assert (
+        Action(ActionKind.SCRAP_CARD, card_id=SCOUT.card_id, source_zone="discard").label
+        == "scrap card Scout from discard pile"
+    )
+
+
 def test_public_types_are_immutable_and_human_serializable():
     game = Game(config=GameConfig(seed=2))
     observation = game.observation(0)
@@ -94,6 +105,15 @@ def test_hidden_order_permutations_produce_identical_observations():
     assert before == after
     assert before.opponent_hidden
     assert before.trade_deck
+
+
+def test_opponent_hand_deck_assignment_is_not_in_policy_observation():
+    game = Game(config=GameConfig(seed=6))
+    opponent = game.players[1]
+    before = game.observation(0)
+    opponent.hand[0], opponent.deck[0] = opponent.deck[0], opponent.hand[0]
+    after = game.observation(0)
+    assert before == after
 
 
 def test_known_top_cards_are_not_duplicated_in_hidden_multisets():

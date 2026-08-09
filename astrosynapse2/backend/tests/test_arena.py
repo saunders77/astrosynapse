@@ -217,6 +217,36 @@ def test_automatic_finalization_never_promotes_manual_or_tiny_jobs_but_promotes_
     assert tiny_result["promotion"]["promoted"] is False
     assert store.get_run(run["id"])["champion_id"] == champion["id"]
 
+    provisional = ArenaConfig(
+        pairs=200,
+        minimum_promotion_pairs=200,
+        promotion_tier="provisional",
+        automatic_promotion=True,
+    )
+    provisional_result = {
+        "pairs_completed": 200,
+        "games_completed": 400,
+        "model_a_score": 0.65,
+        "paired_interval": {
+            "estimate": 0.65,
+            "low": 0.58,
+            "high": 0.72,
+            "samples": 200,
+        },
+        "promotion": {},
+    }
+    assert finalize_automatic_evaluation(
+        store,
+        job_id="provisional",
+        config=provisional,
+        model_a=model_a,
+        model_b=model_b,
+        result=provisional_result,
+    )
+    assert provisional_result["promotion"]["tier"] == "provisional"
+    latest = store.checkpoint(candidate["id"])["evaluation"]["latest_arena"]
+    assert latest["promotion_tier"] == "provisional"
+
     qualifying = {
         "pairs_completed": 5_000,
         "games_completed": 10_000,

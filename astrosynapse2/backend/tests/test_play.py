@@ -8,8 +8,10 @@ def test_human_game_advances_after_legal_choice():
     assert initial["decision"]["actions"]
     assert len(initial["card_zones"]["own"]["hand"]) == 3
     assert len(initial["card_zones"]["own"]["deck"]) == 7
-    assert len(initial["card_zones"]["opponent"]["hand"]) == 5
-    assert len(initial["card_zones"]["opponent"]["deck"]) == 5
+    assert set(initial["card_zones"]["opponent"]) == {"hidden"}
+    assert len(initial["card_zones"]["opponent"]["hidden"]) == 10
+    assert len(initial["observation"]["opponent_hidden"]) == 10
+    assert initial["observation"]["opponent_known_hand"] == []
     assert [card["card_id"] for card in initial["card_zones"]["own"]["deck"]] == sorted(
         card["card_id"] for card in initial["card_zones"]["own"]["deck"]
     )

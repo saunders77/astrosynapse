@@ -51,6 +51,7 @@ class RunConfig(BaseModel):
     checkpoint_every_games: int = Field(default=100_000, ge=100)
     evaluate_every_games: int = Field(default=500_000, ge=100)
     evaluation_pairs: int = Field(default=5_000, ge=8, le=20_000)
+    adaptive_evaluation: bool = True
     promotion_confidence: float = Field(default=0.95, ge=0.80, le=0.999)
     promotion_margin: float = Field(default=0.0, ge=0, le=0.25)
     keep_checkpoints: int = Field(default=12, ge=2, le=100)
@@ -89,6 +90,7 @@ class RunConfig(BaseModel):
             checkpoint_every_games=1_000,
             evaluate_every_games=2_000,
             evaluation_pairs=16,
+            adaptive_evaluation=False,
         )
 
 
@@ -102,6 +104,7 @@ SAFE_LIVE_FIELDS = {
     "checkpoint_every_games",
     "evaluate_every_games",
     "evaluation_pairs",
+    "adaptive_evaluation",
     "promotion_confidence",
     "promotion_margin",
     "metrics_interval_seconds",

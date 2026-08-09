@@ -56,6 +56,52 @@ class _Totals:
     forced_choices: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class _EvaluationPlan:
+    tier: str
+    cadence_games: int
+    pairs: int
+    automatic_promotion: bool
+
+
+def _evaluation_plan(config: RunConfig, games: int) -> _EvaluationPlan:
+    """Scale evaluation cost as a run moves from bootstrap to mature play."""
+
+    full_automatic = config.evaluation_pairs >= 5_000
+    if not config.adaptive_evaluation or not full_automatic:
+        return _EvaluationPlan(
+            tier="full" if full_automatic else "diagnostic",
+            cadence_games=config.evaluate_every_games,
+            pairs=config.evaluation_pairs,
+            automatic_promotion=full_automatic,
+        )
+
+    # The configured interval marks the end of bootstrap; twice that interval
+    # marks the point where every promotion uses the full conservative gate.
+    if games < config.evaluate_every_games:
+        return _EvaluationPlan(
+            tier="provisional",
+            cadence_games=config.checkpoint_every_games,
+            pairs=min(config.evaluation_pairs, max(200, config.evaluation_pairs // 25)),
+            automatic_promotion=True,
+        )
+    if games < 2 * config.evaluate_every_games:
+        return _EvaluationPlan(
+            tier="development",
+            cadence_games=max(
+                config.checkpoint_every_games, config.evaluate_every_games // 2
+            ),
+            pairs=min(config.evaluation_pairs, max(1_000, config.evaluation_pairs // 5)),
+            automatic_promotion=True,
+        )
+    return _EvaluationPlan(
+        tier="full",
+        cadence_games=config.evaluate_every_games,
+        pairs=config.evaluation_pairs,
+        automatic_promotion=True,
+    )
+
+
 def _epsilon(config: RunConfig, games: int) -> float:
     if games >= config.epsilon_decay_games:
         return config.epsilon_end
@@ -158,7 +204,9 @@ def _sync_league(league: League, store: Store, run_id: str) -> None:
         )
 
 
-def _last_scheduled_evaluation_games(store: Store, run_id: str) -> int:
+def _last_scheduled_evaluation_games(
+    store: Store, run_id: str, *, tier: str | None = None
+) -> int:
     checkpoint_games = {item["id"]: int(item["games"]) for item in store.checkpoints(run_id)}
     return max(
         (
@@ -168,6 +216,16 @@ def _last_scheduled_evaluation_games(store: Store, run_id: str) -> int:
             and bool(
                 (job.get("config") or {}).get("trainer_scheduled")
                 or (job.get("config") or {}).get("automatic_promotion")
+            )
+            and (
+                tier is None
+                or (job.get("config") or {}).get(
+                    "promotion_tier",
+                    "full"
+                    if (job.get("config") or {}).get("automatic_promotion")
+                    else "diagnostic",
+                )
+                == tier
             )
         ),
         default=0,
@@ -219,20 +277,24 @@ def _schedule_evaluation(
     run_id: str,
     checkpoint: dict[str, Any],
     config: RunConfig,
+    plan: _EvaluationPlan | None = None,
 ) -> dict[str, Any] | None:
     champion_id = store.get_run(run_id).get("champion_id")
     if not champion_id or champion_id == checkpoint["id"]:
         return None
-    if config.evaluation_pairs >= 5_000:
+    plan = plan or _evaluation_plan(config, int(checkpoint["games"]))
+    if plan.automatic_promotion:
         job = manager.create_automatic(
             checkpoint["id"],
             champion_id,
-            pairs=config.evaluation_pairs,
+            pairs=plan.pairs,
             seed=config.seed + int(checkpoint["games"]),
             max_turns=config.max_turns,
             max_actions_per_turn=config.max_actions_per_turn,
             confidence=config.promotion_confidence,
             promotion_margin=config.promotion_margin,
+            minimum_promotion_pairs=plan.pairs,
+            promotion_tier=plan.tier,
         )
     else:
         # Quick validation runs still exercise the paired evaluator, but their
@@ -243,11 +305,12 @@ def _schedule_evaluation(
             checkpoint["id"],
             champion_id,
             ArenaConfig(
-                pairs=config.evaluation_pairs,
+                pairs=plan.pairs,
                 seed=config.seed + int(checkpoint["games"]),
                 max_turns=config.max_turns,
                 max_actions_per_turn=config.max_actions_per_turn,
                 confidence=config.promotion_confidence,
+                promotion_tier=plan.tier,
                 automatic_promotion=False,
                 trainer_scheduled=True,
             ),
@@ -256,7 +319,7 @@ def _schedule_evaluation(
         run_id,
         "automatic_evaluation_started",
         f"Started paired evaluation for {checkpoint['label']}",
-        {"job_id": job["id"], "pairs": config.evaluation_pairs},
+        {"job_id": job["id"], "pairs": plan.pairs, "tier": plan.tier},
     )
     return job
 
@@ -576,13 +639,16 @@ def run_training(
     metric_seq = int(time.time() * 1_000)
     seed_cursor = config.seed + totals.games * 10_007
     last_checkpoint_games = int(latest["games"] if latest else totals.games)
-    last_evaluation_games = _last_scheduled_evaluation_games(store, run_id)
     evaluation_manager: Any | None = None
     final_reason = "duration complete"
 
     def maybe_schedule_evaluation(checkpoint: dict[str, Any]) -> None:
-        nonlocal evaluation_manager, last_evaluation_games
-        if totals.games - last_evaluation_games < config.evaluate_every_games:
+        nonlocal evaluation_manager
+        plan = _evaluation_plan(config, totals.games)
+        last_evaluation_games = _last_scheduled_evaluation_games(
+            store, run_id, tier=plan.tier
+        )
+        if totals.games - last_evaluation_games < plan.cadence_games:
             return
         if evaluation_manager is None:
             from .arena import ArenaManager
@@ -591,15 +657,14 @@ def run_training(
             # daemon thread may outlive learning so a final comparison can
             # finish while the local backend remains open.
             evaluation_manager = ArenaManager(store, maximum_concurrent_jobs=1, recover=False)
-        job = _schedule_evaluation(
+        _schedule_evaluation(
             manager=evaluation_manager,
             store=store,
             run_id=run_id,
             checkpoint=checkpoint,
             config=config,
+            plan=plan,
         )
-        if job is not None:
-            last_evaluation_games = totals.games
 
     def set_phase(phase: str) -> None:
         status = "paused" if phase == "paused" else "running"
@@ -693,6 +758,13 @@ def run_training(
         )
         publish(payload)
         last_metric_at = now
+
+    # A run may resume just after a checkpoint was written but before its
+    # evaluation was scheduled (for example after upgrading the backend).
+    # Reconsider the latest immutable candidate without duplicating an
+    # already-persisted trainer job.
+    if latest is not None:
+        maybe_schedule_evaluation(latest)
 
     # macOS uses spawn, avoiding unsafe post-Metal forks. Actors never import
     # MLX, so each process remains a small engine/NumPy worker.

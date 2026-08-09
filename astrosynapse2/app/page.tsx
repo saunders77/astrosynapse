@@ -85,7 +85,8 @@ const jargon = {
   baseline: "A fixed hand-written opponent used as a stable reference and to provide useful early training games.",
   promotionConfidence: "How certain the evaluation must be before a challenger may become champion. Higher confidence requires stronger or more plentiful evidence.",
   promotionMargin: "The extra win-rate advantage above 50% a challenger must prove before it can become champion.",
-  evaluationPairs: "The number of paired seeds used for comparison. Every pair plays two games with seats swapped, so 5,000 pairs means 10,000 games.",
+  evaluationPairs: "The mature evaluation size (and the maximum when adaptive evaluation is enabled). Every pair plays two games with seats swapped, so 5,000 pairs means 10,000 games.",
+  adaptiveEvaluation: "Uses smaller confidence-gated promotion rounds early, then increases evaluation size and spacing until the full configured gate is used.",
   stratifiedReplay: "Stored examples are separated by type of decision so common moves do not crowd out rare but important choices.",
   decisionFamilies: "Groups of choices with the same meaning, such as buying, discarding, or scrapping. The model learns each group from its own balanced supply of examples.",
   outcomeEstimate: "The model's predicted chance that the player making the decision will ultimately win the game.",
@@ -254,6 +255,7 @@ type TrainerConfig = {
   leagueFraction: number;
   baselineFraction: number;
   evaluationPairs: number;
+  adaptiveEvaluation: boolean;
   evaluateEveryGames: number;
   checkpointEveryGames: number;
   promotionConfidence: number;
@@ -283,12 +285,12 @@ type GameState = {
   attack: number;
   deckCount: number;
   discardCount: number;
+  opponentHandCount: number;
   opponentDeckCount: number;
   explorersRemaining: number;
   hand: GameCard[];
   ownDeck: GameCard[];
-  opponentHand: GameCard[];
-  opponentDeck: GameCard[];
+  opponentHidden: GameCard[];
   market: GameCard[];
   humanBases: GameCard[];
   opponentBases: GameCard[];
@@ -352,6 +354,7 @@ const initialConfig: TrainerConfig = {
   leagueFraction: 0.3,
   baselineFraction: 0.15,
   evaluationPairs: 5_000,
+  adaptiveEvaluation: true,
   evaluateEveryGames: 500_000,
   checkpointEveryGames: 100_000,
   promotionConfidence: 0.95,
@@ -703,12 +706,12 @@ const initialGame: GameState = {
   attack: 0,
   deckCount: 4,
   discardCount: 7,
+  opponentHandCount: 5,
   opponentDeckCount: 8,
   explorersRemaining: 10,
   hand: [demoCards.scoutA, demoCards.federation, demoCards.viper, demoCards.tradePod, demoCards.scoutB],
   ownDeck: [demoCards.scoutA, demoCards.scoutB, demoCards.viper, demoCards.federation],
-  opponentHand: [demoCards.scoutA, demoCards.viper, demoCards.imperial, demoCards.cutter, demoCards.scoutB],
-  opponentDeck: [demoCards.scoutA, demoCards.scoutB, demoCards.viper, demoCards.tradePod, demoCards.missileBot, demoCards.battlePod, demoCards.cutter, demoCards.federation],
+  opponentHidden: [demoCards.scoutA, demoCards.viper, demoCards.imperial, demoCards.cutter, demoCards.scoutB, demoCards.scoutA, demoCards.scoutB, demoCards.viper, demoCards.tradePod, demoCards.missileBot, demoCards.battlePod, demoCards.cutter, demoCards.federation],
   market: [demoCards.battlePod, demoCards.missileBot, demoCards.imperial, demoCards.cutter, demoCards.tradingPost],
   humanBases: [demoCards.tradingPost],
   opponentBases: [demoCards.warWorld],
@@ -1194,18 +1197,16 @@ function normalizeRemoteGame(raw: unknown, previous: GameState): {
         : Array.isArray(human.discard)
           ? human.discard.length
           : previous.discardCount,
+      opponentHandCount: asNumber(observation.opponent_hand_count, previous.opponentHandCount),
       opponentDeckCount: asNumber(observation.opponent_deck_count ?? opponent.deck_count, previous.opponentDeckCount),
       explorersRemaining: asNumber(observation.explorers_remaining ?? board.explorers_remaining, previous.explorersRemaining),
       hand,
       ownDeck: Array.isArray(ownZones.deck)
         ? ownZones.deck.map((card, index) => cardFromApi(card, `own-deck-${index}`))
         : previous.ownDeck,
-      opponentHand: Array.isArray(opponentZones.hand)
-        ? opponentZones.hand.map((card, index) => cardFromApi(card, `opponent-hand-${index}`))
-        : previous.opponentHand,
-      opponentDeck: Array.isArray(opponentZones.deck)
-        ? opponentZones.deck.map((card, index) => cardFromApi(card, `opponent-deck-${index}`))
-        : previous.opponentDeck,
+      opponentHidden: Array.isArray(opponentZones.hidden)
+        ? opponentZones.hidden.map((card, index) => cardFromApi(card, `opponent-hidden-${index}`))
+        : previous.opponentHidden,
       market,
       humanBases: ownInPlay
         .map((entry, index) => cardFromApi(isRecord(entry) ? entry.card : entry, `own-base-${index}`))
@@ -1223,7 +1224,7 @@ function normalizeRemoteGame(raw: unknown, previous: GameState): {
   };
 }
 
-function configToApi(config: TrainerConfig): Record<string, string | number> {
+function configToApi(config: TrainerConfig): Record<string, string | number | boolean> {
   return {
     preset: config.preset,
     duration_minutes: config.durationMinutes,
@@ -1241,6 +1242,7 @@ function configToApi(config: TrainerConfig): Record<string, string | number> {
     league_fraction: config.leagueFraction,
     baseline_fraction: config.baselineFraction,
     evaluation_pairs: config.evaluationPairs,
+    adaptive_evaluation: config.adaptiveEvaluation,
     evaluate_every_games: config.evaluateEveryGames,
     checkpoint_every_games: config.checkpointEveryGames,
     promotion_confidence: config.promotionConfidence,
@@ -1277,6 +1279,7 @@ function configFromApi(raw: unknown, previous: TrainerConfig): TrainerConfig {
     leagueFraction: asNumber(item.league_fraction, previous.leagueFraction),
     baselineFraction: asNumber(item.baseline_fraction, previous.baselineFraction),
     evaluationPairs: asNumber(item.evaluation_pairs, previous.evaluationPairs),
+    adaptiveEvaluation: typeof item.adaptive_evaluation === "boolean" ? item.adaptive_evaluation : previous.adaptiveEvaluation,
     evaluateEveryGames: asNumber(item.evaluate_every_games, previous.evaluateEveryGames),
     checkpointEveryGames: asNumber(item.checkpoint_every_games, previous.checkpointEveryGames),
     promotionConfidence: asNumber(item.promotion_confidence, previous.promotionConfidence),
@@ -1557,7 +1560,7 @@ function CardInventory({ game, onClose }: { game: GameState; onClose: () => void
         </header>
         <div className="inventory-players">
           <article><h3><span className="player-avatar human-avatar">YOU</span>Your cards</h3><CardCollection label="Hand" cards={game.hand} /><CardCollection label="Deck" cards={game.ownDeck} /></article>
-          <article><h3><span className="player-avatar opponent-avatar">AI</span>Opponent cards</h3><CardCollection label="Hand" cards={game.opponentHand} /><CardCollection label="Deck" cards={game.opponentDeck} /></article>
+          <article><h3><span className="player-avatar opponent-avatar">AI</span>Opponent cards</h3><CardCollection label="Hidden hand + deck" cards={game.opponentHidden} /></article>
         </div>
       </section>
     </div>
@@ -1997,6 +2000,7 @@ export default function Home() {
         checkpointEveryGames: 1_000,
         evaluateEveryGames: 2_000,
         evaluationPairs: 16,
+        adaptiveEvaluation: false,
       };
       setConfig(configFromApi(presetCatalogRef.current.quick, fallbackQuick));
     } else {
@@ -2035,6 +2039,7 @@ export default function Home() {
       league_fraction: config.leagueFraction,
       baseline_fraction: config.baselineFraction,
       evaluation_pairs: config.evaluationPairs,
+      adaptive_evaluation: config.adaptiveEvaluation,
       evaluate_every_games: config.evaluateEveryGames,
       checkpoint_every_games: config.checkpointEveryGames,
       promotion_confidence: config.promotionConfidence,
@@ -2286,7 +2291,7 @@ export default function Home() {
   const phaseSteps = [
     { id: "collect", label: "Collect", detail: `${snapshot.hardware.actorProcesses} actors`, active: snapshot.run.phase.toLowerCase().includes("play") || snapshot.run.phase.toLowerCase().includes("collect") },
     { id: "learn", label: "Learn", detail: snapshot.hardware.learnerDevice, active: snapshot.run.phase.toLowerCase().includes("learn") },
-    { id: "evaluate", label: "Evaluate", detail: `${numberFormatter.format(config.evaluationPairs)} pairs`, active: snapshot.run.phase.toLowerCase().includes("eval") },
+    { id: "evaluate", label: "Evaluate", detail: `${config.adaptiveEvaluation ? "up to " : ""}${numberFormatter.format(config.evaluationPairs)} pairs`, active: snapshot.run.phase.toLowerCase().includes("eval") },
   ];
 
   return (
@@ -2568,6 +2573,7 @@ export default function Home() {
                       <label><span><Jargon term="epsilon">Epsilon end</Jargon></span><input type="number" step="0.005" value={config.epsilonEnd} onChange={(event) => updateConfig("epsilonEnd", Number(event.target.value))} /></label>
                       <label><span><Jargon term="checkpoint">Checkpoint games</Jargon></span><input type="number" value={config.checkpointEveryGames} onChange={(event) => updateConfig("checkpointEveryGames", Number(event.target.value))} /></label>
                       <label><span>Evaluation games</span><input type="number" value={config.evaluateEveryGames} onChange={(event) => updateConfig("evaluateEveryGames", Number(event.target.value))} /></label>
+                      <label className="toggle-label"><input type="checkbox" checked={config.adaptiveEvaluation} onChange={(event) => updateConfig("adaptiveEvaluation", event.target.checked)} /><span /><Jargon term="adaptiveEvaluation">Adaptive early evaluation</Jargon></label>
                     </div></div>
                     <div className="field-section"><h3>Curriculum, league & promotion</h3><div className="field-grid">
                       <label><span><Jargon term="bootstrapUpdates">Bootstrap updates</Jargon></span><input type="number" min="0" value={config.heuristicBootstrapUpdates} onChange={(event) => updateConfig("heuristicBootstrapUpdates", Number(event.target.value))} /></label>
@@ -2662,7 +2668,7 @@ export default function Home() {
             {connected && !remoteGame ? <div className="panel connected-game-empty"><EmptyState title="Start a live game" detail="Choose a checkpoint or the balanced baseline, then create a session. Every card and legal action will come from the engine." /></div> : <div className="game-shell">
               <div className="board-column">
                 <section className="player-zone opponent-zone" aria-label="Opponent board">
-                  <header><div><span className="player-avatar opponent-avatar">AI</span><p><strong>Orion</strong><small>{remoteGame?.modelLabel ?? snapshot.models.find((model) => model.id === playModel)?.label ?? "Balanced baseline"}</small></p></div><button type="button" className="zone-cards-button" onClick={() => setInventoryOpen(true)}><b>{game.opponentHand.length}</b><span>hand</span></button><div className="authority-display"><small>Authority</small><strong>{game.opponentAuthority}</strong></div><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View opponent hand and unordered deck"><i /><span>{game.opponentDeckCount}<small>deck</small></span></button></header>
+                  <header><div><span className="player-avatar opponent-avatar">AI</span><p><strong>Orion</strong><small>{remoteGame?.modelLabel ?? snapshot.models.find((model) => model.id === playModel)?.label ?? "Balanced baseline"}</small></p></div><button type="button" className="zone-cards-button" onClick={() => setInventoryOpen(true)}><b>{game.opponentHandCount}</b><span>hand</span></button><div className="authority-display"><small>Authority</small><strong>{game.opponentAuthority}</strong></div><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View opponent hidden hand and deck pool"><i /><span>{game.opponentDeckCount}<small>deck</small></span></button></header>
                   <div className="base-row">{game.opponentBases.map((card) => <CardTile key={card.id} card={card} compact />)}<span className="zone-label">Opponent bases</span></div>
                 </section>
 
@@ -2726,6 +2732,7 @@ export default function Home() {
                   <label><span>Time budget (minutes)</span><input type="number" value={config.durationMinutes} onChange={(event) => updateConfig("durationMinutes", Number(event.target.value))} /></label>
                   <label><span><Jargon term="evaluationPairs">Evaluation pairs</Jargon></span><input type="number" min="8" max="20000" value={config.evaluationPairs} onChange={(event) => updateConfig("evaluationPairs", Number(event.target.value))} /></label>
                   <label><span>Evaluate every games</span><input type="number" value={config.evaluateEveryGames} onChange={(event) => updateConfig("evaluateEveryGames", Number(event.target.value))} /></label>
+                  <label className="toggle-label"><input type="checkbox" checked={config.adaptiveEvaluation} onChange={(event) => updateConfig("adaptiveEvaluation", event.target.checked)} /><span /><Jargon term="adaptiveEvaluation">Adaptive early evaluation</Jargon></label>
                   <label><span><Jargon term="checkpoint">Checkpoint every games</Jargon></span><input type="number" value={config.checkpointEveryGames} onChange={(event) => updateConfig("checkpointEveryGames", Number(event.target.value))} /></label>
                   <label><span><Jargon term="selfPlay">Current self-play</Jargon></span><input type="number" step="0.01" value={config.currentSelfplayFraction} onChange={(event) => updateConfig("currentSelfplayFraction", Number(event.target.value))} /></label>
                   <label><span><Jargon term="league">League opponents</Jargon></span><input type="number" step="0.01" value={config.leagueFraction} onChange={(event) => updateConfig("leagueFraction", Number(event.target.value))} /></label>

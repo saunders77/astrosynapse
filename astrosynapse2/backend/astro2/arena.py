@@ -45,6 +45,7 @@ class ArenaConfig:
     confidence: float = 0.95
     minimum_promotion_pairs: int = RECOMMENDED_PAIRS
     promotion_margin: float = 0.0
+    promotion_tier: str = "full"
     automatic_promotion: bool = False
     trainer_scheduled: bool = False
 
@@ -59,9 +60,18 @@ class ArenaConfig:
             raise ValueError("confidence must be between 0.80 and 0.999")
         if not 0.0 <= self.promotion_margin <= 0.25:
             raise ValueError("promotion_margin must be between 0.0 and 0.25")
-        if not RECOMMENDED_PAIRS <= self.minimum_promotion_pairs <= MAX_PAIRS:
+        if self.promotion_tier not in {
+            "diagnostic",
+            "provisional",
+            "development",
+            "full",
+        }:
             raise ValueError(
-                f"minimum_promotion_pairs must be between {RECOMMENDED_PAIRS:,} and {MAX_PAIRS:,}"
+                "promotion_tier must be diagnostic, provisional, development, or full"
+            )
+        if not 8 <= self.minimum_promotion_pairs <= MAX_PAIRS:
+            raise ValueError(
+                f"minimum_promotion_pairs must be between 8 and {MAX_PAIRS:,}"
             )
         if self.automatic_promotion and self.pairs < self.minimum_promotion_pairs:
             raise ValueError(
@@ -288,6 +298,7 @@ def _summary(
             "automatic": config.automatic_promotion,
             "eligible": promotion_eligible,
             "minimum_pairs": config.minimum_promotion_pairs,
+            "tier": config.promotion_tier,
             "paired_lower_bound_required": promotion_threshold,
             "promoted": False,
             "recommendation": recommendation,
@@ -322,6 +333,7 @@ def finalize_automatic_evaluation(
         {
             "automatic": config.automatic_promotion,
             "minimum_pairs": config.minimum_promotion_pairs,
+            "tier": config.promotion_tier,
             "paired_lower_bound_required": 0.5 + config.promotion_margin,
             "promoted": False,
         }
@@ -337,7 +349,7 @@ def finalize_automatic_evaluation(
     paired = result.get("paired_interval") or {}
     paired_low = float(paired.get("low", 0.0))
     full = pairs_completed == config.pairs
-    enough = pairs_completed >= max(RECOMMENDED_PAIRS, config.minimum_promotion_pairs)
+    enough = pairs_completed >= config.minimum_promotion_pairs
     threshold = 0.5 + config.promotion_margin
     promote = full and enough and paired_low > threshold
     promotion["eligible"] = full and enough
@@ -370,6 +382,7 @@ def finalize_automatic_evaluation(
         "confidence": config.confidence,
         "completed_at": result.get("completed_at"),
         "automatic": True,
+        "promotion_tier": config.promotion_tier,
         "promoted": promote,
     }
     store.finalize_checkpoint_arena(
@@ -439,6 +452,8 @@ class ArenaManager:
         max_actions_per_turn: int = 160,
         confidence: float = 0.95,
         promotion_margin: float = 0.0,
+        minimum_promotion_pairs: int = RECOMMENDED_PAIRS,
+        promotion_tier: str = "full",
     ) -> dict[str, Any]:
         """Trainer-only entry point for a promotion-eligible paired job."""
 
@@ -451,8 +466,9 @@ class ArenaManager:
                 max_turns=max_turns,
                 max_actions_per_turn=max_actions_per_turn,
                 confidence=confidence,
-                minimum_promotion_pairs=RECOMMENDED_PAIRS,
+                minimum_promotion_pairs=minimum_promotion_pairs,
                 promotion_margin=promotion_margin,
+                promotion_tier=promotion_tier,
                 automatic_promotion=True,
                 trainer_scheduled=True,
             ),
