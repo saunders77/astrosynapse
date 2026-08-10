@@ -7,6 +7,7 @@ from astro2.league import League
 from astro2.storage import Store
 from astro2.supervisor import InvalidTransition, RunControl, Supervisor, TrainingHandle
 from astro2.trainer import (
+    _checkpoint_quality_gate,
     _epsilon,
     _evaluation_plan,
     _last_scheduled_evaluation_games,
@@ -54,18 +55,36 @@ def _checkpoints(store, run, tmp_path):
 
 def test_exploration_schedule_reaches_configured_floor():
     config = RunConfig.quick()
-    assert _epsilon(config, 0) == config.epsilon_start
-    assert _epsilon(config, config.epsilon_decay_games) == pytest.approx(config.epsilon_end)
+    assert _epsilon(config, 0) == pytest.approx(
+        config.epsilon_start * config.exploration_decision_scale
+    )
+    assert _epsilon(config, config.epsilon_decay_games) == pytest.approx(
+        config.epsilon_end * config.exploration_decision_scale
+    )
     assert _epsilon(config, config.epsilon_decay_games * 2) == pytest.approx(
-        config.epsilon_end
+        config.epsilon_end * config.exploration_decision_scale
     )
 
 
 def test_fresh_optimizer_repeats_learning_rate_warmup():
     config = RunConfig.quick()
-    first = _learning_rate(config, elapsed_fraction=0.5, updates_since_optimizer_reset=0)
-    warmed = _learning_rate(config, elapsed_fraction=0.5, updates_since_optimizer_reset=500)
+    first = _learning_rate(config, completed_updates=25_000, updates_since_optimizer_reset=0)
+    warmed = _learning_rate(
+        config, completed_updates=25_000, updates_since_optimizer_reset=500
+    )
     assert first < warmed
+
+
+def test_learning_rate_does_not_rewind_when_duration_changes():
+    config = RunConfig.quick()
+    extended = config.model_copy(update={"duration_minutes": config.duration_minutes * 4})
+    original = _learning_rate(
+        config, completed_updates=30_000, updates_since_optimizer_reset=1_000
+    )
+    after_extension = _learning_rate(
+        extended, completed_updates=30_000, updates_since_optimizer_reset=1_000
+    )
+    assert after_extension == original
 
 
 def test_replay_warmup_plan_collects_both_heuristic_players():
@@ -96,7 +115,7 @@ def test_zero_game_random_checkpoint_is_not_added_to_league(tmp_path):
     assert league.opponents == []
 
 
-def test_nonzero_checkpoint_is_added_to_league(tmp_path):
+def test_only_accepted_nonzero_checkpoint_is_added_to_league(tmp_path):
     store = Store(tmp_path / "state.sqlite3")
     run = store.create_run(RunConfig.quick())
     actor = tmp_path / "actor.npz"
@@ -108,9 +127,31 @@ def test_nonzero_checkpoint_is_added_to_league(tmp_path):
         actor_path=str(actor),
         games=1_000,
     )
+    store.update_checkpoint_evaluation(
+        checkpoint["id"],
+        {"latest_arena": {"promoted": True}},
+    )
     league = League()
     _sync_league(league, store, run["id"])
     assert [opponent.id for opponent in league.opponents] == [checkpoint["id"]]
+
+
+def test_rejected_checkpoint_is_not_added_to_league(tmp_path):
+    store = Store(tmp_path / "state.sqlite3")
+    run = store.create_run(RunConfig.quick())
+    actor = tmp_path / "rejected.npz"
+    actor.touch()
+    checkpoint = store.add_checkpoint(
+        run_id=run["id"],
+        label="Rejected candidate",
+        path=str(tmp_path / "rejected.safetensors"),
+        actor_path=str(actor),
+        games=1_000,
+        evaluation={"latest_arena": {"promoted": False}},
+    )
+    league = League()
+    _sync_league(league, store, run["id"])
+    assert checkpoint["id"] not in {opponent.id for opponent in league.opponents}
 
 
 def test_active_elapsed_resumes_without_counting_backend_downtime(tmp_path):
@@ -296,3 +337,45 @@ def test_manual_arena_does_not_delay_trainer_evaluation_schedule(tmp_path):
         config={"automatic_promotion": False, "trainer_scheduled": False},
     )
     assert _last_scheduled_evaluation_games(store, run["id"]) == 0
+
+
+def test_quality_gate_checks_raw_tactics_and_heldout_regression(tmp_path, monkeypatch):
+    store = Store(tmp_path / "state.sqlite3")
+    config = RunConfig.quick().model_copy(
+        update={"heldout_brier_regression_tolerance": 0.03}
+    )
+    run = store.create_run(config)
+    champion, candidate = _checkpoints(store, run, tmp_path)
+    store.update_checkpoint_evaluation(
+        champion["id"],
+        {
+            "quality_gate": {
+                "passed": True,
+                "diagnostics": {
+                    "baselines": {"mean_score": 0.60},
+                    "heldout": {"game_grouped_brier": 0.20},
+                },
+            }
+        },
+    )
+
+    monkeypatch.setattr(
+        "astro2.diagnostics.checkpoint_diagnostics",
+        lambda *_args, **_kwargs: {
+            "tactical": {
+                "raw_end_turn_violations": 1,
+                "masked_end_turn_violations": 0,
+            },
+            "heldout": {"game_grouped_brier": 0.25},
+            "baselines": {"mean_score": 0.59, "truncated_games": 0},
+        },
+    )
+    gate = _checkpoint_quality_gate(
+        store=store,
+        run_id=run["id"],
+        checkpoint=candidate,
+        config=config,
+    )
+    assert gate["passed"] is False
+    assert any("raw model logits" in reason for reason in gate["reasons"])
+    assert any("Brier" in reason for reason in gate["reasons"])

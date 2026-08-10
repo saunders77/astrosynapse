@@ -62,6 +62,7 @@ def test_collector_skips_forced_choices_and_uses_exact_player_terminal_targets()
             for sample in samples
         )
         assert collected.bootstrap_masks[player][collected.heads[player]] == 1
+    assert collected.preferences
 
 
 def test_worker_helper_returns_compact_arrays_and_aggregate_stats_without_mlx():
@@ -80,6 +81,7 @@ def test_worker_helper_returns_compact_arrays_and_aggregate_stats_without_mlx():
     assert result.samples.states.shape[1] == encoder.state_size
     assert result.samples.actions.shape[1] == encoder.action_size
     assert result.samples.states.dtype == np.float16
+    assert result.preferences.states.shape[1] == encoder.state_size
     items = result.samples.replay_items()
     assert len(items) == len(result.samples)
     round_trip = CompactSamples.from_items(

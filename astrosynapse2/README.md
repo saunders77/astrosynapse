@@ -5,8 +5,9 @@ Astrosynapse 2 is a from-scratch Star Realms self-play system built for a 16 GB 
 - a deterministic, typed base-set game engine;
 - parallel CPU self-play with a compact NumPy actor;
 - an MLX/Metal bootstrapped action-value learner;
-- stratified replay that protects rare decision families;
-- frozen-opponent league training and heuristic anchors;
+- distribution-aware replay that emphasizes the main phase while protecting rare decisions;
+- rules-level dominance masks, tactical ranking supervision, and next-decision targets;
+- accepted champion-history league training and heuristic anchors;
 - paired-seed, seat-swapped arena evaluation with confidence intervals;
 - a persistent local training dashboard and model registry;
 - a browser game for playing against any saved checkpoint.
@@ -51,7 +52,7 @@ Press Control-C in that Terminal to request a safe stop and final checkpoint. A 
 4. If the quick run is healthy, create the **M4 24-hour** preset and launch it.
 5. When the 24-hour budget ends, open **Models & Arena**. If the final candidate was created after the last scheduled gate, compare it with the champion for 5,000 pairs before deciding which actor to export.
 
-The 24-hour preset is a starting point tuned for the base M4/16 GB target: 8 CPU actors, a 192-wide three-block model, 3 bootstrap heads, 900,000 replay decisions, 2,048-sample GPU batches, and adaptive promotion evaluations that grow from 200 to 1,000 to a conservative 5,000 paired seeds as training matures. Actual throughput and strength depend on learned game length, memory pressure, and the opponents encountered, so the GUI reports measured rates rather than promising a fixed result.
+The 24-hour preset is a starting point tuned for the base M4/16 GB target: 8 CPU actors, a 192-wide three-block model, 3 bootstrap heads, 900,000 outcome decisions, 50,000 tactical preference pairs, 2,048-sample GPU batches, and adaptive promotion evaluations that grow from 200 to 1,000 to a conservative 5,000 paired seeds as training matures. Rollouts are anchored to the accepted champion; rejected candidates are rolled back rather than allowed to steer later self-play. Actual throughput and strength depend on learned game length, memory pressure, and the opponents encountered, so the GUI reports measured rates rather than promising a fixed result.
 
 ## Dashboard guide
 
@@ -59,7 +60,7 @@ The 24-hour preset is a starting point tuned for the base M4/16 GB target: 8 CPU
 - **Train** — create a run, select the recommended or quick preset, expose advanced settings, and start, pause, resume, stop, or checkpoint at safe boundaries.
 - **Models & Arena** — inspect checkpoint lineage, pin models, download `.actor.npz` exports, and compare checkpoints or baselines with exact seed-paired seat swaps. Use 5,000 pairs before treating a result as promotion evidence.
 - **Play** — select a checkpoint, choose the starting seat, and play through legal semantic actions. Checkpoint games show the model's value for each of your legal choices; baseline games do not invent model scores.
-- **Diagnostics / Settings** — outcome BCE, Brier score, explained variance, bootstrap uncertainty, decision-family mix, CPU/RAM/Metal telemetry, audit events, and settings that are safe to apply between batches.
+- **Diagnostics / Settings** — outcome and tactical losses, held-out checkpoint gates, replay write/sample ratios, bootstrap uncertainty, CPU/RAM/Metal telemetry, audit events, and settings that are safe to apply between batches.
 
 The first random checkpoint is only a lineage root. It is not a trained opponent. “Champion” means the latest model to pass a full conservative paired comparison, not an absolute Elo claim.
 

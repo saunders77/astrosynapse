@@ -272,3 +272,71 @@ def test_automatic_finalization_never_promotes_manual_or_tiny_jobs_but_promotes_
     latest = store.checkpoint(candidate["id"])["evaluation"]["latest_arena"]
     assert latest["job_id"] == "qualifying"
     assert latest["promoted"] is True
+
+
+def test_stale_automatic_evaluation_cannot_replace_a_newer_champion(tmp_path):
+    store = Store(tmp_path / "arena.sqlite3")
+    run = store.create_run(RunConfig.quick())
+    old_champion = store.add_checkpoint(
+        run_id=run["id"],
+        label="old champion",
+        path=str(tmp_path / "old.safetensors"),
+        actor_path=str(tmp_path / "old.npz"),
+        games=5_000,
+        champion=True,
+    )
+    stale_candidate = store.add_checkpoint(
+        run_id=run["id"],
+        label="stale candidate",
+        path=str(tmp_path / "stale.safetensors"),
+        actor_path=str(tmp_path / "stale.npz"),
+        games=10_000,
+    )
+    newer_champion = store.add_checkpoint(
+        run_id=run["id"],
+        label="newer champion",
+        path=str(tmp_path / "new.safetensors"),
+        actor_path=str(tmp_path / "new.npz"),
+        games=15_000,
+        champion=True,
+    )
+    model_a = ResolvedModel(
+        ref=stale_candidate["id"],
+        label=stale_candidate["label"],
+        kind="checkpoint",
+        checkpoint_id=stale_candidate["id"],
+    )
+    model_b = ResolvedModel(
+        ref=old_champion["id"],
+        label=old_champion["label"],
+        kind="checkpoint",
+        checkpoint_id=old_champion["id"],
+    )
+    result = {
+        "pairs_completed": 200,
+        "games_completed": 400,
+        "model_a_score": 0.65,
+        "paired_interval": {
+            "estimate": 0.65,
+            "low": 0.58,
+            "high": 0.72,
+            "samples": 200,
+        },
+        "promotion": {},
+    }
+    promoted = finalize_automatic_evaluation(
+        store,
+        job_id="stale",
+        config=ArenaConfig(
+            pairs=200,
+            minimum_promotion_pairs=200,
+            promotion_tier="provisional",
+            automatic_promotion=True,
+        ),
+        model_a=model_a,
+        model_b=model_b,
+        result=result,
+    )
+    assert promoted is False
+    assert result["promotion"]["stale_opponent"] is True
+    assert store.get_run(run["id"])["champion_id"] == newer_champion["id"]

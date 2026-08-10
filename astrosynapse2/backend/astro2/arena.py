@@ -22,7 +22,15 @@ import numpy as np
 from .baselines import BASELINE_NAMES, make_baseline
 from .cards import ALL_CARDS
 from .encoding import DecisionFamily, Encoder
-from .engine import Action, Decision, Game, GameConfig, GameResult, Seating
+from .engine import (
+    Action,
+    Decision,
+    Game,
+    GameConfig,
+    GameResult,
+    Seating,
+    model_action_indices,
+)
 from .league import paired_bootstrap_interval
 from .model import NumpyActor
 from .stats import elo_delta, wilson_interval
@@ -102,15 +110,16 @@ class _ActorChooser:
 
     def __call__(self, _player_id: int, decision: Decision) -> Action:
         encoded = self.encoder.encode_decision(decision.observation, decision)
-        index, _values = self.actor.choose(
+        eligible = np.asarray(model_action_indices(decision), dtype=np.int64)
+        local_index, _values = self.actor.choose(
             encoded.state,
-            encoded.actions,
+            encoded.actions[eligible],
             int(encoded.family),
             epsilon=0.0,
             head=None,
             rng=self.rng,
         )
-        return decision.actions[index]
+        return decision.actions[int(eligible[local_index])]
 
 
 class _LoadedModel:
@@ -351,15 +360,26 @@ def finalize_automatic_evaluation(
     full = pairs_completed == config.pairs
     enough = pairs_completed >= config.minimum_promotion_pairs
     threshold = 0.5 + config.promotion_margin
-    promote = full and enough and paired_low > threshold
+    candidate_checkpoint = store.checkpoint(model_a.checkpoint_id)
+    current_champion_id = store.get_run(candidate_checkpoint["run_id"]).get("champion_id")
+    opponent_still_champion = current_champion_id == model_b.checkpoint_id
+    candidate_already_champion = current_champion_id == model_a.checkpoint_id
+    comparison_is_current = opponent_still_champion or candidate_already_champion
+    promote = full and enough and paired_low > threshold and comparison_is_current
     promotion["eligible"] = full and enough
     promotion["promoted"] = promote
+    promotion["opponent_still_champion"] = opponent_still_champion
+    promotion["stale_opponent"] = not comparison_is_current
     if not full:
         promotion["recommendation"] = "inconclusive: automatic arena job is incomplete"
     elif not enough:
         promotion["recommendation"] = (
             f"inconclusive: {pairs_completed:,} of "
             f"{config.minimum_promotion_pairs:,} required pairs"
+        )
+    elif not comparison_is_current:
+        promotion["recommendation"] = (
+            "not promoted: evaluation opponent is no longer the current champion"
         )
     elif promote:
         promotion["recommendation"] = (
@@ -384,6 +404,8 @@ def finalize_automatic_evaluation(
         "automatic": True,
         "promotion_tier": config.promotion_tier,
         "promoted": promote,
+        "opponent_still_champion": opponent_still_champion,
+        "stale_opponent": not comparison_is_current,
     }
     store.finalize_checkpoint_arena(
         model_a.checkpoint_id,

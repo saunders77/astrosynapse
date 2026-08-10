@@ -141,6 +141,28 @@ def bootstrap_bce_loss(
     }
 
 
+def preference_ranking_loss(
+    model,
+    states,
+    preferred_actions,
+    disfavored_actions,
+    families,
+    *,
+    margin: float = 1.0,
+):
+    """Soft pairwise loss for exact rules-derived tactical preferences."""
+
+    mx, _nn = _mlx_modules()
+    preferred_logits = model(states, preferred_actions, families)
+    disfavored_logits = model(states, disfavored_actions, families)
+    differences = preferred_logits - disfavored_logits
+    losses = mx.logaddexp(mx.array(0.0), mx.array(float(margin)) - differences)
+    return mx.mean(losses), {
+        "preference_accuracy": mx.mean(differences > 0),
+        "preference_margin_mean": mx.mean(differences),
+    }
+
+
 def export_actor(model, spec: ModelSpec, path: str | Path) -> Path:
     """Export MLX weights into a compact NumPy archive for CPU actors."""
 
@@ -284,15 +306,26 @@ class NumpyActor:
         *,
         head: int | None = None,
         epsilon: float = 0.0,
+        exploration_top_k: int = 3,
         rng: np.random.Generator | None = None,
     ) -> tuple[int, np.ndarray]:
-        if len(actions) == 1:
-            return 0, np.ones(1, dtype=np.float32)
         generator = rng or np.random.default_rng()
         logits = self.predict_options(state, actions, family)
         values = logits.mean(axis=1) if head is None else logits[:, head]
         probabilities = 1.0 / (1.0 + np.exp(-np.clip(values, -40.0, 40.0)))
+        if exploration_top_k < 1:
+            raise ValueError("exploration_top_k must be positive")
+        if len(actions) == 1:
+            # This can happen after the model-policy dominance mask removes a
+            # legal END_TURN.  The action choice is forced, but its estimated
+            # outcome is not certainty and is used as a next-decision target.
+            return 0, probabilities
         if epsilon > 0 and generator.random() < epsilon:
-            return int(generator.integers(0, len(actions))), probabilities
+            # Explore among plausible actions instead of uniformly sampling a
+            # potentially catastrophic tail action.  Bootstrap-head selection
+            # supplies the broader, trajectory-coherent exploration signal.
+            count = min(exploration_top_k, len(values))
+            top = np.argpartition(values, -count)[-count:]
+            return int(generator.choice(top)), probabilities
         best = np.flatnonzero(values == values.max())
         return int(generator.choice(best)), probabilities

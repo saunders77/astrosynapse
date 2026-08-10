@@ -14,7 +14,7 @@ import numpy as np
 from .baselines import HeuristicChooser
 from .cards import ALL_CARDS
 from .encoding import Encoder
-from .engine import Action, Decision, Game, GameConfig
+from .engine import Action, Decision, Game, GameConfig, model_action_indices
 from .model import NumpyActor
 
 
@@ -31,14 +31,17 @@ class ActorChooser:
         """Return the deployed head-average choice and value for each option."""
 
         encoded = self.encoder.encode_decision(decision.observation, decision)
-        index, probabilities = self.actor.choose(
+        eligible = np.asarray(model_action_indices(decision), dtype=np.int64)
+        local_index, eligible_probabilities = self.actor.choose(
             encoded.state,
-            encoded.actions,
+            encoded.actions[eligible],
             int(encoded.family),
             head=None,
             epsilon=0.0,
         )
-        return index, probabilities
+        probabilities = np.zeros(len(decision.actions), dtype=np.float32)
+        probabilities[eligible] = eligible_probabilities
+        return int(eligible[local_index]), probabilities
 
 
 _BALANCED_FALLBACK = HeuristicChooser("balanced")

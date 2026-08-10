@@ -205,6 +205,42 @@ class Decision(_JsonMixin):
             raise ValueError("Decision contains semantically duplicate actions")
 
 
+def model_action_indices(decision: Decision) -> tuple[int, ...]:
+    """Return the strategically meaningful subset exposed to learned policies.
+
+    The game engine keeps every rules-legal action for human play and auditing.
+    Learned actors, however, should not spend capacity rediscovering exact
+    dominance invariants.  Ending a turn while a card can still be played, a
+    positive base can still be activated, or generated combat can legally be
+    spent is strictly dominated in the base set: those actions do not prevent
+    a later purchase or end-turn choice and their resources do not carry over.
+
+    Optional purchases and scrap abilities deliberately remain choices.
+    """
+
+    indices = tuple(range(len(decision.actions)))
+    if decision.family != DecisionFamily.MAIN:
+        return indices
+    dominated_end = any(
+        action.kind
+        in {
+            ActionKind.PLAY_CARD,
+            ActionKind.ACTIVATE_BASE,
+            ActionKind.ATTACK_BASE,
+            ActionKind.ATTACK_PLAYER,
+        }
+        for action in decision.actions
+    )
+    if not dominated_end:
+        return indices
+    filtered = tuple(
+        index
+        for index, action in enumerate(decision.actions)
+        if action.kind != ActionKind.END_TURN
+    )
+    return filtered or indices
+
+
 @dataclass(frozen=True)
 class GameConfig(_JsonMixin):
     seed: int = 0

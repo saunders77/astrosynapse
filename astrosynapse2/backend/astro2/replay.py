@@ -12,14 +12,27 @@ import numpy as np
 from .encoding import FAMILY_COUNT, DecisionFamily
 
 DEFAULT_CAPACITY_WEIGHTS: dict[DecisionFamily, float] = {
-    DecisionFamily.MAIN: 0.50,
-    DecisionFamily.DISCARD: 0.09,
-    DecisionFamily.SCRAP: 0.12,
-    DecisionFamily.DESTROY_BASE: 0.06,
-    DecisionFamily.SCRAP_TRADE_ROW: 0.06,
-    DecisionFamily.COPY_SHIP: 0.05,
-    DecisionFamily.FREE_ACQUIRE: 0.04,
-    DecisionFamily.ABILITY_MODE: 0.08,
+    DecisionFamily.MAIN: 0.82,
+    DecisionFamily.DISCARD: 0.03,
+    DecisionFamily.SCRAP: 0.04,
+    DecisionFamily.DESTROY_BASE: 0.02,
+    DecisionFamily.SCRAP_TRADE_ROW: 0.02,
+    DecisionFamily.COPY_SHIP: 0.015,
+    DecisionFamily.FREE_ACQUIRE: 0.015,
+    DecisionFamily.ABILITY_MODE: 0.04,
+}
+
+# Preserve useful rare-family coverage without letting a family responsible
+# for a fraction of a percent of decisions consume one eighth of every update.
+DEFAULT_SAMPLING_WEIGHTS: dict[DecisionFamily, float] = {
+    DecisionFamily.MAIN: 0.72,
+    DecisionFamily.DISCARD: 0.05,
+    DecisionFamily.SCRAP: 0.06,
+    DecisionFamily.DESTROY_BASE: 0.035,
+    DecisionFamily.SCRAP_TRADE_ROW: 0.035,
+    DecisionFamily.COPY_SHIP: 0.025,
+    DecisionFamily.FREE_ACQUIRE: 0.025,
+    DecisionFamily.ABILITY_MODE: 0.05,
 }
 
 
@@ -72,6 +85,29 @@ class ReplayItem:
     step: int = 0
     head: int = 0
     epsilon: float = 0.0
+    td_target: float = 0.5
+    td_valid: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class PreferenceItem:
+    """One exact, rules-derived action preference for an observed state."""
+
+    state: np.ndarray
+    preferred_action: np.ndarray
+    disfavored_action: np.ndarray
+    family: DecisionFamily | int
+
+
+@dataclass(frozen=True, slots=True)
+class PreferenceBatch:
+    states: np.ndarray
+    preferred_actions: np.ndarray
+    disfavored_actions: np.ndarray
+    families: np.ndarray
+
+    def __len__(self) -> int:
+        return int(self.families.shape[0])
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +123,8 @@ class ReplayBatch:
     steps: np.ndarray
     heads: np.ndarray
     epsilons: np.ndarray
+    td_targets: np.ndarray
+    td_valid: np.ndarray
     sequences: np.ndarray
 
     def __len__(self) -> int:
@@ -124,6 +162,8 @@ class _FamilyRing:
         self.steps = np.empty(capacity, dtype=np.uint32)
         self.heads = np.empty(capacity, dtype=np.uint8)
         self.epsilons = np.empty(capacity, dtype=np.float16)
+        self.td_targets = np.empty(capacity, dtype=np.float16)
+        self.td_valid = np.empty(capacity, dtype=np.uint8)
         self.sequences = np.empty(capacity, dtype=np.uint64)
         self.write_index = 0
         self.size = 0
@@ -143,6 +183,8 @@ class _FamilyRing:
         self.steps[index] = item.step
         self.heads[index] = item.head
         self.epsilons[index] = item.epsilon
+        self.td_targets[index] = item.td_target
+        self.td_valid[index] = item.td_valid
         self.sequences[index] = sequence
         self.write_index = (index + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
@@ -160,6 +202,8 @@ class _FamilyRing:
         steps: np.ndarray,
         heads: np.ndarray,
         epsilons: np.ndarray,
+        td_targets: np.ndarray,
+        td_valid: np.ndarray,
         sequences: np.ndarray,
     ) -> int:
         """Append one family as slices, avoiding per-decision Python objects."""
@@ -179,6 +223,8 @@ class _FamilyRing:
             steps = steps[start:]
             heads = heads[start:]
             epsilons = epsilons[start:]
+            td_targets = td_targets[start:]
+            td_valid = td_valid[start:]
             sequences = sequences[start:]
             count = self.capacity
 
@@ -203,6 +249,8 @@ class _FamilyRing:
         copy_slice(self.steps, steps)
         copy_slice(self.heads, heads)
         copy_slice(self.epsilons, epsilons)
+        copy_slice(self.td_targets, td_targets)
+        copy_slice(self.td_valid, td_valid)
         copy_slice(self.sequences, sequences)
 
         self.write_index = (self.write_index + count) % self.capacity
@@ -324,6 +372,7 @@ class StratifiedReplayBuffer:
         action_size: int,
         bootstrap_heads: int,
         family_capacity_weights: dict[DecisionFamily, float] | None = None,
+        family_sampling_weights: dict[DecisionFamily, float] | None = None,
         recent_sample_fraction: float = 0.35,
         recent_window_fraction: float = 0.10,
         storage_dtype: np.dtype | type = np.float16,
@@ -351,8 +400,10 @@ class StratifiedReplayBuffer:
         self._sequence = 0
         self.sample_calls = 0
         self.samples_drawn = 0
+        self.family_samples_drawn = {family: 0 for family in DecisionFamily}
 
         capacity_weights = family_capacity_weights or DEFAULT_CAPACITY_WEIGHTS
+        self.family_sampling_weights = family_sampling_weights or DEFAULT_SAMPLING_WEIGHTS
         self.family_capacities = _allocate_capacities(self.capacity, capacity_weights)
         self._rings = {
             family: _FamilyRing(
@@ -394,6 +445,8 @@ class StratifiedReplayBuffer:
             raise ValueError("head is outside the bootstrap head range")
         if not 0 <= float(item.epsilon) <= 1:
             raise ValueError("epsilon must be in [0, 1]")
+        if not 0.0 <= float(item.td_target) <= 1.0:
+            raise ValueError("td_target must be in [0, 1]")
         return ReplayItem(
             state=state,
             action=action,
@@ -405,6 +458,8 @@ class StratifiedReplayBuffer:
             step=int(item.step),
             head=int(item.head),
             epsilon=float(item.epsilon),
+            td_target=float(item.td_target),
+            td_valid=bool(item.td_valid),
         )
 
     def add(self, item: ReplayItem) -> None:
@@ -440,6 +495,8 @@ class StratifiedReplayBuffer:
         steps = np.asarray(compact.steps)
         heads = np.asarray(compact.heads)
         epsilons = np.asarray(compact.epsilons)
+        td_targets = np.asarray(compact.td_targets)
+        td_valid = np.asarray(compact.td_valid)
         count = int(len(targets))
         expected = {
             "states": (count, self.state_size),
@@ -452,6 +509,8 @@ class StratifiedReplayBuffer:
             "steps": (count,),
             "heads": (count,),
             "epsilons": (count,),
+            "td_targets": (count,),
+            "td_valid": (count,),
         }
         actual = {
             "states": states.shape,
@@ -464,6 +523,8 @@ class StratifiedReplayBuffer:
             "steps": steps.shape,
             "heads": heads.shape,
             "epsilons": epsilons.shape,
+            "td_targets": td_targets.shape,
+            "td_valid": td_valid.shape,
         }
         invalid = [name for name, shape in actual.items() if shape != expected[name]]
         if invalid:
@@ -492,6 +553,10 @@ class StratifiedReplayBuffer:
             raise ValueError("compact steps and game IDs must be nonnegative integers")
         if not np.isfinite(epsilons).all() or np.any((epsilons < 0) | (epsilons > 1)):
             raise ValueError("epsilons must be finite and in [0, 1]")
+        if not np.isfinite(td_targets).all() or np.any((td_targets < 0) | (td_targets > 1)):
+            raise ValueError("td_targets must be finite and in [0, 1]")
+        if not np.isin(td_valid, (0, 1)).all():
+            raise ValueError("td_valid must be binary")
         if not np.isin(masks, (0, 1)).all() or np.any(masks.sum(axis=1) == 0):
             raise ValueError("bootstrap masks must be binary and nonempty")
 
@@ -515,6 +580,8 @@ class StratifiedReplayBuffer:
                     steps=steps[indices],
                     heads=heads[indices],
                     epsilons=epsilons[indices],
+                    td_targets=td_targets[indices],
+                    td_valid=td_valid[indices],
                     sequences=sequence_values[indices],
                 )
             self._sequence += count
@@ -537,7 +604,10 @@ class StratifiedReplayBuffer:
             available = [family for family, ring in self._rings.items() if ring.size]
             if not available:
                 raise ValueError("cannot sample an empty replay buffer")
-            counts = _batch_family_counts(batch_size, available, family_weights, self._rng)
+            weights = self.family_sampling_weights if family_weights is None else family_weights
+            counts = _batch_family_counts(batch_size, available, weights, self._rng)
+            for family, count in counts.items():
+                self.family_samples_drawn[family] += count
             chunks: list[tuple[DecisionFamily, _FamilyRing, np.ndarray]] = []
             for family in available:
                 count = counts.get(family, 0)
@@ -574,6 +644,12 @@ class StratifiedReplayBuffer:
             epsilons = np.concatenate([ring.epsilons[indices] for _, ring, indices in chunks]).astype(
                 np.float32
             )
+            td_targets = np.concatenate(
+                [ring.td_targets[indices] for _, ring, indices in chunks]
+            ).astype(np.float32)
+            td_valid = np.concatenate(
+                [ring.td_valid[indices] for _, ring, indices in chunks]
+            ).astype(np.float32)
             sequences = np.concatenate([ring.sequences[indices] for _, ring, indices in chunks])
 
             order = self._rng.permutation(len(targets))
@@ -591,6 +667,8 @@ class StratifiedReplayBuffer:
                 steps=steps[order],
                 heads=heads[order],
                 epsilons=epsilons[order],
+                td_targets=td_targets[order],
+                td_valid=td_valid[order],
                 sequences=sequences[order],
             )
 
@@ -620,6 +698,8 @@ class StratifiedReplayBuffer:
                         ring.steps,
                         ring.heads,
                         ring.epsilons,
+                        ring.td_targets,
+                        ring.td_valid,
                         ring.sequences,
                     )
                 ),
@@ -631,10 +711,151 @@ class StratifiedReplayBuffer:
                         "utilization": ring.size / ring.capacity,
                         "writes": ring.writes,
                         "overwrites": ring.overwrites,
+                        "write_share": ring.writes / max(1, writes),
+                        "configured_sampling_weight": self.family_sampling_weights.get(
+                            family, 0.0
+                        ),
+                        "samples_drawn": self.family_samples_drawn[family],
+                        "sample_share": self.family_samples_drawn[family]
+                        / max(1, self.samples_drawn),
+                        "sample_to_write_ratio": self.family_samples_drawn[family]
+                        / max(1, ring.writes),
                     }
                     for family, ring in self._rings.items()
                 },
             }
+
+
+class PreferenceReplayBuffer:
+    """Small recent ring of exact tactical preferences.
+
+    These examples are generated from rules-level dominance relations, not
+    game outcomes.  Keeping them separate prevents their repetition rate from
+    distorting outcome replay accounting.
+    """
+
+    def __init__(
+        self,
+        *,
+        capacity: int,
+        state_size: int,
+        action_size: int,
+        storage_dtype: np.dtype | type = np.float16,
+        seed: int | None = None,
+    ):
+        if capacity < 1 or state_size < 1 or action_size < 1:
+            raise ValueError("preference replay dimensions must be positive")
+        self.capacity = int(capacity)
+        self.state_size = int(state_size)
+        self.action_size = int(action_size)
+        dtype = np.dtype(storage_dtype)
+        self.states = np.empty((capacity, state_size), dtype=dtype)
+        self.preferred_actions = np.empty((capacity, action_size), dtype=dtype)
+        self.disfavored_actions = np.empty((capacity, action_size), dtype=dtype)
+        self.families = np.empty(capacity, dtype=np.uint8)
+        self.write_index = 0
+        self.size = 0
+        self.writes = 0
+        self.overwrites = 0
+        self.samples_drawn = 0
+        self._rng = np.random.default_rng(seed)
+
+    def __len__(self) -> int:
+        return self.size
+
+    def extend_compact(self, compact: Any) -> int:
+        states = np.asarray(compact.states)
+        preferred = np.asarray(compact.preferred_actions)
+        disfavored = np.asarray(compact.disfavored_actions)
+        families = np.asarray(compact.families)
+        count = int(len(families))
+        expected = {
+            "states": (count, self.state_size),
+            "preferred_actions": (count, self.action_size),
+            "disfavored_actions": (count, self.action_size),
+            "families": (count,),
+        }
+        actual = {
+            "states": states.shape,
+            "preferred_actions": preferred.shape,
+            "disfavored_actions": disfavored.shape,
+            "families": families.shape,
+        }
+        invalid = [name for name, shape in actual.items() if shape != expected[name]]
+        if invalid:
+            raise ValueError(
+                "invalid compact preference shapes: "
+                + ", ".join(
+                    f"{name}={actual[name]} expected {expected[name]}" for name in invalid
+                )
+            )
+        if count == 0:
+            return 0
+        if not (
+            np.isfinite(states).all()
+            and np.isfinite(preferred).all()
+            and np.isfinite(disfavored).all()
+        ):
+            raise ValueError("preference features must be finite")
+        if families.dtype.kind not in "iu" or np.any(
+            (families < 0) | (families >= FAMILY_COUNT)
+        ):
+            raise ValueError("preferences contain an unknown decision family")
+
+        incoming = count
+        if count > self.capacity:
+            start = count - self.capacity
+            states = states[start:]
+            preferred = preferred[start:]
+            disfavored = disfavored[start:]
+            families = families[start:]
+            count = self.capacity
+        self.overwrites += max(0, self.size + incoming - self.capacity)
+        first = min(count, self.capacity - self.write_index)
+        second = count - first
+
+        def copy(destination: np.ndarray, source: np.ndarray) -> None:
+            destination[self.write_index : self.write_index + first] = source[:first]
+            if second:
+                destination[:second] = source[first:]
+
+        copy(self.states, states)
+        copy(self.preferred_actions, preferred)
+        copy(self.disfavored_actions, disfavored)
+        copy(self.families, families)
+        self.write_index = (self.write_index + count) % self.capacity
+        self.size = min(self.capacity, self.size + count)
+        self.writes += incoming
+        return incoming
+
+    def sample(self, batch_size: int) -> PreferenceBatch:
+        if self.size < 1:
+            raise ValueError("cannot sample empty preference replay")
+        count = min(max(1, int(batch_size)), self.size)
+        indices = self._rng.choice(self.size, size=count, replace=False)
+        self.samples_drawn += count
+        return PreferenceBatch(
+            states=self.states[indices].astype(np.float32),
+            preferred_actions=self.preferred_actions[indices].astype(np.float32),
+            disfavored_actions=self.disfavored_actions[indices].astype(np.float32),
+            families=self.families[indices].astype(np.int32),
+        )
+
+    def metrics(self) -> dict[str, int | float]:
+        return {
+            "size": self.size,
+            "capacity": self.capacity,
+            "utilization": self.size / self.capacity,
+            "writes": self.writes,
+            "overwrites": self.overwrites,
+            "samples_drawn": self.samples_drawn,
+            "storage_bytes": int(
+                self.states.nbytes
+                + self.preferred_actions.nbytes
+                + self.disfavored_actions.nbytes
+                + self.families.nbytes
+            ),
+        }
 
 
 # Concise compatibility alias for trainer code.

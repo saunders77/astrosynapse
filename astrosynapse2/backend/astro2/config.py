@@ -33,6 +33,7 @@ class RunConfig(BaseModel):
     batch_size: int = Field(default=2048, ge=64, le=8192)
     learning_rate: float = Field(default=3e-4, gt=0, le=0.01)
     min_learning_rate: float = Field(default=3e-5, gt=0, le=0.01)
+    learning_rate_decay_updates: int = Field(default=400_000, ge=1_000, le=10_000_000)
     weight_decay: float = Field(default=1e-4, ge=0, le=0.1)
     gradient_clip: float = Field(default=5.0, gt=0, le=100)
     updates_per_iteration: int = Field(default=32, ge=1, le=256)
@@ -40,13 +41,27 @@ class RunConfig(BaseModel):
     replay_warmup: int = Field(default=50_000, ge=100, le=500_000)
     heuristic_bootstrap_updates: int = Field(default=2_000, ge=0, le=100_000)
     recent_sample_fraction: float = Field(default=0.35, ge=0, le=1)
+    terminal_target_weight: float = Field(default=0.60, ge=0, le=1)
+    preference_replay_capacity: int = Field(default=50_000, ge=1_000, le=250_000)
+    preference_batch_size: int = Field(default=256, ge=16, le=2_048)
+    preference_loss_weight: float = Field(default=0.15, ge=0, le=10)
+    preference_margin: float = Field(default=1.0, ge=0, le=10)
 
     epsilon_start: float = Field(default=0.20, ge=0, le=1)
     epsilon_end: float = Field(default=0.025, ge=0, le=1)
     epsilon_decay_games: int = Field(default=1_500_000, ge=1_000)
+    exploration_decision_scale: float = Field(default=0.10, gt=0, le=1)
+    exploration_top_k: int = Field(default=3, ge=1, le=16)
     current_selfplay_fraction: float = Field(default=0.55, ge=0, le=1)
     league_fraction: float = Field(default=0.30, ge=0, le=1)
     baseline_fraction: float = Field(default=0.15, ge=0, le=1)
+    behavior_policy: Literal["champion", "learner"] = "champion"
+    rollback_rejected_candidates: bool = True
+    checkpoint_diagnostic_games: int = Field(default=6, ge=2, le=100)
+    checkpoint_baseline_pairs: int = Field(default=2, ge=1, le=50)
+    baseline_regression_tolerance: float = Field(default=0.20, ge=0, le=1)
+    heldout_brier_regression_tolerance: float = Field(default=0.03, ge=0, le=1)
+    max_tactical_violations: int = Field(default=0, ge=0, le=1_000)
 
     checkpoint_every_games: int = Field(default=100_000, ge=100)
     evaluate_every_games: int = Field(default=500_000, ge=100)
@@ -84,9 +99,14 @@ class RunConfig(BaseModel):
             residual_blocks=2,
             batch_size=256,
             updates_per_iteration=4,
+            learning_rate_decay_updates=50_000,
             replay_capacity=25_000,
             replay_warmup=500,
             heuristic_bootstrap_updates=256,
+            preference_replay_capacity=5_000,
+            preference_batch_size=64,
+            checkpoint_diagnostic_games=2,
+            checkpoint_baseline_pairs=1,
             checkpoint_every_games=1_000,
             evaluate_every_games=2_000,
             evaluation_pairs=16,

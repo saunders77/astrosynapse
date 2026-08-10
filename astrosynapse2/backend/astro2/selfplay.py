@@ -11,10 +11,20 @@ from typing import Protocol
 import numpy as np
 
 from .baselines import make_baseline
-from .encoding import DecisionFamily, Encoder
-from .engine import Action, Decision, Game, GameConfig, GameResult, Seating
+from .encoding import DecisionEncoding, DecisionFamily, Encoder
+from .engine import (
+    Action,
+    ActionKind,
+    Decision,
+    Game,
+    GameConfig,
+    GameResult,
+    Seating,
+    model_action_indices,
+)
+from .engine import DecisionFamily as EngineDecisionFamily
 from .model import NumpyActor
-from .replay import ReplayItem, make_bootstrap_mask
+from .replay import PreferenceItem, ReplayItem, make_bootstrap_mask
 
 
 class EnginePolicy(Protocol):
@@ -51,27 +61,49 @@ class ActorPolicy:
     def bootstrap_heads(self) -> int:
         return self.actor.spec.bootstrap_heads
 
+    def score(
+        self,
+        decision: Decision,
+        exploration: PlayerExploration,
+        rng: np.random.Generator,
+        *,
+        exploration_top_k: int = 3,
+    ) -> tuple[Action, DecisionEncoding, float]:
+        encoded = self.encoder.encode_decision(decision.observation, decision)
+        eligible = np.asarray(model_action_indices(decision), dtype=np.int64)
+        local_index, probabilities = self.actor.choose(
+            encoded.state,
+            encoded.actions[eligible],
+            int(encoded.family),
+            head=exploration.head,
+            epsilon=exploration.epsilon,
+            exploration_top_k=exploration_top_k,
+            rng=rng,
+        )
+        index = int(eligible[local_index])
+        return decision.actions[index], encoded, float(probabilities.max())
+
     def select(
         self,
         decision: Decision,
         exploration: PlayerExploration,
         rng: np.random.Generator,
+        *,
+        exploration_top_k: int = 3,
     ) -> Action:
-        encoded = self.encoder.encode_decision(decision.observation, decision)
-        index, _probabilities = self.actor.choose(
-            encoded.state,
-            encoded.actions,
-            int(encoded.family),
-            head=exploration.head,
-            epsilon=exploration.epsilon,
-            rng=rng,
+        selected, _actions, _next_value = self.score(
+            decision,
+            exploration,
+            rng,
+            exploration_top_k=exploration_top_k,
         )
-        return decision.actions[index]
+        return selected
 
 
 @dataclass(frozen=True, slots=True)
 class CollectedGame:
     samples: tuple[ReplayItem, ...]
+    preferences: tuple[PreferenceItem, ...]
     result: GameResult
     heads: tuple[int, int]
     epsilons: tuple[float, float]
@@ -98,6 +130,8 @@ class CompactSamples:
     steps: np.ndarray
     heads: np.ndarray
     epsilons: np.ndarray
+    td_targets: np.ndarray
+    td_valid: np.ndarray
 
     def __len__(self) -> int:
         return int(self.targets.shape[0])
@@ -123,6 +157,8 @@ class CompactSamples:
                 steps=np.empty(0, dtype=np.uint32),
                 heads=np.empty(0, dtype=np.uint8),
                 epsilons=np.empty(0, dtype=np.float16),
+                td_targets=np.empty(0, dtype=np.float16),
+                td_valid=np.empty(0, dtype=np.uint8),
             )
         return cls(
             states=np.stack([item.state for item in items]).astype(np.float16),
@@ -137,6 +173,8 @@ class CompactSamples:
             steps=np.asarray([item.step for item in items], dtype=np.uint32),
             heads=np.asarray([item.head for item in items], dtype=np.uint8),
             epsilons=np.asarray([item.epsilon for item in items], dtype=np.float16),
+            td_targets=np.asarray([item.td_target for item in items], dtype=np.float16),
+            td_valid=np.asarray([item.td_valid for item in items], dtype=np.uint8),
         )
 
     def replay_items(self) -> list[ReplayItem]:
@@ -152,14 +190,54 @@ class CompactSamples:
                 step=int(self.steps[index]),
                 head=int(self.heads[index]),
                 epsilon=float(self.epsilons[index]),
+                td_target=float(self.td_targets[index]),
+                td_valid=bool(self.td_valid[index]),
             )
             for index in range(len(self))
         ]
 
 
 @dataclass(frozen=True, slots=True)
+class CompactPreferences:
+    states: np.ndarray
+    preferred_actions: np.ndarray
+    disfavored_actions: np.ndarray
+    families: np.ndarray
+
+    def __len__(self) -> int:
+        return int(self.families.shape[0])
+
+    @classmethod
+    def from_items(
+        cls,
+        items: Sequence[PreferenceItem],
+        *,
+        state_size: int,
+        action_size: int,
+    ) -> CompactPreferences:
+        if not items:
+            return cls(
+                states=np.empty((0, state_size), dtype=np.float16),
+                preferred_actions=np.empty((0, action_size), dtype=np.float16),
+                disfavored_actions=np.empty((0, action_size), dtype=np.float16),
+                families=np.empty(0, dtype=np.uint8),
+            )
+        return cls(
+            states=np.stack([item.state for item in items]).astype(np.float16),
+            preferred_actions=np.stack([item.preferred_action for item in items]).astype(
+                np.float16
+            ),
+            disfavored_actions=np.stack(
+                [item.disfavored_action for item in items]
+            ).astype(np.float16),
+            families=np.asarray([int(item.family) for item in items], dtype=np.uint8),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class WorkerResult:
     samples: CompactSamples
+    preferences: CompactPreferences
     games: int
     wins: tuple[int, int]
     draws: int
@@ -169,13 +247,55 @@ class WorkerResult:
     forced_choices: int
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class _PendingSample:
     state: np.ndarray
     action: np.ndarray
     family: DecisionFamily
     player: int
     step: int
+    td_target: float = 0.5
+    td_valid: bool = False
+
+
+def _tactical_preference(
+    decision: Decision,
+    encoded: DecisionEncoding,
+) -> PreferenceItem | None:
+    """Create one deterministic, exact dominance pair for this decision."""
+
+    if decision.family != EngineDecisionFamily.MAIN:
+        return None
+    end_indices = [
+        index for index, action in enumerate(decision.actions) if action.kind == ActionKind.END_TURN
+    ]
+    if not end_indices:
+        return None
+    priorities = (
+        {ActionKind.ATTACK_PLAYER, ActionKind.ATTACK_BASE},
+        {ActionKind.PLAY_CARD},
+        {ActionKind.ACTIVATE_BASE},
+    )
+    preferred_indices: list[int] = []
+    for kinds in priorities:
+        preferred_indices = [
+            index for index, action in enumerate(decision.actions) if action.kind in kinds
+        ]
+        if preferred_indices:
+            break
+    if not preferred_indices:
+        return None
+    # Rotate among equivalent legal options so a long trajectory supervises
+    # more than the first hand card or first base.
+    preferred_index = preferred_indices[
+        decision.observation.action_number % len(preferred_indices)
+    ]
+    return PreferenceItem(
+        state=encoded.state,
+        preferred_action=encoded.actions[preferred_index],
+        disfavored_action=encoded.actions[end_indices[0]],
+        family=encoded.family,
+    )
 
 
 def _coerce_pair(value: float | Sequence[float], name: str) -> tuple[float, float]:
@@ -209,6 +329,7 @@ def collect_game(
     epsilons: float | Sequence[float] = 0.0,
     heads: Sequence[int] | None = None,
     bootstrap_probability: float = 0.8,
+    exploration_top_k: int = 3,
     collect_players: Sequence[bool] = (True, True),
     game_id: int | None = None,
     seating: Seating = Seating.FIXED,
@@ -260,7 +381,9 @@ def collect_game(
             raise ValueError("ActorPolicy and collector bootstrap head counts differ")
 
     pending: list[_PendingSample] = []
+    preferences: list[PreferenceItem] = []
     player_steps = [0, 0]
+    previous_actor_sample: list[int | None] = [None, None]
 
     def make_chooser(player: int):
         def choose(player_id: int, decision: Decision) -> Action:
@@ -268,12 +391,25 @@ def collect_game(
                 raise RuntimeError("engine invoked a chooser for the wrong player")
             policy = policies[player]
             if isinstance(policy, ActorPolicy):
-                selected = policy.select(decision, explorations[player], rngs[player])
+                selected, encoded, next_value = policy.score(
+                    decision,
+                    explorations[player],
+                    rngs[player],
+                    exploration_top_k=exploration_top_k,
+                )
+                previous = previous_actor_sample[player]
+                if previous is not None:
+                    pending[previous].td_target = next_value
+                    pending[previous].td_valid = True
             else:
                 selected = _selected_action(policy(player_id, decision), decision)
             if collect_players[player]:
-                encoded = encoder.encode_decision(decision.observation, decision)
+                if not isinstance(policy, ActorPolicy):
+                    encoded = encoder.encode_decision(decision.observation, decision)
                 selected_index = decision.actions.index(selected)
+                preference = _tactical_preference(decision, encoded)
+                if preference is not None:
+                    preferences.append(preference)
                 pending.append(
                     _PendingSample(
                         state=encoded.state,
@@ -283,6 +419,8 @@ def collect_game(
                         step=player_steps[player],
                     )
                 )
+                if isinstance(policy, ActorPolicy):
+                    previous_actor_sample[player] = len(pending) - 1
                 player_steps[player] += 1
             return selected
 
@@ -316,11 +454,14 @@ def collect_game(
             step=item.step,
             head=explorations[item.player].head,
             epsilon=explorations[item.player].epsilon,
+            td_target=item.td_target,
+            td_valid=item.td_valid,
         )
         for item in pending
     )
     return CollectedGame(
         samples=samples,
+        preferences=tuple(preferences),
         result=result,
         heads=head_pair,
         epsilons=epsilon_pair,
@@ -368,6 +509,7 @@ def collect_worker_batch(
     collect_players: Sequence[bool] | None = None,
     max_turns: int = 180,
     max_actions_per_turn: int = 160,
+    exploration_top_k: int = 3,
 ) -> WorkerResult:
     """Top-level ProcessPool worker; imports no MLX and caches actor archives."""
 
@@ -385,6 +527,7 @@ def collect_worker_batch(
     flags = tuple(path is not None for path in actor_paths) if collect_players is None else collect_players
 
     all_items: list[ReplayItem] = []
+    all_preferences: list[PreferenceItem] = []
     wins = [0, 0]
     draws = truncated = turns = decisions = forced_choices = 0
     for game_index in range(games):
@@ -400,8 +543,10 @@ def collect_worker_batch(
             starting_player=game_index % 2,
             max_turns=max_turns,
             max_actions_per_turn=max_actions_per_turn,
+            exploration_top_k=exploration_top_k,
         )
         all_items.extend(collected.samples)
+        all_preferences.extend(collected.preferences)
         result = collected.result
         if result.winner is None:
             draws += 1
@@ -419,6 +564,11 @@ def collect_worker_batch(
             action_size=encoder.action_size,
             bootstrap_heads=bootstrap_heads,
         ),
+        preferences=CompactPreferences.from_items(
+            all_preferences,
+            state_size=encoder.state_size,
+            action_size=encoder.action_size,
+        ),
         games=games,
         wins=(wins[0], wins[1]),
         draws=draws,
@@ -433,6 +583,7 @@ __all__ = [
     "ActorPolicy",
     "CollectedGame",
     "CompactSamples",
+    "CompactPreferences",
     "PlayerExploration",
     "WorkerResult",
     "clear_actor_cache",

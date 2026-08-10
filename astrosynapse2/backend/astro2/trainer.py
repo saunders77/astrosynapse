@@ -24,8 +24,16 @@ from .config import RunConfig
 from .encoding import FAMILY_COUNT, Encoder
 from .hardware import RateMeter, mlx_snapshot, system_snapshot
 from .league import League, Opponent
-from .model import ModelSpec, bootstrap_bce_loss, build_model, export_actor, load_model, save_model
-from .replay import ReplayBuffer
+from .model import (
+    ModelSpec,
+    bootstrap_bce_loss,
+    build_model,
+    export_actor,
+    load_model,
+    preference_ranking_loss,
+    save_model,
+)
+from .replay import PreferenceReplayBuffer, ReplayBuffer
 from .selfplay import WorkerResult, collect_worker_batch
 from .storage import Store
 
@@ -104,17 +112,20 @@ def _evaluation_plan(config: RunConfig, games: int) -> _EvaluationPlan:
 
 def _epsilon(config: RunConfig, games: int) -> float:
     if games >= config.epsilon_decay_games:
-        return config.epsilon_end
+        return config.epsilon_end * config.exploration_decision_scale
     progress = min(1.0, games / max(1, config.epsilon_decay_games))
-    return config.epsilon_start + progress * (config.epsilon_end - config.epsilon_start)
+    scheduled = config.epsilon_start + progress * (config.epsilon_end - config.epsilon_start)
+    return scheduled * config.exploration_decision_scale
 
 
 def _learning_rate(
     config: RunConfig,
-    elapsed_fraction: float,
+    completed_updates: int,
     updates_since_optimizer_reset: int,
 ) -> float:
-    progress = min(1.0, max(0.0, elapsed_fraction))
+    # The decay horizon is immutable for a run.  Extending its wall-clock
+    # duration therefore cannot rewind optimization to a larger learning rate.
+    progress = min(1.0, max(0.0, completed_updates / config.learning_rate_decay_updates))
     cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
     scheduled = config.min_learning_rate + (
         config.learning_rate - config.min_learning_rate
@@ -139,6 +150,47 @@ def _latest_loadable_checkpoint(store: Store, run_id: str) -> dict[str, Any] | N
         if path.exists() and path.with_suffix(path.suffix + ".json").exists():
             return checkpoint
     return None
+
+
+def _champion_actor_path(store: Store, run_id: str, fallback: Path) -> str:
+    run = store.get_run(run_id)
+    champion_id = run.get("champion_id")
+    if champion_id:
+        try:
+            actor_path = store.checkpoint(champion_id).get("actor_path")
+        except KeyError:
+            actor_path = None
+        if actor_path and Path(actor_path).is_file():
+            return str(Path(actor_path))
+    return str(fallback)
+
+
+def _completed_trainer_evaluations(store: Store, run_id: str) -> list[dict[str, Any]]:
+    checkpoint_ids = {checkpoint["id"] for checkpoint in store.checkpoints(run_id)}
+    return sorted(
+        (
+            job
+            for job in store.arena_jobs(limit=20_000, include_internal=True)
+            if job["status"] == "complete"
+            and job["model_a"] in checkpoint_ids
+            and bool((job.get("config") or {}).get("automatic_promotion"))
+            and bool((job.get("config") or {}).get("trainer_scheduled"))
+        ),
+        key=lambda job: float(job["created_at"]),
+    )
+
+
+def _mark_evaluation_disposition(
+    store: Store,
+    job: dict[str, Any],
+    disposition: str,
+) -> None:
+    """Persist trainer handling so a restart neither misses nor repeats it."""
+
+    result = dict(job.get("result") or {})
+    result["_trainer_disposition_processed"] = True
+    result["_trainer_disposition"] = disposition
+    store.update_arena_job(job["id"], result=result)
 
 
 def _save_checkpoint(
@@ -184,12 +236,16 @@ def _sync_league(league: League, store: Store, run_id: str) -> None:
     existing = {opponent.id for opponent in league.opponents}
     for checkpoint in store.checkpoints(run_id):
         actor_path = checkpoint.get("actor_path")
+        evaluation = checkpoint.get("evaluation") or {}
+        latest_arena = evaluation.get("latest_arena") or {}
+        accepted = bool(checkpoint["is_champion"] or latest_arena.get("promoted"))
         # The zero-game checkpoint is a persistence anchor, not a useful
-        # opponent. Feeding that random network back into the opening
-        # curriculum creates long capped games and mostly 0.5 targets.
+        # opponent. Unevaluated and rejected candidates are excluded too: the
+        # league is an archive of accepted behavior, not every learner wobble.
         if (
             not actor_path
             or int(checkpoint["games"]) == 0
+            or not accepted
             or not Path(actor_path).exists()
             or checkpoint["id"] in existing
         ):
@@ -324,6 +380,80 @@ def _schedule_evaluation(
     return job
 
 
+def _checkpoint_quality_gate(
+    *,
+    store: Store,
+    run_id: str,
+    checkpoint: dict[str, Any],
+    config: RunConfig,
+) -> dict[str, Any]:
+    """Run deterministic tactical, held-out, and fixed-opponent checks."""
+
+    existing = (checkpoint.get("evaluation") or {}).get("quality_gate")
+    if existing:
+        return existing
+    from .diagnostics import checkpoint_diagnostics
+
+    diagnostics = checkpoint_diagnostics(
+        checkpoint["actor_path"],
+        seed=config.seed,
+        games=config.checkpoint_diagnostic_games,
+        baseline_pairs=config.checkpoint_baseline_pairs,
+    )
+    tactical = diagnostics["tactical"]
+    heldout = diagnostics["heldout"]
+    baselines = diagnostics["baselines"]
+    champion_id = store.get_run(run_id).get("champion_id")
+    champion_score: float | None = None
+    champion_brier: float | None = None
+    if champion_id and champion_id != checkpoint["id"]:
+        champion_evaluation = store.checkpoint(champion_id).get("evaluation") or {}
+        champion_gate = champion_evaluation.get("quality_gate") or {}
+        champion_diagnostics = champion_gate.get("diagnostics") or {}
+        champion_baselines = champion_diagnostics.get("baselines") or {}
+        champion_heldout = champion_diagnostics.get("heldout") or {}
+        if "mean_score" in champion_baselines:
+            champion_score = float(champion_baselines["mean_score"])
+        if "game_grouped_brier" in champion_heldout:
+            champion_brier = float(champion_heldout["game_grouped_brier"])
+    baseline_regression = (
+        champion_score is not None
+        and champion_score - float(baselines["mean_score"])
+        > config.baseline_regression_tolerance
+    )
+    heldout_regression = (
+        champion_brier is not None
+        and float(heldout["game_grouped_brier"]) - champion_brier
+        > config.heldout_brier_regression_tolerance
+    )
+    reasons: list[str] = []
+    if int(tactical["raw_end_turn_violations"]) > config.max_tactical_violations:
+        reasons.append("raw model logits failed the tactical dominance suite")
+    if int(baselines["truncated_games"]) > 0:
+        reasons.append("fixed-opponent diagnostics contained truncated games")
+    if baseline_regression:
+        reasons.append("fixed-opponent score regressed beyond the configured tolerance")
+    if heldout_regression:
+        reasons.append("held-out Brier score regressed beyond the configured tolerance")
+    gate = {
+        "passed": not reasons,
+        "reasons": reasons,
+        "champion_baseline_score": champion_score,
+        "champion_heldout_brier": champion_brier,
+        "baseline_regression_tolerance": config.baseline_regression_tolerance,
+        "heldout_brier_regression_tolerance": config.heldout_brier_regression_tolerance,
+        "diagnostics": diagnostics,
+    }
+    store.update_checkpoint_evaluation(checkpoint["id"], {"quality_gate": gate})
+    store.event(
+        run_id,
+        "checkpoint_quality_gate",
+        f"Checkpoint quality gate {'passed' if gate['passed'] else 'failed'}",
+        {"checkpoint_id": checkpoint["id"], **gate},
+    )
+    return gate
+
+
 def _make_plan(
     *,
     config: RunConfig,
@@ -436,6 +566,7 @@ def _submit_rollout(
         collect_players=plan.collect_players,
         max_turns=config.max_turns,
         max_actions_per_turn=config.max_actions_per_turn,
+        exploration_top_k=config.exploration_top_k,
     )
 
 
@@ -444,11 +575,11 @@ def _train_updates(
     model: Any,
     optimizer: Any,
     replay: ReplayBuffer,
+    preference_replay: PreferenceReplayBuffer,
     config: RunConfig,
     count: int,
     totals: _Totals,
     optimizer_updates_at_start: int,
-    elapsed_fraction: float,
     control: Any,
 ) -> dict[str, float]:
     if count <= 0 or len(replay) < config.replay_warmup:
@@ -458,34 +589,81 @@ def _train_updates(
     import mlx.nn as nn
     import mlx.optimizers as optim
 
-    def loss_function(states, actions, families, targets, masks, weights):
-        return bootstrap_bce_loss(
+    def loss_function(
+        states,
+        actions,
+        families,
+        targets,
+        masks,
+        weights,
+        preference_states,
+        preferred_actions,
+        disfavored_actions,
+        preference_families,
+        preference_weight,
+    ):
+        outcome = bootstrap_bce_loss(
             model, states, actions, families, targets, masks, weights
         )[0]
+        preference = preference_ranking_loss(
+            model,
+            preference_states,
+            preferred_actions,
+            disfavored_actions,
+            preference_families,
+            margin=config.preference_margin,
+        )[0]
+        return outcome + preference_weight * preference
 
     loss_and_grad = nn.value_and_grad(model, loss_function)
     last_arrays: tuple[Any, ...] | None = None
+    last_preference_arrays: tuple[Any, ...] | None = None
     loss_value = gradient_norm = learning_rate = 0.0
     completed = 0
     for _ in range(count):
         if control.should_stop() or control.pause_requested.is_set():
             break
         batch = replay.sample(config.batch_size)
+        effective_targets = np.where(
+            batch.td_valid > 0,
+            config.terminal_target_weight * batch.targets
+            + (1.0 - config.terminal_target_weight) * batch.td_targets,
+            batch.targets,
+        ).astype(np.float32)
         arrays = (
             mx.array(batch.states),
             mx.array(batch.actions),
             mx.array(batch.families),
-            mx.array(batch.targets),
+            mx.array(effective_targets),
             mx.array(batch.bootstrap_mask),
             mx.array(batch.sample_weights),
         )
+        if len(preference_replay):
+            preference_batch = preference_replay.sample(config.preference_batch_size)
+            preference_arrays = (
+                mx.array(preference_batch.states),
+                mx.array(preference_batch.preferred_actions),
+                mx.array(preference_batch.disfavored_actions),
+                mx.array(preference_batch.families),
+                mx.array(config.preference_loss_weight),
+            )
+        else:
+            # Keep a stable differentiated signature before the preference
+            # warmup has produced its first exact pair.
+            preference_arrays = (
+                arrays[0][:1],
+                arrays[1][:1],
+                arrays[1][:1],
+                arrays[2][:1],
+                mx.array(0.0),
+            )
         learning_rate = _learning_rate(
             config,
-            elapsed_fraction,
+            totals.updates,
             totals.updates - optimizer_updates_at_start,
         )
         optimizer.learning_rate = learning_rate
-        loss, gradients = loss_and_grad(*arrays)
+        loss, gradients = loss_and_grad(*arrays, *preference_arrays)
         gradients, norm = optim.clip_grad_norm(gradients, config.gradient_clip)
         optimizer.update(model, gradients)
         mx.eval(model.parameters(), optimizer.state, loss, norm)
@@ -494,6 +672,7 @@ def _train_updates(
         totals.updates += 1
         completed += 1
         last_arrays = arrays
+        last_preference_arrays = preference_arrays
 
     metrics: dict[str, float] = {
         "loss": loss_value,
@@ -510,6 +689,23 @@ def _train_updates(
                 **{name: float(value.item()) for name, value in diagnostics.items()},
             }
         )
+        if last_preference_arrays is not None and len(preference_replay):
+            preference_loss, preference_diagnostics = preference_ranking_loss(
+                model,
+                *last_preference_arrays[:4],
+                margin=config.preference_margin,
+            )
+            mx.eval(preference_loss, *preference_diagnostics.values())
+            metrics.update(
+                {
+                    "preference_loss": float(preference_loss.item()),
+                    **{
+                        name: float(value.item())
+                        for name, value in preference_diagnostics.items()
+                    },
+                    "td_target_fraction": float(batch.td_valid.mean()),
+                }
+            )
     return metrics
 
 
@@ -599,6 +795,12 @@ def run_training(
         recent_sample_fraction=config.recent_sample_fraction,
         seed=config.seed + 41,
     )
+    preference_replay = PreferenceReplayBuffer(
+        capacity=config.preference_replay_capacity,
+        state_size=encoder.state_size,
+        action_size=encoder.action_size,
+        seed=config.seed + 43,
+    )
     totals = _restore_totals(store, run)
     optimizer_updates_at_start = totals.updates
     if latest is None:
@@ -640,10 +842,89 @@ def run_training(
     seed_cursor = config.seed + totals.games * 10_007
     last_checkpoint_games = int(latest["games"] if latest else totals.games)
     evaluation_manager: Any | None = None
+    processed_evaluation_jobs = {
+        job["id"]
+        for job in _completed_trainer_evaluations(store, run_id)
+        if bool((job.get("result") or {}).get("_trainer_disposition_processed"))
+    }
     final_reason = "duration complete"
+
+    def restore_champion(
+        champion_id: str,
+        *,
+        rejected_checkpoint_id: str,
+        source: str,
+        detail: dict[str, Any] | None = None,
+    ) -> bool:
+        nonlocal model, optimizer, optimizer_updates_at_start, parent_checkpoint_id
+        if not config.rollback_rejected_candidates:
+            return False
+        champion = store.checkpoint(champion_id)
+        restored_model, restored_spec = load_model(champion["path"])
+        if restored_spec != spec:
+            raise RuntimeError("champion architecture changed during training")
+        model = restored_model
+        model.train()
+        mx.eval(model.parameters())
+        optimizer = optim.AdamW(
+            learning_rate=config.learning_rate,
+            betas=[0.9, 0.95],
+            weight_decay=config.weight_decay,
+            bias_correction=True,
+        )
+        optimizer_updates_at_start = totals.updates
+        parent_checkpoint_id = champion["id"]
+        payload = {
+            "source": source,
+            "rejected_checkpoint_id": rejected_checkpoint_id,
+            "champion_id": champion["id"],
+            **(detail or {}),
+        }
+        store.event(
+            run_id,
+            "candidate_rollback",
+            f"Restored {champion['label']} after a rejected candidate",
+            payload,
+        )
+        return True
 
     def maybe_schedule_evaluation(checkpoint: dict[str, Any]) -> None:
         nonlocal evaluation_manager
+        champion_id = store.get_run(run_id).get("champion_id")
+        if not champion_id or champion_id == checkpoint["id"]:
+            return
+        quality_gate = _checkpoint_quality_gate(
+            store=store,
+            run_id=run_id,
+            checkpoint=checkpoint,
+            config=config,
+        )
+        if not quality_gate["passed"]:
+            store.event(
+                run_id,
+                "automatic_evaluation_blocked",
+                f"Skipped arena evaluation for {checkpoint['label']}",
+                {
+                    "checkpoint_id": checkpoint["id"],
+                    "reasons": quality_gate["reasons"],
+                },
+            )
+            rolled_back = restore_champion(
+                champion_id,
+                rejected_checkpoint_id=checkpoint["id"],
+                source="checkpoint_quality_gate",
+                detail={"reasons": quality_gate["reasons"]},
+            )
+            store.update_checkpoint_evaluation(
+                checkpoint["id"],
+                {
+                    "quality_gate": {
+                        **quality_gate,
+                        "rollback_applied": rolled_back,
+                    }
+                },
+            )
+            return
         plan = _evaluation_plan(config, totals.games)
         last_evaluation_games = _last_scheduled_evaluation_games(
             store, run_id, tier=plan.tier
@@ -677,6 +958,7 @@ def run_training(
             return
         rate_values = rate.sample(totals.games, totals.decisions)
         replay_metrics = replay.metrics()
+        replay_metrics["preferences"] = preference_replay.metrics()
         active_elapsed = previous_active_elapsed + max(
             0.0, time.time() - session_started_wall - paused_seconds
         )
@@ -783,6 +1065,37 @@ def run_training(
 
             run = store.get_run(run_id)
             config = RunConfig.model_validate(run["config"])
+
+            # A rejected learner never becomes the behavior policy.  When its
+            # asynchronous gate completes, restore the accepted champion so a
+            # regression cannot keep steering future candidates indefinitely.
+            for job in _completed_trainer_evaluations(store, run_id):
+                if job["id"] in processed_evaluation_jobs:
+                    continue
+                promotion = (job.get("result") or {}).get("promotion") or {}
+                if bool(promotion.get("promoted")):
+                    _mark_evaluation_disposition(store, job, "promoted")
+                    processed_evaluation_jobs.add(job["id"])
+                    continue
+                if not config.rollback_rejected_candidates:
+                    _mark_evaluation_disposition(store, job, "rollback_disabled")
+                    processed_evaluation_jobs.add(job["id"])
+                    continue
+                current_run = store.get_run(run_id)
+                if current_run.get("champion_id") != job["model_b"]:
+                    # A newer evaluation has already changed the accepted
+                    # champion, so this stale rejection must not roll it back.
+                    _mark_evaluation_disposition(store, job, "stale")
+                    processed_evaluation_jobs.add(job["id"])
+                    continue
+                restore_champion(
+                    job["model_b"],
+                    rejected_checkpoint_id=job["model_a"],
+                    source="paired_arena",
+                    detail={"job_id": job["id"]},
+                )
+                _mark_evaluation_disposition(store, job, "rolled_back")
+                processed_evaluation_jobs.add(job["id"])
             active_elapsed = previous_active_elapsed + max(
                 0.0, time.time() - session_started_wall - paused_seconds
             )
@@ -792,6 +1105,11 @@ def run_training(
 
             _sync_league(league, store, run_id)
             _atomic_actor_export(model, spec, runtime_actor)
+            rollout_actor = (
+                _champion_actor_path(store, run_id, runtime_actor)
+                if config.behavior_policy == "champion"
+                else str(runtime_actor)
+            )
             epsilon = _epsilon(config, totals.games)
             futures: dict[Future[WorkerResult], _RolloutPlan] = {}
             for _ in range(config.actor_processes):
@@ -805,7 +1123,7 @@ def run_training(
                         config=config,
                         rng=rng,
                         league=league,
-                        current_actor=str(runtime_actor),
+                        current_actor=rollout_actor,
                         epsilon=epsilon,
                         seed=seed_cursor,
                     )
@@ -817,11 +1135,11 @@ def run_training(
                 model=model,
                 optimizer=optimizer,
                 replay=replay,
+                preference_replay=preference_replay,
                 config=config,
                 count=config.updates_per_iteration,
                 totals=totals,
                 optimizer_updates_at_start=optimizer_updates_at_start,
-                elapsed_fraction=active_elapsed / max(1.0, duration_seconds),
                 control=control,
             )
             emit(
@@ -843,6 +1161,7 @@ def run_training(
                     plan = futures.pop(future)
                     result = future.result()
                     replay.extend_compact(result.samples)
+                    preference_replay.extend_compact(result.preferences)
                     totals.games += result.games
                     totals.decisions += result.decisions
                     totals.samples += len(result.samples)

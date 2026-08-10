@@ -2,8 +2,14 @@ from dataclasses import replace
 
 import numpy as np
 from astro2.encoding import DecisionFamily
-from astro2.replay import ReplayItem, StratifiedReplayBuffer, make_bootstrap_mask
-from astro2.selfplay import CompactSamples
+from astro2.replay import (
+    PreferenceItem,
+    PreferenceReplayBuffer,
+    ReplayItem,
+    StratifiedReplayBuffer,
+    make_bootstrap_mask,
+)
+from astro2.selfplay import CompactPreferences, CompactSamples
 
 
 def item(step: int, family: DecisionFamily, *, state_size=5, action_size=4, heads=3):
@@ -18,6 +24,8 @@ def item(step: int, family: DecisionFamily, *, state_size=5, action_size=4, head
         step=step,
         head=step % heads,
         epsilon=0.1,
+        td_target=0.25,
+        td_valid=True,
     )
 
 
@@ -149,6 +157,8 @@ def test_vectorized_compact_extend_matches_scalar_rings_through_wraparound():
             "steps",
             "heads",
             "epsilons",
+            "td_targets",
+            "td_valid",
             "sequences",
         ):
             np.testing.assert_array_equal(
@@ -177,3 +187,23 @@ def test_compact_extend_rejects_negative_family_without_partial_write():
     else:
         raise AssertionError("negative family was accepted")
     assert len(replay) == 0
+
+
+def test_preference_replay_is_bounded_and_round_trips_compact_rows():
+    entries = [
+        PreferenceItem(
+            state=np.full(5, step, dtype=np.float32),
+            preferred_action=np.full(4, step + 1, dtype=np.float32),
+            disfavored_action=np.full(4, step - 1, dtype=np.float32),
+            family=DecisionFamily.MAIN,
+        )
+        for step in range(12)
+    ]
+    compact = CompactPreferences.from_items(entries, state_size=5, action_size=4)
+    replay = PreferenceReplayBuffer(capacity=8, state_size=5, action_size=4, seed=3)
+    assert replay.extend_compact(compact) == 12
+    assert len(replay) == 8
+    assert replay.metrics()["overwrites"] == 4
+    batch = replay.sample(6)
+    assert batch.states.shape == (6, 5)
+    assert batch.preferred_actions.shape == (6, 4)

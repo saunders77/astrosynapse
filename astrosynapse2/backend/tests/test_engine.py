@@ -23,6 +23,7 @@ from astro2.engine import (
     Seating,
     _InPlay,
     make_random_chooser,
+    model_action_indices,
 )
 
 
@@ -268,6 +269,31 @@ def test_end_turn_is_legal_with_cards_remaining_and_discards_them():
     assert result.truncation_reason == "max_turns"
     assert len(player.hand) == 5
     assert all(card in player.discard for card in opening_hand)
+
+
+def test_learned_policy_mask_hides_dominated_end_turn_but_engine_keeps_it_legal():
+    game = Game(config=GameConfig(seed=160))
+    player = game.players[0]
+    decision = Decision(
+        DecisionFamily.MAIN,
+        game.observation(player.player_id),
+        game._main_actions(player),
+    )
+    assert any(action.kind == ActionKind.END_TURN for action in decision.actions)
+    eligible = [decision.actions[index] for index in model_action_indices(decision)]
+    assert any(action.kind == ActionKind.PLAY_CARD for action in eligible)
+    assert all(action.kind != ActionKind.END_TURN for action in eligible)
+
+    player.hand.clear()
+    player.combat = 0
+    player.trade = 0
+    exhausted = Decision(
+        DecisionFamily.MAIN,
+        game.observation(player.player_id),
+        game._main_actions(player),
+    )
+    assert [action.kind for action in exhausted.actions] == [ActionKind.END_TURN]
+    assert model_action_indices(exhausted) == (0,)
 
 
 def test_safeguards_are_truncated_draws_not_fabricated_winners():
