@@ -3125,3 +3125,220 @@ button.game-card:hover:not(:disabled) {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Play table: prioritize complete, readable card state over viewport packing. */
+.play-panel {
+  --ink: #ffffff;
+  --ink-soft: #edf3f8;
+  --muted: #c5d0dc;
+  --faint: #a9b8c8;
+  --line: rgba(189, 211, 232, 0.24);
+  --line-strong: rgba(189, 211, 232, 0.42);
+}
+
+.play-panel .game-shell {
+  grid-template-columns: minmax(0, 1fr) minmax(330px, 380px);
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+  background: rgba(8, 14, 22, 0.97);
+}
+
+.play-panel .board-column {
+  display: block;
+  overflow: visible;
+}
+
+.play-panel .player-zone,
+.play-panel .market-zone {
+  min-height: 0;
+  padding: 20px 22px;
+  overflow: visible;
+}
+
+.play-panel .player-zone {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.play-panel .player-zone > header {
+  min-height: 66px;
+  gap: 14px;
+}
+
+.play-panel .player-avatar {
+  width: 46px;
+  height: 46px;
+  border-width: 2px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.play-panel .player-zone > header p strong { font-size: 17px; }
+.play-panel .player-zone > header p small { color: var(--muted); font-size: 13px; }
+.play-panel .authority-display,
+.play-panel .deck-display { min-width: 68px; min-height: 68px; border-color: var(--line-strong); }
+.play-panel .authority-display small,
+.play-panel .deck-display small { color: var(--muted); font-size: 11px; }
+.play-panel .authority-display strong { font-size: 24px; font-weight: 700; }
+.play-panel .deck-display { font-size: 14px; }
+.play-panel .resource-pips span { min-width: 62px; min-height: 62px; color: var(--muted); font-size: 12px; }
+.play-panel .resource-pips b { font-size: 21px; font-weight: 700; }
+
+.play-panel .board-zone,
+.play-panel .visible-pile {
+  display: grid;
+  gap: 9px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.play-panel .visible-pile > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.play-panel .visible-pile > header strong,
+.play-panel .zone-label {
+  color: var(--ink-soft);
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.play-panel .visible-pile > header span { color: var(--muted); font-size: 12px; }
+.play-panel .in-play-row,
+.play-panel .pile-row,
+.play-panel .hand-row,
+.play-panel .market-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  align-items: stretch;
+  justify-content: stretch;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  overflow: visible;
+}
+
+.play-panel .hand-row { min-height: 0; }
+.play-panel .market-zone > header { margin-bottom: 14px; color: var(--ink-soft); font-size: 14px; }
+.play-panel .market-zone > header p { color: var(--muted); }
+.play-panel .explorer-stack { color: var(--muted); font-size: 13px; }
+.play-panel .explorer-stack b { font-size: 18px; }
+.play-panel .explorer-stack small { color: var(--faint); }
+
+.play-panel .game-card,
+.play-panel .card-compact {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 218px;
+  padding: 15px 13px 12px;
+  overflow: visible;
+  border-width: 2px;
+  border-radius: 11px;
+  color: var(--ink-soft);
+}
+
+.play-panel button.game-card { cursor: pointer; }
+.play-panel button.game-card:hover:not(:disabled) { transform: translateY(-4px); }
+.play-panel button.game-card:disabled { cursor: not-allowed; opacity: 0.56; filter: grayscale(0.25); }
+.play-panel .game-card > strong,
+.play-panel .card-compact > .card-title {
+  position: static;
+  display: block;
+  max-width: calc(100% - 34px);
+  min-height: 44px;
+  margin: 8px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 750;
+  line-height: 1.28;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.play-panel .card-kind { display: block; color: var(--muted); font-size: 11px; font-weight: 700; }
+.play-panel .card-rule,
+.play-panel .card-compact .card-rule {
+  display: block;
+  flex: 1;
+  margin-top: 12px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.play-panel .card-stats,
+.play-panel .card-compact .card-stats {
+  display: flex;
+  gap: 6px 10px;
+  margin-top: 12px;
+  padding-top: 9px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.play-panel .card-stats b { color: var(--ink); font-size: 14px; }
+.play-panel .card-cost { top: 10px; right: 10px; width: 30px; height: 30px; border-width: 2px; background: #05090e; font-size: 14px; font-weight: 750; }
+.play-panel .card-count { position: absolute; top: 46px; right: 11px; color: var(--gold); font-family: var(--mono); font-size: 13px; font-weight: 750; }
+.play-panel .empty-card-zone { display: grid; place-items: center; min-height: 54px; color: var(--muted); font-size: 13px; }
+
+.play-panel .discard-notice { border-width: 2px; background: rgba(242, 197, 94, 0.14); }
+.play-panel .discard-notice > span { font-size: 12px; }
+.play-panel .zone-cards-button { color: var(--ink-soft); border-color: var(--line-strong); }
+.play-panel .zone-cards-button b { font-size: 18px; }
+.play-panel .zone-cards-button span { font-size: 11px; }
+
+.play-panel .action-console { padding: 20px; overflow: visible; }
+.play-panel .decision-label small { font-size: 11px; }
+.play-panel .decision-label strong { font-size: 15px; }
+.play-panel .decision-label > b { color: var(--muted); font-size: 12px; }
+.play-panel .legal-actions { gap: 9px; }
+.play-panel .action-button { min-height: 52px; padding: 11px 13px; border-color: var(--line-strong); }
+.play-panel .action-button b { font-size: 14px; }
+.play-panel .action-button span { color: var(--muted); font-size: 12px; }
+.play-panel .action-button i { font-size: 12px; }
+.play-panel .choice-inspector > div span,
+.play-panel .choice-inspector p { color: var(--muted); font-size: 12px; }
+.play-panel .choice-inspector > div strong,
+.play-panel .choice-inspector > div b { font-size: 13px; }
+.play-panel .game-log > p { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.play-panel .game-log header button { color: var(--muted); font-size: 11px; }
+
+@media (max-width: 1100px) {
+  .play-panel .game-shell { grid-template-columns: 1fr; }
+  .play-panel .action-console { border-top: 1px solid var(--line-strong); border-left: 0; }
+}
+
+@media (max-width: 680px) {
+  .play-panel .player-zone,
+  .play-panel .market-zone { padding: 16px 13px; }
+  .play-panel .player-zone > header { flex-wrap: wrap; }
+  .play-panel .resource-pips { display: flex; }
+  .play-panel .in-play-row,
+  .play-panel .pile-row,
+  .play-panel .hand-row,
+  .play-panel .market-row { grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
+  .play-panel .game-card,
+  .play-panel .card-compact { min-height: 230px; margin: 0; }
+}
+
+@media (max-width: 430px) {
+  .play-panel .in-play-row,
+  .play-panel .pile-row,
+  .play-panel .hand-row,
+  .play-panel .market-row { grid-template-columns: 1fr; }
+  .play-panel .deck-display { display: grid; }
+}

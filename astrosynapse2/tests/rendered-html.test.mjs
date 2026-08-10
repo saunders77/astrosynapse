@@ -48,8 +48,9 @@ test("server-renders the Astrosynapse 2 control center", async () => {
 });
 
 test("contains the real local API adapters and no disposable starter shell", async () => {
-  const [page, layout, packageJson] = await Promise.all([
+  const [page, styles, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
@@ -85,6 +86,14 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /observation\.opponent_pending_discard/);
   assert.match(page, /<DiscardNotice count=\{game\.pendingDiscard\} subject="You"/);
   assert.match(page, /<DiscardNotice count=\{game\.opponentPendingDiscard\} subject="Opponent"/);
+  assert.match(page, /Your board · all cards in play/);
+  assert.match(page, /Opponent board · all cards in play/);
+  assert.match(page, /<VisiblePile label="Your discard pile" cards=\{game\.ownDiscard\}/);
+  assert.match(page, /<VisiblePile label="Opponent discard pile" cards=\{game\.opponentDiscard\}/);
+  assert.match(page, /action\.kind === "play_card" && action\.cardId === card\.catalogId/);
+  assert.match(page, /Primary: \$\{describeAbility\(item\.primary, 0\)\}/);
+  assert.match(styles, /Play table: prioritize complete, readable card state over viewport packing/);
+  assert.match(styles, /\.play-panel \.hand-row[\s\S]*?overflow: visible/);
   assert.match(page, /className="card-title" title=\{card\.name\}/);
   assert.doesNotMatch(page, /Math\.max\(80,/);
   assert.doesNotMatch(page, /paired_seeds:\s*true|SkeletonPreview|_sites-preview/);

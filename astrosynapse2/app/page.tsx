@@ -278,6 +278,7 @@ type TrainerConfig = {
 
 type GameCard = {
   id: string;
+  catalogId: number;
   name: string;
   faction: "trade" | "blob" | "machine" | "star" | "neutral";
   cost: number;
@@ -286,7 +287,7 @@ type GameCard = {
   authority?: number;
   defense?: number;
   text: string;
-  kind: "ship" | "base";
+  kind: "ship" | "base" | "outpost";
 };
 
 type GameState = {
@@ -304,8 +305,12 @@ type GameState = {
   explorersRemaining: number;
   hand: GameCard[];
   ownDeck: GameCard[];
+  ownDiscard: GameCard[];
   opponentHidden: GameCard[];
+  opponentDiscard: GameCard[];
   market: GameCard[];
+  humanInPlay: GameCard[];
+  opponentInPlay: GameCard[];
   humanBases: GameCard[];
   opponentBases: GameCard[];
   log: string[];
@@ -314,6 +319,8 @@ type GameState = {
 type RemoteGameAction = {
   id: number;
   label: string;
+  kind: string;
+  cardId: number;
   modelValue: number | null;
   recommended: boolean;
 };
@@ -629,16 +636,17 @@ const demoSnapshot: DashboardSnapshot = {
 const demoCards: Record<string, GameCard> = {
   federation: {
     id: "federation-shuttle",
+    catalogId: 43,
     name: "Federation Shuttle",
     faction: "trade",
     cost: 1,
     trade: 2,
-    authority: 4,
     text: "Ally: gain 4 authority",
     kind: "ship",
   },
   battlePod: {
     id: "battle-pod",
+    catalogId: 4,
     name: "Battle Pod",
     faction: "blob",
     cost: 2,
@@ -648,6 +656,7 @@ const demoCards: Record<string, GameCard> = {
   },
   missileBot: {
     id: "missile-bot",
+    catalogId: 20,
     name: "Missile Bot",
     faction: "machine",
     cost: 2,
@@ -657,6 +666,7 @@ const demoCards: Record<string, GameCard> = {
   },
   imperial: {
     id: "imperial-frigate",
+    catalogId: 31,
     name: "Imperial Frigate",
     faction: "star",
     cost: 3,
@@ -666,6 +676,7 @@ const demoCards: Record<string, GameCard> = {
   },
   cutter: {
     id: "cutter",
+    catalogId: 40,
     name: "Cutter",
     faction: "trade",
     cost: 2,
@@ -676,6 +687,7 @@ const demoCards: Record<string, GameCard> = {
   },
   tradePod: {
     id: "trade-pod",
+    catalogId: 13,
     name: "Trade Pod",
     faction: "blob",
     cost: 2,
@@ -685,6 +697,7 @@ const demoCards: Record<string, GameCard> = {
   },
   scoutA: {
     id: "scout-a",
+    catalogId: 0,
     name: "Scout",
     faction: "neutral",
     cost: 0,
@@ -694,6 +707,7 @@ const demoCards: Record<string, GameCard> = {
   },
   scoutB: {
     id: "scout-b",
+    catalogId: 0,
     name: "Scout",
     faction: "neutral",
     cost: 0,
@@ -703,6 +717,7 @@ const demoCards: Record<string, GameCard> = {
   },
   viper: {
     id: "viper",
+    catalogId: 1,
     name: "Viper",
     faction: "neutral",
     cost: 0,
@@ -712,22 +727,24 @@ const demoCards: Record<string, GameCard> = {
   },
   tradingPost: {
     id: "trading-post",
+    catalogId: 48,
     name: "Trading Post",
     faction: "trade",
     cost: 3,
     defense: 4,
     text: "Choose 1 authority or 1 trade · Scrap: +3 combat",
-    kind: "base",
+    kind: "outpost",
   },
   warWorld: {
     id: "war-world",
+    catalogId: 36,
     name: "War World",
     faction: "star",
     cost: 5,
     attack: 3,
     defense: 4,
     text: "Outpost · Ally: +4 combat",
-    kind: "base",
+    kind: "outpost",
   },
 };
 
@@ -738,7 +755,7 @@ const initialGame: GameState = {
   trade: 0,
   attack: 0,
   deckCount: 4,
-  discardCount: 7,
+  discardCount: 4,
   opponentHandCount: 5,
   opponentDeckCount: 8,
   pendingDiscard: 0,
@@ -746,8 +763,12 @@ const initialGame: GameState = {
   explorersRemaining: 10,
   hand: [demoCards.scoutA, demoCards.federation, demoCards.viper, demoCards.tradePod, demoCards.scoutB],
   ownDeck: [demoCards.scoutA, demoCards.scoutB, demoCards.viper, demoCards.federation],
+  ownDiscard: [demoCards.scoutA, demoCards.viper, demoCards.battlePod, demoCards.cutter],
   opponentHidden: [demoCards.scoutA, demoCards.viper, demoCards.imperial, demoCards.cutter, demoCards.scoutB, demoCards.scoutA, demoCards.scoutB, demoCards.viper, demoCards.tradePod, demoCards.missileBot, demoCards.battlePod, demoCards.cutter, demoCards.federation],
+  opponentDiscard: [demoCards.scoutB, demoCards.federation, demoCards.missileBot],
   market: [demoCards.battlePod, demoCards.missileBot, demoCards.imperial, demoCards.cutter, demoCards.tradingPost],
+  humanInPlay: [demoCards.tradePod, demoCards.tradingPost],
+  opponentInPlay: [demoCards.imperial, demoCards.warWorld],
   humanBases: [demoCards.tradingPost],
   opponentBases: [demoCards.warWorld],
   log: [
@@ -1165,6 +1186,41 @@ function normalizeArenaJob(raw: unknown): ArenaResultView | null {
   };
 }
 
+const abilityDescriptions: Record<string, string> = {
+  all_ally: "All of your factions count as allied this turn",
+  barter_world: "Choose: gain 2 authority or gain 2 trade",
+  blob_world: "Choose: gain 5 combat or draw 1 card for each Blob card you played this turn",
+  copy_ship: "Copy another ship you played this turn",
+  defense_center: "Choose: gain 3 authority or gain 2 combat",
+  destroy_and_scrap: "Destroy a base, then scrap a card in the trade row",
+  destroy_base: "Destroy a target base",
+  draw: "Draw 1 card",
+  draw_destroy: "Draw 1 card, then you may destroy a base",
+  draw_then_scrap: "Draw 1 card, then scrap a card from your hand",
+  draw_two: "Draw 2 cards",
+  embassy_yacht: "If you control at least 2 bases, draw 2 cards",
+  fleet_hq: "Each ship you play this turn gains 1 combat",
+  free_ship: "Acquire a ship from the trade row for free and put it on top of your deck",
+  opponent_discard: "Opponent discards 1 card at the start of their next turn",
+  patrol_mech: "Choose: gain 5 combat or gain 3 trade",
+  recycle: "You may discard up to 2 cards, then draw that many cards",
+  scrap_any: "You may scrap a card from your hand or discard pile",
+  scrap_trade_row: "You may scrap a card in the trade row",
+  scrap_two_draw: "Scrap up to 2 cards from your hand or discard pile, then draw that many cards",
+  ship_top: "Put the next ship you acquire this turn on top of your deck",
+  trading_post: "Choose: gain 1 authority or gain 1 trade",
+};
+
+function describeAbility(effect: unknown, amount: unknown): string {
+  const key = String(effect ?? "");
+  if (!key) return "";
+  const value = asNumber(amount, 0);
+  if (key === "gain_combat") return `Gain ${value} combat`;
+  if (key === "gain_trade") return `Gain ${value} trade`;
+  if (key === "gain_authority") return `Gain ${value} authority`;
+  return abilityDescriptions[key] ?? titleCase(key);
+}
+
 function cardFromApi(raw: unknown, fallbackId: string): GameCard {
   const item = isRecord(raw) ? raw : {};
   const faction = String(item.faction ?? "unaligned");
@@ -1177,12 +1233,18 @@ function cardFromApi(raw: unknown, fallbackId: string): GameCard {
         : faction.includes("trade")
           ? "trade"
           : "neutral";
-  const text = [item.primary, item.ally ? `Ally: ${item.ally}` : "", item.scrap ? `Scrap: ${item.scrap}` : ""]
+  const text = [
+    item.primary ? `Primary: ${describeAbility(item.primary, 0)}` : "",
+    item.ally ? `Ally: ${describeAbility(item.ally, item.ally_amount)}` : "",
+    item.scrap ? `Scrap: ${describeAbility(item.scrap, item.scrap_amount)}` : "",
+  ]
     .filter(Boolean)
-    .map((part) => titleCase(String(part)))
     .join(" · ");
+  const catalogId = asNumber(item.card_id, -1);
+  const rawKind = String(item.card_type ?? "ship");
   return {
-    id: `${asNumber(item.card_id, -1)}-${fallbackId}`,
+    id: `${catalogId}-${fallbackId}`,
+    catalogId,
     name: asString(item.name, "Unknown card"),
     faction: cardFaction,
     cost: asNumber(item.cost, 0),
@@ -1191,7 +1253,7 @@ function cardFromApi(raw: unknown, fallbackId: string): GameCard {
     authority: asNumber(item.authority, 0) || undefined,
     defense: asNumber(item.defense, 0) || undefined,
     text: text || "No additional ability",
-    kind: String(item.card_type ?? "ship") === "ship" ? "ship" : "base",
+    kind: rawKind === "ship" ? "ship" : rawKind === "outpost" ? "outpost" : "base",
   };
 }
 
@@ -1220,6 +1282,12 @@ function normalizeRemoteGame(raw: unknown, previous: GameState): {
     : previous.market;
   const ownInPlay = Array.isArray(observation.own_in_play) ? observation.own_in_play : [];
   const opponentInPlay = Array.isArray(observation.opponent_in_play) ? observation.opponent_in_play : [];
+  const humanInPlay = ownInPlay.map((entry, index) =>
+    cardFromApi(isRecord(entry) ? entry.card : entry, `own-in-play-${index}`),
+  );
+  const visibleOpponentInPlay = opponentInPlay.map((entry, index) =>
+    cardFromApi(isRecord(entry) ? entry.card : entry, `opponent-in-play-${index}`),
+  );
   const status = asString(raw.status, "model_thinking") as RemoteGameSession["status"];
   const resultText = raw.result
     ? result.winner === null
@@ -1239,6 +1307,8 @@ function normalizeRemoteGame(raw: unknown, previous: GameState): {
         return {
           id: asNumber(item.id, index),
           label: asString(item.label, `Action ${index + 1}`),
+          kind: asString(item.kind, ""),
+          cardId: asNumber(item.card_id, -1),
           modelValue: item.model_value === null || item.model_value === undefined ? null : asNumber(item.model_value, 0.5),
           recommended: Boolean(item.model_recommended),
         };
@@ -1271,16 +1341,20 @@ function normalizeRemoteGame(raw: unknown, previous: GameState): {
       ownDeck: Array.isArray(ownZones.deck)
         ? ownZones.deck.map((card, index) => cardFromApi(card, `own-deck-${index}`))
         : previous.ownDeck,
+      ownDiscard: Array.isArray(observation.own_discard)
+        ? observation.own_discard.map((card, index) => cardFromApi(card, `own-discard-${index}`))
+        : previous.ownDiscard,
       opponentHidden: Array.isArray(opponentZones.hidden)
         ? opponentZones.hidden.map((card, index) => cardFromApi(card, `opponent-hidden-${index}`))
         : previous.opponentHidden,
+      opponentDiscard: Array.isArray(observation.opponent_discard)
+        ? observation.opponent_discard.map((card, index) => cardFromApi(card, `opponent-discard-${index}`))
+        : previous.opponentDiscard,
       market,
-      humanBases: ownInPlay
-        .map((entry, index) => cardFromApi(isRecord(entry) ? entry.card : entry, `own-base-${index}`))
-        .filter((card) => card.kind === "base"),
-      opponentBases: opponentInPlay
-        .map((entry, index) => cardFromApi(isRecord(entry) ? entry.card : entry, `opponent-base-${index}`))
-        .filter((card) => card.kind === "base"),
+      humanInPlay,
+      opponentInPlay: visibleOpponentInPlay,
+      humanBases: humanInPlay.filter((card) => card.kind !== "ship"),
+      opponentBases: visibleOpponentInPlay.filter((card) => card.kind !== "ship"),
       log: rawLog.length
         ? [...rawLog].reverse().map((entry) => {
             const item = isRecord(entry) ? entry : {};
@@ -1570,12 +1644,14 @@ function Gauge({ value, label }: { value: number; label: string }) {
 function CardTile({
   card,
   compact = false,
+  count = 1,
   selected = false,
   disabled = false,
   onClick,
 }: {
   card: GameCard;
   compact?: boolean;
+  count?: number;
   selected?: boolean;
   disabled?: boolean;
   onClick?: () => void;
@@ -1583,6 +1659,7 @@ function CardTile({
   const content = (
     <>
       <span className="card-cost" aria-label={`Cost ${card.cost}`}>{card.cost}</span>
+      {count > 1 ? <span className="card-count" aria-label={`${count} copies`}>{count}×</span> : null}
       <span className="card-kind">{card.kind}</span>
       <strong className="card-title" title={card.name}>{card.name}</strong>
       <span className="card-rule">{card.text}</span>
@@ -1597,12 +1674,29 @@ function CardTile({
   const className = `game-card faction-${card.faction}${compact ? " card-compact" : ""}${selected ? " is-selected" : ""}`;
   if (onClick) {
     return (
-      <button type="button" className={className} onClick={onClick} disabled={disabled} aria-pressed={selected}>
+      <button type="button" className={className} onClick={onClick} disabled={disabled} aria-pressed={selected} aria-label={`Play or select ${card.name}`}>
         {content}
       </button>
     );
   }
   return <div className={className}>{content}</div>;
+}
+
+function VisiblePile({ label, cards }: { label: string; cards: GameCard[] }) {
+  const groups = Array.from(cards.reduce((items, card) => {
+    const current = items.get(card.name);
+    items.set(card.name, current ? { card, count: current.count + 1 } : { card, count: 1 });
+    return items;
+  }, new Map<string, { card: GameCard; count: number }>()).values());
+  return (
+    <section className="visible-pile" aria-label={`${label}, ${cards.length} cards`}>
+      <header><strong>{label}</strong><span>{cards.length} {cards.length === 1 ? "card" : "cards"}</span></header>
+      <div className="pile-row">
+        {groups.map(({ card, count }) => <CardTile key={card.name} card={card} count={count} compact />)}
+        {!cards.length ? <span className="empty-card-zone">Empty</span> : null}
+      </div>
+    </section>
+  );
 }
 
 function DiscardNotice({ count, subject }: { count: number; subject: "You" | "Opponent" }) {
@@ -1660,8 +1754,8 @@ function CardInventory({ game, onClose }: { game: GameState; onClose: () => void
           <button type="button" className="inventory-close" onClick={onClose} aria-label="Close hands and decks">×</button>
         </header>
         <div className="inventory-players">
-          <article><h3><span className="player-avatar human-avatar">YOU</span>Your cards</h3><CardCollection label="Hand" cards={game.hand} /><CardCollection label="Deck" cards={game.ownDeck} /></article>
-          <article><h3><span className="player-avatar opponent-avatar">AI</span>Opponent cards</h3><CardCollection label="Hidden hand + deck" cards={game.opponentHidden} /></article>
+          <article><h3><span className="player-avatar human-avatar">YOU</span>Your cards</h3><CardCollection label="Hand" cards={game.hand} /><CardCollection label="Deck" cards={game.ownDeck} /><CardCollection label="Discard pile" cards={game.ownDiscard} /></article>
+          <article><h3><span className="player-avatar opponent-avatar">AI</span>Opponent cards</h3><CardCollection label="Hidden hand + deck" cards={game.opponentHidden} /><CardCollection label="Discard pile" cards={game.opponentDiscard} /></article>
         </div>
       </section>
     </div>
@@ -2356,9 +2450,24 @@ export default function Home() {
       attack: current.attack + (card.attack ?? 0),
       humanAuthority: current.humanAuthority + (card.authority ?? 0),
       hand: current.hand.filter((item) => item.id !== card.id),
+      humanInPlay: [...current.humanInPlay, card],
+      humanBases: card.kind === "ship" ? current.humanBases : [...current.humanBases, card],
       log: [`You played ${card.name}${card.trade ? ` · +${card.trade} trade` : ""}${card.attack ? ` · +${card.attack} combat` : ""}`, ...current.log],
     }));
     setSelectedCard(null);
+  };
+
+  const handleHandCardClick = (card: GameCard) => {
+    if (!remoteGame) {
+      playHandCard(card);
+      return;
+    }
+    const playAction = remoteGame.actions.find(
+      (action) => action.kind === "play_card" && action.cardId === card.catalogId,
+    );
+    if (playAction && remoteGame.status === "your_turn") {
+      submitRemoteChoice(playAction.id);
+    }
   };
 
   const acquireSelected = () => {
@@ -2368,6 +2477,7 @@ export default function Home() {
       ...current,
       trade: current.trade - card.cost,
       discardCount: current.discardCount + 1,
+      ownDiscard: [...current.ownDiscard, card],
       market: current.market.filter((item) => item.id !== card.id),
       log: [`You acquired ${card.name} for ${card.cost} trade`, ...current.log],
     }));
@@ -2781,7 +2891,8 @@ export default function Home() {
               <div className="board-column">
                 <section className="player-zone opponent-zone" aria-label="Opponent board">
                   <header><div><span className="player-avatar opponent-avatar">AI</span><p><strong>Orion</strong><small>{remoteGame?.modelLabel ?? snapshot.models.find((model) => model.id === playModel)?.label ?? "Balanced baseline"}</small></p></div><DiscardNotice count={game.opponentPendingDiscard} subject="Opponent" /><button type="button" className="zone-cards-button" onClick={() => setInventoryOpen(true)}><b>{game.opponentHandCount}</b><span>hand</span></button><div className="authority-display"><small>Authority</small><strong>{game.opponentAuthority}</strong></div><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View opponent hidden hand and deck pool"><i /><span>{game.opponentDeckCount}<small>deck</small></span></button></header>
-                  <div className="base-row">{game.opponentBases.map((card) => <CardTile key={card.id} card={card} compact />)}<span className="zone-label">Opponent bases</span></div>
+                  <div className="board-zone"><span className="zone-label">Opponent board · all cards in play</span><div className="in-play-row">{game.opponentInPlay.map((card) => <CardTile key={card.id} card={card} compact />)}{!game.opponentInPlay.length ? <span className="empty-card-zone">No cards in play</span> : null}</div></div>
+                  <VisiblePile label="Opponent discard pile" cards={game.opponentDiscard} />
                 </section>
 
                 <section className="market-zone" aria-label="Trade row">
@@ -2790,9 +2901,13 @@ export default function Home() {
                 </section>
 
                 <section className="player-zone human-zone" aria-label="Your board">
-                  <div className="base-row">{game.humanBases.map((card) => <CardTile key={card.id} card={card} compact />)}<span className="zone-label">Your bases</span></div>
-                  <header><div><span className="player-avatar human-avatar">YOU</span><p><strong>Your fleet</strong><small>Turn {game.turn} · main phase</small></p></div><DiscardNotice count={game.pendingDiscard} subject="You" /><div className="resource-pips"><span className="trade-pip"><b>{game.trade}</b>Trade</span><span className="attack-pip"><b>{game.attack}</b>Combat</span></div><div className="authority-display"><small>Authority</small><strong>{game.humanAuthority}</strong></div><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View your hand and unordered deck"><i /><span>{game.deckCount}<small>deck</small></span><span>{game.discardCount}<small>discard</small></span></button></header>
-                  <div className="hand-row">{game.hand.map((card) => <CardTile key={card.id} card={card} selected={selectedCard === card.id} onClick={() => setSelectedCard(card.id)} />)}{game.hand.length === 0 ? <EmptyState title="Hand played" detail="Spend remaining trade or combat, then end the turn." /> : null}</div>
+                  <div className="board-zone"><span className="zone-label">Your board · all cards in play</span><div className="in-play-row">{game.humanInPlay.map((card) => <CardTile key={card.id} card={card} compact />)}{!game.humanInPlay.length ? <span className="empty-card-zone">No cards in play</span> : null}</div></div>
+                  <header><div><span className="player-avatar human-avatar">YOU</span><p><strong>Hand</strong><small>Turn {game.turn} · click a card to play it</small></p></div><DiscardNotice count={game.pendingDiscard} subject="You" /><div className="resource-pips"><span className="trade-pip"><b>{game.trade}</b>Trade</span><span className="attack-pip"><b>{game.attack}</b>Combat</span></div><div className="authority-display"><small>Authority</small><strong>{game.humanAuthority}</strong></div><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View your hand and unordered deck"><i /><span>{game.deckCount}<small>deck</small></span><span>{game.discardCount}<small>discard</small></span></button></header>
+                  <div className="hand-row">{game.hand.map((card) => {
+                    const canPlay = !remoteGame || (remoteGame.status === "your_turn" && remoteGame.actions.some((action) => action.kind === "play_card" && action.cardId === card.catalogId));
+                    return <CardTile key={card.id} card={card} disabled={!canPlay || commandBusy === "game-choice"} onClick={() => handleHandCardClick(card)} />;
+                  })}{game.hand.length === 0 ? <EmptyState title="Hand played" detail="Spend remaining trade or combat, then end the turn." /> : null}</div>
+                  <VisiblePile label="Your discard pile" cards={game.ownDiscard} />
                 </section>
               </div>
 
