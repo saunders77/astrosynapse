@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import threading
 import time
 
+import astro2.arena as arena_module
 import pytest
 from astro2 import server
 from astro2.arena import (
@@ -15,6 +17,7 @@ from astro2.arena import (
     resolve_model,
 )
 from astro2.config import RunConfig
+from astro2.engine import GameResult
 from astro2.storage import Store
 from fastapi.testclient import TestClient
 
@@ -32,12 +35,296 @@ def _wait_for_job(manager: ArenaManager, job_id: str, timeout: float = 10.0):
 def test_arena_config_is_bounded_and_conservative():
     assert ArenaConfig().pairs == RECOMMENDED_PAIRS
     assert ArenaConfig().minimum_promotion_pairs == RECOMMENDED_PAIRS
+    assert ArenaConfig().early_rejection is False
+    assert ArenaConfig().early_rejection_min_pairs == 512
+    assert ArenaConfig().early_rejection_confidence == 0.995
     with pytest.raises(ValueError):
         ArenaConfig(pairs=MAX_PAIRS + 1)
     with pytest.raises(ValueError):
         ArenaConfig(pairs=2, minimum_promotion_pairs=2)
     with pytest.raises(ValueError):
         ArenaConfig(pairs=10, automatic_promotion=True)
+    with pytest.raises(ValueError):
+        ArenaConfig(early_rejection=True)
+    with pytest.raises(ValueError):
+        ArenaConfig(
+            pairs=512,
+            minimum_promotion_pairs=512,
+            automatic_promotion=True,
+            early_rejection=True,
+        )
+    with pytest.raises(ValueError):
+        ArenaConfig(early_rejection_confidence=1.0)
+
+
+def test_arena_summary_separates_true_draws_from_truncations():
+    config = ArenaConfig(pairs=1)
+    model_a = ResolvedModel("baseline:balanced", "A", "baseline")
+    model_b = ResolvedModel("baseline:economy", "B", "baseline")
+    common = dict(
+        config=config,
+        model_a=model_a,
+        model_b=model_b,
+        first_scores=[0.5],
+        second_scores=[0.5],
+        pair_records=[],
+        elapsed_seconds=1.0,
+        total_turns=2,
+        total_decisions=2,
+        started_at=1.0,
+    )
+
+    clean = arena_module._summary(**common, truncated_games=0)
+    truncated = arena_module._summary(**common, truncated_games=1)
+
+    assert clean["draws"] == 2
+    assert clean["truncated_games"] == 0
+    assert truncated["draws"] == 1
+    assert truncated["truncated_games"] == 1
+    assert truncated["promotion"]["eligible"] is False
+    assert "ineligible" in truncated["promotion"]["recommendation"]
+
+
+def test_early_rejection_hoeffding_bound_stays_wide_for_zero_variance():
+    config = ArenaConfig(
+        pairs=64,
+        minimum_promotion_pairs=64,
+        automatic_promotion=True,
+        early_rejection=True,
+        early_rejection_min_pairs=8,
+        early_rejection_confidence=0.995,
+    )
+
+    first = arena_module._early_rejection_look(
+        [0.0] * 8,
+        config=config,
+        look_pairs=8,
+    )
+    assert first["method"] == "bonferroni_one_sided_hoeffding"
+    assert first["confidence_radius"] > 0.0
+    assert first["upper_bound"] > 0.5
+    assert first["reject"] is False
+
+    second = arena_module._early_rejection_look(
+        [0.0] * 16,
+        config=config,
+        look_pairs=16,
+    )
+    assert 0.0 < second["upper_bound"] < 0.5
+    assert second["reject"] is True
+
+    tied = arena_module._early_rejection_look(
+        [0.5] * 16,
+        config=config,
+        look_pairs=16,
+    )
+    assert tied["upper_bound"] > 0.5
+    assert tied["reject"] is False
+
+
+def test_final_paired_interval_is_valid_for_constant_samples():
+    losing = arena_module._paired_interval([0.0] * 5_000, 0.95)
+    winning = arena_module._paired_interval([1.0] * 5_000, 0.95)
+
+    assert losing["estimate"] == 0.0
+    assert 0.0 < losing["high"] < 0.1
+    assert winning["estimate"] == 1.0
+    assert 0.9 < winning["low"] < 1.0
+    assert losing["confidence_radius"] == pytest.approx(winning["confidence_radius"])
+
+
+def test_automatic_arena_early_rejects_only_at_adjusted_safe_look(
+    tmp_path,
+    monkeypatch,
+):
+    store = Store(tmp_path / "arena.sqlite3")
+    run = store.create_run(RunConfig.quick())
+    champion_actor = tmp_path / "champion.npz"
+    weak_actor = tmp_path / "weak.npz"
+    strong_actor = tmp_path / "strong.npz"
+    champion_actor.touch()
+    weak_actor.touch()
+    strong_actor.touch()
+    champion = store.add_checkpoint(
+        run_id=run["id"],
+        label="champion",
+        path=str(tmp_path / "champion.safetensors"),
+        actor_path=str(champion_actor),
+        games=5_000,
+        champion=True,
+    )
+    weak = store.add_checkpoint(
+        run_id=run["id"],
+        label="weak",
+        path=str(tmp_path / "weak.safetensors"),
+        actor_path=str(weak_actor),
+        games=10_000,
+    )
+    strong = store.add_checkpoint(
+        run_id=run["id"],
+        label="strong",
+        path=str(tmp_path / "strong.safetensors"),
+        actor_path=str(strong_actor),
+        games=15_000,
+    )
+    candidate_loses = {"value": True}
+
+    class FakeLoadedModel:
+        def __init__(self, resolved):
+            self.resolved = resolved
+
+        def chooser(self, _seed):
+            return object()
+
+    class FakeGame:
+        def __init__(self, *, player_names, config, **_kwargs):
+            self.player_names = player_names
+            self.config = config
+
+        def run(self):
+            champion_player = self.player_names.index("champion")
+            candidate_player = 1 - champion_player
+            winner = champion_player if candidate_loses["value"] else candidate_player
+            return GameResult(
+                winner=winner,
+                turns=1,
+                decisions=1,
+                forced_choices=0,
+                truncated=False,
+                truncation_reason=None,
+                seed=self.config.seed,
+                starting_player=0,
+            )
+
+    monkeypatch.setattr(arena_module, "_LoadedModel", FakeLoadedModel)
+    monkeypatch.setattr(arena_module, "Game", FakeGame)
+    manager = ArenaManager(store, recover=False)
+    options = {
+        "pairs": 64,
+        "minimum_promotion_pairs": 64,
+        "early_rejection": True,
+        "early_rejection_min_pairs": 8,
+        "early_rejection_confidence": 0.995,
+    }
+
+    weak_job = manager.create_automatic(weak["id"], champion["id"], **options)
+    weak_complete = _wait_for_job(manager, weak_job["id"])
+    weak_result = weak_complete["result"]
+    assert weak_complete["status"] == "complete"
+    assert weak_complete["error"] is None
+    assert weak_result["pairs_completed"] == 16
+    assert weak_result["games_completed"] == 32
+    assert weak_result["early_stopped"] is True
+    assert "upper bound" in weak_result["early_stop_reason"]
+    assert weak_result["early_rejection"]["planned_look_pairs"] == [8, 16, 32]
+    assert weak_result["early_rejection"]["looks_completed"] == 2
+    look = weak_result["early_rejection"]["latest_look"]
+    assert look["method"] == "bonferroni_one_sided_hoeffding"
+    assert look["look_index"] == 2
+    assert look["configured_confidence"] == pytest.approx(0.995)
+    assert look["bonferroni_look_alpha"] == pytest.approx((1.0 - 0.995) / 3)
+    assert 0.0 < look["upper_bound"] < 0.5
+    assert look["reject"] is True
+    assert weak_result["promotion"]["eligible"] is False
+    assert weak_result["promotion"]["promoted"] is False
+    assert store.get_run(run["id"])["champion_id"] == champion["id"]
+    weak_evaluation = store.checkpoint(weak["id"])["evaluation"]["latest_arena"]
+    assert weak_evaluation["early_stopped"] is True
+
+    # A strong candidate is never promoted at an interim look. It runs all
+    # requested pairs and only the ordinary final promotion gate can accept it.
+    candidate_loses["value"] = False
+    strong_job = manager.create_automatic(strong["id"], champion["id"], **options)
+    strong_complete = _wait_for_job(manager, strong_job["id"])
+    manager.shutdown()
+    strong_result = strong_complete["result"]
+    assert strong_result["pairs_completed"] == 64
+    assert strong_result["early_stopped"] is False
+    assert strong_result["early_rejection"]["looks_completed"] == 3
+    assert strong_result["early_rejection"]["latest_look"]["reject"] is False
+    assert strong_result["promotion"]["promoted"] is True
+
+
+def test_cancelling_running_or_queued_automatic_arena_prevents_promotion(tmp_path, monkeypatch):
+    store = Store(tmp_path / "arena.sqlite3")
+    run = store.create_run(RunConfig.quick())
+    champion_actor = tmp_path / "champion.npz"
+    candidate_actor = tmp_path / "candidate.npz"
+    champion_actor.touch()
+    candidate_actor.touch()
+    champion = store.add_checkpoint(
+        run_id=run["id"],
+        label="champion",
+        path=str(tmp_path / "champion.safetensors"),
+        actor_path=str(champion_actor),
+        games=1_000,
+        champion=True,
+    )
+    candidate = store.add_checkpoint(
+        run_id=run["id"],
+        label="candidate",
+        path=str(tmp_path / "candidate.safetensors"),
+        actor_path=str(candidate_actor),
+        games=2_000,
+    )
+    started = threading.Event()
+    stop_requested = threading.Event()
+
+    class FakeLoadedModel:
+        def __init__(self, resolved):
+            self.resolved = resolved
+
+        def chooser(self, _seed):
+            return object()
+
+    class BlockingGame:
+        def __init__(self, *, config, cancel_hook, **_kwargs):
+            self.config = config
+            self.cancel_hook = cancel_hook
+
+        def run(self):
+            started.set()
+            deadline = time.monotonic() + 2.0
+            while not self.cancel_hook() and time.monotonic() < deadline:
+                time.sleep(0.001)
+            return GameResult(
+                winner=None,
+                turns=0,
+                decisions=0,
+                forced_choices=0,
+                truncated=True,
+                truncation_reason="cancelled",
+                seed=self.config.seed,
+                starting_player=0,
+            )
+
+    monkeypatch.setattr(arena_module, "_LoadedModel", FakeLoadedModel)
+    monkeypatch.setattr(arena_module, "Game", BlockingGame)
+    manager = ArenaManager(store, recover=False)
+    job = manager.create_automatic(
+        candidate["id"],
+        champion["id"],
+        pairs=8,
+        minimum_promotion_pairs=8,
+        cancellation_hook=stop_requested.is_set,
+    )
+    assert started.wait(1.0)
+    queued = manager.create_automatic(
+        candidate["id"],
+        champion["id"],
+        pairs=8,
+        minimum_promotion_pairs=8,
+    )
+    assert manager.cancel(queued["id"], timeout=1.0) is True
+    assert store.arena_job(queued["id"])["status"] == "cancelled"
+    assert store.arena_job(job["id"])["status"] == "running"
+    stop_requested.set()
+    assert manager.wait_for_job(job["id"], timeout=2.0) is True
+    manager.shutdown()
+
+    assert store.arena_job(job["id"])["status"] == "cancelled"
+    assert store.get_run(run["id"])["champion_id"] == champion["id"]
+    assert "latest_arena" not in store.checkpoint(candidate["id"])["evaluation"]
 
 
 def test_model_refs_accept_named_baselines_and_reject_unknown_refs(tmp_path):
@@ -58,7 +345,8 @@ def test_paired_arena_job_is_persistent_live_and_exactly_seat_swapped(tmp_path):
         "baseline:aggressive",
         ArenaConfig(pairs=3, seed=77, max_turns=80, max_actions_per_turn=100),
     )
-    complete = _wait_for_job(manager, created["id"])
+    assert manager.wait_for_idle(timeout=10.0) is True
+    complete = manager.get(created["id"])
     manager.shutdown()
 
     assert complete["status"] == "complete", complete.get("error")
@@ -70,7 +358,7 @@ def test_paired_arena_job_is_persistent_live_and_exactly_seat_swapped(tmp_path):
     assert result["exact_seat_swap"] is True
     assert result["wilson_interval"]["samples"] == 6
     assert result["paired_interval"]["samples"] == 3
-    assert result["paired_interval_method"] == "nonparametric_bootstrap"
+    assert result["paired_interval_method"] == "two_sided_hoeffding"
     assert result["promotion"]["automatic"] is False
     assert result["promotion"]["eligible"] is False
     assert len({pair["seed"] for pair in result["recent_pairs"]}) == 3
@@ -215,6 +503,31 @@ def test_automatic_finalization_never_promotes_manual_or_tiny_jobs_but_promotes_
     )
     assert tiny_result["promotion"]["eligible"] is False
     assert tiny_result["promotion"]["promoted"] is False
+    assert store.get_run(run["id"])["champion_id"] == champion["id"]
+
+    truncated_result = {
+        "pairs_completed": 5_000,
+        "games_completed": 10_000,
+        "model_a_score": 0.75,
+        "paired_interval": {
+            "estimate": 0.75,
+            "low": 0.70,
+            "high": 0.80,
+            "samples": 5_000,
+        },
+        "truncated_games": 1,
+        "promotion": {},
+    }
+    assert not finalize_automatic_evaluation(
+        store,
+        job_id="truncated",
+        config=automatic,
+        model_a=model_a,
+        model_b=model_b,
+        result=truncated_result,
+    )
+    assert truncated_result["promotion"]["eligible"] is False
+    assert "truncated" in truncated_result["promotion"]["recommendation"]
     assert store.get_run(run["id"])["champion_id"] == champion["id"]
 
     provisional = ArenaConfig(

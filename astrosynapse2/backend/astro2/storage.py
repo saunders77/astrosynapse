@@ -318,9 +318,7 @@ class Store:
             if promote:
                 run_id = row["run_id"]
                 db.execute("UPDATE checkpoints SET is_champion = 0 WHERE run_id = ?", (run_id,))
-                db.execute(
-                    "UPDATE checkpoints SET is_champion = 1 WHERE id = ?", (checkpoint_id,)
-                )
+                db.execute("UPDATE checkpoints SET is_champion = 1 WHERE id = ?", (checkpoint_id,))
                 cursor = db.execute(
                     "UPDATE runs SET champion_id = ?, updated_at = ? WHERE id = ?",
                     (checkpoint_id, time.time(), run_id),

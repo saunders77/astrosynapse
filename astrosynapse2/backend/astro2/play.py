@@ -21,7 +21,10 @@ from .model import NumpyActor
 class ActorChooser:
     def __init__(self, actor_path: str | Path):
         self.actor = NumpyActor.load(actor_path)
-        self.encoder = Encoder(card_catalog=ALL_CARDS)
+        self.encoder = Encoder(
+            card_catalog=ALL_CARDS,
+            version=self.actor.spec.encoder_version,
+        )
 
     def __call__(self, _player_id: int, decision: Decision) -> int:
         index, _probabilities = self.score(decision)
@@ -39,8 +42,19 @@ class ActorChooser:
             head=None,
             epsilon=0.0,
         )
-        probabilities = np.zeros(len(decision.actions), dtype=np.float32)
-        probabilities[eligible] = eligible_probabilities
+        if len(eligible) == len(decision.actions):
+            probabilities = eligible_probabilities
+        else:
+            # Human players still see every rules-legal option. Score the
+            # dominance-masked choices honestly for explanation while keeping
+            # the model's deployed selection restricted to eligible actions.
+            logits = self.actor.predict_options(
+                encoded.state,
+                encoded.actions,
+                int(encoded.family),
+            )
+            values = logits.mean(axis=1) if logits.ndim > 1 else logits
+            probabilities = 1.0 / (1.0 + np.exp(-np.clip(values, -40.0, 40.0)))
         return int(eligible[local_index]), probabilities
 
 
@@ -148,7 +162,9 @@ class GameSession:
         # Give the engine a short chance to advance to its next stable decision.
         with self._condition:
             self._condition.wait_for(
-                lambda: self._pending is None or self.game.result is not None or self._error is not None,
+                lambda: (
+                    self._pending is None or self.game.result is not None or self._error is not None
+                ),
                 timeout=0.25,
             )
         return self.snapshot()
@@ -167,9 +183,11 @@ class GameSession:
     def wait_until_ready(self, timeout: float = 2.0) -> None:
         with self._condition:
             self._condition.wait_for(
-                lambda: self._pending is not None
-                or self.game.result is not None
-                or self._error is not None,
+                lambda: (
+                    self._pending is not None
+                    or self.game.result is not None
+                    or self._error is not None
+                ),
                 timeout=timeout,
             )
 

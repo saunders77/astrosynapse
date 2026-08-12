@@ -6,7 +6,9 @@ def test_human_game_advances_after_legal_choice():
     initial = manager.create(seed=17, human_starts=True)
     assert initial["status"] == "your_turn"
     assert initial["decision"]["actions"]
-    play_actions = [action for action in initial["decision"]["actions"] if action["kind"] == "play_card"]
+    play_actions = [
+        action for action in initial["decision"]["actions"] if action["kind"] == "play_card"
+    ]
     assert play_actions
     assert all(action["card_id"] >= 0 for action in play_actions)
     assert len(initial["card_zones"]["own"]["hand"]) == 3

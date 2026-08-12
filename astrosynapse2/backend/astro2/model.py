@@ -26,6 +26,10 @@ class ModelSpec:
     residual_blocks: int = 3
     bootstrap_heads: int = 3
     layer_norm_eps: float = 1e-5
+    # Keep new optional fields after the original positional parameters so
+    # third-party callers that constructed ModelSpec positionally remain
+    # source-compatible. Internal code should still prefer keyword arguments.
+    encoder_version: int = 1
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -87,12 +91,12 @@ def build_model(spec: ModelSpec):
             for block in self.action_blocks:
                 action = block(action)
 
-            value = nn.silu(self.fusion_norm(self.fusion_in(mx.concatenate([state, action], axis=-1))))
+            value = nn.silu(
+                self.fusion_norm(self.fusion_in(mx.concatenate([state, action], axis=-1)))
+            )
             for block in self.fusion_blocks:
                 value = block(value)
-            all_logits = self.output(value).reshape(
-                (-1, spec.families, spec.bootstrap_heads)
-            )
+            all_logits = self.output(value).reshape((-1, spec.families, spec.bootstrap_heads))
             if families is None:
                 return all_logits
             indices = mx.broadcast_to(
@@ -163,8 +167,19 @@ def preference_ranking_loss(
     }
 
 
-def export_actor(model, spec: ModelSpec, path: str | Path) -> Path:
-    """Export MLX weights into a compact NumPy archive for CPU actors."""
+def export_actor(
+    model,
+    spec: ModelSpec,
+    path: str | Path,
+    *,
+    compressed: bool = True,
+) -> Path:
+    """Export MLX weights into a NumPy archive for CPU actors.
+
+    Durable checkpoint actors default to compression.  Mutable runtime actors
+    may opt out because they are rewritten and loaded by workers frequently,
+    making compression CPU time more expensive than the temporary disk space.
+    """
 
     from mlx.utils import tree_flatten
 
@@ -174,7 +189,8 @@ def export_actor(model, spec: ModelSpec, path: str | Path) -> Path:
     arrays["__spec_json__"] = np.frombuffer(
         json.dumps(spec.as_dict(), sort_keys=True).encode("utf-8"), dtype=np.uint8
     )
-    np.savez_compressed(target, **arrays)
+    writer = np.savez_compressed if compressed else np.savez
+    writer(target, **arrays)
     return target
 
 
@@ -200,6 +216,46 @@ def load_model(path: str | Path):
     return model, spec
 
 
+def save_optimizer_state(optimizer: Any, path: str | Path) -> Path:
+    """Atomically persist an MLX optimizer tree beside a model checkpoint."""
+
+    from mlx.utils import tree_flatten
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f"{target.stem}.partial{target.suffix}")
+    flattened = list(tree_flatten(optimizer.state))
+    arrays = {f"value_{index}": np.asarray(value) for index, (_name, value) in enumerate(flattened)}
+    arrays["__paths_json__"] = np.frombuffer(
+        json.dumps([name for name, _value in flattened]).encode("utf-8"), dtype=np.uint8
+    )
+    np.savez_compressed(temporary, **arrays)
+    temporary.replace(target)
+    return target
+
+
+def load_optimizer_state(optimizer: Any, path: str | Path) -> bool:
+    """Restore a state saved by :func:`save_optimizer_state` if it exists."""
+
+    target = Path(path)
+    if not target.is_file():
+        return False
+    import mlx.core as mx
+    from mlx.utils import tree_flatten, tree_unflatten
+
+    with np.load(target, allow_pickle=False) as archive:
+        paths = json.loads(bytes(archive["__paths_json__"].tolist()).decode("utf-8"))
+        flattened = [
+            (str(name), mx.array(np.asarray(archive[f"value_{index}"])))
+            for index, name in enumerate(paths)
+        ]
+    optimizer.state = tree_unflatten(flattened)
+    leaves = [value for _name, value in tree_flatten(optimizer.state)]
+    if leaves:
+        mx.eval(*leaves)
+    return True
+
+
 def _silu(value: np.ndarray) -> np.ndarray:
     return value / (1.0 + np.exp(-np.clip(value, -40.0, 40.0)))
 
@@ -210,6 +266,7 @@ class NumpyActor:
     def __init__(self, spec: ModelSpec, weights: dict[str, np.ndarray]):
         self.spec = spec
         self.weights = weights
+        self._prior_cache: dict[int, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
 
     @classmethod
     def load(cls, path: str | Path) -> NumpyActor:
@@ -298,6 +355,40 @@ class NumpyActor:
         all_logits = self._interaction_logits(state_features, self._action_features(actions))
         return all_logits[:, family]
 
+    def _randomized_prior(
+        self,
+        state: np.ndarray,
+        actions: np.ndarray,
+        family: int,
+        head: int,
+    ) -> np.ndarray:
+        """Fixed, deterministic prior used only for trajectory exploration.
+
+        A different random projection belongs to each bootstrap head.  It is
+        never trained and is absent from deployment (`head=None`), so it keeps
+        head policies distinct without changing checkpoint compatibility.
+        """
+
+        cached = self._prior_cache.get(head)
+        if cached is None:
+            seed = np.random.SeedSequence(
+                [0xA5730, self.spec.state_size, self.spec.action_size, self.spec.families, head]
+            )
+            generator = np.random.default_rng(seed)
+            state_weights = generator.normal(
+                0.0, 1.0 / math.sqrt(self.spec.state_size), self.spec.state_size
+            ).astype(np.float32)
+            action_weights = generator.normal(
+                0.0, 1.0 / math.sqrt(self.spec.action_size), self.spec.action_size
+            ).astype(np.float32)
+            family_bias = generator.normal(0.0, 0.35, self.spec.families).astype(np.float32)
+            cached = (state_weights, action_weights, family_bias)
+            self._prior_cache[head] = cached
+        state_weights, action_weights, family_bias = cached
+        state_term = float(np.asarray(state, dtype=np.float32).reshape(-1) @ state_weights)
+        action_terms = np.asarray(actions, dtype=np.float32) @ action_weights
+        return np.tanh(state_term + action_terms + float(family_bias[family])).astype(np.float32)
+
     def choose(
         self,
         state: np.ndarray,
@@ -307,14 +398,21 @@ class NumpyActor:
         head: int | None = None,
         epsilon: float = 0.0,
         exploration_top_k: int = 3,
+        randomized_prior_scale: float = 0.0,
         rng: np.random.Generator | None = None,
     ) -> tuple[int, np.ndarray]:
         generator = rng or np.random.default_rng()
         logits = self.predict_options(state, actions, family)
         values = logits.mean(axis=1) if head is None else logits[:, head]
+        if randomized_prior_scale < 0:
+            raise ValueError("randomized_prior_scale must be nonnegative")
+        if head is not None and randomized_prior_scale:
+            values = values + randomized_prior_scale * self._randomized_prior(
+                state, actions, family, head
+            )
         probabilities = 1.0 / (1.0 + np.exp(-np.clip(values, -40.0, 40.0)))
-        if exploration_top_k < 1:
-            raise ValueError("exploration_top_k must be positive")
+        if exploration_top_k < 0:
+            raise ValueError("exploration_top_k must be nonnegative")
         if len(actions) == 1:
             # This can happen after the model-policy dominance mask removes a
             # legal END_TURN.  The action choice is forced, but its estimated
@@ -324,7 +422,7 @@ class NumpyActor:
             # Explore among plausible actions instead of uniformly sampling a
             # potentially catastrophic tail action.  Bootstrap-head selection
             # supplies the broader, trajectory-coherent exploration signal.
-            count = min(exploration_top_k, len(values))
+            count = len(values) if exploration_top_k == 0 else min(exploration_top_k, len(values))
             top = np.argpartition(values, -count)[-count:]
             return int(generator.choice(top)), probabilities
         best = np.flatnonzero(values == values.max())

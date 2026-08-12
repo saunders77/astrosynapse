@@ -6,7 +6,7 @@ import random
 from dataclasses import dataclass
 from typing import Literal
 
-from .cards import CARD_BY_ID, Card, Faction
+from .cards import CARD_BY_ID, Card, CardType, Faction
 from .engine import Action, ActionKind, Decision, DecisionFamily
 
 
@@ -147,7 +147,33 @@ class HeuristicChooser:
         if kind in {ActionKind.PLAY_CARD, ActionKind.ACTIVATE_BASE}:
             return 1_000.0 + value
         if kind == ActionKind.SCRAP_FOR_ABILITY:
-            return 610.0 + _effect_value(action.ability, action.amount, self.style) - 0.3 * value
+            # This is an optional irreversible choice, not ordinary turn
+            # bookkeeping.  Keeping the card (END_TURN) is the neutral action.
+            # Scrap only for concrete tactical urgency; a generic positive
+            # bonus taught the original baseline to destroy every printed
+            # scrap card, including six- and seven-cost ships on early turns.
+            assert card is not None
+            benefit = 2.0 * _effect_value(action.ability, action.amount, self.style)
+            retention = value + 1.5 * card.cost + (3.0 if card.cost >= 5 else 0.0)
+            tactical = 0.0
+            observation = decision.observation
+            if action.ability == "gain_combat":
+                outposts = [
+                    item
+                    for item in observation.opponent_in_play
+                    if item.card.card_type == CardType.OUTPOST
+                ]
+                available = observation.combat
+                if not outposts and available + action.amount >= observation.opponent_authority:
+                    tactical += 100.0
+                elif any(
+                    available < item.card.defense <= available + action.amount
+                    for item in observation.opponent_in_play
+                ):
+                    tactical += 20.0
+                elif observation.opponent_authority <= 10:
+                    tactical += 4.0
+            return benefit + tactical - retention
         if kind == ActionKind.ATTACK_BASE:
             return 760.0 + 2.0 * action.amount + value
         if kind == ActionKind.ATTACK_PLAYER:
@@ -156,7 +182,7 @@ class HeuristicChooser:
         if kind == ActionKind.ACQUIRE:
             return 500.0 + value - 0.05 * action.amount
         if kind == ActionKind.END_TURN:
-            return -1_000.0
+            return 0.0
         return 0.0
 
     def _mode_score(self, action: Action) -> float:

@@ -24,3 +24,23 @@ def test_promotion_requires_enough_paired_evidence():
         np.ones(5_000), np.ones(5_000), minimum_pairs=5_000, bootstrap_samples=100
     )
     assert decisive.promote is True
+
+
+def test_league_matchup_statistics_round_trip_without_stale_paths():
+    original = League(
+        [
+            Opponent("old", "/old/path", "checkpoint", "old", wins=7.5, games=12),
+            Opponent("baseline:balanced", None, "baseline", "balanced", wins=2, games=4),
+        ]
+    )
+    restored = League(
+        [
+            Opponent("new", "/new/model", "checkpoint", "new"),
+            Opponent("old", "/new/path", "champion", "renamed"),
+        ]
+    )
+    assert restored.restore(original.snapshot()) == 1
+    assert [item.id for item in restored.opponents] == ["old", "new"]
+    assert restored.opponents[0].actor_path == "/new/path"
+    assert (restored.opponents[0].wins, restored.opponents[0].games) == (7.5, 12)
+    assert (restored.opponents[1].wins, restored.opponents[1].games) == (0.0, 0)

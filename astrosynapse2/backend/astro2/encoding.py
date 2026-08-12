@@ -281,6 +281,7 @@ CARD_ATTRIBUTE_SIZE = 13
 # amount, cost, attack available, target defense, trade available, draw count,
 # discard count, scrap count, optional, required, top-deck, current authority
 ACTION_NUMERIC_SIZE = 12
+RELATION_FEATURE_SIZE = 16
 KNOWN_TOP_SLOTS = 3
 _IN_PLAY_STATUS_FIELDS = (
     "ready",
@@ -408,7 +409,9 @@ def decision_family(decision_or_actions: Any) -> DecisionFamily:
         raise ValueError(f"unknown action kind in decision: {sorted(int(kind) for kind in kinds)}")
     matches = [family for family, members in _KINDS_BY_FAMILY.items() if kinds <= members]
     if len(matches) != 1:
-        raise ValueError(f"ambiguous decision family for kinds: {sorted(kind.name for kind in kinds)}")
+        raise ValueError(
+            f"ambiguous decision family for kinds: {sorted(kind.name for kind in kinds)}"
+        )
     return matches[0]
 
 
@@ -467,12 +470,7 @@ def _unwrap_card(card: Any) -> Any:
     if nested is not None and nested is not card:
         return _unwrap_card(nested)
     # Legacy cards in play are [card_details, ally_used, option, active, copy].
-    if (
-        isinstance(card, (tuple, list))
-        and card
-        and isinstance(card[0], (tuple, list))
-        and card[0]
-    ):
+    if isinstance(card, (tuple, list)) and card and isinstance(card[0], (tuple, list)) and card[0]:
         return card[0]
     return card
 
@@ -498,10 +496,28 @@ class DecisionEncoding:
     family: DecisionFamily
 
 
+@dataclass(frozen=True, slots=True)
+class _RelationContext:
+    """Observation-level values shared by every action in one decision."""
+
+    owned_total: float
+    owned_factions: Mapping[str, float]
+    owned_ally_factions: Mapping[str, float]
+    draw_factions: Mapping[str, float]
+    in_play_factions: Mapping[str, float]
+    known_card_count: int
+    known_combat: float
+    known_trade: float
+    known_draws: int
+    known_factions: frozenset[str]
+    combat: float
+    opponent_authority: float
+    trade: float
+    turn: int
+
+
 class Encoder:
     """Encode observations and candidates without positional information."""
-
-    version = 1
 
     def __init__(
         self,
@@ -509,12 +525,16 @@ class Encoder:
         *,
         card_catalog: Mapping[Any, Any] | Sequence[Any] | None = None,
         strict: bool = True,
+        version: int = 1,
     ):
         if not card_names:
             raise ValueError("card_names must not be empty")
         self.card_names = tuple(card_names)
         self.card_count = len(self.card_names)
         self.strict = strict
+        if version not in {1, 2}:
+            raise ValueError("encoder version must be 1 or 2")
+        self.version = int(version)
         self._name_to_id = {_snake(name): index for index, name in enumerate(self.card_names)}
         self._catalog: dict[int, Any] = {}
         if card_catalog is None and self.card_names == BASE_CARD_NAMES:
@@ -522,16 +542,43 @@ class Encoder:
 
             card_catalog = ALL_CARDS
         if card_catalog is not None:
-            items = card_catalog.items() if isinstance(card_catalog, Mapping) else enumerate(card_catalog)
+            items = (
+                card_catalog.items()
+                if isinstance(card_catalog, Mapping)
+                else enumerate(card_catalog)
+            )
             for key, value in items:
                 card_id = self.card_id(key, allow_missing=True)
                 if card_id is None:
                     card_id = self.card_id(value, allow_missing=True)
                 if card_id is not None:
                     self._catalog[card_id] = value
+        relation_metadata: dict[int, tuple[str, bool, float, float]] = {}
+        faction_ids: dict[str, list[int]] = {}
+        for card_id, card in self._catalog.items():
+            faction = _snake(_lookup(card, "faction", default="unaligned"))
+            relation_metadata[card_id] = (
+                faction,
+                bool(_lookup(card, "ally", default="")),
+                float(_lookup(card, "cost", default=0) or 0),
+                float(_lookup(card, "defense", default=0) or 0),
+            )
+            if faction not in {"", "none", "unaligned"}:
+                faction_ids.setdefault(faction, []).append(card_id)
+        self._relation_metadata = relation_metadata
+        self._relation_faction_ids = {
+            faction: np.asarray(ids, dtype=np.intp) for faction, ids in faction_ids.items()
+        }
+        self._relation_ally_faction_ids = {
+            faction: np.asarray(
+                [card_id for card_id in ids if relation_metadata[card_id][1]],
+                dtype=np.intp,
+            )
+            for faction, ids in faction_ids.items()
+        }
 
     @classmethod
-    def from_engine(cls, engine: Any, *, strict: bool = True) -> Encoder:
+    def from_engine(cls, engine: Any, *, strict: bool = True, version: int = 1) -> Encoder:
         catalog = _lookup(
             engine,
             "card_catalog",
@@ -543,7 +590,7 @@ class Encoder:
             default=None,
         )
         if catalog is None:
-            return cls(strict=strict)
+            return cls(strict=strict, version=version)
         values = list(catalog.values()) if isinstance(catalog, Mapping) else list(catalog)
         names = []
         for value in values:
@@ -551,14 +598,12 @@ class Encoder:
             if name is None and isinstance(value, (tuple, list)) and value:
                 name = value[0]
             names.append(str(name))
-        return cls(names, card_catalog=catalog, strict=strict)
+        return cls(names, card_catalog=catalog, strict=strict, version=version)
 
     @property
     def state_size(self) -> int:
         ordered_top = 2 * KNOWN_TOP_SLOTS * self.card_count
-        in_play_status = (
-            len(_IN_PLAY_STATUS_SIDES) * len(_IN_PLAY_STATUS_FIELDS) * self.card_count
-        )
+        in_play_status = len(_IN_PLAY_STATUS_SIDES) * len(_IN_PLAY_STATUS_FIELDS) * self.card_count
         return len(_STATE_SCALARS) + ZONE_COUNT * self.card_count + ordered_top + in_play_status
 
     @property
@@ -569,6 +614,7 @@ class Encoder:
             + 2 * ZONE_COUNT
             + EFFECT_COUNT
             + ACTION_NUMERIC_SIZE
+            + (RELATION_FEATURE_SIZE if self.version >= 2 else 0)
         )
 
     def card_id(self, card: Any, *, allow_missing: bool = False) -> int | None:
@@ -672,12 +718,16 @@ class Encoder:
             return
         if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
             # Canonical immutable-engine multisets are ``(card_id, count)`` pairs.
-            if isinstance(value, (tuple, list)) and value and all(
-                isinstance(pair, (tuple, list))
-                and len(pair) == 2
-                and isinstance(pair[0], (int, np.integer))
-                and isinstance(pair[1], (int, np.integer))
-                for pair in value
+            if (
+                isinstance(value, (tuple, list))
+                and value
+                and all(
+                    isinstance(pair, (tuple, list))
+                    and len(pair) == 2
+                    and isinstance(pair[0], (int, np.integer))
+                    and isinstance(pair[1], (int, np.integer))
+                    for pair in value
+                )
             ):
                 for raw_card_id, count in value:
                     card_id = self.card_id(raw_card_id, allow_missing=not self.strict)
@@ -812,9 +862,7 @@ class Encoder:
         legacy_card = _legacy_card(action, kind) if legacy else None
 
         source = (
-            _lookup(action, "source_card", "card", "card_id", default=None)
-            if not legacy
-            else None
+            _lookup(action, "source_card", "card", "card_id", default=None) if not legacy else None
         )
         target = (
             _lookup(action, "target_card", "target", "target_card_id", default=None)
@@ -857,9 +905,7 @@ class Encoder:
                 source_zone_id = int(Zone.OWN_HAND)
             elif kind == ActionKind.SCRAP_CARD:
                 raw = _snake(_raw_action_kind(action))
-                source_zone_id = int(
-                    Zone.OWN_DISCARD if "discard" in raw else Zone.OWN_HAND
-                )
+                source_zone_id = int(Zone.OWN_DISCARD if "discard" in raw else Zone.OWN_HAND)
             elif kind == ActionKind.SCRAP_FROM_PLAY:
                 source_zone_id = int(Zone.OWN_IN_PLAY)
         if target_zone_id < 0:
@@ -911,12 +957,16 @@ class Encoder:
             top_deck = kind == ActionKind.FREE_ACQUIRE or bool(top_deck)
 
         if legacy:
-            if kind in {
-                ActionKind.GAIN_ATTACK,
-                ActionKind.GAIN_TRADE,
-                ActionKind.GAIN_AUTHORITY,
-                ActionKind.DRAW,
-            } and len(action) > 1:
+            if (
+                kind
+                in {
+                    ActionKind.GAIN_ATTACK,
+                    ActionKind.GAIN_TRADE,
+                    ActionKind.GAIN_AUTHORITY,
+                    ActionKind.DRAW,
+                }
+                and len(action) > 1
+            ):
                 amount = action[1]
             elif kind == ActionKind.SCRAP_FROM_PLAY and len(action) > 5:
                 amount = action[5]
@@ -976,8 +1026,7 @@ class Encoder:
                 return int(zone)
         return -1
 
-    def encode_action(self, action: Any) -> np.ndarray:
-        semantic = self.semantic_action(action)
+    def _encode_semantic_action(self, semantic: SemanticAction) -> np.ndarray:
         result = np.zeros(self.action_size, dtype=np.float32)
         cursor = 0
         result[cursor + int(semantic.kind)] = 1.0
@@ -1007,6 +1056,175 @@ class Encoder:
         result[cursor : cursor + ACTION_NUMERIC_SIZE] = semantic.numbers
         return result
 
+    def encode_action(self, action: Any) -> np.ndarray:
+        return self._encode_semantic_action(self.semantic_action(action))
+
+    def _relation_context(
+        self,
+        observation: Any,
+        encoded_state: np.ndarray,
+    ) -> _RelationContext:
+        """Compute action-invariant relational inputs once per decision."""
+
+        own_zones = (
+            Zone.OWN_HAND,
+            Zone.OWN_DRAW,
+            Zone.OWN_KNOWN_TOP,
+            Zone.OWN_DISCARD,
+            Zone.OWN_IN_PLAY,
+        )
+        draw_zones = (Zone.OWN_DRAW, Zone.OWN_KNOWN_TOP, Zone.OWN_DISCARD)
+        own_counts = {zone: self.zone_counts(encoded_state, zone) for zone in own_zones}
+
+        def faction_counts(zones: Sequence[Zone]) -> dict[str, float]:
+            return {
+                faction: sum(float(own_counts[zone][ids].sum()) for zone in zones)
+                for faction, ids in self._relation_faction_ids.items()
+            }
+
+        def ally_faction_counts(zones: Sequence[Zone]) -> dict[str, float]:
+            return {
+                faction: sum(float(own_counts[zone][ids].sum()) for zone in zones)
+                if len(ids)
+                else 0.0
+                for faction, ids in self._relation_ally_faction_ids.items()
+            }
+
+        known_top = self._zone_value(observation, Zone.OPPONENT_KNOWN_TOP)
+        if not isinstance(known_top, Sequence) or isinstance(known_top, (str, bytes)):
+            known_top = ()
+        known_cards = tuple(_unwrap_card(card) for card in known_top if card is not None)
+        known_combat = sum(float(_lookup(card, "combat", default=0) or 0) for card in known_cards)
+        known_trade = sum(float(_lookup(card, "trade", default=0) or 0) for card in known_cards)
+        known_draws = sum(
+            _snake(_lookup(card, "primary", default="")) in {"draw", "draw_two"}
+            or _snake(_lookup(card, "ally", default="")) in {"draw", "draw_two"}
+            for card in known_cards
+        )
+        return _RelationContext(
+            owned_total=sum(float(own_counts[zone].sum()) for zone in own_zones),
+            owned_factions=faction_counts(own_zones),
+            owned_ally_factions=ally_faction_counts(own_zones),
+            draw_factions=faction_counts(draw_zones),
+            in_play_factions=faction_counts((Zone.OWN_IN_PLAY,)),
+            known_card_count=len(known_cards),
+            known_combat=known_combat,
+            known_trade=known_trade,
+            known_draws=known_draws,
+            known_factions=frozenset(
+                _snake(_lookup(card, "faction", default="unaligned")) for card in known_cards
+            ),
+            combat=float(_lookup(observation, "combat", "attack", default=0) or 0),
+            opponent_authority=float(_lookup(observation, "opponent_authority", default=0) or 0),
+            trade=float(_lookup(observation, "trade", default=0) or 0),
+            turn=int(_lookup(observation, "turn", "turns", default=0) or 0),
+        )
+
+    def _relation_features_from_semantic(
+        self,
+        semantic: SemanticAction,
+        context: _RelationContext,
+    ) -> np.ndarray:
+        """Derive candidate-specific relational features from shared context."""
+
+        result = np.zeros(RELATION_FEATURE_SIZE, dtype=np.float32)
+        candidate_id = semantic.target_card if semantic.target_card >= 0 else semantic.source_card
+        candidate_metadata = self._relation_metadata.get(candidate_id)
+        candidate_faction = candidate_metadata[0] if candidate_metadata is not None else "unaligned"
+        aligned = candidate_metadata is not None and candidate_faction not in {
+            "",
+            "none",
+            "unaligned",
+        }
+        owned_faction = context.owned_factions.get(candidate_faction, 0.0) if aligned else 0.0
+        draw_faction = context.draw_factions.get(candidate_faction, 0.0) if aligned else 0.0
+        in_play_faction = context.in_play_factions.get(candidate_faction, 0.0) if aligned else 0.0
+        owned_ally_faction = (
+            context.owned_ally_factions.get(candidate_faction, 0.0) if aligned else 0.0
+        )
+
+        own_zone_ids = {
+            int(Zone.OWN_HAND),
+            int(Zone.OWN_DRAW),
+            int(Zone.OWN_KNOWN_TOP),
+            int(Zone.OWN_DISCARD),
+            int(Zone.OWN_IN_PLAY),
+        }
+        draw_zone_ids = {
+            int(Zone.OWN_DRAW),
+            int(Zone.OWN_KNOWN_TOP),
+            int(Zone.OWN_DISCARD),
+        }
+        # A card cannot ally with itself.  For play/activation/scrap actions,
+        # remove the candidate from its current own-zone count; acquisitions
+        # are in the trade row and therefore need no adjustment.
+        if aligned and semantic.source_card >= 0:
+            if semantic.source_zone in own_zone_ids:
+                owned_faction = max(0.0, owned_faction - 1.0)
+                if candidate_metadata[1]:
+                    owned_ally_faction = max(0.0, owned_ally_faction - 1.0)
+            if semantic.source_zone in draw_zone_ids:
+                draw_faction = max(0.0, draw_faction - 1.0)
+            if semantic.source_zone == int(Zone.OWN_IN_PLAY):
+                in_play_faction = max(0.0, in_play_faction - 1.0)
+        ally_effect = candidate_metadata[1] if candidate_metadata is not None else False
+        result[0] = owned_faction / 10.0
+        result[1] = draw_faction / 10.0
+        result[2] = in_play_faction / 5.0
+        result[3] = float(ally_effect)
+        # Either side of a faction pair may own the ally effect. This makes an
+        # acquisition such as a no-ally base explicitly valuable when it can
+        # activate an ally-bearing card already in the deck, and vice versa.
+        result[4] = float(owned_faction > 0 and (ally_effect or owned_ally_faction > 0))
+        result[5] = owned_faction / max(1.0, context.owned_total)
+
+        result[6] = min(1.0, context.known_card_count / max(1, KNOWN_TOP_SLOTS))
+        result[7] = context.known_combat / 15.0
+        result[8] = context.known_trade / 10.0
+        result[9] = float(context.known_draws) / max(1, KNOWN_TOP_SLOTS)
+
+        target_metadata = self._relation_metadata.get(semantic.target_card)
+        target_defense = 0.0
+        if (
+            semantic.kind in {ActionKind.ATTACK_BASE, ActionKind.DESTROY_BASE}
+            and target_metadata is not None
+        ):
+            target_defense = target_metadata[3]
+        result[10] = target_defense / 10.0
+        result[11] = min(2.0, context.combat / max(1.0, target_defense)) if target_defense else 0.0
+        target_faction = target_metadata[0] if target_metadata is not None else "unaligned"
+        result[12] = float(
+            target_defense > 0
+            and target_faction not in {"", "none", "unaligned"}
+            and target_faction in context.known_factions
+        )
+
+        result[13] = np.clip(
+            (context.combat - context.opponent_authority) / 20.0,
+            -2.5,
+            2.5,
+        )
+        cost = candidate_metadata[2] if candidate_metadata is not None else 0.0
+        if semantic.kind in {ActionKind.ACQUIRE, ActionKind.FREE_ACQUIRE}:
+            result[14] = np.clip((context.trade - cost) / 10.0, -1.0, 1.5)
+        if semantic.kind == ActionKind.SCRAP_FROM_PLAY and context.turn <= 18:
+            result[15] = cost / 10.0
+        return result
+
+    def _relation_features(
+        self,
+        observation: Any,
+        action: Any,
+        encoded_state: np.ndarray,
+    ) -> np.ndarray:
+        """Astro3 action/state cross-features for strategically important relations."""
+
+        semantic = self.semantic_action(action)
+        return self._relation_features_from_semantic(
+            semantic,
+            self._relation_context(observation, encoded_state),
+        )
+
     def encode_decision(
         self,
         observation: Any,
@@ -1014,24 +1232,29 @@ class Encoder:
         *,
         family: DecisionFamily | int | str | None = None,
     ) -> DecisionEncoding:
-        actions = _lookup(
-            decision_or_actions, "actions", "options", "legal_actions", default=None
-        )
+        actions = _lookup(decision_or_actions, "actions", "options", "legal_actions", default=None)
         if actions is None:
             actions = decision_or_actions
         actions = tuple(actions)
         if not actions:
             raise ValueError("cannot encode a decision with no legal actions")
         resolved_family = (
-            decision_family(decision_or_actions)
-            if family is None
-            else self._coerce_family(family)
+            decision_family(decision_or_actions) if family is None else self._coerce_family(family)
         )
-        return DecisionEncoding(
-            state=self.encode_state(observation),
-            actions=np.stack([self.encode_action(action) for action in actions]),
-            family=resolved_family,
+        state = self.encode_state(observation)
+        semantics = tuple(self.semantic_action(action) for action in actions)
+        encoded_actions = np.stack(
+            [self._encode_semantic_action(semantic) for semantic in semantics]
         )
+        if self.version >= 2:
+            relation_context = self._relation_context(observation, state)
+            encoded_actions[:, -RELATION_FEATURE_SIZE:] = np.stack(
+                [
+                    self._relation_features_from_semantic(semantic, relation_context)
+                    for semantic in semantics
+                ]
+            )
+        return DecisionEncoding(state=state, actions=encoded_actions, family=resolved_family)
 
     @staticmethod
     def _coerce_family(value: DecisionFamily | int | str) -> DecisionFamily:

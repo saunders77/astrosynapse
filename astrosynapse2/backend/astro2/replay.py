@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import threading
 from dataclasses import dataclass
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -33,6 +36,20 @@ DEFAULT_SAMPLING_WEIGHTS: dict[DecisionFamily, float] = {
     DecisionFamily.COPY_SHIP: 0.025,
     DecisionFamily.FREE_ACQUIRE: 0.025,
     DecisionFamily.ABILITY_MODE: 0.05,
+}
+
+# A light rare-family floor without the 100x--180x replay amplification seen
+# in the stalled run.  The main family still receives most updates, matching
+# the information distribution much more closely.
+NATURAL_SAMPLING_WEIGHTS: dict[DecisionFamily, float] = {
+    DecisionFamily.MAIN: 0.88,
+    DecisionFamily.DISCARD: 0.035,
+    DecisionFamily.SCRAP: 0.04,
+    DecisionFamily.DESTROY_BASE: 0.012,
+    DecisionFamily.SCRAP_TRADE_ROW: 0.008,
+    DecisionFamily.COPY_SHIP: 0.007,
+    DecisionFamily.FREE_ACQUIRE: 0.008,
+    DecisionFamily.ABILITY_MODE: 0.01,
 }
 
 
@@ -294,8 +311,13 @@ class _FamilyRing:
             return recent
         # Prefer a no-duplicate batch when enough items exist.  Sampling with
         # replacement remains defined during warmup and for tiny rare strata.
-        if self.size - len(np.unique(recent)) >= general_count:
-            pool = np.setdiff1d(ordered, recent, assume_unique=False)
+        unique_recent = np.unique(recent)
+        if self.size - len(unique_recent) >= general_count:
+            # ``ordered`` is a permutation of physical ring indices and
+            # ``unique_recent`` is explicitly deduplicated.  Telling NumPy
+            # this invariant avoids sorting/scanning the full ring to prove it
+            # again for every learner update.
+            pool = np.setdiff1d(ordered, unique_recent, assume_unique=True)
             general = rng.choice(pool, size=general_count, replace=False)
         else:
             general = rng.choice(ordered, size=general_count, replace=general_count > self.size)
@@ -373,6 +395,7 @@ class StratifiedReplayBuffer:
         bootstrap_heads: int,
         family_capacity_weights: dict[DecisionFamily, float] | None = None,
         family_sampling_weights: dict[DecisionFamily, float] | None = None,
+        importance_correct_sampling: bool = False,
         recent_sample_fraction: float = 0.35,
         recent_window_fraction: float = 0.10,
         storage_dtype: np.dtype | type = np.float16,
@@ -401,9 +424,15 @@ class StratifiedReplayBuffer:
         self.sample_calls = 0
         self.samples_drawn = 0
         self.family_samples_drawn = {family: 0 for family in DecisionFamily}
+        self.last_recent_sample_items = 0
+        self.last_sample_batch_size = 0
+        self.last_importance_weight_min = 1.0
+        self.last_importance_weight_max = 1.0
+        self.last_importance_effective_sample_size = 0.0
 
         capacity_weights = family_capacity_weights or DEFAULT_CAPACITY_WEIGHTS
         self.family_sampling_weights = family_sampling_weights or DEFAULT_SAMPLING_WEIGHTS
+        self.importance_correct_sampling = bool(importance_correct_sampling)
         self.family_capacities = _allocate_capacities(self.capacity, capacity_weights)
         self._rings = {
             family: _FamilyRing(
@@ -419,6 +448,18 @@ class StratifiedReplayBuffer:
     def __len__(self) -> int:
         with self._lock:
             return sum(ring.size for ring in self._rings.values())
+
+    def rng_state(self) -> dict[str, Any]:
+        """Return an isolated, JSON-serializable sampling RNG state."""
+
+        with self._lock:
+            return copy.deepcopy(self._rng.bit_generator.state)
+
+    def restore_rng_state(self, state: dict[str, Any]) -> None:
+        """Restore the sampling stream at a durable checkpoint boundary."""
+
+        with self._lock:
+            self._rng.bit_generator.state = copy.deepcopy(state)
 
     def _validate_item(self, item: ReplayItem) -> ReplayItem:
         family = DecisionFamily(int(item.family))
@@ -609,11 +650,13 @@ class StratifiedReplayBuffer:
             for family, count in counts.items():
                 self.family_samples_drawn[family] += count
             chunks: list[tuple[DecisionFamily, _FamilyRing, np.ndarray]] = []
+            recent_items = 0
             for family in available:
                 count = counts.get(family, 0)
                 if not count:
                     continue
                 recent_count = int(round(count * recent))
+                recent_items += recent_count
                 indices = self._rings[family].sample_indices(
                     count,
                     recent_count,
@@ -623,7 +666,10 @@ class StratifiedReplayBuffer:
                 chunks.append((family, self._rings[family], indices))
 
             families = np.concatenate(
-                [np.full(len(indices), int(family), dtype=np.int32) for family, _, indices in chunks]
+                [
+                    np.full(len(indices), int(family), dtype=np.int32)
+                    for family, _, indices in chunks
+                ]
             )
             states = np.concatenate([ring.states[indices] for _, ring, indices in chunks]).astype(
                 np.float32
@@ -641,9 +687,9 @@ class StratifiedReplayBuffer:
             players = np.concatenate([ring.players[indices] for _, ring, indices in chunks])
             steps = np.concatenate([ring.steps[indices] for _, ring, indices in chunks])
             heads = np.concatenate([ring.heads[indices] for _, ring, indices in chunks])
-            epsilons = np.concatenate([ring.epsilons[indices] for _, ring, indices in chunks]).astype(
-                np.float32
-            )
+            epsilons = np.concatenate(
+                [ring.epsilons[indices] for _, ring, indices in chunks]
+            ).astype(np.float32)
             td_targets = np.concatenate(
                 [ring.td_targets[indices] for _, ring, indices in chunks]
             ).astype(np.float32)
@@ -651,6 +697,41 @@ class StratifiedReplayBuffer:
                 [ring.td_valid[indices] for _, ring, indices in chunks]
             ).astype(np.float32)
             sequences = np.concatenate([ring.sequences[indices] for _, ring, indices in chunks])
+            if self.importance_correct_sampling:
+                # Stratification is useful for representation learning, but an
+                # uncorrected batch changes the policy-value objective.  Weight
+                # each stratum back to its observed behavior-policy frequency.
+                # Cumulative writes are used instead of ring occupancy because
+                # the deliberately unequal ring capacities would otherwise
+                # become a second source of sampling bias.
+                total_writes = sum(max(0, self._rings[family].writes) for family in available)
+                importance_parts: list[np.ndarray] = []
+                for _family, ring, indices in chunks:
+                    target_share = ring.writes / max(1, total_writes)
+                    sampled_share = len(indices) / max(1, batch_size)
+                    importance_parts.append(
+                        np.full(
+                            len(indices),
+                            target_share / max(sampled_share, np.finfo(np.float32).tiny),
+                            dtype=np.float32,
+                        )
+                    )
+                sample_weights = np.concatenate(importance_parts)
+                # Rounding family counts can move the finite-batch mean a few
+                # ulps from one; normalization keeps loss scale stable.
+                sample_weights /= max(float(sample_weights.mean()), np.finfo(np.float32).tiny)
+            else:
+                sample_weights = np.ones(batch_size, dtype=np.float32)
+
+            weight_sum = float(sample_weights.sum())
+            weight_square_sum = float(np.square(sample_weights).sum())
+            self.last_recent_sample_items = recent_items
+            self.last_sample_batch_size = batch_size
+            self.last_importance_weight_min = float(sample_weights.min())
+            self.last_importance_weight_max = float(sample_weights.max())
+            self.last_importance_effective_sample_size = (
+                weight_sum * weight_sum / max(weight_square_sum, np.finfo(np.float32).tiny)
+            )
 
             order = self._rng.permutation(len(targets))
             self.sample_calls += 1
@@ -661,7 +742,7 @@ class StratifiedReplayBuffer:
                 families=families[order],
                 targets=targets[order],
                 bootstrap_mask=masks[order],
-                sample_weights=np.ones(batch_size, dtype=np.float32),
+                sample_weights=sample_weights[order],
                 game_ids=game_ids[order],
                 players=players[order],
                 steps=steps[order],
@@ -703,6 +784,18 @@ class StratifiedReplayBuffer:
                         ring.sequences,
                     )
                 ),
+                "importance_correct_sampling": self.importance_correct_sampling,
+                "recent_sample_fraction_configured": self.recent_sample_fraction,
+                "recent_window_fraction": self.recent_window_fraction,
+                "recent_sample_fraction_realized": self.last_recent_sample_items
+                / max(1, self.last_sample_batch_size),
+                "importance_weights": {
+                    "minimum": self.last_importance_weight_min,
+                    "maximum": self.last_importance_weight_max,
+                    "effective_sample_size": self.last_importance_effective_sample_size,
+                    "effective_sample_fraction": self.last_importance_effective_sample_size
+                    / max(1, self.last_sample_batch_size),
+                },
                 "families": {
                     family.name.lower(): {
                         "id": int(family),
@@ -712,9 +805,7 @@ class StratifiedReplayBuffer:
                         "writes": ring.writes,
                         "overwrites": ring.overwrites,
                         "write_share": ring.writes / max(1, writes),
-                        "configured_sampling_weight": self.family_sampling_weights.get(
-                            family, 0.0
-                        ),
+                        "configured_sampling_weight": self.family_sampling_weights.get(family, 0.0),
                         "samples_drawn": self.family_samples_drawn[family],
                         "sample_share": self.family_samples_drawn[family]
                         / max(1, self.samples_drawn),
@@ -724,6 +815,157 @@ class StratifiedReplayBuffer:
                     for family, ring in self._rings.items()
                 },
             }
+
+    def snapshot(self, path: str | Path, *, max_items: int) -> int:
+        """Persist the globally newest replay rows for exact-enough resume.
+
+        Full replay is intentionally optional because the base-set state tensor
+        is large.  A bounded recent journal prevents a restart from resuming a
+        mature checkpoint with an empty buffer and a low learning rate.
+        """
+
+        if max_items < 1:
+            return 0
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(f"{target.stem}.partial{target.suffix}")
+        with self._lock:
+            family_parts: list[np.ndarray] = []
+            index_parts: list[np.ndarray] = []
+            sequence_parts: list[np.ndarray] = []
+            for family, ring in self._rings.items():
+                indices = ring.chronological_indices()
+                if not len(indices):
+                    continue
+                family_parts.append(np.full(len(indices), int(family), dtype=np.uint8))
+                index_parts.append(indices)
+                sequence_parts.append(ring.sequences[indices])
+            if not sequence_parts:
+                return 0
+            families = np.concatenate(family_parts)
+            physical_indices = np.concatenate(index_parts)
+            sequences = np.concatenate(sequence_parts)
+            keep = min(int(max_items), len(sequences))
+            newest = np.argsort(sequences, kind="stable")[-keep:]
+            families = families[newest]
+            physical_indices = physical_indices[newest]
+            sequences = sequences[newest]
+
+            def gather(name: str) -> np.ndarray:
+                first = getattr(next(iter(self._rings.values())), name)
+                result = np.empty((keep, *first.shape[1:]), dtype=first.dtype)
+                for family, ring in self._rings.items():
+                    positions = np.flatnonzero(families == int(family))
+                    if len(positions):
+                        result[positions] = getattr(ring, name)[physical_indices[positions]]
+                return result
+
+            arrays = {
+                "states": gather("states"),
+                "actions": gather("actions"),
+                "families": families,
+                "targets": gather("targets"),
+                "bootstrap_masks": gather("bootstrap_masks"),
+                "game_ids": gather("game_ids"),
+                "players": gather("players"),
+                "steps": gather("steps"),
+                "heads": gather("heads"),
+                "epsilons": gather("epsilons"),
+                "td_targets": gather("td_targets"),
+                "td_valid": gather("td_valid"),
+                "sequences": sequences,
+                "sequence_cursor": np.asarray(self._sequence, dtype=np.uint64),
+                "family_writes": np.asarray(
+                    [self._rings[family].writes for family in DecisionFamily],
+                    dtype=np.uint64,
+                ),
+                "family_overwrites": np.asarray(
+                    [self._rings[family].overwrites for family in DecisionFamily],
+                    dtype=np.uint64,
+                ),
+                "family_samples_drawn": np.asarray(
+                    [self.family_samples_drawn[family] for family in DecisionFamily],
+                    dtype=np.uint64,
+                ),
+                "sample_calls": np.asarray(self.sample_calls, dtype=np.uint64),
+                "samples_drawn": np.asarray(self.samples_drawn, dtype=np.uint64),
+            }
+        np.savez_compressed(temporary, **arrays)
+        temporary.replace(target)
+        return keep
+
+    def restore(self, path: str | Path) -> int:
+        """Restore a bounded replay journal created by :meth:`snapshot`."""
+
+        target = Path(path)
+        if not target.is_file():
+            return 0
+        with np.load(target, allow_pickle=False) as archive:
+            compact = SimpleNamespace(
+                states=np.asarray(archive["states"]),
+                actions=np.asarray(archive["actions"]),
+                families=np.asarray(archive["families"]),
+                targets=np.asarray(archive["targets"]),
+                bootstrap_masks=np.asarray(archive["bootstrap_masks"]),
+                game_ids=np.asarray(archive["game_ids"]),
+                players=np.asarray(archive["players"]),
+                steps=np.asarray(archive["steps"]),
+                heads=np.asarray(archive["heads"]),
+                epsilons=np.asarray(archive["epsilons"]),
+                td_targets=np.asarray(archive["td_targets"]),
+                td_valid=np.asarray(archive["td_valid"]),
+            )
+            sequence_cursor = int(np.asarray(archive["sequence_cursor"]).item())
+            saved_sequences = np.asarray(archive["sequences"], dtype=np.uint64)
+            family_writes = (
+                np.asarray(archive["family_writes"], dtype=np.uint64)
+                if "family_writes" in archive.files
+                else None
+            )
+            family_overwrites = (
+                np.asarray(archive["family_overwrites"], dtype=np.uint64)
+                if "family_overwrites" in archive.files
+                else None
+            )
+            family_samples_drawn = (
+                np.asarray(archive["family_samples_drawn"], dtype=np.uint64)
+                if "family_samples_drawn" in archive.files
+                else None
+            )
+            sample_calls = (
+                int(np.asarray(archive["sample_calls"]).item())
+                if "sample_calls" in archive.files
+                else None
+            )
+            samples_drawn = (
+                int(np.asarray(archive["samples_drawn"]).item())
+                if "samples_drawn" in archive.files
+                else None
+            )
+        restored = self.extend_compact(compact)
+        with self._lock:
+            self._sequence = max(self._sequence, sequence_cursor)
+            for family in DecisionFamily:
+                ring = self._rings[family]
+                source = saved_sequences[compact.families == int(family)]
+                indices = ring.chronological_indices()
+                if len(source) == len(indices):
+                    ring.sequences[indices] = source
+                if family_writes is not None and family_writes.shape == (FAMILY_COUNT,):
+                    ring.writes = max(ring.size, int(family_writes[int(family)]))
+                if family_overwrites is not None and family_overwrites.shape == (FAMILY_COUNT,):
+                    ring.overwrites = max(0, int(family_overwrites[int(family)]))
+                if family_samples_drawn is not None and family_samples_drawn.shape == (
+                    FAMILY_COUNT,
+                ):
+                    self.family_samples_drawn[family] = max(
+                        0, int(family_samples_drawn[int(family)])
+                    )
+            if sample_calls is not None:
+                self.sample_calls = max(0, sample_calls)
+            if samples_drawn is not None:
+                self.samples_drawn = max(0, samples_drawn)
+        return restored
 
 
 class PreferenceReplayBuffer:
@@ -785,9 +1027,7 @@ class PreferenceReplayBuffer:
         if invalid:
             raise ValueError(
                 "invalid compact preference shapes: "
-                + ", ".join(
-                    f"{name}={actual[name]} expected {expected[name]}" for name in invalid
-                )
+                + ", ".join(f"{name}={actual[name]} expected {expected[name]}" for name in invalid)
             )
         if count == 0:
             return 0
@@ -797,9 +1037,7 @@ class PreferenceReplayBuffer:
             and np.isfinite(disfavored).all()
         ):
             raise ValueError("preference features must be finite")
-        if families.dtype.kind not in "iu" or np.any(
-            (families < 0) | (families >= FAMILY_COUNT)
-        ):
+        if families.dtype.kind not in "iu" or np.any((families < 0) | (families >= FAMILY_COUNT)):
             raise ValueError("preferences contain an unknown decision family")
 
         incoming = count

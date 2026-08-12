@@ -14,7 +14,14 @@ from .stats import Interval, wilson_interval
 class Opponent:
     id: str
     actor_path: str | None
-    kind: Literal["current", "checkpoint", "champion", "exploiter", "baseline"]
+    kind: Literal[
+        "current",
+        "checkpoint",
+        "champion",
+        "anchor",
+        "exploiter",
+        "baseline",
+    ]
     label: str
     wins: float = 0.0
     games: int = 0
@@ -63,6 +70,42 @@ class League:
         target = next(item for item in self.opponents if item.id == opponent_id)
         target.wins += score
         target.games += games
+
+    def snapshot(self) -> list[dict[str, object]]:
+        """Persist matchup statistics without coupling to artifact paths."""
+
+        return [
+            {
+                "id": item.id,
+                "wins": float(item.wins),
+                "games": int(item.games),
+                "pinned": bool(item.pinned),
+            }
+            for item in self.opponents
+        ]
+
+    def restore(self, payload: list[dict[str, object]]) -> int:
+        """Restore statistics and stable PFSP ordering for surviving opponents."""
+
+        current = {opponent.id: opponent for opponent in self.opponents}
+        ordered: list[Opponent] = []
+        restored = 0
+        for saved in payload:
+            saved_id = str(saved.get("id") or "")
+            opponent = current.pop(saved_id, None)
+            if opponent is None:
+                continue
+            opponent.wins = max(0.0, float(saved.get("wins", 0.0)))
+            opponent.games = max(0, int(saved.get("games", 0)))
+            opponent.pinned = bool(saved.get("pinned", opponent.pinned))
+            ordered.append(opponent)
+            restored += 1
+        # Checkpoints accepted after the durable snapshot have no saved
+        # statistics yet. Keep their current discovery order after the exact
+        # restored prefix.
+        ordered.extend(opponent for opponent in self.opponents if opponent.id in current)
+        self.opponents = ordered
+        return restored
 
     def select(
         self,

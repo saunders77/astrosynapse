@@ -1,157 +1,228 @@
 # Training and evaluation
 
-## What is learned
+Astrosynapse has two explicit training contracts. Astro3 is recommended for new work. Astro2 remains available so legacy learner settings and persisted checkpoints remain interpretable.
 
-Astrosynapse 2 uses bootstrapped action values, inspired by [DouZero](https://proceedings.mlr.press/v139/zha21a.html), rather than the legacy PPO loop. For every non-forced action chosen by a player, replay retains that player's terminal result:
+| Capability | Astro3 (`astro3_m4`) | Astro2 compatibility (`m4_24h`) |
+|---|---|---|
+| Behavior policy | Exploratory heads plus direct deployment-policy data, league/baselines | Accepted champion |
+| Rejected candidate | Learner continues; champion stays deployed | Learner rolls back |
+| Outcome target | Terminal Monte Carlo | 60% terminal / 40% next-decision max |
+| Tactical preference loss | Disabled | Enabled |
+| Exploration schedule | 0.15 → 0.05 before the adaptive multiplier | 0.20 → 0.025, then scaled to an applied 0.020 → 0.0025 |
+| Exploration support | Every eligible action | Current head's top 3 |
+| Bootstrap heads | 5, lower overlap, fixed behavior-time perturbations | 3, high overlap, no perturbations |
+| Replay | Natural profile with family-stratification correction | Rare-family-balanced, uncorrected |
+| Encoder | v2 relational | v1 flat |
+| Recovery | Optimizer, counters, RNG, league, bounded replay | Weights and persisted counters |
+
+The compatibility mode preserves the legacy generation-2 learner configuration and checkpoint decoding, but it is not a bit-for-bit historical simulator: corrected shared engine, heuristic-baseline, evaluator, retention, and control-lifecycle behavior still applies. It is not the recommended route out of the measured plateau. See the [forensic analysis](PLATEAU_ANALYSIS_AND_ASTROSYNAPSE3.md) for evidence and the staged research plan.
+
+## What Astro3 learns
+
+For each non-forced action chosen by a player, replay stores the acting player's terminal result:
 
 ```text
 win = 1.0
 loss = 0.0
-genuine draw or safety truncation = 0.5
+genuine completed draw = 0.5
+safety truncation = no replay target
 ```
 
-For actor trajectories, the next decision's frozen-actor value is also retained. The learner uses a conservative 60% terminal / 40% next-decision target when that bootstrap is available, and the pure terminal result otherwise. This adds temporal credit assignment without discarding the unbiased game outcome anchor.
+The Astro3 learner minimizes weighted binary cross-entropy on the selected action. Terminal Monte Carlo is deliberately simple: it has high variance and remains behavior-policy dependent, but it does not bootstrap the current policy's unsupported action estimates back into its own target.
 
-The learner minimizes masked binary cross-entropy on the selected action plus a small pairwise tactical loss. Exact base-set dominance pairs—attack, play, or activate before ending the turn—train the preferred action above `END_TURN` by a logit margin. These pairs come from rules, not card-quality guesses or authority-margin reward shaping.
+Astro2's mixed next-decision target is still decoded for old runs. New Astro3 runs set `terminal_target_weight=1`, `use_bootstrap_targets=false`, and `tactical_preference_training=false`.
 
-Three bootstrap heads share the network. Each player samples one head and bootstrap mask for the entire game. That makes exploration coherent across a trajectory: one game follows one sampled value hypothesis instead of changing personality at every chooser call. A reduced per-decision epsilon may choose only among that head's top-scored eligible actions. Deployment averages the heads and selects greedily.
+The engine's rules-level dominance mask is separate from the loss. It hides `END_TURN` while a card must still be played, positive combat can legally be spent, or a positive base can be activated. Acquisitions and in-play scrap abilities remain optional. Crucially, declining an optional scrap is not globally trained as an inferior `END_TURN` action.
 
 ## Information-state representation
 
-The base-set encoder currently produces:
+Both encoders expose only information available to the acting player. They retain per-card counts for hand, unknown-order deck bags, discard, in-play cards, known top cards, the opponent's inferable hidden pool, trade row, remaining trade-deck multiset, scrap heap, and Explorer supply. Public resources, bases, effects, discard pressure, turn state, and starting seat are included.
+
+Astro2 v1 uses:
 
 - 1,292 state features;
 - 203 semantic action features;
-- 8 stable decision families;
-- 3 bootstrap outcome heads by default.
+- 8 stable decision families.
 
-State features retain exact per-card counts in public or inferable information-set zones, including hand, unknown-order deck bags, discard, in-play cards, known top cards, the opponent's inferable hidden pool, trade row, remaining trade-deck multiset, scrap heap, and Explorer supply. It also records authorities, available combat/trade, discard pressure, public continuous effects, turn state, and whether the acting player started.
+Astro3 v2 preserves the v1 prefix and adds 16 action/state relational features. These include same-faction counts and ally potential, remaining trade, target-base defense and combat ratio, opponent known-top resources, lethal/breakpoint context, and the cost/horizon context of optional scrap. Observation-level relation context is computed once per decision, then combined with each candidate action.
 
-Only genuinely ordered known-top slots are positional. Shuffled hand, market, deck, and option indices are excluded. Action features describe the verb, family, source and target card identities, zones, effect, and rule-relevant quantities. Forced one-option decisions are resolved by the engine and never enter inference or replay.
+Only genuinely ordered known-top slots are positional. Shuffled hand, market, deck, and option indices are excluded. Human play and old actors select the encoder version recorded in their model specification.
 
-The engine retains every rules-legal option for human play and audits. Learned policies use a centralized dominance mask: `END_TURN` is not exposed while a card can be played, a positive base can be activated, or generated combat can legally be spent. Purchases and scrap abilities remain optional because those choices are genuinely strategic. The mask is applied before both greedy selection and exploration.
+## Model and exploration
 
-## Model
+The default learner has separate state and action trunks, pre-normalized residual MLP blocks, a fused trunk, a family-specific output bank, and multiple action-value heads. A spatial convolution is not appropriate for unordered cards. A future entity-attention model is staged separately rather than being mixed into the policy-loop correction.
 
-The default MLX model has:
+Astro3 normally samples one behavior head for a trajectory. A deterministic random projection specific to that head is added only to the nondeployment behavior policy's scores, affecting both greedy ranking and the epsilon candidate ranking. It is absent from the learned MLX logits, fitted loss, and deployed policy, so this is a behavior-time perturbation inspired by randomized-prior exploration—not a fully anchored randomized-prior function. Replay masks have lower overlap than Astro2, reducing the chance that every head sees every example. Epsilon exploration chooses among every deployment-eligible legal action (`exploration_top_k=0`). To reduce exploration/deployment mismatch, `deployment_policy_selfplay_fraction=0.20` makes a configured 20% of current-v-current self-play use the exact deployed policy: greedy mean-head logits with no behavior perturbation. Because current self-play is 60% of the configured schedule, this stream has a 12% overall scheduled share. Those trajectories still receive a sampled training head and required-head bootstrap mask, so they remain valid ensemble-training examples with explicit bootstrap ownership.
 
-- separate state and action input trunks;
-- pre-normalized residual MLP blocks;
-- a fused state/action trunk;
-- a family-specific output bank;
-- three bootstrapped logits per legal action.
+The GUI reports:
 
-A convolutional network is not used because Star Realms has no stable spatial grid. A large transformer is also a poor first-day trade on this hardware: the exact base-set counts already preserve card identity, while the smaller residual model permits substantially more games and replay updates in 24 hours.
+- scheduled and effective epsilon;
+- mean ensemble probability dispersion;
+- action-argmax disagreement over fixed diagnostic states;
+- a head-collapse warning after sufficient updates;
+- the current plateau exploration multiplier.
+
+The fixed behavior perturbations and replay masks are exploration mechanisms, not uncertainty guarantees. A warning should trigger diagnosis, not automatic promotion or rejection by itself.
 
 ## Actor–learner pipeline
 
-The parent process owns MLX and the Metal learner. Spawned CPU workers never import MLX; they load a compact NumPy mirror of the same weights and run independent seeded games. This avoids one Metal context per worker and lets the M4 CPU and GPU operate concurrently:
+The parent process owns MLX and the Metal learner. Spawned workers use NumPy actors and never initialize MLX:
 
 ```text
-export immutable actor snapshot
-          |
-          +--> CPU worker games --------> compact float16 samples
-          |
-          +--> Metal replay updates from the previous data
-                                      |
-                                      +--> next actor snapshot
+current learner export
+        |
+        +--> CPU games versus learner / league / baseline
+        |                    |
+        |                    +--> compact chosen-action trajectories
+        |
+        +--> Metal replay updates
+                             |
+                             +--> immutable checkpoint + diagnostics
 ```
 
-Each decision computes the state trunk once and reuses it across all legal actions. Worker output stays in contiguous float16 arrays through inter-process transfer and vectorized replay insertion.
+The Astro3 default opponent mix is:
 
-Replay is preallocated and split by decision family. The default 900,000-decision outcome buffer plus the 50,000-pair tactical buffer use about 2.9 GB. Main-phase decisions receive 82% of outcome capacity and 72% of sampled updates. The remaining budget preserves explicit minimum coverage for discard, scrap, copy, destroy-base, trade-row-scrap, free-acquire, and modal decisions without allowing extremely rare families to consume equal learner time. Telemetry reports each family's write share, sample share, and sample-to-write ratio. A controlled recent fraction adapts to the latest accepted policy without discarding all older experience.
+- 60% current-learner self-play, of which 20% (12% of all scheduled games) directly follows the perturbation-free mean-head deployment policy;
+- 30% accepted champion-history league and validated frozen anchors from other runs;
+- 10% balanced/economy/aggressive baseline anchors.
 
-## Opponent schedule
+For Astro3 only, other runs' current champions and explicitly pinned checkpoints are eligible frozen anchors. Their recorded encoder version and tensor dimensions are validated with a real forward pass before a worker can receive them. Astro2 compatibility runs remain isolated to their original per-run league semantics.
 
-The implemented schedule mixes trajectories from:
+The champion is still the only automatically deployable model. Rejecting an arena candidate leaves that champion unchanged, but it no longer rewinds the learner. This keeps evaluation safety distinct from exploration and optimization.
 
-- 55% accepted-champion self-play;
-- 30% prioritized accepted champion-history checkpoints, emphasizing opponents with a low smoothed current score;
-- 15% balanced, economy, and aggressive deterministic baselines.
+Before ordinary self-play, corrected heuristic games populate replay until the warmup/curriculum requirements are met. Optional scrap now weighs immediate tactical value against retention cost; it no longer receives an unconditional bonus above ending the decision.
 
-Only behavior-policy decisions are collected when playing a frozen or heuristic opponent. Both players are collected in champion self-play. Matchup estimates use a Beta prior to avoid overreacting to a handful of noisy games.
+## Replay
 
-The accepted champion, rollout actor, and learner candidate are distinct roles. A candidate never controls ordinary self-play merely because it is the newest checkpoint. If an automatic arena rejects it while that same champion remains current, the learner is restored to the accepted champion with a fresh optimizer warmup. This prevents a failed candidate from redefining the data distribution for all later candidates.
+Replay is preallocated and divided by stable decision family. The Astro3 natural profile follows the observed distribution much more closely than the legacy profile. If family stratification differs from cumulative behavior/write frequency, the batch receives normalized family-level weights based on `p_behavior / q_sample`. The controlled recent partition remains an intentional recency bias; it is reported but is not presented as fully importance-corrected.
 
-The initial random model is saved as the lineage root. It is useful for reproducibility, not as a strength claim.
+Telemetry reports:
 
-Before ordinary self-play, the replay warmup is filled with games between the balanced/economy/aggressive anchors, collecting both players' chosen actions with the same terminal win/loss targets. This demonstration curriculum lasts for 2,000 learner updates (256 in the quick preset), rather than ending as soon as one training batch fits in replay. It is not reward shaping or permanent imitation: it prevents a random untrained network from filling the first buffer with stalemates, then yields completely to the configured self-play/league mix. The zero-game random persistence checkpoint, unevaluated candidates, and rejected candidates are excluded from the opponent league.
+- family occupancy and cumulative writes;
+- requested and realized sample shares;
+- sample-to-write ratios;
+- recent-partition use;
+- importance-weight summaries and effective sample size when available;
+- journal coverage on resume.
 
-## Recommended M4/16 GB preset
+The replay buffer still contains chosen actions rather than full counterfactual legal-action targets. Search/reanalysis is the planned solution; family-level importance weighting corrects family-stratification bias, not recency bias or chosen-action confounding.
 
-| Setting | Default |
+Safety-truncated trajectories and their preference pairs never enter replay. They are counted separately from genuine draws and contribute no league score, preventing a losing policy from improving its target by deliberately stalling.
+
+## Recommended M4 / 16 GB recipe
+
+| Setting | Astro3 default |
 |---|---:|
 | Duration | 1,440 minutes |
 | CPU actors | up to 8 |
 | Games per actor batch | 16 |
 | Model width / residual blocks | 192 / 3 |
-| Bootstrap heads | 3 |
+| Bootstrap heads | 5 |
 | Learner batch | 2,048 |
-| AdamW learning rate | 3e-4 → 3e-5 over 400,000 persisted updates |
+| Learning rate | 2e-4, decaying cosine restarts, floor 4e-5 |
+| Restart period / peak decay | 200,000 updates / 0.85 |
 | Gradient clip | 5.0 |
-| Updates per actor iteration | 32 |
-| Replay capacity / warmup | 900,000 / 50,000 |
-| Heuristic bootstrap | First 2,000 learner updates |
-| Effective per-decision epsilon | 0.020 → 0.0025 over 1.5M games, top-3 only |
+| Updates per iteration | 32 |
+| Replay capacity / warmup | 900,000 / 50,000 decisions |
+| Heuristic curriculum | First 2,000 learner updates |
+| Base epsilon | 0.15 → 0.05 over 2M games, all eligible actions |
+| Bootstrap inclusion / behavior-perturbation scale | 0.35 / 0.25 |
+| Direct deployment-policy data | 20% of current self-play (12% of scheduled games) |
 | Checkpoint interval | 100,000 games |
 | Mature evaluation interval | 500,000 games |
-| Promotion evaluation | Adaptive 200 → 1,000 → 5,000 paired seeds |
+| Promotion evaluation | Adaptive, up to 5,000 paired seeds |
+| Resume replay journal | Newest 100,000 decisions |
 
-The learning-rate cosine follows persisted learner updates, not editable wall-clock duration. Extending a run therefore cannot rewind it to a larger learning rate. A short update warmup protects a fresh optimizer from correlated first batches and repeats when a resumed or rolled-back run recreates AdamW.
+Cosine restart progress follows persisted update counts rather than wall time. Plateau response can temporarily multiply epsilon up to its configured ceiling after repeated clean automatic non-promotions. Invalid or stale evaluations do not count. The status payload always exposes both scheduled epsilon and the applied value.
 
-These values are defaults, not universal optima. Watch measured throughput and memory. On a 16 GB machine, reduce replay capacity or model width if macOS memory pressure becomes sustained; preserve paired evaluation size before spending that compute on a larger network.
+The five-minute `quick` recipe uses the Astro3 contract with smaller model, replay, batch, and evaluation sizes. It proves wiring, persistence, and telemetry—not playing strength.
 
-## Automatic and manual evaluation
+## Checkpoint quality gates
 
-Before an automatic arena is scheduled, the immutable checkpoint must pass deterministic diagnostics: the raw-network tactical suite, held-out game-grouped outcome metrics, and paired games against the balanced, economy, and aggressive anchors. Any raw `END_TURN` dominance error, a held-out Brier regression, or a large fixed-opponent regression blocks the arena and is recorded in the checkpoint audit metadata. The hard action mask remains a separate deployment safeguard rather than making this learning test vacuous.
+Before an automatic arena, a candidate runs deterministic and held-out diagnostics:
 
-Every arena seed is run twice with the same isolated game randomness and exact model seat swap. Model-role RNG is also held stable across the pair. The seed pair—not two correlated games—is the statistical unit.
+- deployment-masked tactical legality/dominance states;
+- early optional high-cost scrap retention;
+- game-grouped held-out BCE and Brier score;
+- paired games against deterministic strategy baselines;
+- all-family ensemble dispersion and argmax disagreement.
 
-The recommended preset adapts evaluation to model maturity. Before 500,000 training games, every checkpoint is compared with 200 paired seeds. From 500,000 through 999,999 games, comparisons use 1,000 pairs and are spaced by 250,000 games (rounded up to a checkpoint boundary). Starting at 1,000,000 games, comparisons use the configured 5,000 pairs every configured 500,000 games. Early promotions are recorded as `provisional` or `development`; mature promotions are recorded as `full`. Adaptive evaluation can be disabled to use the configured interval and pair count from the beginning.
+Astro2 compatibility can still require raw-logit `END_TURN` preference ordering. Astro3 gates deployed masked behavior instead; otherwise disabling the unsafe global preference loss would create an impossible raw-logit gate.
 
-Every tier remains confidence-gated: a candidate is promoted only when its paired confidence interval's lower bound exceeds 50% (plus any configured promotion margin). A trainer-created job can promote automatically only if all of these hold:
+The small fixed-opponent sample and game-grouped Brier score remain checkpoint diagnostics in Astro3, but do not hard-block an arena by default: neither comparison has enough independent evidence to serve as a strength test. Generation 2 retains both legacy regression gates, and either gate can be explicitly enabled. Fixed-opponent diagnostic truncations and deterministic strategic violations hard-block that checkpoint; truncations in an arena invalidate the comparison and trigger the retry policy rather than counting as wins or losses. The paired arena is the statistical strength gate.
 
-1. both entries are immutable checkpoint actors;
-2. the job was created internally as an automatic evaluation;
-3. the complete pair count required by its recorded tier completed;
-4. the full requested job completed;
-5. the paired 95% confidence interval's lower bound is above 50%;
-6. the recorded opponent is still the run's current champion when the job finishes.
+The strategic and ensemble diagnostic objects, pass/fail reasons, scrap rate/margin, and head statistics are stored with the immutable checkpoint and shown in Models & Arena.
 
-If a newer evaluation already changed the champion, the older result remains useful evidence but is marked stale and cannot overwrite the newer champion.
+## Paired arena evaluation
 
-The candidate's evaluation record, champion flags, and run champion ID are updated in one SQLite transaction. Small quick-run jobs and every job created manually in the GUI have `automatic: false` and cannot promote anything, regardless of observed win rate. Fixed job sizes are intentional: repeatedly checking an ordinary confidence interval and stopping as soon as it crosses the threshold would overstate confidence without a sequential-testing correction.
+Each seed is run twice with the same isolated game randomness and exact seat swap. The seed pair—not two correlated games—is the statistical unit. The reported record contains overall and seat-split score, draws, truncations, throughput, job progress, and a distribution-free two-sided Hoeffding confidence interval for the bounded paired score.
 
-Arena output reports overall and seat-split score, Wilson and paired intervals, draws, truncations, games/s, ETA, and recent paired seeds. Elo difference is only a display transform of the measured score; it is not treated as an absolute global rating.
+Automatic promotion requires all of the following:
 
-## Reading diagnostics
+1. candidate and opponent are immutable checkpoint actors;
+2. the trainer—not a public API caller—created the job;
+3. the recorded quality gate passed;
+4. the complete tier-specific required pair count finished (an early rejection is a terminal non-promotion, never an exception for promotion);
+5. the paired confidence interval's lower bound exceeds 50% plus the configured margin;
+6. the recorded opponent is still the current champion.
 
-- **Outcome BCE** — masked blended-outcome cross-entropy. Lower is better only on a comparable held-out distribution.
-- **Brier score** — squared error of the head-averaged win probability. It measures calibration as well as discrimination.
-- **Explained variance** — how much target variation the current value estimate explains. Negative values are common during early noisy learning.
-- **Bootstrap uncertainty** — average disagreement among heads. Falling uncertainty can mean convergence, but should be checked against arena strength and policy diversity.
-- **Tactical preference loss/accuracy** — whether exact dominance pairs have the required ordering. The hard policy mask remains authoritative even while raw logits learn the invariant.
-- **Held-out diagnostics** — game-grouped BCE/Brier and fixed-opponent scores computed from immutable seeds outside learner replay.
-- **Replay utilization/families** — fill, write share, sample share, and sample-to-write ratio. Main decisions should dominate learner work while every rare ring still receives samples.
-- **Games/s and decisions/s** — actor throughput measured over the latest telemetry interval.
-- **Truncation rate** — safety-capped games. Sustained nonzero truncation should be investigated before trusting results.
-- **Seat split and paired interval** — the primary evidence for model selection in this high-variance game.
-- **CPU/RAM/Metal** — system memory, process RSS, active/cache/peak Metal allocation, and learner device.
+Astro3 may reject an obviously inferior candidate at predeclared geometric looks after at least the configured minimum number of pairs. Each one-sided Hoeffding upper bound uses a Bonferroni share of the configured family-wise error budget, so constant observations cannot create a false zero-width interval. Early acceptance is forbidden. A candidate that remains plausible completes the full fixed-size promotion test. Manual GUI/API arenas never promote models.
 
-Do not select a model because training BCE is lower or because an unpaired short match was lucky. Select it because it wins a sufficiently large paired evaluation against frozen opponents and does not regress badly against the broader league.
+Any arena containing a safety truncation is explicitly ineligible for promotion. Truncations remain visible in the result instead of being silently counted as ordinary draws.
 
-## Checkpoints and resume behavior
+Only complete, clean comparisons against the still-current champion advance evaluation cadence or the adaptive plateau counter. Failed, cancelled, malformed, truncated, and stale jobs remain retryable; live training uses bounded exponential backoff and a new deterministic seed range. A tier smaller than the configured first early-rejection look disables early rejection instead of moving that look. At natural duration completion, the trainer waits for its own older arena, evaluates the newest due checkpoint, and makes at most three final scheduling attempts. It does not globally drain unrelated jobs, although its evaluation can queue behind a manual job already occupying the configured evaluator slot. Pause or stop cancels the trainer arena at the next game boundary, or immediately before it starts if still queued, without waiting for that manual job; resume reconsiders the still-due checkpoint. An explicit stop never schedules a final arena.
 
-Checkpoints contain portable MLX safetensors, an architecture JSON sidecar, and a compressed NumPy actor. SQLite stores lineage, evaluation, champion, pin, and audit metadata.
+## Reading progress
 
-On resume, the latest compatible model weights are loaded. This release deliberately does **not** persist replay contents or AdamW moments; replay refills and optimizer state restarts. That makes recovery reliable and compact but means repeatedly stopping a run reduces training efficiency. Prefer pause/resume within one backend session for short interruptions.
+- **Outcome BCE / Brier** — use held-out, game-grouped values. Training values on reused replay can look excellent while policy strength regresses.
+- **Arena paired interval** — primary local evidence of improvement against one frozen opponent.
+- **Opponent matrix** — necessary evidence against non-transitive regressions; one champion score is insufficient.
+- **Strategic gates** — direct regression tests for known failures such as premium-card scrapping.
+- **Head disagreement** — whether bootstrapped exploration retains meaningful policy diversity.
+- **Effective epsilon** — the probability actually applied after schedule and plateau response.
+- **Rollout mix** — realized learner/league/baseline games, not merely configured fractions.
+- **Replay ratios / weights** — whether shared-network updates represent the behavior distribution.
+- **Truncation rate** — sustained nonzero values invalidate ordinary win/loss interpretation.
+- **Games/s and decisions/s, plus cumulative updates** — use all three views. A higher game count is not automatically more learning.
+- **CPU/RAM/Metal** — resource pressure and learner utilization.
 
-## Current limitations and next experiments
+Do not select a model from training loss, raw game count, or a short unpaired match.
 
-- The production engine is optimized Python, not the future Rust vector engine described as an extension path.
-- The model is feed-forward over a maintained information state; it does not learn a recurrent history or public-belief search policy.
-- Replay blends off-policy terminal Monte-Carlo and frozen next-decision targets, but does not yet perform full all-action counterfactual reanalysis or search.
-- There is one base-set ruleset and no expansions or online multiplayer protocol.
-- A 24-hour budget cannot guarantee “excellent” strength. Only evaluation can establish that.
+## Pause, checkpoint, stop, and recovery
 
-High-value next experiments are differential-tested Rust simulation, centralized action-count-bucket inference, randomized prior functions, recurrent public-action history, entity attention, and ReBeL-style public-belief search. Each should earn its complexity through paired held-out comparisons, not training loss alone.
+Pause and stop take effect at safe actor-batch boundaries during learning and at a game boundary during trainer evaluation. Checkpoint requests are serviced at the next learner boundary or between final-evaluation attempts:
+
+- **Checkpoint** queues a complete immutable learner boundary.
+- **Pause** queues that checkpoint first and reports `paused` only after it is durable.
+- A new checkpoint request can be serviced while already paused.
+- **Stop** writes a final checkpoint when learner state advanced, then closes worker resources.
+
+Natural duration completion enters the visible `finalizing_evaluation` phase and does not report `complete` until the newest due trainer comparison is resolved or its bounded retries are exhausted. Pause and stop remain responsive there: only the trainer-owned arena is cancelled, including when it is queued behind another evaluator job.
+
+Astro3 checkpoint sidecars include model weights/specification, AdamW state, exact totals, seed cursor, active elapsed time, rollout and replay RNG states, league order/statistics, and a compressed bounded replay journal. Time spent paused is excluded even when a manual checkpoint or stop happens during the pause.
+
+On restart, versioned complete training-state payloads are authoritative; partial legacy payloads cannot zero mature counters. If a newer Astro3 boundary is missing or has an unreadable optimizer/replay artifact, resume falls back to the previous complete boundary. If no complete boundary exists, it keeps the newest usable weights, restarts optimizer/replay deliberately, and emits explicit degraded-resume telemetry. Optimizer warmup origin is persisted. Legacy rollback checkpoints retain mature counters instead of rewinding game ranges while keeping an advanced update schedule. Arena work is recovered by the owning manager rather than being left as an orphaned `running` job.
+
+Because only the newest configured replay slice is saved, an Astro3 resume is operationally durable but not bit-identical to a process that kept all 900,000 items resident. The GUI reports journal coverage rather than calling it full replay recovery.
+
+After durable checkpoint and handled-evaluation boundaries, `keep_checkpoints` bounds ordinary artifact files while protecting champions, pins, promoted historical league members, active arena inputs, and the latest complete resume boundary. Pruned rows retain lineage, diagnostics, and arena history in SQLite and are labeled unavailable in the API and dashboard. The exact safety contract is documented in [checkpoint artifact retention](CHECKPOINT_RETENTION.md).
+
+## Experimental discipline
+
+Use at least three fresh seeds for major changes. Preserve common held-out scenario banks and arena seed lists. Compare against:
+
+- the best Astro2 champion;
+- several strategically diverse historical champions;
+- every deterministic baseline;
+- fresh exploiters when those are implemented.
+
+Plot score and uncertainty against wall time, decisions, and updates. Require the improvement to repeat across seeds. The recommended release thresholds and future entity/search/population/native-engine stages are in the [plateau report](PLATEAU_ANALYSIS_AND_ASTROSYNAPSE3.md#promotion-and-release-gates).
+
+## Current limitations
+
+- The corrected system has unit/integration and deterministic-strategy validation, not a completed multi-million-game Astro3 strength result.
+- Replay still lacks full legal-action counterfactual reanalysis.
+- The model is a relational residual MLP, not yet an entity transformer or recurrent public-belief model.
+- Population play uses accepted history, not yet dedicated main and league exploiters with a full payoff solver.
+- Fixed random projections perturb behavior only; fitted prior terms or genuinely independent ensemble networks remain future experiments.
+- The Python engine is correct-first. Native simulation is staged for search after differential parity testing.

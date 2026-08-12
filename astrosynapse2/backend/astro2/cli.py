@@ -9,6 +9,7 @@ import sys
 import time
 from pathlib import Path
 
+from .arena import ArenaManager
 from .config import RunConfig, preset_config
 from .hardware import system_snapshot
 from .storage import Store
@@ -47,10 +48,13 @@ def command_serve(args: argparse.Namespace) -> int:
 def command_train(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir).expanduser().resolve()
     store = Store(data_dir / "astrosynapse2.sqlite3")
-    supervisor = Supervisor(store, PROJECT_ROOT)
+    arena = ArenaManager(store)
+    supervisor = Supervisor(store, PROJECT_ROOT, evaluation_manager=arena)
     config = preset_config(args.preset)
     overrides = config.model_dump()
     overrides["name"] = args.name or config.name
+    if args.seed is not None:
+        overrides["seed"] = args.seed
     if args.minutes is not None:
         overrides["duration_minutes"] = args.minutes
         overrides["preset"] = "custom"
@@ -63,12 +67,16 @@ def command_train(args: argparse.Namespace) -> int:
     signal.signal(signal.SIGINT, request_stop)
     signal.signal(signal.SIGTERM, request_stop)
     print(f"Run {run['id']} started. Press Ctrl-C for a safe stop.")
-    while True:
-        current = store.get_run(run["id"])
-        if current["status"] in {"stopped", "complete", "failed"}:
-            print(json.dumps(current, indent=2, default=str))
-            return 0 if current["status"] != "failed" else 1
-        time.sleep(1.0)
+    try:
+        while True:
+            current = store.get_run(run["id"])
+            if current["status"] in {"stopped", "complete", "failed"}:
+                print(json.dumps(current, indent=2, default=str))
+                return 0 if current["status"] != "failed" else 1
+            time.sleep(1.0)
+    finally:
+        supervisor.shutdown()
+        arena.shutdown()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -86,8 +94,17 @@ def build_parser() -> argparse.ArgumentParser:
     serve.set_defaults(func=command_serve)
 
     train = subparsers.add_parser("train", help="run training without the web interface")
-    train.add_argument("--preset", choices=["m4_24h", "quick"], default="m4_24h")
+    train.add_argument(
+        "--preset",
+        choices=["astro3_m4", "m4_24h", "quick"],
+        default="astro3_m4",
+    )
     train.add_argument("--name")
+    train.add_argument(
+        "--seed",
+        type=int,
+        help="reproducibility seed (use a distinct value for each independent run)",
+    )
     train.add_argument("--minutes", type=int)
     train.add_argument("--data-dir", default=str(PROJECT_ROOT / "data"))
     train.set_defaults(func=command_train)

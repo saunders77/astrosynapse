@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from astro2 import server
+from astro2.retention import prune_checkpoint_artifacts
 from fastapi.testclient import TestClient
 
 
@@ -9,13 +12,29 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         assert health.status_code == 200
         assert health.json()["ok"] is True
 
+        presets = client.get("/api/presets").json()
+        assert presets["astro3_m4"]["training_generation"] == 3
+        assert presets["astro3_m4"]["seed"] == 20260807
+        assert presets["astro3_m4"]["deployment_policy_selfplay_fraction"] == 0.2
+        assert presets["quick"]["training_generation"] == 3
+        assert presets["quick"]["seed"] == 20260807
+        assert presets["m4_24h"]["training_generation"] == 2
+        assert presets["m4_24h"]["seed"] == 20260807
+        assert presets["m4_24h"]["deployment_policy_selfplay_fraction"] == 0.0
+
         created = client.post(
             "/api/runs",
-            json={"preset": "quick", "name": "API smoke", "start": False},
+            json={
+                "preset": "quick",
+                "name": "API smoke",
+                "overrides": {"seed": 271828},
+                "start": False,
+            },
         )
         assert created.status_code == 201
         run = created.json()
         assert run["status"] == "ready"
+        assert run["config"]["seed"] == 271828
 
         listing = client.get("/api/runs").json()
         assert listing[0]["id"] == run["id"]
@@ -41,9 +60,12 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         assert model["id"] == checkpoint["id"]
         assert model["size_bytes"] == len(b"actorweights")
         assert model["evaluated"] is False
-        assert client.patch(
-            f"/api/models/{checkpoint['id']}", json={"pinned": True}
-        ).json()["is_pinned"] is True
+        assert (
+            client.patch(f"/api/models/{checkpoint['id']}", json={"pinned": True}).json()[
+                "is_pinned"
+            ]
+            is True
+        )
         assert client.get(f"/api/models/{checkpoint['id']}/actor").content == b"actor"
 
         other = client.post(
@@ -77,3 +99,130 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         )
         assert patched.status_code == 200
         assert patched.json()["config"]["epsilon_end"] == 0.04
+
+
+def test_run_seed_rejects_values_that_cannot_round_trip_through_the_dashboard(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    with TestClient(server.app) as client:
+        for invalid_seed in (-1, 9_007_199_254_740_992):
+            response = client.post(
+                "/api/runs",
+                json={
+                    "preset": "astro3_m4",
+                    "overrides": {"seed": invalid_seed},
+                    "start": False,
+                },
+            )
+            assert response.status_code == 409
+
+
+def test_generation_two_custom_run_can_be_loaded_and_cloned(tmp_path, monkeypatch):
+    """Exercise the request shape emitted by the GUI for a loaded custom run."""
+
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    with TestClient(server.app) as client:
+        source = client.post(
+            "/api/runs",
+            json={
+                "preset": "m4_24h",
+                "name": "Legacy custom source",
+                "overrides": {
+                    "preset": "custom",
+                    "training_generation": 2,
+                    "seed": 8675309,
+                    "deployment_policy_selfplay_fraction": 0.0,
+                },
+                "start": False,
+            },
+        )
+        assert source.status_code == 201
+
+        source_config = client.get(f"/api/runs/{source.json()['id']}").json()["run"]["config"]
+        assert source_config["preset"] == "custom"
+        assert source_config["training_generation"] == 2
+        assert source_config["seed"] == 8675309
+        assert source_config["deployment_policy_selfplay_fraction"] == 0.0
+
+        # The GUI selects the generation-compatible launch base, sends all
+        # represented fields as overrides, and sends the deployment fraction
+        # explicitly instead of inheriting Astro3's 0.20 default.
+        clone_overrides = dict(source_config)
+        clone_overrides.pop("name")
+        clone = client.post(
+            "/api/runs",
+            json={
+                "preset": "m4_24h",
+                "name": "Legacy custom clone",
+                "overrides": clone_overrides,
+                "start": False,
+            },
+        )
+        assert clone.status_code == 201
+        assert clone.json()["name"] == "Legacy custom clone"
+        assert clone.json()["config"]["training_generation"] == 2
+        assert clone.json()["config"]["seed"] == 8675309
+        assert clone.json()["config"]["deployment_policy_selfplay_fraction"] == 0.0
+
+
+def test_pruned_checkpoint_history_is_explicitly_unavailable(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    with TestClient(server.app) as client:
+        run = client.post(
+            "/api/runs",
+            json={"preset": "quick", "name": "Retention API", "start": False},
+        ).json()
+        root = tmp_path / "checkpoints" / run["id"]
+        root.mkdir(parents=True)
+        checkpoints = []
+        for index in range(4):
+            stem = root / f"g{index:010d}-api"
+            model = Path(f"{stem}.safetensors")
+            actor = Path(f"{stem}.actor.npz")
+            optimizer = Path(f"{stem}.optimizer.npz")
+            replay = Path(f"{stem}.replay.npz")
+            for path in (model, actor, optimizer, replay, Path(f"{model}.json")):
+                path.write_bytes(path.name.encode())
+            checkpoints.append(
+                client.app.state.store.add_checkpoint(
+                    run_id=run["id"],
+                    label=f"API checkpoint {index}",
+                    path=str(model),
+                    actor_path=str(actor),
+                    games=index * 100,
+                    champion=index == 1,
+                    evaluation={
+                        "artifacts": {
+                            "optimizer_path": str(optimizer),
+                            "replay_path": str(replay),
+                            "replay_items": 10,
+                        }
+                    },
+                )
+            )
+
+        prune_checkpoint_artifacts(
+            client.app.state.store,
+            run["id"],
+            keep_checkpoints=2,
+        )
+        models = client.get(f"/api/models?run_id={run['id']}").json()
+        stale = next(item for item in models if item["id"] == checkpoints[0]["id"])
+        assert stale["artifact_state"] == "pruned"
+        assert stale["actor_available"] is False
+        assert stale["model_available"] is False
+        assert stale["playable"] is False
+        assert stale["actor_downloadable"] is False
+        assert stale["evaluation"]["artifact_retention"]["pruned"] is True
+        assert len(models) == 4
+
+        actor_response = client.get(f"/api/models/{stale['id']}/actor")
+        assert actor_response.status_code == 409
+        assert "pruned by checkpoint retention" in actor_response.json()["detail"]
+        game_response = client.post(
+            "/api/games",
+            json={"model_id": stale["id"], "seed": 7, "human_starts": True},
+        )
+        assert game_response.status_code == 409
+        assert "pruned by checkpoint retention" in game_response.json()["detail"]

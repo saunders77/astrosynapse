@@ -234,9 +234,7 @@ def model_action_indices(decision: Decision) -> tuple[int, ...]:
     if not dominated_end:
         return indices
     filtered = tuple(
-        index
-        for index, action in enumerate(decision.actions)
-        if action.kind != ActionKind.END_TURN
+        index for index, action in enumerate(decision.actions) if action.kind != ActionKind.END_TURN
     )
     return filtered or indices
 

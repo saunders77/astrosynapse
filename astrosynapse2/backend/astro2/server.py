@@ -35,7 +35,7 @@ DATA_DIR = Path(os.environ.get("ASTRO2_DATA_DIR", PROJECT_ROOT / "data")).expand
 
 class CreateRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    preset: str = "m4_24h"
+    preset: str = "astro3_m4"
     name: str | None = Field(default=None, max_length=80)
     overrides: dict[str, Any] = Field(default_factory=dict)
     start: bool = False
@@ -82,7 +82,7 @@ def _build_config(request: CreateRunRequest) -> RunConfig:
     if request.name:
         base["name"] = request.name
     base.update(request.overrides)
-    if request.preset not in {"m4_24h", "quick"}:
+    if request.preset not in {"astro3_m4", "m4_24h", "quick"}:
         base["preset"] = "custom"
     return RunConfig.model_validate(base)
 
@@ -92,9 +92,13 @@ async def lifespan(app: FastAPI):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     store = Store(DATA_DIR / "astrosynapse2.sqlite3")
     app.state.store = store
-    app.state.supervisor = Supervisor(store, PROJECT_ROOT)
-    app.state.play = PlayManager()
     app.state.arena = ArenaManager(store)
+    app.state.supervisor = Supervisor(
+        store,
+        PROJECT_ROOT,
+        evaluation_manager=app.state.arena,
+    )
+    app.state.play = PlayManager()
     try:
         yield
     finally:
@@ -138,8 +142,28 @@ def _arena(request: Request) -> ArenaManager:
     return request.app.state.arena
 
 
+def _artifact_retention(checkpoint: dict[str, Any]) -> dict[str, Any]:
+    evaluation = checkpoint.get("evaluation") or {}
+    retention = evaluation.get("artifact_retention") if isinstance(evaluation, dict) else None
+    return retention if isinstance(retention, dict) else {}
+
+
+def _actor_unavailable_detail(checkpoint: dict[str, Any]) -> str:
+    retention = _artifact_retention(checkpoint)
+    removed = retention.get("removed_artifacts", [])
+    if bool(retention.get("pruned")) and "actor" in removed:
+        return "model actor snapshot was pruned by checkpoint retention"
+    return "model actor snapshot is unavailable"
+
+
 def _model_document(checkpoint: dict[str, Any]) -> dict[str, Any]:
     result = dict(checkpoint)
+    model_path = Path(str(checkpoint.get("path") or ""))
+    actor_path = Path(str(checkpoint.get("actor_path") or ""))
+    model_available = model_path.is_file() and Path(f"{model_path}.json").is_file()
+    actor_available = actor_path.is_file()
+    retention = _artifact_retention(checkpoint)
+    retention_pruned = bool(retention.get("pruned"))
     size_bytes = 0
     for key in ("path", "actor_path"):
         value = checkpoint.get(key)
@@ -147,6 +171,23 @@ def _model_document(checkpoint: dict[str, Any]) -> dict[str, Any]:
             size_bytes += Path(value).stat().st_size
     result["size_bytes"] = size_bytes
     result["size_mb"] = size_bytes / (1024 * 1024)
+    result["artifact_availability"] = {
+        "model": model_available,
+        "actor": actor_available,
+    }
+    result["actor_available"] = actor_available
+    result["model_available"] = model_available
+    result["playable"] = actor_available
+    result["actor_downloadable"] = actor_available
+    result["artifact_state"] = (
+        "available"
+        if model_available and actor_available
+        else "pruned"
+        if retention_pruned and not model_available and not actor_available
+        else "partial"
+        if model_available or actor_available
+        else "missing"
+    )
     evaluation = checkpoint.get("evaluation") or {}
     latest = evaluation.get("latest_arena") if isinstance(evaluation, dict) else None
     result["evaluated"] = bool(latest)
@@ -179,6 +220,7 @@ def system() -> dict[str, Any]:
 @app.get("/api/presets")
 def presets() -> dict[str, Any]:
     return {
+        "astro3_m4": RunConfig.astro3_m4().model_dump(),
         "m4_24h": RunConfig().model_dump(),
         "quick": RunConfig.quick().model_dump(),
     }
@@ -276,7 +318,7 @@ def download_actor(model_id: str, request: Request) -> FileResponse:
         raise HTTPException(status_code=404, detail="model not found") from error
     actor_path = checkpoint.get("actor_path")
     if not actor_path or not Path(actor_path).is_file():
-        raise HTTPException(status_code=409, detail="model actor snapshot is unavailable")
+        raise HTTPException(status_code=409, detail=_actor_unavailable_detail(checkpoint))
     return FileResponse(
         actor_path,
         media_type="application/octet-stream",
@@ -321,9 +363,7 @@ def arena_jobs(
         raise HTTPException(status_code=404, detail="run not found") from error
     jobs = _arena(request).list(limit=500)
     return [
-        job
-        for job in jobs
-        if job["model_a"] in checkpoint_ids or job["model_b"] in checkpoint_ids
+        job for job in jobs if job["model_a"] in checkpoint_ids or job["model_b"] in checkpoint_ids
     ][:limit]
 
 
@@ -352,7 +392,7 @@ def create_game(payload: CreateGameRequest, request: Request) -> dict[str, Any]:
         actor_path = checkpoint.get("actor_path")
         label = checkpoint["label"]
         if not actor_path or not Path(actor_path).exists():
-            raise HTTPException(status_code=409, detail="model actor snapshot is unavailable")
+            raise HTTPException(status_code=409, detail=_actor_unavailable_detail(checkpoint))
     try:
         return _play(request).create(
             seed=payload.seed,

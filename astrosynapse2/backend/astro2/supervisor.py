@@ -36,13 +36,37 @@ class RunControl:
     def should_stop(self) -> bool:
         return self.stop_requested.is_set()
 
-    def wait_if_paused(self, on_state: Callable[[str], None] | None = None) -> bool:
+    def wait_if_paused(
+        self,
+        on_state: Callable[[str], None] | None = None,
+        while_paused: Callable[[], bool] | None = None,
+        on_pause_start: Callable[[], None] | None = None,
+        on_pause_end: Callable[[], None] | None = None,
+    ) -> bool:
+        """Wait at a safe boundary while still servicing durable work.
+
+        ``while_paused`` runs before the first ``paused`` announcement and on
+        later wait ticks.  Returning true means it changed the phase (for
+        example while writing a requested checkpoint), so ``paused`` is
+        announced again only after that work has completed.
+        """
+
         announced = False
-        while self.pause_requested.is_set() and not self.stop_requested.is_set():
-            if not announced and on_state:
-                on_state("paused")
-                announced = True
-            self.stop_requested.wait(0.2)
+        pause_started = False
+        try:
+            while self.pause_requested.is_set() and not self.stop_requested.is_set():
+                if not pause_started:
+                    if on_pause_start:
+                        on_pause_start()
+                    pause_started = True
+                did_work = bool(while_paused and while_paused())
+                if (not announced or did_work) and on_state:
+                    on_state("paused")
+                    announced = True
+                self.stop_requested.wait(0.2)
+        finally:
+            if pause_started and on_pause_end:
+                on_pause_end()
         if announced and on_state and not self.stop_requested.is_set():
             on_state("running")
         return self.stop_requested.is_set()
@@ -57,9 +81,16 @@ class TrainingHandle:
 
 
 class Supervisor:
-    def __init__(self, store: Store, project_root: str | Path):
+    def __init__(
+        self,
+        store: Store,
+        project_root: str | Path,
+        *,
+        evaluation_manager: Any | None = None,
+    ):
         self.store = store
         self.project_root = Path(project_root).resolve()
+        self.evaluation_manager = evaluation_manager
         self._lock = threading.RLock()
         self._handles: dict[str, TrainingHandle] = {}
         self._recover_interrupted_runs()
@@ -145,6 +176,7 @@ class Supervisor:
                 project_root=self.project_root,
                 control=control,
                 publish=publish,
+                evaluation_manager=self.evaluation_manager,
             )
             final = self.store.get_run(run_id)
             if final["status"] != "failed":
@@ -180,9 +212,19 @@ class Supervisor:
                 if run["status"] == "paused":
                     return run
                 raise InvalidTransition("run is not active")
+            # A pause is durable: drain the current actor batch, snapshot the
+            # learner/replay state, then enter the paused wait loop.
+            handle.control.checkpoint_requested.set()
+            # Publish the pause flag only after its checkpoint request.  The
+            # trainer can therefore never observe "pause" and enter its wait
+            # loop before the durable work is visible.
             handle.control.pause_requested.set()
             self.store.update_run(run_id, status="pausing")
-            self.store.event(run_id, "pause_requested", "Pause requested at the next safe boundary")
+            self.store.event(
+                run_id,
+                "pause_requested",
+                "Pause requested; draining actors before a durable checkpoint",
+            )
             return self.store.get_run(run_id)
 
     def resume(self, run_id: str) -> dict[str, Any]:
@@ -204,11 +246,15 @@ class Supervisor:
                 handle.control.stop_requested.set()
                 handle.control.pause_requested.clear()
                 self.store.update_run(run_id, status="stopping")
-                self.store.event(run_id, "stop_requested", "Stop requested at the next safe boundary")
+                self.store.event(
+                    run_id, "stop_requested", "Stop requested at the next safe boundary"
+                )
             else:
                 run = self.store.get_run(run_id)
                 if run["status"] not in {"stopped", "complete", "failed"}:
-                    self.store.update_run(run_id, status="stopped", phase="stopped", stopped_at=time.time())
+                    self.store.update_run(
+                        run_id, status="stopped", phase="stopped", stopped_at=time.time()
+                    )
             return self.store.get_run(run_id)
 
     def checkpoint(self, run_id: str) -> dict[str, Any]:
@@ -225,7 +271,7 @@ class Supervisor:
         with self._lock:
             handle = self._handles.get(run_id)
             live = dict(handle.latest) if handle else {}
-        metrics = self.store.metrics(run_id, after=-1, limit=2_000)
+        metrics = self.store.metrics(run_id, after=-1, limit=1)
         return {
             "run": run,
             "live": live,

@@ -1,12 +1,14 @@
 from dataclasses import replace
 
 import numpy as np
+import pytest
 from astro2.encoding import DecisionFamily
 from astro2.replay import (
     PreferenceItem,
     PreferenceReplayBuffer,
     ReplayItem,
     StratifiedReplayBuffer,
+    _FamilyRing,
     make_bootstrap_mask,
 )
 from astro2.selfplay import CompactPreferences, CompactSamples
@@ -85,6 +87,88 @@ def test_recent_sampling_draws_from_the_newest_window():
     # The pool expands to the requested unique batch size rather than creating
     # duplicates from the nominal ten-item (20%) recent window.
     assert batch.steps.min() >= 30
+
+
+def test_fast_ring_sampling_matches_reference_when_physical_order_is_sorted():
+    ring = _FamilyRing(37, state_size=1, action_size=1, bootstrap_heads=1, storage_dtype=np.float16)
+    ring.size = ring.capacity
+    rng = np.random.default_rng(419)
+    reference_rng = np.random.default_rng(419)
+
+    actual = ring.sample_indices(10, 3, 0.25, rng)
+    ordered = ring.chronological_indices()
+    window_size = max(3, int(np.ceil(ring.size * 0.25)))
+    recent = reference_rng.choice(ordered[-window_size:], size=3, replace=False)
+    pool = np.setdiff1d(ordered, recent, assume_unique=False)
+    general = reference_rng.choice(pool, size=7, replace=False)
+    expected = np.concatenate((recent, general))
+    reference_rng.shuffle(expected)
+
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_wrapped_fast_ring_sampling_preserves_expected_inclusion_distribution():
+    ring = _FamilyRing(37, state_size=1, action_size=1, bootstrap_heads=1, storage_dtype=np.float16)
+    ring.size = ring.capacity
+    ring.write_index = 13
+    ordered = ring.chronological_indices()
+    recent_pool = ordered[-10:]
+    counts = np.zeros(ring.size, dtype=np.int64)
+    rng = np.random.default_rng(421)
+    trials = 6_000
+
+    for _ in range(trials):
+        selected = ring.sample_indices(10, 3, 0.25, rng)
+        assert len(np.unique(selected)) == len(selected)
+        counts[selected] += 1
+
+    outside_pool = np.setdiff1d(ordered, recent_pool, assume_unique=True)
+    # Three of ten recent rows are selected first. A recent row not selected
+    # there can still be one of seven uniformly sampled general rows.
+    expected_recent = 3 / 10 + (1 - 3 / 10) * (7 / (37 - 3))
+    expected_outside = 7 / (37 - 3)
+    np.testing.assert_allclose(counts[recent_pool] / trials, expected_recent, atol=0.025)
+    np.testing.assert_allclose(counts[outside_pool] / trials, expected_outside, atol=0.025)
+
+
+def test_stratified_sampling_can_be_importance_corrected_to_write_distribution():
+    replay = StratifiedReplayBuffer(
+        capacity=200,
+        state_size=5,
+        action_size=4,
+        bootstrap_heads=3,
+        family_capacity_weights={
+            DecisionFamily.MAIN: 0.9,
+            DecisionFamily.SCRAP: 0.1,
+        },
+        family_sampling_weights={
+            DecisionFamily.MAIN: 0.5,
+            DecisionFamily.SCRAP: 0.5,
+        },
+        importance_correct_sampling=True,
+        recent_sample_fraction=0.0,
+        seed=37,
+    )
+    for step in range(90):
+        replay.add(item(step, DecisionFamily.MAIN))
+    for step in range(90, 100):
+        replay.add(item(step, DecisionFamily.SCRAP))
+
+    batch = replay.sample(100)
+    main = batch.sample_weights[batch.families == int(DecisionFamily.MAIN)]
+    scrap = batch.sample_weights[batch.families == int(DecisionFamily.SCRAP)]
+    assert len(main) == len(scrap) == 50
+    np.testing.assert_allclose(main.mean(), 1.8, rtol=1e-6)
+    np.testing.assert_allclose(scrap.mean(), 0.2, rtol=1e-6)
+    np.testing.assert_allclose(batch.sample_weights.mean(), 1.0, rtol=1e-6)
+    metrics = replay.metrics()
+    assert metrics["importance_correct_sampling"] is True
+    assert metrics["recent_sample_fraction_realized"] == 0.0
+    assert metrics["importance_weights"]["minimum"] == pytest.approx(0.2)
+    assert metrics["importance_weights"]["maximum"] == pytest.approx(1.8)
+    assert metrics["importance_weights"]["effective_sample_size"] == pytest.approx(
+        100**2 / (50 * 1.8**2 + 50 * 0.2**2)
+    )
 
 
 def test_bootstrap_mask_is_nonempty_and_contains_generating_head():
@@ -207,3 +291,78 @@ def test_preference_replay_is_bounded_and_round_trips_compact_rows():
     batch = replay.sample(6)
     assert batch.states.shape == (6, 5)
     assert batch.preferred_actions.shape == (6, 4)
+
+
+def test_recent_replay_snapshot_round_trips_across_families(tmp_path):
+    replay = StratifiedReplayBuffer(
+        capacity=64,
+        state_size=5,
+        action_size=4,
+        bootstrap_heads=3,
+        seed=29,
+    )
+    for step in range(40):
+        family = DecisionFamily.COPY_SHIP if step % 7 == 0 else DecisionFamily.MAIN
+        replay.add(item(step, family))
+    replay.sample(8)
+    original_metrics = replay.metrics()
+
+    path = tmp_path / "resume.replay.npz"
+    assert replay.snapshot(path, max_items=12) == 12
+    restored = StratifiedReplayBuffer(
+        capacity=64,
+        state_size=5,
+        action_size=4,
+        bootstrap_heads=3,
+        seed=31,
+    )
+    assert restored.restore(path) == 12
+    assert len(restored) == 12
+    restored_steps = sorted(
+        int(value)
+        for ring in restored._rings.values()
+        for value in ring.steps[ring.chronological_indices()]
+    )
+    assert restored_steps == list(range(28, 40))
+    assert restored._sequence == replay._sequence
+    restored_metrics = restored.metrics()
+    assert restored_metrics["writes"] == original_metrics["writes"]
+    assert restored_metrics["overwrites"] == original_metrics["overwrites"]
+    assert restored_metrics["sample_calls"] == original_metrics["sample_calls"]
+    assert restored_metrics["samples_drawn"] == original_metrics["samples_drawn"]
+    for family in DecisionFamily:
+        name = family.name.lower()
+        assert (
+            restored_metrics["families"][name]["writes"]
+            == original_metrics["families"][name]["writes"]
+        )
+        assert (
+            restored_metrics["families"][name]["samples_drawn"]
+            == original_metrics["families"][name]["samples_drawn"]
+        )
+
+
+def test_replay_sampling_rng_resumes_at_the_same_batch():
+    kwargs = dict(
+        capacity=64,
+        state_size=5,
+        action_size=4,
+        bootstrap_heads=3,
+        recent_sample_fraction=0.25,
+    )
+    first = StratifiedReplayBuffer(**kwargs, seed=101)
+    restored = StratifiedReplayBuffer(**kwargs, seed=999)
+    entries = [
+        item(step, DecisionFamily.SCRAP if step % 9 == 0 else DecisionFamily.MAIN)
+        for step in range(50)
+    ]
+    first.extend(entries)
+    restored.extend(entries)
+    state = first.rng_state()
+
+    expected = first.sample(24)
+    restored.restore_rng_state(state)
+    actual = restored.sample(24)
+    np.testing.assert_array_equal(actual.sequences, expected.sequences)
+    np.testing.assert_array_equal(actual.families, expected.families)
+    np.testing.assert_array_equal(actual.sample_weights, expected.sample_weights)

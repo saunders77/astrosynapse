@@ -851,6 +851,95 @@ code {
   padding: 24px;
 }
 
+.astro3-status-panel {
+  padding: 24px;
+}
+
+.astro3-status-panel.has-warning {
+  border-color: rgba(240, 185, 106, 0.3);
+  box-shadow: inset 0 0 34px rgba(240, 185, 106, 0.025), var(--shadow);
+}
+
+.controller-health {
+  padding: 5px 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.04em;
+}
+
+.controller-health.is-healthy { color: var(--mint); }
+.controller-health.is-warning { color: var(--warning); }
+.controller-health.is-pending { color: var(--muted); }
+
+.controller-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 13px;
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.controller-grid > div {
+  min-width: 0;
+  padding: 12px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.controller-grid > div:last-child { grid-column: 1 / -1; }
+.controller-grid span,
+.controller-grid strong,
+.controller-grid small { display: block; }
+.controller-grid span { color: var(--muted); font-size: 8px; }
+.controller-grid strong {
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.controller-grid small { margin-top: 3px; color: var(--faint); font-size: 8px; line-height: 1.45; }
+.controller-grid > div.is-warning strong,
+.controller-grid > div.is-warning small { color: var(--warning); }
+
+.rollout-status {
+  display: grid;
+  grid-template-columns: auto minmax(70px, 1fr);
+  gap: 7px 12px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.rollout-status > span,
+.rollout-status > strong {
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.rollout-status > i {
+  display: flex;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 170, 194, 0.12);
+}
+
+.rollout-status > i b { min-width: 1px; height: 100%; }
+.rollout-status > i .mix-1 { background: var(--mint); }
+.rollout-status > i .mix-2 { background: var(--blue); }
+.rollout-status > i .mix-3 { background: var(--gold); }
+.rollout-status > i .mix-4 { background: var(--pink); }
+.rollout-status > strong {
+  grid-column: 1 / -1;
+  color: var(--faint);
+  font-family: var(--mono);
+  line-height: 1.5;
+}
+
 .event-panel {
   grid-column: 2 / -1;
 }
@@ -1141,7 +1230,7 @@ code {
 
 .preset-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 9px;
   margin-bottom: 27px;
 }
@@ -1678,6 +1767,66 @@ textarea:focus {
   font-size: 7px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.model-diagnostic-row {
+  padding: 0 10px 12px;
+}
+
+.checkpoint-diagnostics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(4, 9, 14, 0.44);
+}
+
+.checkpoint-diagnostics > div {
+  min-width: 0;
+  padding: 9px 11px;
+  border-left: 1px solid var(--line);
+}
+
+.checkpoint-diagnostics > div:first-child {
+  border-left: 0;
+}
+
+.checkpoint-diagnostics span,
+.checkpoint-diagnostics strong,
+.checkpoint-diagnostics small {
+  display: block;
+}
+
+.checkpoint-diagnostics span {
+  color: var(--faint);
+  font-size: 7px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.checkpoint-diagnostics strong {
+  margin: 2px 0;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.checkpoint-diagnostics small {
+  overflow-wrap: anywhere;
+  color: var(--faint);
+  font-size: 7px;
+  line-height: 1.45;
+}
+
+.checkpoint-diagnostics .is-positive strong {
+  color: var(--mint);
+}
+
+.checkpoint-diagnostics .is-warning strong,
+.checkpoint-diagnostics .is-warning small {
+  color: var(--warning);
 }
 
 .model-row > span:first-child {
@@ -3036,6 +3185,7 @@ button.game-card:hover:not(:disabled) {
   .performance-panel,
   .quality-panel,
   .live-stats-panel,
+  .astro3-status-panel,
   .event-panel,
   .recipe-form,
   .arena-console,
@@ -3051,6 +3201,10 @@ button.game-card:hover:not(:disabled) {
   .section-heading h1 { font-size: 34px; }
   .preset-grid { grid-template-columns: 1fr; }
   .preset-grid button { min-height: 92px; }
+  .controller-grid { grid-template-columns: 1fr; }
+  .controller-grid > div:last-child { grid-column: auto; }
+  .rollout-status { grid-template-columns: 1fr; }
+  .rollout-status > strong { grid-column: auto; }
   .field-grid { grid-template-columns: 1fr; }
   .form-actions { align-items: stretch; flex-direction: column; }
   .form-actions > div:last-child { display: grid; grid-template-columns: 1fr 1fr; }

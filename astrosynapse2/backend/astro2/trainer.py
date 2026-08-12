@@ -8,17 +8,20 @@ large accelerator context.
 
 from __future__ import annotations
 
+import json
 import math
 import multiprocessing as mp
 import os
 import time
+import uuid
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from safetensors import SafetensorError, safe_open
 
 from .config import RunConfig
 from .encoding import FAMILY_COUNT, Encoder
@@ -26,16 +29,42 @@ from .hardware import RateMeter, mlx_snapshot, system_snapshot
 from .league import League, Opponent
 from .model import (
     ModelSpec,
+    NumpyActor,
     bootstrap_bce_loss,
     build_model,
     export_actor,
     load_model,
+    load_optimizer_state,
     preference_ranking_loss,
     save_model,
+    save_optimizer_state,
 )
-from .replay import PreferenceReplayBuffer, ReplayBuffer
-from .selfplay import WorkerResult, collect_worker_batch
+from .replay import NATURAL_SAMPLING_WEIGHTS, PreferenceReplayBuffer, ReplayBuffer
+from .retention import RetentionSafetyError, prune_checkpoint_artifacts
+from .selfplay import ActorPolicy, WorkerResult, collect_worker_batch
 from .storage import Store
+
+_TRAINING_STATE_SCHEMA_VERSION = 2
+_EVALUATION_RETRY_BASE_SECONDS = 30.0
+_EVALUATION_RETRY_MAX_SECONDS = 15.0 * 60.0
+_EVALUATION_RETRY_SEED_STRIDE = 1_000_003
+_FINAL_EVALUATION_MAX_ATTEMPTS = 3
+_TRAINING_STATE_REQUIRED_COUNTERS = frozenset(
+    {
+        "games",
+        "decisions",
+        "updates",
+        "samples",
+        "player_0_wins",
+        "player_1_wins",
+        "draws",
+        "truncations",
+        "turns",
+        "forced_choices",
+        "rollout_games",
+        "seed_cursor",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +78,7 @@ class _RolloutPlan:
     kind: str
     opponent_id: str | None
     current_player: int | None
+    deployment_policy: tuple[bool, bool] = (False, False)
 
 
 @dataclass(slots=True)
@@ -62,6 +92,7 @@ class _Totals:
     truncated: int = 0
     turns: int = 0
     forced_choices: int = 0
+    rollout_games: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +101,42 @@ class _EvaluationPlan:
     cadence_games: int
     pairs: int
     automatic_promotion: bool
+
+
+class _ActiveElapsedClock:
+    """Monotonic active-training time that excludes an in-progress pause."""
+
+    def __init__(
+        self,
+        previous_seconds: float = 0.0,
+        *,
+        now: Callable[[], float] = time.monotonic,
+    ):
+        self._previous_seconds = max(0.0, float(previous_seconds))
+        self._now = now
+        self._session_started = float(now())
+        self._paused_at: float | None = None
+        self._paused_seconds = 0.0
+
+    def pause(self) -> None:
+        if self._paused_at is None:
+            self._paused_at = float(self._now())
+
+    def resume(self) -> None:
+        if self._paused_at is None:
+            return
+        now = float(self._now())
+        self._paused_seconds += max(0.0, now - self._paused_at)
+        self._paused_at = None
+
+    def value(self) -> float:
+        now = float(self._now())
+        current_pause = max(0.0, now - self._paused_at) if self._paused_at is not None else 0.0
+        session_active = max(
+            0.0,
+            now - self._session_started - self._paused_seconds - current_pause,
+        )
+        return self._previous_seconds + session_active
 
 
 def _evaluation_plan(config: RunConfig, games: int) -> _EvaluationPlan:
@@ -96,9 +163,7 @@ def _evaluation_plan(config: RunConfig, games: int) -> _EvaluationPlan:
     if games < 2 * config.evaluate_every_games:
         return _EvaluationPlan(
             tier="development",
-            cadence_games=max(
-                config.checkpoint_every_games, config.evaluate_every_games // 2
-            ),
+            cadence_games=max(config.checkpoint_every_games, config.evaluate_every_games // 2),
             pairs=min(config.evaluation_pairs, max(1_000, config.evaluation_pairs // 5)),
             automatic_promotion=True,
         )
@@ -110,12 +175,13 @@ def _evaluation_plan(config: RunConfig, games: int) -> _EvaluationPlan:
     )
 
 
-def _epsilon(config: RunConfig, games: int) -> float:
+def _epsilon(config: RunConfig, games: int, exploration_multiplier: float = 1.0) -> float:
     if games >= config.epsilon_decay_games:
-        return config.epsilon_end * config.exploration_decision_scale
-    progress = min(1.0, games / max(1, config.epsilon_decay_games))
-    scheduled = config.epsilon_start + progress * (config.epsilon_end - config.epsilon_start)
-    return scheduled * config.exploration_decision_scale
+        scheduled = config.epsilon_end
+    else:
+        progress = min(1.0, games / max(1, config.epsilon_decay_games))
+        scheduled = config.epsilon_start + progress * (config.epsilon_end - config.epsilon_start)
+    return min(1.0, scheduled * config.exploration_decision_scale * exploration_multiplier)
 
 
 def _learning_rate(
@@ -123,33 +189,322 @@ def _learning_rate(
     completed_updates: int,
     updates_since_optimizer_reset: int,
 ) -> float:
-    # The decay horizon is immutable for a run.  Extending its wall-clock
-    # duration therefore cannot rewind optimization to a larger learning rate.
-    progress = min(1.0, max(0.0, completed_updates / config.learning_rate_decay_updates))
-    cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
-    scheduled = config.min_learning_rate + (
-        config.learning_rate - config.min_learning_rate
-    ) * cosine
+    if config.learning_rate_schedule == "cosine_restarts":
+        cycle = max(0, completed_updates) // config.learning_rate_restart_updates
+        cycle_updates = max(0, completed_updates) % config.learning_rate_restart_updates
+        progress = cycle_updates / config.learning_rate_restart_updates
+        peak = max(
+            config.min_learning_rate,
+            config.learning_rate * config.learning_rate_restart_decay**cycle,
+        )
+        cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+        scheduled = config.min_learning_rate + (peak - config.min_learning_rate) * cosine
+    else:
+        # The decay horizon is immutable for a run. Extending wall-clock
+        # duration therefore cannot rewind optimization to a larger rate.
+        progress = min(1.0, max(0.0, completed_updates / config.learning_rate_decay_updates))
+        cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+        scheduled = (
+            config.min_learning_rate + (config.learning_rate - config.min_learning_rate) * cosine
+        )
     # A brief optimizer warmup protects a fresh randomly initialized value net
     # from the unusually correlated first replay batches.
     warmup = min(1.0, (updates_since_optimizer_reset + 1) / 500.0)
     return max(config.min_learning_rate * warmup, scheduled * warmup)
 
 
+def _plateau_status(store: Store, run_id: str, config: RunConfig) -> dict[str, Any]:
+    """Summarize recent promotion evidence and choose a bounded response."""
+
+    consecutive = 0
+    for job in reversed(_completed_trainer_evaluations(store, run_id)):
+        promotion = (job.get("result") or {}).get("promotion") or {}
+        if bool(promotion.get("promoted")):
+            break
+        consecutive += 1
+    level = consecutive // config.plateau_patience_evaluations if config.adaptive_training else 0
+    multiplier = min(
+        config.plateau_max_exploration_multiplier,
+        2.0**level,
+    )
+    return {
+        "consecutive_non_promotions": consecutive,
+        "level": level,
+        "exploration_multiplier": multiplier,
+        "active": bool(config.adaptive_training and level > 0),
+    }
+
+
+def _pending_trainer_evaluation_job(store: Store, run_id: str) -> dict[str, Any] | None:
+    checkpoint_ids = {checkpoint["id"] for checkpoint in store.checkpoints(run_id)}
+    return next(
+        (
+            job
+            for job in store.arena_jobs(limit=20_000, include_internal=True)
+            if job["status"] in {"queued", "running"}
+            and job["model_a"] in checkpoint_ids
+            and bool((job.get("config") or {}).get("trainer_scheduled"))
+        ),
+        None,
+    )
+
+
+def _pending_trainer_evaluation(store: Store, run_id: str) -> bool:
+    return _pending_trainer_evaluation_job(store, run_id) is not None
+
+
 def _atomic_actor_export(model: Any, spec: ModelSpec, target: Path) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(f"{target.stem}.partial{target.suffix}")
-    export_actor(model, spec, temporary)
+    export_actor(model, spec, temporary, compressed=False)
     temporary.replace(target)
     return target
 
 
-def _latest_loadable_checkpoint(store: Store, run_id: str) -> dict[str, Any] | None:
+def _readable_npz(path: str | Path | None, *, required: set[str]) -> bool:
+    if not path:
+        return False
+    target = Path(path)
+    if not target.is_file():
+        return False
+    try:
+        with np.load(target, allow_pickle=False) as archive:
+            return required.issubset(archive.files)
+    except (OSError, ValueError, KeyError):
+        return False
+
+
+def _expected_model_weight_shapes(spec: ModelSpec) -> dict[str, tuple[int, ...]]:
+    """Return the exact tensor contract consumed by the current model loader."""
+
+    hidden = spec.hidden_size
+    action_hidden = spec.action_hidden_size
+    shapes: dict[str, tuple[int, ...]] = {
+        "state_in.weight": (hidden, spec.state_size),
+        "state_in.bias": (hidden,),
+        "state_norm.weight": (hidden,),
+        "state_norm.bias": (hidden,),
+        "action_in.weight": (action_hidden, spec.action_size),
+        "action_in.bias": (action_hidden,),
+        "action_norm.weight": (action_hidden,),
+        "action_norm.bias": (action_hidden,),
+        "fusion_in.weight": (hidden, hidden + action_hidden),
+        "fusion_in.bias": (hidden,),
+        "fusion_norm.weight": (hidden,),
+        "fusion_norm.bias": (hidden,),
+        "output.weight": (spec.families * spec.bootstrap_heads, hidden),
+        "output.bias": (spec.families * spec.bootstrap_heads,),
+    }
+
+    def add_residual(prefix: str, width: int) -> None:
+        shapes.update(
+            {
+                f"{prefix}.norm.weight": (width,),
+                f"{prefix}.norm.bias": (width,),
+                f"{prefix}.fc1.weight": (width * 2, width),
+                f"{prefix}.fc1.bias": (width * 2,),
+                f"{prefix}.fc2.weight": (width, width * 2),
+                f"{prefix}.fc2.bias": (width,),
+            }
+        )
+
+    for index in range(spec.residual_blocks):
+        add_residual(f"state_blocks.{index}", hidden)
+        add_residual(f"fusion_blocks.{index}", hidden)
+    add_residual("action_blocks.0", action_hidden)
+    return shapes
+
+
+def _checkpoint_model_is_loadable(path: str | Path, config: RunConfig | None) -> bool:
+    """Validate a model/spec pair before selecting it as a resume boundary.
+
+    Existence alone is insufficient after an interrupted copy or disk error: a
+    malformed JSON sidecar or truncated safetensors archive would otherwise be
+    selected and fail only after the fallback scan had already ended.
+    """
+
+    target = Path(path)
+    sidecar = target.with_suffix(target.suffix + ".json")
+    if not target.is_file() or not sidecar.is_file():
+        return False
+    try:
+        payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return False
+        spec = ModelSpec.from_dict(payload)
+        positive_integer_fields = (
+            "state_size",
+            "action_size",
+            "families",
+            "hidden_size",
+            "action_hidden_size",
+            "bootstrap_heads",
+        )
+        if any(
+            not isinstance(getattr(spec, field), int)
+            or isinstance(getattr(spec, field), bool)
+            or getattr(spec, field) < 1
+            for field in positive_integer_fields
+        ):
+            return False
+        if (
+            not isinstance(spec.residual_blocks, int)
+            or isinstance(spec.residual_blocks, bool)
+            or spec.residual_blocks < 0
+        ):
+            return False
+        if (
+            not isinstance(spec.layer_norm_eps, (int, float))
+            or isinstance(spec.layer_norm_eps, bool)
+            or not math.isfinite(spec.layer_norm_eps)
+            or spec.layer_norm_eps <= 0
+        ):
+            return False
+        if (
+            not isinstance(spec.encoder_version, int)
+            or isinstance(spec.encoder_version, bool)
+            or spec.encoder_version not in {1, 2}
+        ):
+            return False
+        if config is not None:
+            encoder = Encoder(version=2 if config.training_generation >= 3 else 1)
+            if (
+                spec.encoder_version != encoder.version
+                or spec.state_size != encoder.state_size
+                or spec.action_size != encoder.action_size
+                or spec.families != FAMILY_COUNT
+                or spec.hidden_size != config.hidden_size
+                or spec.action_hidden_size != max(64, config.hidden_size // 2)
+                or spec.residual_blocks != config.residual_blocks
+                or spec.bootstrap_heads != config.bootstrap_heads
+            ):
+                return False
+
+        expected_shapes = _expected_model_weight_shapes(spec)
+        with safe_open(str(target), framework="numpy") as archive:
+            if set(archive.keys()) != set(expected_shapes):
+                return False
+            for name, expected_shape in expected_shapes.items():
+                tensor = archive.get_slice(name)
+                if tuple(tensor.get_shape()) != expected_shape or tensor.get_dtype() not in {
+                    "BF16",
+                    "F16",
+                    "F32",
+                }:
+                    return False
+        return True
+    except (
+        OSError,
+        TypeError,
+        ValueError,
+        KeyError,
+        SafetensorError,
+    ):
+        return False
+
+
+def _checkpoint_has_required_artifacts(
+    checkpoint: dict[str, Any],
+    config: RunConfig,
+) -> bool:
+    """Check the durable artifacts required by this run's resume contract."""
+
+    artifacts = (checkpoint.get("evaluation") or {}).get("artifacts") or {}
+    if config.persist_optimizer_state and not _readable_npz(
+        artifacts.get("optimizer_path"),
+        required={"__paths_json__"},
+    ):
+        return False
+    if config.resume_replay_items <= 0:
+        return True
+
+    replay_items = artifacts.get("replay_items")
+    if replay_items is None:
+        # Old initial checkpoints legitimately had no replay archive, but a
+        # mature checkpoint without a manifest is not an exact Astro3 resume.
+        return int(checkpoint.get("games", 0)) == 0
+    try:
+        replay_items = max(0, int(replay_items))
+    except (TypeError, ValueError):
+        return False
+    if replay_items == 0:
+        return True
+    return _readable_npz(
+        artifacts.get("replay_path"),
+        required={
+            "states",
+            "actions",
+            "families",
+            "targets",
+            "bootstrap_masks",
+            "game_ids",
+            "players",
+            "steps",
+            "heads",
+            "epsilons",
+            "td_targets",
+            "td_valid",
+            "sequences",
+            "sequence_cursor",
+        },
+    )
+
+
+def _latest_loadable_checkpoint(
+    store: Store,
+    run_id: str,
+    config: RunConfig | None = None,
+) -> dict[str, Any] | None:
+    model_candidates: list[dict[str, Any]] = []
+    skipped: list[str] = []
     for checkpoint in store.checkpoints(run_id):
         path = Path(checkpoint["path"])
-        if path.exists() and path.with_suffix(path.suffix + ".json").exists():
-            return checkpoint
-    return None
+        if not _checkpoint_model_is_loadable(path, config):
+            skipped.append(checkpoint["id"])
+            continue
+        model_candidates.append(checkpoint)
+        if config is None or _checkpoint_has_required_artifacts(checkpoint, config):
+            selected = dict(checkpoint)
+            selected["_resume_artifacts_complete"] = True
+            selected["_resume_skipped_checkpoint_ids"] = skipped
+            return selected
+        skipped.append(checkpoint["id"])
+
+    if not model_candidates:
+        return None
+    # Keeping the newest usable weights is safer than silently restarting a
+    # mature run. Mark the deliberate weight-only degradation so restore can
+    # reset optimizer/replay state and surface it in telemetry.
+    selected = dict(model_candidates[0])
+    selected["_resume_artifacts_complete"] = False
+    selected["_resume_skipped_checkpoint_ids"] = skipped
+    return selected
+
+
+def _learner_resume_checkpoint(
+    store: Store,
+    run_id: str,
+    config: RunConfig,
+) -> dict[str, Any] | None:
+    """Resolve the durable learner head, never an already-rolled-back artifact."""
+
+    latest = _latest_loadable_checkpoint(store, run_id, config)
+    if latest is None or not config.rollback_rejected_candidates:
+        return latest
+    for job in reversed(_completed_trainer_evaluations(store, run_id)):
+        result = job.get("result") or {}
+        if job["model_a"] == latest["id"] and result.get("_trainer_disposition") == "rolled_back":
+            champion_id = store.get_run(run_id).get("champion_id")
+            if champion_id:
+                champion = store.checkpoint(champion_id)
+                if Path(champion["path"]).is_file():
+                    return champion
+    gate = (latest.get("evaluation") or {}).get("quality_gate") or {}
+    if gate.get("rollback_applied"):
+        champion_id = store.get_run(run_id).get("champion_id")
+        if champion_id:
+            return store.checkpoint(champion_id)
+    return latest
 
 
 def _champion_actor_path(store: Store, run_id: str, fallback: Path) -> str:
@@ -166,15 +521,76 @@ def _champion_actor_path(store: Store, run_id: str, fallback: Path) -> str:
 
 
 def _completed_trainer_evaluations(store: Store, run_id: str) -> list[dict[str, Any]]:
+    """Return only completed arenas that are valid evidence of playing strength."""
+
+    return [
+        job
+        for job in _terminal_trainer_evaluations(store, run_id)
+        if bool((job.get("config") or {}).get("automatic_promotion"))
+        and _trainer_evaluation_outcome(job) in {"promoted", "not_promoted"}
+    ]
+
+
+def _is_trainer_evaluation(job: dict[str, Any]) -> bool:
+    config = job.get("config") or {}
+    # Older automatic jobs predate the explicit trainer_scheduled marker. No
+    # public/manual path can create an automatic-promotion job, so retaining
+    # them here preserves restart compatibility.
+    return bool(config.get("trainer_scheduled") or config.get("automatic_promotion"))
+
+
+def _trainer_evaluation_outcome(job: dict[str, Any]) -> str:
+    """Classify whether an arena is skill evidence or retryable infrastructure.
+
+    A completed SQLite row is not automatically a valid comparison. Truncated
+    games, a stale champion opponent, or a structurally incomplete automatic
+    result must be retried and must not look like a model regression.
+    """
+
+    status = str(job.get("status", ""))
+    if status in {"queued", "running"}:
+        return "pending"
+    if status == "failed":
+        return "infrastructure_failed"
+    if status == "cancelled":
+        return "cancelled"
+    if status != "complete":
+        return "infrastructure_invalid"
+
+    result = job.get("result") or {}
+    promotion = result.get("promotion") or {}
+    if int(result.get("truncated_games", 0) or 0) > 0:
+        return "truncated"
+    if bool(promotion.get("stale_opponent") or result.get("stale_opponent")):
+        return "stale"
+
+    config = job.get("config") or {}
+    if not bool(config.get("automatic_promotion")):
+        # Diagnostic jobs have no promotion payload by design. Reaching the
+        # complete state without truncation is their validity contract.
+        return "diagnostic_complete"
+
+    if bool(result.get("early_stopped")):
+        latest_look = (result.get("early_rejection") or {}).get("latest_look") or {}
+        if bool(latest_look.get("reject")) or result.get("early_stop_reason"):
+            return "not_promoted"
+        return "infrastructure_invalid"
+    if "promoted" not in promotion:
+        return "infrastructure_invalid"
+    if promotion.get("eligible") is False:
+        return "infrastructure_invalid"
+    return "promoted" if bool(promotion.get("promoted")) else "not_promoted"
+
+
+def _terminal_trainer_evaluations(store: Store, run_id: str) -> list[dict[str, Any]]:
     checkpoint_ids = {checkpoint["id"] for checkpoint in store.checkpoints(run_id)}
     return sorted(
         (
             job
             for job in store.arena_jobs(limit=20_000, include_internal=True)
-            if job["status"] == "complete"
+            if job["status"] in {"complete", "failed", "cancelled"}
             and job["model_a"] in checkpoint_ids
-            and bool((job.get("config") or {}).get("automatic_promotion"))
-            and bool((job.get("config") or {}).get("trainer_scheduled"))
+            and _is_trainer_evaluation(job)
         ),
         key=lambda job: float(job["created_at"]),
     )
@@ -204,13 +620,31 @@ def _save_checkpoint(
     parent_id: str | None,
     champion: bool,
     reason: str,
+    optimizer: Any | None = None,
+    replay: ReplayBuffer | None = None,
+    resume_replay_items: int = 0,
+    training_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"g{games:010d}-{int(time.time())}"
+    # Manual/pause/duration checkpoints can share both the game counter and a
+    # wall-clock instant.  A nanosecond timestamp keeps names sortable while a
+    # full random UUID makes each immutable artifact family independent.
+    stem = f"g{games:010d}-{time.time_ns()}-{uuid.uuid4().hex}"
     model_path = checkpoint_dir / f"{stem}.safetensors"
     actor_path = checkpoint_dir / f"{stem}.actor.npz"
     save_model(model, spec, model_path)
     export_actor(model, spec, actor_path)
+    artifacts: dict[str, Any] = {"schema_version": 1}
+    if optimizer is not None:
+        optimizer_path = checkpoint_dir / f"{stem}.optimizer.npz"
+        save_optimizer_state(optimizer, optimizer_path)
+        artifacts["optimizer_path"] = str(optimizer_path)
+    if replay is not None and resume_replay_items > 0:
+        replay_path = checkpoint_dir / f"{stem}.replay.npz"
+        replay_items = replay.snapshot(replay_path, max_items=resume_replay_items)
+        artifacts["replay_items"] = int(replay_items)
+        if replay_items:
+            artifacts["replay_path"] = str(replay_path)
     checkpoint = store.add_checkpoint(
         run_id=run_id,
         parent_id=parent_id,
@@ -219,7 +653,12 @@ def _save_checkpoint(
         actor_path=str(actor_path),
         games=games,
         champion=champion,
-        evaluation={"reason": reason, "evaluated": False},
+        evaluation={
+            "reason": reason,
+            "evaluated": False,
+            "artifacts": artifacts,
+            "training_state": training_state or {},
+        },
     )
     if champion:
         store.update_run(run_id, champion_id=checkpoint["id"])
@@ -232,7 +671,38 @@ def _save_checkpoint(
     return checkpoint
 
 
-def _sync_league(league: League, store: Store, run_id: str) -> None:
+def _compatible_external_actor_path(actor_path: str | None) -> str | None:
+    """Resolve and validate a frozen actor before admitting it to self-play."""
+
+    if not actor_path:
+        return None
+    path = Path(actor_path).expanduser().resolve()
+    if not path.is_file():
+        return None
+    try:
+        actor = NumpyActor.load(path)
+        encoder = Encoder(version=actor.spec.encoder_version)
+        ActorPolicy(actor, encoder)
+        # Loading the archive and checking dimensions is not enough to catch a
+        # truncated/custom archive with missing tensors. Exercise one complete
+        # forward pass before a process worker can receive it.
+        actor.predict_options(
+            np.zeros(encoder.state_size, dtype=np.float32),
+            np.zeros((1, encoder.action_size), dtype=np.float32),
+            0,
+        )
+    except Exception:
+        return None
+    return str(path)
+
+
+def _sync_league(
+    league: League,
+    store: Store,
+    run_id: str,
+    *,
+    include_external_anchors: bool = False,
+) -> None:
     existing = {opponent.id for opponent in league.opponents}
     for checkpoint in store.checkpoints(run_id):
         actor_path = checkpoint.get("actor_path")
@@ -259,20 +729,59 @@ def _sync_league(league: League, store: Store, run_id: str) -> None:
             )
         )
 
+    if not include_external_anchors:
+        return
 
-def _last_scheduled_evaluation_games(
-    store: Store, run_id: str, *, tier: str | None = None
-) -> int:
+    eligible_external_ids: set[str] = set()
+    existing = {opponent.id for opponent in league.opponents}
+    for checkpoint in store.checkpoints():
+        if checkpoint["run_id"] == run_id or int(checkpoint["games"]) == 0:
+            continue
+        if not (checkpoint["is_champion"] or checkpoint["is_pinned"]):
+            continue
+        actor_path = checkpoint.get("actor_path")
+        if checkpoint["id"] not in existing:
+            actor_path = _compatible_external_actor_path(actor_path)
+            if actor_path is None:
+                continue
+            league.upsert(
+                Opponent(
+                    id=checkpoint["id"],
+                    actor_path=actor_path,
+                    kind="anchor",
+                    label=f"Frozen anchor · {checkpoint['label']}",
+                    pinned=bool(checkpoint["is_pinned"]),
+                )
+            )
+            existing.add(checkpoint["id"])
+        eligible_external_ids.add(checkpoint["id"])
+
+    # Explicitly unpinning a non-champion external model takes effect without
+    # restarting the trainer. Current champions remain stable external anchors.
+    league.opponents = [
+        opponent
+        for opponent in league.opponents
+        if opponent.kind != "anchor" or opponent.id in eligible_external_ids
+    ]
+
+
+def _last_scheduled_evaluation_games(store: Store, run_id: str, *, tier: str | None = None) -> int:
+    """Return the latest checkpoint with a valid completed trainer arena.
+
+    The historical name is kept for callers, but merely creating a job no
+    longer consumes cadence. Failed, cancelled, truncated, stale, and malformed
+    comparisons remain retryable.
+    """
+
     checkpoint_games = {item["id"]: int(item["games"]) for item in store.checkpoints(run_id)}
     return max(
         (
             checkpoint_games.get(job["model_a"], 0)
-            for job in store.arena_jobs(limit=20_000)
+            for job in store.arena_jobs(limit=20_000, include_internal=True)
             if job["model_a"] in checkpoint_games
-            and bool(
-                (job.get("config") or {}).get("trainer_scheduled")
-                or (job.get("config") or {}).get("automatic_promotion")
-            )
+            and _is_trainer_evaluation(job)
+            and _trainer_evaluation_outcome(job)
+            in {"diagnostic_complete", "promoted", "not_promoted"}
             and (
                 tier is None
                 or (job.get("config") or {}).get(
@@ -288,9 +797,120 @@ def _last_scheduled_evaluation_games(
     )
 
 
-def _persisted_active_elapsed(store: Store, run_id: str) -> float:
+def _evaluation_retry_state(
+    store: Store,
+    run_id: str,
+    checkpoint_id: str,
+    tier: str,
+    *,
+    now: float | None = None,
+) -> dict[str, Any]:
+    """Describe bounded exponential backoff after invalid arena attempts."""
+
+    checkpoint_ids = {item["id"] for item in store.checkpoints(run_id)}
+    if checkpoint_id not in checkpoint_ids:
+        return {"ready": False, "attempts": 0, "reason": "unknown_checkpoint"}
+    invalid: list[tuple[dict[str, Any], str]] = []
+    for job in store.arena_jobs(limit=20_000, include_internal=True):
+        config = job.get("config") or {}
+        job_tier = config.get(
+            "promotion_tier",
+            "full" if config.get("automatic_promotion") else "diagnostic",
+        )
+        if job["model_a"] != checkpoint_id or not _is_trainer_evaluation(job) or job_tier != tier:
+            continue
+        outcome = _trainer_evaluation_outcome(job)
+        if outcome == "pending":
+            return {"ready": False, "attempts": len(invalid), "reason": "pending"}
+        if outcome in {"diagnostic_complete", "promoted", "not_promoted"}:
+            break
+        invalid.append((job, outcome))
+
+    if not invalid:
+        return {"ready": True, "attempts": 0, "reason": None, "retry_at": None}
+    latest_job, reason = invalid[0]
+    # Staleness is not an infrastructure instability: the old comparison was
+    # validly computed, but must immediately be repeated against the champion
+    # that replaced its opponent.
+    if reason == "stale":
+        delay = 0.0
+    else:
+        exponent = min(len(invalid) - 1, 8)
+        delay = min(_EVALUATION_RETRY_MAX_SECONDS, _EVALUATION_RETRY_BASE_SECONDS * 2**exponent)
+    retry_at = float(latest_job.get("updated_at") or latest_job.get("created_at") or 0.0) + delay
+    current = time.time() if now is None else float(now)
+    return {
+        "ready": current >= retry_at,
+        "attempts": len(invalid),
+        "reason": reason,
+        "retry_at": retry_at,
+        "retry_after_seconds": max(0.0, retry_at - current),
+        "last_job_id": latest_job["id"],
+    }
+
+
+def _next_evaluation_candidate(
+    store: Store,
+    run_id: str,
+    config: RunConfig,
+    checkpoint: dict[str, Any] | None = None,
+    *,
+    ignore_retry_backoff: bool = False,
+) -> tuple[dict[str, Any], _EvaluationPlan] | None:
+    """Return the newest due checkpoint when no trainer arena is active.
+
+    Scheduling is keyed to the immutable checkpoint's game count, not the
+    learner's moving total. That makes a completed job release exactly the
+    newest eligible checkpoint without re-queuing an already tested artifact.
+    """
+
+    if _pending_trainer_evaluation(store, run_id):
+        return None
+    if checkpoint is None:
+        checkpoints = store.checkpoints(run_id)
+        if not checkpoints:
+            return None
+        checkpoint = max(
+            checkpoints,
+            key=lambda item: (int(item["games"]), float(item["created_at"])),
+        )
+    champion_id = store.get_run(run_id).get("champion_id")
+    if not champion_id or champion_id == checkpoint["id"]:
+        return None
+    quality_gate = (checkpoint.get("evaluation") or {}).get("quality_gate") or {}
+    if "passed" in quality_gate and not bool(quality_gate["passed"]):
+        # A deterministic gate result belongs to the immutable checkpoint.
+        # Do not emit the same blocked-evaluation event on every trainer loop.
+        return None
+    checkpoint_games = int(checkpoint["games"])
+    plan = _evaluation_plan(config, checkpoint_games)
+    last_evaluation_games = _last_scheduled_evaluation_games(
+        store,
+        run_id,
+        tier=plan.tier,
+    )
+    if checkpoint_games - last_evaluation_games < plan.cadence_games:
+        return None
+    retry = _evaluation_retry_state(store, run_id, checkpoint["id"], plan.tier)
+    if not ignore_retry_backoff and not bool(retry["ready"]):
+        return None
+    return checkpoint, plan
+
+
+def _persisted_active_elapsed(
+    store: Store,
+    run_id: str,
+    checkpoint: dict[str, Any] | None = None,
+) -> float:
     """Recover consumed training time without counting backend downtime."""
 
+    checkpoint_state = ((checkpoint or {}).get("evaluation") or {}).get("training_state") or {}
+    if "active_elapsed_seconds" in checkpoint_state:
+        try:
+            elapsed = float(checkpoint_state["active_elapsed_seconds"])
+        except (TypeError, ValueError):
+            return 0.0
+        return elapsed if math.isfinite(elapsed) and elapsed >= 0.0 else 0.0
     metrics = store.metrics(run_id, after=-1, limit=1)
     if not metrics:
         return 0.0
@@ -302,18 +922,62 @@ def _persisted_active_elapsed(store: Store, run_id: str) -> float:
     return elapsed if math.isfinite(elapsed) and elapsed >= 0.0 else 0.0
 
 
-def _restore_totals(store: Store, run: dict[str, Any]) -> _Totals:
+def _checkpoint_training_state(
+    checkpoint: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Return a complete counter boundary, ignoring legacy partial payloads."""
+
+    state = ((checkpoint or {}).get("evaluation") or {}).get("training_state") or {}
+    if not isinstance(state, dict):
+        return {}
+    version = state.get("schema_version")
+    if version is not None:
+        try:
+            version = int(version)
+        except (TypeError, ValueError):
+            return {}
+        if version < 1 or version > _TRAINING_STATE_SCHEMA_VERSION:
+            return {}
+    required = set(_TRAINING_STATE_REQUIRED_COUNTERS)
+    if version == _TRAINING_STATE_SCHEMA_VERSION:
+        required.add("optimizer_updates_at_start")
+    if not required.issubset(state):
+        return {}
+    return state
+
+
+def _restore_totals(
+    store: Store,
+    run: dict[str, Any],
+    checkpoint: dict[str, Any] | None = None,
+) -> _Totals:
     """Restore cumulative telemetry counters alongside checkpointed progress."""
 
     metrics = store.metrics(run["id"], after=-1, limit=1)
     latest = metrics[-1] if metrics else {}
+    checkpoint_state = _checkpoint_training_state(checkpoint)
+    if checkpoint_state:
+        latest = checkpoint_state
     games = max(int(run["games"]), int(latest.get("games", 0)))
+    if checkpoint is not None and checkpoint_state:
+        # The model is authoritative. Never resume older weights with counters
+        # from games and updates that were never durably checkpointed.
+        games = int(checkpoint_state.get("games", checkpoint["games"]))
     metric_games = max(0, int(latest.get("games", games)))
     mean_turns = max(0.0, float(latest.get("mean_turns", 0.0)))
+    # A durable Astro3 checkpoint describes the exact learner/replay/optimizer
+    # boundary.  Run-table counters may be newer because metrics are committed
+    # between checkpoints; using their maximum would silently skip seeds and LR
+    # schedule steps that the restored weights never saw.
+    decisions = int(latest.get("decisions", 0))
+    updates = int(latest.get("updates", 0))
+    if not checkpoint_state:
+        decisions = max(int(run["decisions"]), decisions)
+        updates = max(int(run["updates"]), updates)
     return _Totals(
         games=games,
-        decisions=max(int(run["decisions"]), int(latest.get("decisions", 0))),
-        updates=max(int(run["updates"]), int(latest.get("updates", 0))),
+        decisions=decisions,
+        updates=updates,
         samples=max(0, int(latest.get("samples", 0))),
         player_wins=(
             max(0, int(latest.get("player_0_wins", 0))),
@@ -321,9 +985,72 @@ def _restore_totals(store: Store, run: dict[str, Any]) -> _Totals:
         ),
         draws=max(0, int(latest.get("draws", 0))),
         truncated=max(0, int(latest.get("truncations", 0))),
-        turns=max(0, round(mean_turns * metric_games)),
+        turns=max(
+            0,
+            int(latest["turns"]) if "turns" in latest else round(mean_turns * metric_games),
+        ),
         forced_choices=max(0, int(latest.get("forced_choices", 0))),
+        rollout_games={
+            str(key): max(0, int(value))
+            for key, value in (latest.get("rollout_games") or {}).items()
+        },
     )
+
+
+def _training_state(
+    totals: _Totals,
+    *,
+    seed_cursor: int,
+    optimizer_updates_at_start: int,
+    active_elapsed_seconds: float | None = None,
+    rollout_rng_state: dict[str, Any] | None = None,
+    replay_rng_state: dict[str, Any] | None = None,
+    league_state: list[dict[str, object]] | None = None,
+) -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "schema_version": _TRAINING_STATE_SCHEMA_VERSION,
+        "games": totals.games,
+        "decisions": totals.decisions,
+        "updates": totals.updates,
+        "samples": totals.samples,
+        "player_0_wins": totals.player_wins[0],
+        "player_1_wins": totals.player_wins[1],
+        "draws": totals.draws,
+        "truncations": totals.truncated,
+        "turns": totals.turns,
+        "mean_turns": totals.turns / max(1, totals.games),
+        "forced_choices": totals.forced_choices,
+        "rollout_games": dict(totals.rollout_games),
+        "seed_cursor": int(seed_cursor),
+        "optimizer_updates_at_start": max(0, int(optimizer_updates_at_start)),
+    }
+    if active_elapsed_seconds is not None:
+        state["active_elapsed_seconds"] = max(0.0, float(active_elapsed_seconds))
+    if rollout_rng_state is not None:
+        state["rollout_rng_state"] = rollout_rng_state
+    if replay_rng_state is not None:
+        state["replay_rng_state"] = replay_rng_state
+    if league_state is not None:
+        state["league_state"] = league_state
+    return state
+
+
+def _optimizer_schedule_origin(
+    *,
+    completed_updates: int,
+    training_state: dict[str, Any],
+    optimizer_restored: bool,
+) -> int:
+    """Recover LR warmup origin, or begin a fresh warmup after state loss."""
+
+    completed = max(0, int(completed_updates))
+    if not optimizer_restored:
+        return completed
+    try:
+        origin = int(training_state.get("optimizer_updates_at_start", 0))
+    except (TypeError, ValueError):
+        return 0
+    return origin if 0 <= origin <= completed else 0
 
 
 def _schedule_evaluation(
@@ -334,23 +1061,41 @@ def _schedule_evaluation(
     checkpoint: dict[str, Any],
     config: RunConfig,
     plan: _EvaluationPlan | None = None,
+    cancellation_hook: Callable[[], bool] | None = None,
 ) -> dict[str, Any] | None:
     champion_id = store.get_run(run_id).get("champion_id")
     if not champion_id or champion_id == checkpoint["id"]:
         return None
     plan = plan or _evaluation_plan(config, int(checkpoint["games"]))
+    retry = _evaluation_retry_state(store, run_id, checkpoint["id"], plan.tier)
+    evaluation_seed = (
+        config.seed
+        + int(checkpoint["games"])
+        + int(retry["attempts"]) * _EVALUATION_RETRY_SEED_STRIDE
+    )
     if plan.automatic_promotion:
+        # Preserve the configured statistical design exactly. A provisional
+        # tier smaller than the first planned look simply has no early looks;
+        # silently changing 512 to 100 would produce a different test.
+        early_rejection = bool(
+            config.evaluation_early_rejection
+            and config.evaluation_early_rejection_min_pairs < plan.pairs
+        )
         job = manager.create_automatic(
             checkpoint["id"],
             champion_id,
             pairs=plan.pairs,
-            seed=config.seed + int(checkpoint["games"]),
+            seed=evaluation_seed,
             max_turns=config.max_turns,
             max_actions_per_turn=config.max_actions_per_turn,
             confidence=config.promotion_confidence,
             promotion_margin=config.promotion_margin,
             minimum_promotion_pairs=plan.pairs,
             promotion_tier=plan.tier,
+            early_rejection=early_rejection,
+            early_rejection_min_pairs=config.evaluation_early_rejection_min_pairs,
+            early_rejection_confidence=config.evaluation_early_rejection_confidence,
+            cancellation_hook=cancellation_hook,
         )
     else:
         # Quick validation runs still exercise the paired evaluator, but their
@@ -362,7 +1107,7 @@ def _schedule_evaluation(
             champion_id,
             ArenaConfig(
                 pairs=plan.pairs,
-                seed=config.seed + int(checkpoint["games"]),
+                seed=evaluation_seed,
                 max_turns=config.max_turns,
                 max_actions_per_turn=config.max_actions_per_turn,
                 confidence=config.promotion_confidence,
@@ -370,14 +1115,142 @@ def _schedule_evaluation(
                 automatic_promotion=False,
                 trainer_scheduled=True,
             ),
+            cancellation_hook=cancellation_hook,
         )
     store.event(
         run_id,
         "automatic_evaluation_started",
         f"Started paired evaluation for {checkpoint['label']}",
-        {"job_id": job["id"], "pairs": plan.pairs, "tier": plan.tier},
+        {
+            "job_id": job["id"],
+            "pairs": plan.pairs,
+            "tier": plan.tier,
+            "attempt": int(retry["attempts"]) + 1,
+            "retrying_after": retry.get("reason"),
+        },
     )
     return job
+
+
+def _finish_final_evaluations(
+    *,
+    store: Store,
+    run_id: str,
+    manager_getter: Callable[[], Any | None],
+    schedule_latest: Callable[[], dict[str, Any] | None],
+    process_completed: Callable[[], None],
+    interrupt_reason: Callable[[], str | None] | None = None,
+    service_checkpoint: Callable[[], bool] | None = None,
+    max_attempts: int = _FINAL_EVALUATION_MAX_ATTEMPTS,
+) -> dict[str, Any]:
+    """Drain old work, evaluate the newest due checkpoint, and drain it too.
+
+    This runs only after natural duration completion. Arena jobs themselves are
+    finite (bounded games, turns, and actions), so waiting for the manager does
+    not introduce an unbounded statistical workload. Infrastructure-invalid
+    results are retried a small number of times; exhaustion remains visibly due
+    and will be retried when the run is resumed instead of consuming cadence.
+    """
+
+    scheduled_job_ids: list[str] = []
+    invalid_outcomes: list[str] = []
+    checkpoints_serviced = 0
+
+    def interruption() -> str | None:
+        return interrupt_reason() if interrupt_reason is not None else None
+
+    def service_pending_checkpoint() -> None:
+        nonlocal checkpoints_serviced
+        if service_checkpoint is not None and service_checkpoint():
+            checkpoints_serviced += 1
+
+    def wait_for_trainer_job(manager: Any, job_id: str) -> str | None:
+        while not manager.wait_for_job(job_id, timeout=0.25):
+            service_pending_checkpoint()
+            reason = interruption()
+            if reason is not None:
+                if manager.cancel(job_id) is False:
+                    raise RuntimeError("trainer evaluation did not stop after cancellation")
+                process_completed()
+                return reason
+        service_pending_checkpoint()
+        process_completed()
+        return interruption()
+
+    while True:
+        service_pending_checkpoint()
+        reason = interruption()
+        if reason is not None:
+            return {
+                "status": "interrupted",
+                "interrupt_reason": reason,
+                "scheduled_job_ids": scheduled_job_ids,
+                "invalid_outcomes": invalid_outcomes,
+                "checkpoints_serviced": checkpoints_serviced,
+            }
+
+        pending = _pending_trainer_evaluation_job(store, run_id)
+        if pending is not None:
+            manager = manager_getter()
+            if manager is None:
+                raise RuntimeError("a pending trainer evaluation has no owning ArenaManager")
+            reason = wait_for_trainer_job(manager, str(pending["id"]))
+            if reason is not None:
+                return {
+                    "status": "interrupted",
+                    "interrupt_reason": reason,
+                    "scheduled_job_ids": scheduled_job_ids,
+                    "invalid_outcomes": invalid_outcomes,
+                    "checkpoints_serviced": checkpoints_serviced,
+                }
+            if _pending_trainer_evaluation(store, run_id):
+                raise RuntimeError("trainer evaluation remains pending after its worker stopped")
+
+        job = schedule_latest()
+        if job is None:
+            reason = interruption()
+            if reason is not None:
+                return {
+                    "status": "interrupted",
+                    "interrupt_reason": reason,
+                    "scheduled_job_ids": scheduled_job_ids,
+                    "invalid_outcomes": invalid_outcomes,
+                    "checkpoints_serviced": checkpoints_serviced,
+                }
+            return {
+                "status": "complete" if not invalid_outcomes else "retry_exhausted",
+                "scheduled_job_ids": scheduled_job_ids,
+                "invalid_outcomes": invalid_outcomes,
+                "checkpoints_serviced": checkpoints_serviced,
+            }
+
+        scheduled_job_ids.append(str(job["id"]))
+        manager = manager_getter()
+        if manager is None:
+            raise RuntimeError("scheduled trainer evaluation has no owning ArenaManager")
+        reason = wait_for_trainer_job(manager, str(job["id"]))
+        if reason is not None:
+            return {
+                "status": "interrupted",
+                "interrupt_reason": reason,
+                "scheduled_job_ids": scheduled_job_ids,
+                "invalid_outcomes": invalid_outcomes,
+                "checkpoints_serviced": checkpoints_serviced,
+            }
+        persisted = store.arena_job(str(job["id"]), include_internal=True)
+        outcome = _trainer_evaluation_outcome(persisted)
+        if outcome in {"diagnostic_complete", "promoted", "not_promoted"}:
+            # Re-enter once so cadence/champion state proves the immutable
+            # checkpoint no longer has unfinished evaluation intent.
+            continue
+        invalid_outcomes.append(outcome)
+        if len(scheduled_job_ids) >= max(1, max_attempts):
+            return {
+                "status": "retry_exhausted",
+                "scheduled_job_ids": scheduled_job_ids,
+                "invalid_outcomes": invalid_outcomes,
+                "checkpoints_serviced": checkpoints_serviced,
+            }
 
 
 def _checkpoint_quality_gate(
@@ -401,6 +1274,7 @@ def _checkpoint_quality_gate(
         baseline_pairs=config.checkpoint_baseline_pairs,
     )
     tactical = diagnostics["tactical"]
+    strategic = diagnostics.get("strategic") or {}
     heldout = diagnostics["heldout"]
     baselines = diagnostics["baselines"]
     champion_id = store.get_run(run_id).get("champion_id")
@@ -418,8 +1292,7 @@ def _checkpoint_quality_gate(
             champion_brier = float(champion_heldout["game_grouped_brier"])
     baseline_regression = (
         champion_score is not None
-        and champion_score - float(baselines["mean_score"])
-        > config.baseline_regression_tolerance
+        and champion_score - float(baselines["mean_score"]) > config.baseline_regression_tolerance
     )
     heldout_regression = (
         champion_brier is not None
@@ -427,13 +1300,26 @@ def _checkpoint_quality_gate(
         > config.heldout_brier_regression_tolerance
     )
     reasons: list[str] = []
-    if int(tactical["raw_end_turn_violations"]) > config.max_tactical_violations:
-        reasons.append("raw model logits failed the tactical dominance suite")
+    tactical_metric = (
+        "raw_end_turn_violations"
+        if config.gate_raw_tactical_preferences
+        else "masked_end_turn_violations"
+    )
+    if int(tactical[tactical_metric]) > config.max_tactical_violations:
+        reasons.append(
+            "raw model logits failed the tactical dominance suite"
+            if config.gate_raw_tactical_preferences
+            else "deployed action policy failed the tactical dominance suite"
+        )
+    if config.require_early_high_cost_retention and not bool(
+        strategic.get("early_high_cost_passed")
+    ):
+        reasons.append("model preferred premature high-cost scraps over retaining the card")
     if int(baselines["truncated_games"]) > 0:
         reasons.append("fixed-opponent diagnostics contained truncated games")
-    if baseline_regression:
+    if config.gate_baseline_regression and baseline_regression:
         reasons.append("fixed-opponent score regressed beyond the configured tolerance")
-    if heldout_regression:
+    if config.gate_heldout_brier_regression and heldout_regression:
         reasons.append("held-out Brier score regressed beyond the configured tolerance")
     gate = {
         "passed": not reasons,
@@ -441,7 +1327,12 @@ def _checkpoint_quality_gate(
         "champion_baseline_score": champion_score,
         "champion_heldout_brier": champion_brier,
         "baseline_regression_tolerance": config.baseline_regression_tolerance,
+        "baseline_regression_gate_enabled": config.gate_baseline_regression,
+        "baseline_regression_detected": baseline_regression,
         "heldout_brier_regression_tolerance": config.heldout_brier_regression_tolerance,
+        "heldout_brier_gate_enabled": config.gate_heldout_brier_regression,
+        "heldout_brier_regression_detected": heldout_regression,
+        "tactical_gate_metric": tactical_metric,
         "diagnostics": diagnostics,
     }
     store.update_checkpoint_evaluation(checkpoint["id"], {"quality_gate": gate})
@@ -465,26 +1356,35 @@ def _make_plan(
 ) -> _RolloutPlan:
     roll = float(rng.random())
     if roll < config.current_selfplay_fraction:
+        deployment_policy = (
+            config.training_generation >= 3
+            and float(rng.random()) < config.deployment_policy_selfplay_fraction
+        )
         return _RolloutPlan(
             actor_paths=(current_actor, current_actor),
             baseline_names=("balanced", "balanced"),
             collect_players=(True, True),
-            epsilons=(epsilon, epsilon),
+            epsilons=(0.0, 0.0) if deployment_policy else (epsilon, epsilon),
             seed=seed,
             games=config.games_per_actor_batch,
-            kind="self_play",
+            kind="deployment_self_play" if deployment_policy else "self_play",
             opponent_id=None,
             current_player=None,
+            deployment_policy=(deployment_policy, deployment_policy),
         )
 
     checkpoint_opponents = [
         item
         for item in league.opponents
-        if item.kind in {"checkpoint", "champion"} and item.actor_path
+        if item.kind in {"checkpoint", "champion", "anchor"} and item.actor_path
     ]
     league_cutoff = config.current_selfplay_fraction + config.league_fraction
     if roll < league_cutoff and checkpoint_opponents:
-        opponent = league.select(rng, mode="pfsp", kinds={"checkpoint", "champion"})
+        opponent = league.select(
+            rng,
+            mode="pfsp",
+            kinds={"checkpoint", "champion", "anchor"},
+        )
         current_player = int(rng.integers(0, 2))
         actors: list[str | None] = [opponent.actor_path, opponent.actor_path]
         actors[current_player] = current_actor
@@ -567,6 +1467,12 @@ def _submit_rollout(
         max_turns=config.max_turns,
         max_actions_per_turn=config.max_actions_per_turn,
         exploration_top_k=config.exploration_top_k,
+        bootstrap_probability=config.bootstrap_inclusion_probability,
+        randomized_prior_scale=config.randomized_prior_scale,
+        deployment_policy=plan.deployment_policy,
+        use_bootstrap_targets=config.use_bootstrap_targets,
+        collect_preferences=config.tactical_preference_training,
+        encoder_version=2 if config.training_generation >= 3 else 1,
     )
 
 
@@ -602,9 +1508,7 @@ def _train_updates(
         preference_families,
         preference_weight,
     ):
-        outcome = bootstrap_bce_loss(
-            model, states, actions, families, targets, masks, weights
-        )[0]
+        outcome = bootstrap_bce_loss(model, states, actions, families, targets, masks, weights)[0]
         preference = preference_ranking_loss(
             model,
             preference_states,
@@ -624,12 +1528,15 @@ def _train_updates(
         if control.should_stop() or control.pause_requested.is_set():
             break
         batch = replay.sample(config.batch_size)
-        effective_targets = np.where(
-            batch.td_valid > 0,
-            config.terminal_target_weight * batch.targets
-            + (1.0 - config.terminal_target_weight) * batch.td_targets,
-            batch.targets,
-        ).astype(np.float32)
+        if config.use_bootstrap_targets:
+            effective_targets = np.where(
+                batch.td_valid > 0,
+                config.terminal_target_weight * batch.targets
+                + (1.0 - config.terminal_target_weight) * batch.td_targets,
+                batch.targets,
+            ).astype(np.float32)
+        else:
+            effective_targets = batch.targets.astype(np.float32, copy=False)
         arrays = (
             mx.array(batch.states),
             mx.array(batch.actions),
@@ -687,6 +1594,7 @@ def _train_updates(
             {
                 "loss": float(diagnostic_loss.item()),
                 **{name: float(value.item()) for name, value in diagnostics.items()},
+                "td_target_fraction": float(batch.td_valid.mean()),
             }
         )
         if last_preference_arrays is not None and len(preference_replay):
@@ -699,11 +1607,7 @@ def _train_updates(
             metrics.update(
                 {
                     "preference_loss": float(preference_loss.item()),
-                    **{
-                        name: float(value.item())
-                        for name, value in preference_diagnostics.items()
-                    },
-                    "td_target_fraction": float(batch.td_valid.mean()),
+                    **{name: float(value.item()) for name, value in preference_diagnostics.items()},
                 }
             )
     return metrics
@@ -730,6 +1634,7 @@ def run_training(
     project_root: str | Path,
     control: Any,
     publish: Callable[[dict[str, Any]], None],
+    evaluation_manager: Any | None = None,
 ) -> None:
     """Run until the persisted duration expires or a safe stop is requested."""
 
@@ -751,12 +1656,12 @@ def run_training(
     import mlx.core as mx
     import mlx.optimizers as optim
 
-    encoder = Encoder()
+    encoder = Encoder(version=2 if config.training_generation >= 3 else 1)
     # Keep artifacts beside the configured SQLite store so ASTRO2_DATA_DIR and
     # the CLI's --data-dir remain self-contained.
     checkpoint_root = store.path.parent / "checkpoints" / run_id
     runtime_actor = checkpoint_root / "runtime" / "current.actor.npz"
-    latest = _latest_loadable_checkpoint(store, run_id)
+    latest = _learner_resume_checkpoint(store, run_id, config)
     if latest is not None:
         model, spec = load_model(latest["path"])
         parent_checkpoint_id = latest["id"]
@@ -765,6 +1670,7 @@ def run_training(
             state_size=encoder.state_size,
             action_size=encoder.action_size,
             families=FAMILY_COUNT,
+            encoder_version=encoder.version,
             hidden_size=config.hidden_size,
             action_hidden_size=max(64, config.hidden_size // 2),
             residual_blocks=config.residual_blocks,
@@ -776,6 +1682,7 @@ def run_training(
         spec.state_size != encoder.state_size
         or spec.action_size != encoder.action_size
         or spec.families != FAMILY_COUNT
+        or spec.encoder_version != encoder.version
     ):
         raise RuntimeError("checkpoint encoder contract does not match this engine build")
 
@@ -787,12 +1694,19 @@ def run_training(
         weight_decay=config.weight_decay,
         bias_correction=True,
     )
+    if config.persist_optimizer_state:
+        optimizer.init(model.trainable_parameters())
+        mx.eval(optimizer.state)
     replay = ReplayBuffer(
         capacity=config.replay_capacity,
         state_size=encoder.state_size,
         action_size=encoder.action_size,
         bootstrap_heads=config.bootstrap_heads,
         recent_sample_fraction=config.recent_sample_fraction,
+        family_sampling_weights=(
+            NATURAL_SAMPLING_WEIGHTS if config.replay_sampling_profile == "natural" else None
+        ),
+        importance_correct_sampling=config.importance_correct_replay,
         seed=config.seed + 41,
     )
     preference_replay = PreferenceReplayBuffer(
@@ -801,8 +1715,69 @@ def run_training(
         action_size=encoder.action_size,
         seed=config.seed + 43,
     )
-    totals = _restore_totals(store, run)
-    optimizer_updates_at_start = totals.updates
+    totals = _restore_totals(store, run, latest)
+    restored_training_state = _checkpoint_training_state(latest)
+    artifacts = ((latest or {}).get("evaluation") or {}).get("artifacts") or {}
+    try:
+        replay_items_persisted = max(0, int(artifacts.get("replay_items", 0)))
+    except (TypeError, ValueError):
+        replay_items_persisted = 0
+    artifacts_complete = bool(
+        latest is None
+        or latest.get(
+            "_resume_artifacts_complete",
+            _checkpoint_has_required_artifacts(latest, config),
+        )
+    )
+    durable_resume: dict[str, Any] = {
+        "optimizer_restored": False,
+        "replay_items_restored": 0,
+        "replay_rng_restored": False,
+        "rollout_rng_restored": False,
+        "league_opponents_restored": 0,
+        "optimizer_persisted": bool(artifacts.get("optimizer_path")),
+        "replay_items_persisted": replay_items_persisted,
+        "checkpoint_artifacts_complete": artifacts_complete,
+        "fallback_checkpoint_ids": list((latest or {}).get("_resume_skipped_checkpoint_ids", [])),
+        "degraded_reasons": [],
+    }
+    if latest is not None and artifacts_complete:
+        try:
+            if config.resume_replay_items and artifacts.get("replay_path"):
+                durable_resume["replay_items_restored"] = replay.restore(artifacts["replay_path"])
+        except (OSError, ValueError, KeyError) as error:
+            artifacts_complete = False
+            durable_resume["checkpoint_artifacts_complete"] = False
+            durable_resume["degraded_reasons"].append(
+                f"replay restore failed: {type(error).__name__}"
+            )
+        try:
+            if (
+                artifacts_complete
+                and config.persist_optimizer_state
+                and artifacts.get("optimizer_path")
+            ):
+                durable_resume["optimizer_restored"] = load_optimizer_state(
+                    optimizer, artifacts["optimizer_path"]
+                )
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
+            artifacts_complete = False
+            durable_resume["checkpoint_artifacts_complete"] = False
+            durable_resume["degraded_reasons"].append(
+                f"optimizer restore failed: {type(error).__name__}"
+            )
+        if artifacts_complete and restored_training_state.get("replay_rng_state"):
+            replay.restore_rng_state(restored_training_state["replay_rng_state"])
+            durable_resume["replay_rng_restored"] = True
+    elif latest is not None:
+        durable_resume["degraded_reasons"].append(
+            "required checkpoint artifacts unavailable; resumed weights with fresh optimizer/replay"
+        )
+    optimizer_updates_at_start = _optimizer_schedule_origin(
+        completed_updates=totals.updates,
+        training_state=restored_training_state,
+        optimizer_restored=bool(durable_resume["optimizer_restored"]),
+    )
     if latest is None:
         latest = _save_checkpoint(
             store=store,
@@ -814,8 +1789,25 @@ def run_training(
             parent_id=None,
             champion=True,
             reason="initial random model",
+            optimizer=optimizer if config.persist_optimizer_state else None,
+            replay=replay,
+            resume_replay_items=config.resume_replay_items,
+            training_state=_training_state(
+                totals,
+                seed_cursor=config.seed,
+                optimizer_updates_at_start=optimizer_updates_at_start,
+                active_elapsed_seconds=0.0,
+            ),
         )
         parent_checkpoint_id = latest["id"]
+
+    if durable_resume["degraded_reasons"]:
+        store.event(
+            run_id,
+            "resume_degraded",
+            "Resumed checkpoint weights without the complete optimizer/replay boundary",
+            dict(durable_resume),
+        )
 
     league = League()
     for name in ("balanced", "economy", "aggressive"):
@@ -827,26 +1819,38 @@ def run_training(
                 label=f"{name.title()} baseline",
             )
         )
-    _sync_league(league, store, run_id)
+    _sync_league(
+        league,
+        store,
+        run_id,
+        include_external_anchors=config.training_generation >= 3,
+    )
+    if restored_training_state.get("league_state"):
+        durable_resume["league_opponents_restored"] = league.restore(
+            restored_training_state["league_state"]
+        )
 
     rng = np.random.default_rng(config.seed + totals.games + 73)
+    if restored_training_state.get("rollout_rng_state"):
+        rng.bit_generator.state = restored_training_state["rollout_rng_state"]
+        durable_resume["rollout_rng_restored"] = True
     rate = RateMeter.start()
     rate.last_games = totals.games
     rate.last_decisions = totals.decisions
-    previous_active_elapsed = _persisted_active_elapsed(store, run_id)
-    session_started_wall = time.time()
-    paused_seconds = 0.0
+    active_clock = _ActiveElapsedClock(_persisted_active_elapsed(store, run_id, latest))
     last_metric_at = 0.0
     last_diagnostics: dict[str, float] = {}
     metric_seq = int(time.time() * 1_000)
-    seed_cursor = config.seed + totals.games * 10_007
+    seed_cursor = int(
+        restored_training_state.get("seed_cursor", config.seed + totals.games * 10_007)
+    )
     last_checkpoint_games = int(latest["games"] if latest else totals.games)
-    evaluation_manager: Any | None = None
     processed_evaluation_jobs = {
         job["id"]
-        for job in _completed_trainer_evaluations(store, run_id)
+        for job in _terminal_trainer_evaluations(store, run_id)
         if bool((job.get("result") or {}).get("_trainer_disposition_processed"))
     }
+    plateau = _plateau_status(store, run_id, config)
     final_reason = "duration complete"
 
     def restore_champion(
@@ -888,11 +1892,67 @@ def run_training(
         )
         return True
 
-    def maybe_schedule_evaluation(checkpoint: dict[str, Any]) -> None:
+    def process_completed_evaluations() -> str | None:
+        """Apply each terminal arena disposition exactly once."""
+
+        evaluation_boundary_checkpoint_id: str | None = None
+        for job in _terminal_trainer_evaluations(store, run_id):
+            if job["id"] in processed_evaluation_jobs:
+                continue
+            evaluation_boundary_checkpoint_id = job["model_a"]
+            outcome = _trainer_evaluation_outcome(job)
+            if outcome == "diagnostic_complete":
+                _mark_evaluation_disposition(store, job, outcome)
+                processed_evaluation_jobs.add(job["id"])
+                continue
+            if outcome not in {"promoted", "not_promoted"}:
+                _mark_evaluation_disposition(store, job, f"retryable_{outcome}")
+                processed_evaluation_jobs.add(job["id"])
+                continue
+            if outcome == "promoted":
+                _mark_evaluation_disposition(store, job, "promoted")
+                processed_evaluation_jobs.add(job["id"])
+                continue
+            if not config.rollback_rejected_candidates:
+                _mark_evaluation_disposition(store, job, "rollback_disabled")
+                processed_evaluation_jobs.add(job["id"])
+                continue
+            current_run = store.get_run(run_id)
+            if current_run.get("champion_id") != job["model_b"]:
+                # This guard also protects legacy jobs whose result predates
+                # the explicit stale_opponent field.
+                _mark_evaluation_disposition(store, job, "retryable_stale")
+                processed_evaluation_jobs.add(job["id"])
+                continue
+            restore_champion(
+                job["model_b"],
+                rejected_checkpoint_id=job["model_a"],
+                source="paired_arena",
+                detail={"job_id": job["id"]},
+            )
+            _mark_evaluation_disposition(store, job, "rolled_back")
+            processed_evaluation_jobs.add(job["id"])
+        return evaluation_boundary_checkpoint_id
+
+    def maybe_schedule_evaluation(
+        checkpoint: dict[str, Any] | None = None,
+        *,
+        ignore_retry_backoff: bool = False,
+    ) -> dict[str, Any] | None:
         nonlocal evaluation_manager
+        due = _next_evaluation_candidate(
+            store,
+            run_id,
+            config,
+            checkpoint,
+            ignore_retry_backoff=ignore_retry_backoff,
+        )
+        if due is None:
+            return None
+        checkpoint, plan = due
         champion_id = store.get_run(run_id).get("champion_id")
-        if not champion_id or champion_id == checkpoint["id"]:
-            return
+        if not champion_id:
+            return None
         quality_gate = _checkpoint_quality_gate(
             store=store,
             run_id=run_id,
@@ -924,13 +1984,7 @@ def run_training(
                     }
                 },
             )
-            return
-        plan = _evaluation_plan(config, totals.games)
-        last_evaluation_games = _last_scheduled_evaluation_games(
-            store, run_id, tier=plan.tier
-        )
-        if totals.games - last_evaluation_games < plan.cadence_games:
-            return
+            return None
         if evaluation_manager is None:
             from .arena import ArenaManager
 
@@ -938,18 +1992,46 @@ def run_training(
             # daemon thread may outlive learning so a final comparison can
             # finish while the local backend remains open.
             evaluation_manager = ArenaManager(store, maximum_concurrent_jobs=1, recover=False)
-        _schedule_evaluation(
+        return _schedule_evaluation(
             manager=evaluation_manager,
             store=store,
             run_id=run_id,
             checkpoint=checkpoint,
             config=config,
             plan=plan,
+            cancellation_hook=lambda: control.should_stop() or control.pause_requested.is_set(),
         )
 
     def set_phase(phase: str) -> None:
         status = "paused" if phase == "paused" else "running"
         store.update_run(run_id, status=status, phase=phase)
+
+    def current_active_elapsed() -> float:
+        return active_clock.value()
+
+    def apply_artifact_retention(boundary_checkpoint_id: str | None) -> None:
+        """Apply configured retention once, without risking the training loop."""
+
+        try:
+            prune_checkpoint_artifacts(
+                store,
+                run_id,
+                keep_checkpoints=config.keep_checkpoints,
+                boundary_checkpoint_id=boundary_checkpoint_id,
+            )
+        except (OSError, RetentionSafetyError) as error:
+            # Cleanup is never a reason to lose training progress.  Stop this
+            # retention pass, persist the exact failure, and wait for a future
+            # durable boundary rather than retrying with broader semantics.
+            store.event(
+                run_id,
+                "checkpoint_retention_failed",
+                "Checkpoint retention stopped without broadening its targets",
+                {
+                    "boundary_checkpoint_id": boundary_checkpoint_id,
+                    "error": f"{type(error).__name__}: {error}",
+                },
+            )
 
     def emit(force: bool = False, phase: str = "self_play+learning") -> None:
         nonlocal last_metric_at, metric_seq
@@ -959,9 +2041,7 @@ def run_training(
         rate_values = rate.sample(totals.games, totals.decisions)
         replay_metrics = replay.metrics()
         replay_metrics["preferences"] = preference_replay.metrics()
-        active_elapsed = previous_active_elapsed + max(
-            0.0, time.time() - session_started_wall - paused_seconds
-        )
+        active_elapsed = current_active_elapsed()
         duration_seconds = config.duration_minutes * 60.0
         full_system = system_snapshot()
         snapshot = {
@@ -989,6 +2069,9 @@ def run_training(
         except Exception as error:  # pragma: no cover - hardware telemetry only
             metal = {"error": f"{type(error).__name__}: {error}"}
         metric_seq += 1
+        rollout_total = max(1, sum(totals.rollout_games.values()))
+        rollout_mix = {key: value / rollout_total for key, value in totals.rollout_games.items()}
+        uncertainty = float(last_diagnostics.get("uncertainty", 0.0))
         payload: dict[str, Any] = {
             "seq": metric_seq,
             "run_id": run_id,
@@ -1001,7 +2084,29 @@ def run_training(
             "active_elapsed_seconds": active_elapsed,
             "eta_seconds": max(0.0, duration_seconds - active_elapsed),
             "progress": min(1.0, active_elapsed / max(1.0, duration_seconds)),
-            "epsilon": _epsilon(config, totals.games),
+            "epsilon": _epsilon(
+                config,
+                totals.games,
+                float(plateau["exploration_multiplier"]),
+            ),
+            "epsilon_scheduled": _epsilon(config, totals.games),
+            "training_generation": config.training_generation,
+            "behavior_policy": config.behavior_policy,
+            "deployment_policy_selfplay_fraction": (config.deployment_policy_selfplay_fraction),
+            "deployment_policy_scheduled_fraction": (
+                config.current_selfplay_fraction * config.deployment_policy_selfplay_fraction
+            ),
+            "target_mode": ("mixed_bootstrap" if config.use_bootstrap_targets else "monte_carlo"),
+            "plateau": dict(plateau),
+            "exploration_health": {
+                "uncertainty": uncertainty,
+                "collapse_warning": bool(
+                    config.bootstrap_heads > 1 and totals.updates > 1_000 and uncertainty < 0.005
+                ),
+            },
+            "rollout_games": dict(totals.rollout_games),
+            "rollout_mix": rollout_mix,
+            "durable_resume": dict(durable_resume),
             "curriculum_phase": (
                 "heuristic_bootstrap"
                 if totals.updates < config.heuristic_bootstrap_updates
@@ -1041,12 +2146,85 @@ def run_training(
         publish(payload)
         last_metric_at = now
 
+    def persist_checkpoint(reason: str, *, schedule_evaluation: bool) -> dict[str, Any]:
+        """Write one complete learner boundary and update its parent cursor."""
+
+        nonlocal parent_checkpoint_id, last_checkpoint_games
+        emit(force=True, phase="checkpointing")
+        checkpoint = _save_checkpoint(
+            store=store,
+            run_id=run_id,
+            model=model,
+            spec=spec,
+            checkpoint_dir=checkpoint_root,
+            games=totals.games,
+            parent_id=parent_checkpoint_id,
+            champion=False,
+            reason=reason,
+            optimizer=optimizer if config.persist_optimizer_state else None,
+            replay=replay,
+            resume_replay_items=config.resume_replay_items,
+            training_state=_training_state(
+                totals,
+                seed_cursor=seed_cursor,
+                optimizer_updates_at_start=optimizer_updates_at_start,
+                active_elapsed_seconds=current_active_elapsed(),
+                rollout_rng_state=rng.bit_generator.state,
+                replay_rng_state=replay.rng_state(),
+                league_state=league.snapshot(),
+            ),
+        )
+        parent_checkpoint_id = checkpoint["id"]
+        last_checkpoint_games = totals.games
+        if schedule_evaluation:
+            _sync_league(
+                league,
+                store,
+                run_id,
+                include_external_anchors=config.training_generation >= 3,
+            )
+            maybe_schedule_evaluation(checkpoint)
+        apply_artifact_retention(checkpoint["id"])
+        emit(
+            force=True,
+            phase="pausing" if control.pause_requested.is_set() else "self_play+learning",
+        )
+        return checkpoint
+
+    def current_evaluation_manager() -> Any | None:
+        return evaluation_manager
+
+    def service_paused_work() -> bool:
+        """Honor pause/manual checkpoint requests before reporting paused."""
+
+        if not control.consume_checkpoint():
+            return False
+        persist_checkpoint("pause", schedule_evaluation=False)
+        return True
+
+    def service_final_checkpoint() -> bool:
+        """Persist manual requests while a finite final arena is still running."""
+
+        if not control.consume_checkpoint():
+            return False
+        persist_checkpoint("manual", schedule_evaluation=False)
+        emit(
+            force=True,
+            phase=(
+                "stopping"
+                if control.should_stop()
+                else "pausing"
+                if control.pause_requested.is_set()
+                else "finalizing_evaluation"
+            ),
+        )
+        return True
+
     # A run may resume just after a checkpoint was written but before its
     # evaluation was scheduled (for example after upgrading the backend).
     # Reconsider the latest immutable candidate without duplicating an
     # already-persisted trainer job.
-    if latest is not None:
-        maybe_schedule_evaluation(latest)
+    maybe_schedule_evaluation()
 
     # macOS uses spawn, avoiding unsafe post-Metal forks. Actors never import
     # MLX, so each process remains a small engine/NumPy worker.
@@ -1055,62 +2233,52 @@ def run_training(
     try:
         emit(force=True, phase="initializing")
         while not control.should_stop():
-            pause_started = time.monotonic()
-            was_paused = control.pause_requested.is_set()
-            if control.wait_if_paused(set_phase):
+            if control.wait_if_paused(
+                set_phase,
+                service_paused_work,
+                active_clock.pause,
+                active_clock.resume,
+            ):
                 final_reason = "safe stop requested"
                 break
-            if was_paused:
-                paused_seconds += time.monotonic() - pause_started
 
             run = store.get_run(run_id)
             config = RunConfig.model_validate(run["config"])
 
-            # A rejected learner never becomes the behavior policy.  When its
-            # asynchronous gate completes, restore the accepted champion so a
-            # regression cannot keep steering future candidates indefinitely.
-            for job in _completed_trainer_evaluations(store, run_id):
-                if job["id"] in processed_evaluation_jobs:
-                    continue
-                promotion = (job.get("result") or {}).get("promotion") or {}
-                if bool(promotion.get("promoted")):
-                    _mark_evaluation_disposition(store, job, "promoted")
-                    processed_evaluation_jobs.add(job["id"])
-                    continue
-                if not config.rollback_rejected_candidates:
-                    _mark_evaluation_disposition(store, job, "rollback_disabled")
-                    processed_evaluation_jobs.add(job["id"])
-                    continue
-                current_run = store.get_run(run_id)
-                if current_run.get("champion_id") != job["model_b"]:
-                    # A newer evaluation has already changed the accepted
-                    # champion, so this stale rejection must not roll it back.
-                    _mark_evaluation_disposition(store, job, "stale")
-                    processed_evaluation_jobs.add(job["id"])
-                    continue
-                restore_champion(
-                    job["model_b"],
-                    rejected_checkpoint_id=job["model_a"],
-                    source="paired_arena",
-                    detail={"job_id": job["id"]},
-                )
-                _mark_evaluation_disposition(store, job, "rolled_back")
-                processed_evaluation_jobs.add(job["id"])
-            active_elapsed = previous_active_elapsed + max(
-                0.0, time.time() - session_started_wall - paused_seconds
-            )
+            # A rejected learner never becomes the behavior policy. Invalid
+            # arenas receive retryable dispositions rather than looking like
+            # genuine skill regressions.
+            evaluation_boundary_checkpoint_id = process_completed_evaluations()
+            # The arena deliberately has no stale-job queue. Rechecking once
+            # per iteration releases the newest due checkpoint after either an
+            # automatic promotion job or a diagnostic trainer job finishes.
+            maybe_schedule_evaluation()
+            if evaluation_boundary_checkpoint_id is not None:
+                apply_artifact_retention(evaluation_boundary_checkpoint_id)
+            plateau = _plateau_status(store, run_id, config)
+            active_elapsed = current_active_elapsed()
             duration_seconds = config.duration_minutes * 60.0
             if active_elapsed >= duration_seconds:
                 break
 
-            _sync_league(league, store, run_id)
-            _atomic_actor_export(model, spec, runtime_actor)
-            rollout_actor = (
-                _champion_actor_path(store, run_id, runtime_actor)
-                if config.behavior_policy == "champion"
-                else str(runtime_actor)
+            _sync_league(
+                league,
+                store,
+                run_id,
+                include_external_anchors=config.training_generation >= 3,
             )
-            epsilon = _epsilon(config, totals.games)
+            if config.behavior_policy == "learner":
+                _atomic_actor_export(model, spec, runtime_actor)
+                rollout_actor = str(runtime_actor)
+            else:
+                rollout_actor = _champion_actor_path(store, run_id, runtime_actor)
+                if rollout_actor == str(runtime_actor) and not runtime_actor.is_file():
+                    _atomic_actor_export(model, spec, runtime_actor)
+            epsilon = _epsilon(
+                config,
+                totals.games,
+                float(plateau["exploration_multiplier"]),
+            )
             futures: dict[Future[WorkerResult], _RolloutPlan] = {}
             for _ in range(config.actor_processes):
                 if (
@@ -1173,9 +2341,14 @@ def run_training(
                     totals.truncated += result.truncated
                     totals.turns += result.turns
                     totals.forced_choices += result.forced_choices
+                    totals.rollout_games[plan.kind] = (
+                        totals.rollout_games.get(plan.kind, 0) + result.games
+                    )
                     if plan.opponent_id is not None and plan.current_player is not None:
+                        completed_games = result.games - result.truncated
                         score = result.wins[plan.current_player] + 0.5 * result.draws
-                        league.record(plan.opponent_id, score, result.games)
+                        if completed_games > 0:
+                            league.record(plan.opponent_id, score, completed_games)
                 boundary_phase = (
                     "stopping"
                     if control.should_stop()
@@ -1185,31 +2358,22 @@ def run_training(
                 )
                 emit(phase=boundary_phase)
 
-            checkpoint_due = (
-                totals.games - last_checkpoint_games >= config.checkpoint_every_games
-            )
-            if checkpoint_due or control.consume_checkpoint():
-                checkpoint = _save_checkpoint(
-                    store=store,
-                    run_id=run_id,
-                    model=model,
-                    spec=spec,
-                    checkpoint_dir=checkpoint_root,
-                    games=totals.games,
-                    parent_id=parent_checkpoint_id,
-                    champion=False,
-                    reason="scheduled" if checkpoint_due else "manual",
+            checkpoint_due = totals.games - last_checkpoint_games >= config.checkpoint_every_games
+            requested_checkpoint = control.consume_checkpoint()
+            if checkpoint_due or requested_checkpoint:
+                pausing = control.pause_requested.is_set()
+                reason = "pause" if pausing else "scheduled" if checkpoint_due else "manual"
+                persist_checkpoint(
+                    reason,
+                    schedule_evaluation=not pausing and not control.should_stop(),
                 )
-                parent_checkpoint_id = checkpoint["id"]
-                last_checkpoint_games = totals.games
-                _sync_league(league, store, run_id)
-                maybe_schedule_evaluation(checkpoint)
 
             if control.should_stop():
                 final_reason = "safe stop requested"
                 break
 
         if totals.games > last_checkpoint_games or control.checkpoint_due():
+            emit(force=True, phase="checkpointing")
             checkpoint = _save_checkpoint(
                 store=store,
                 run_id=run_id,
@@ -1220,9 +2384,101 @@ def run_training(
                 parent_id=parent_checkpoint_id,
                 champion=False,
                 reason="final",
+                optimizer=optimizer if config.persist_optimizer_state else None,
+                replay=replay,
+                resume_replay_items=config.resume_replay_items,
+                training_state=_training_state(
+                    totals,
+                    seed_cursor=seed_cursor,
+                    optimizer_updates_at_start=optimizer_updates_at_start,
+                    active_elapsed_seconds=current_active_elapsed(),
+                    rollout_rng_state=rng.bit_generator.state,
+                    replay_rng_state=replay.rng_state(),
+                    league_state=league.snapshot(),
+                ),
             )
             parent_checkpoint_id = checkpoint["id"]
-            maybe_schedule_evaluation(checkpoint)
+            if not control.should_stop():
+                maybe_schedule_evaluation(checkpoint)
+            apply_artifact_retention(checkpoint["id"])
+        final_evaluation_done = False
+        while not control.should_stop() and not final_evaluation_done:
+            if control.pause_requested.is_set():
+                if control.wait_if_paused(
+                    set_phase,
+                    service_paused_work,
+                    active_clock.pause,
+                    active_clock.resume,
+                ):
+                    final_reason = "safe stop requested"
+                    break
+                continue
+            # No learner mutation occurs during final evaluation, so a requested
+            # snapshot is immediately safe and becomes the immutable candidate
+            # considered below.
+            service_final_checkpoint()
+
+            # Natural completion is an evaluation boundary, not merely a
+            # learner boundary. Drain only this run's trainer comparison, then
+            # re-resolve the champion and evaluate the newest due snapshot.
+            emit(force=True, phase="finalizing_evaluation")
+            store.event(
+                run_id,
+                "final_evaluation_started",
+                "Draining trainer arenas and checking the newest checkpoint",
+            )
+            if evaluation_manager is None and _pending_trainer_evaluation(store, run_id):
+                from .arena import ArenaManager
+
+                evaluation_manager = ArenaManager(
+                    store,
+                    maximum_concurrent_jobs=1,
+                    recover=True,
+                )
+            final_evaluation = _finish_final_evaluations(
+                store=store,
+                run_id=run_id,
+                manager_getter=current_evaluation_manager,
+                schedule_latest=lambda: (
+                    None
+                    if control.should_stop() or control.pause_requested.is_set()
+                    else maybe_schedule_evaluation(ignore_retry_backoff=True)
+                ),
+                process_completed=lambda: process_completed_evaluations(),
+                interrupt_reason=lambda: (
+                    "stop_requested"
+                    if control.should_stop()
+                    else "pause_requested"
+                    if control.pause_requested.is_set()
+                    else None
+                ),
+                service_checkpoint=service_final_checkpoint,
+            )
+            interrupted = final_evaluation.get("status") == "interrupted"
+            interrupt_reason = final_evaluation.get("interrupt_reason")
+            store.event(
+                run_id,
+                "final_evaluation_interrupted" if interrupted else "final_evaluation_finished",
+                (
+                    "Final trainer evaluation stopped at a safe game boundary"
+                    if interrupt_reason == "stop_requested"
+                    else "Final trainer evaluation paused at a safe game boundary"
+                    if interrupt_reason == "pause_requested"
+                    else "Final trainer evaluation lifecycle finished"
+                ),
+                final_evaluation,
+            )
+            if interrupted:
+                if control.should_stop():
+                    final_reason = "safe stop requested"
+                    break
+                continue
+            # Close the small gap between the helper's last poll and its return.
+            # If a manual request arrived there, persist it and run the final
+            # evaluation lifecycle once more for the new immutable checkpoint.
+            if service_final_checkpoint():
+                continue
+            final_evaluation_done = True
         emit(force=True, phase="finalizing")
         store.event(
             run_id,

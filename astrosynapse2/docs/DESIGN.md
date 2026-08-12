@@ -1,10 +1,10 @@
-# Astrosynapse 2 design
+# Astrosynapse 3 design
 
-Astrosynapse 2 is a clean self-play system for the original Star Realms base set. It reuses the legacy card catalog as a reference, but it does not reuse the old neural representation, PPO loop, promotion logic, mutable chooser state, or training GUI.
+Astrosynapse 3 is the corrected training generation inside the Astrosynapse 2 application. It targets the original Star Realms base set, keeps retained legacy actors playable, and replaces the policy-improvement contract that stalled during the 4-million-game Astro2 run.
 
-The design target is the strongest model this specific 16 GB Apple M4 machine can produce in one uninterrupted day. That is a measurable engineering target, not a promise of a particular playing strength: the dashboard reports real throughput, confidence intervals, and comparisons with frozen anchors so the result can be judged honestly.
+The design target is the strongest model this specific 16 GB Apple M4 machine can produce in one active training day. That is a measurable engineering target, not a promise of a particular playing strength: the dashboard reports real throughput, confidence intervals, and comparisons with frozen anchors so the result can be judged honestly.
 
-## Why the old approach plateaued
+## Why the earlier approaches plateaued
 
 The audit found several problems that model size could not repair:
 
@@ -15,15 +15,17 @@ The audit found several problems that model size could not repair:
 - A 24-game, 60% promotion gate let equal models advance by chance roughly 15% of the time.
 - Each decision performed its own feature construction and tiny tensor inference, preventing useful batching.
 
-Astrosynapse 2 gives every recorded action its own game outcome, preserves exact card identity by zone, makes decision families explicit, auto-resolves forced actions, retains rare decisions deliberately, and evaluates with paired seeds and confidence bounds.
+Astrosynapse 2 corrected those original PPO problems, but its later training regime developed a second plateau: almost no effective exploration, top-three-only support, frozen-champion behavior, rollback after rejection, collapsed bootstrap heads, uncorrected family oversampling, and an unsafe shared preference loss that strongly taught optional premium-card scrapping. The evidence and checkpoint probes are in the [forensic report](PLATEAU_ANALYSIS_AND_ASTROSYNAPSE3.md).
+
+Astro3 keeps per-game outcomes, exact identities, explicit decision families, forced-action resolution, and paired evaluation. It additionally separates learner from deployable champion, restores exploration across every deployment-eligible action, corrects family-level replay weighting, uses head-specific fixed behavior perturbations, adds relational features, and treats known strategic failures as promotion regressions.
 
 ## System map
 
 ```mermaid
 flowchart LR
     E[Deterministic typed engine] --> A[Parallel CPU self-play actors]
-    L[Frozen league + baselines] --> A
-    A --> R[Stratified bounded replay]
+    L[Current learner + frozen league + baselines] --> A
+    A --> R[Family-aware bounded replay]
     R --> M[MLX bootstrapped value learner]
     M --> C[Safetensors checkpoint]
     C --> L
@@ -49,18 +51,20 @@ For every non-forced choice made by player `p`:
 ```text
 target = 1.0 if p wins
          0.0 if p loses
-         0.5 for a genuine draw or safety truncation
+         0.5 for a genuine completed draw
+
+safety truncation => discard the trajectory
 
 loss = BCEWithLogits(Q(information_state, chosen_action), target)
 ```
 
 There is no hand-authored deck-quality reward and no authority-margin reward. Winning is the policy objective. This avoids imposing the same strategic assumptions that limited the first system. Dense shaping is deliberately excluded because arbitrary shaping can change the optimal policy; the classic invariance result applies only to potential-based shaping ([Ng, Harada, and Russell](http://aima.eecs.berkeley.edu/~russell/papers/icml99-shaping.pdf)).
 
-Monte-Carlo targets are noisy, but they are unbiased and replayable. In this domain that trade is attractive: the result is binary, legal actions vary, the game is stochastic and partially observed, and simulations are cheap. PPO would discard experience after a few updates and add policy-gradient variance. AlphaZero-style search would spend the day branching through hidden information and chance events. [ReBeL](https://proceedings.neurips.cc/paper/2020/hash/c61f571dbd2fb949d3fe5ae1608dd48b-Abstract.html) is a sound longer-term search direction, but public-belief search is not the best first use of a single M4 and a 24-hour budget.
+Monte-Carlo targets are noisy, but each result is an unbiased sample of the behavior policy's return for that chosen information-state action and is replayable. It is not an unbiased label for unchosen actions or for the optimal policy. In this domain the conservative trade is useful while the result is binary, legal actions vary, and the game is stochastic and partially observed. Search-improved action-set targets remain the planned credit-assignment upgrade; search must use public beliefs rather than leaking simulator-hidden state.
 
 ### Coherent exploration
 
-Three bootstrapped Q heads share the network trunk. Each player samples one head for an entire game, so exploration follows a coherent value hypothesis instead of making unrelated random moves at every chooser call. Samples receive Bernoulli bootstrap masks. The idea follows [Bootstrapped DQN](https://proceedings.neurips.cc/paper/2016/hash/8d8818c8e140c64c743113f563cf750f-Abstract.html) and randomized-prior exploration can be added without changing the engine ([Osband et al.](https://arxiv.org/abs/1806.03335)). Deployment averages the heads and chooses greedily.
+Five bootstrapped Q heads share the network trunk. Most trajectories sample one head per player for an entire game, so exploration follows a coherent value hypothesis instead of making unrelated random moves at every chooser call. Samples receive lower-overlap Bernoulli masks, and a deterministic random projection specific to the selected head perturbs nondeployment behavior scores, including both greedy and epsilon candidate ranking. That projection is not added to the fitted MLX value or loss, so it is a lightweight mechanism inspired by [Bootstrapped DQN](https://proceedings.neurips.cc/paper/2016/hash/8d8818c8e140c64c743113f563cf750f-Abstract.html) and [randomized prior functions](https://proceedings.neurips.cc/paper/2018/hash/5a7b238ba0f6502e5d6be14424b20ded-Abstract.html), not a fully anchored implementation of the latter. Deployment averages learned heads without the behavior perturbation. Twenty percent of current-v-current batches deliberately use that exact greedy deployment policy; with current self-play at 60%, the stream has a 12% overall scheduled share. Their samples retain a real randomly assigned bootstrap head and required-head mask for learning. This directly trains on the behavior used in arenas and human play without sacrificing head-valid replay metadata.
 
 ### Representation
 
@@ -73,11 +77,11 @@ There is no meaningful spatial grid, so a CNN is the wrong inductive bias. The f
 
 Unordered zones are counts, never shuffled list positions. Unobservable opponent hand/deck assignment and deck order are never policy inputs; the publicly inferable combined hidden-pool composition is retained. Every candidate action has semantic features: verb, decision family, source/target zones, source/target card IDs, ability, and actual resource amounts. Opaque engine indices are not learned features.
 
-The compact default network has separate state and action trunks, pre-normalized residual blocks, a decision-family-specific output bank, and three outcome heads. It is deliberately small enough that simulation and learning both make progress within a day. Exact card-by-zone counts retain the relevant structure without the cost of a large transformer; a future entity-transformer backend can use the same engine and replay schema. The permutation-invariance rationale is consistent with [Deep Sets](https://proceedings.neurips.cc/paper/2017/hash/f22e4747da1aa27e363d86d40ff442fe-Abstract.html).
+The compact default network has separate state and action trunks, pre-normalized residual blocks, a decision-family-specific output bank, and five outcome heads. Astro3 adds direct action/state relations for faction synergy, ally potential, target bases, known-top opponent resources, lethal breakpoints, and optional-scrap retention. It is deliberately small enough that simulation and learning both make progress within a day. A future entity-transformer can replace this bridge while preserving the engine and semantic actions; the permutation-invariance rationale is consistent with [Deep Sets](https://proceedings.neurips.cc/paper/2017/hash/f22e4747da1aa27e363d86d40ff442fe-Abstract.html) and [Set Transformer](https://proceedings.mlr.press/v97/lee19d.html).
 
 ### Replay
 
-Replay is a bounded, preallocated NumPy ring rather than Python objects. It stores encoded state, chosen action, terminal target, family, bootstrap mask, age, and sampling weight. Fixed family capacity quotas keep discard, scrap, copy, modal, destroy-base, and free-acquire choices visible even though main-phase decisions are common. Forced one-option calls never consume inference or replay.
+Replay is a bounded, preallocated NumPy ring rather than Python objects. It stores encoded state, chosen action, terminal target, family, bootstrap mask, and sequence/age metadata; each sampled batch computes a family-level correction weight rather than storing a static transition weight. Forced one-option calls never consume inference or replay. The Astro3 natural profile stays near observed family frequencies; normalized weights correct family-level stratification back toward cumulative behavior/write shares. Its controlled recent partition is an explicit, reported recency bias rather than a claimed exact correction. A bounded recent journal supports recovery.
 
 Ordinary TD-error prioritization is not used: in a high-randomness terminal-reward game it tends to over-sample irreducibly lucky wins and losses. Recent data receives a controlled fraction while older samples remain available until their family ring overwrites them.
 
@@ -97,9 +101,9 @@ Internal Elo is displayed only as a convenience. It is not treated as absolute s
 
 Every evaluation seed produces two games with swapped seats. Random streams for the trade deck and player shuffles are isolated from policy exploration and observation construction. The paired seed—not each correlated game—is the statistical unit.
 
-The 24-hour preset uses 5,000 seed pairs for an automatic promotion and permits up to 20,000 pairs for a manual close comparison. A candidate advances only when a completed internal job's paired confidence interval lower bound clears 50% plus the configured margin. Manual and undersized jobs never change champion state. First- and second-seat scores and truncations are reported separately.
+The 24-hour preset uses up to 5,000 seed pairs for a mature automatic promotion and permits up to 20,000 pairs for a manual close comparison. A candidate advances only when a completed internal job's distribution-free paired Hoeffding lower bound clears 50% plus the configured margin. Astro3 can reject a clearly inferior candidate at predeclared looks using Bonferroni-adjusted one-sided Hoeffding bounds, but never accepts one early. Public/manual jobs and jobs below their recorded tier-specific minimum never change champion state; adaptive provisional and development tiers can promote only under their own persisted pair contract. First- and second-seat scores and truncations are reported separately.
 
-At a true 50% rate, 10,000 independent games have a worst-case approximate 95% half-width of 0.98 percentage points. Pairing often removes deal/seat noise, but Astrosynapse 2 measures that benefit with a paired bootstrap rather than assuming it.
+Pairing removes much deal/seat noise, but the formal promotion gate does not assume normality or trust a zero-variance plug-in estimate. It treats each seed pair's score as one bounded observation and reports a finite-sample Hoeffding interval. This is deliberately more conservative than a normal or percentile-bootstrap interval at the same sample size.
 
 ## M4 execution strategy
 
@@ -117,28 +121,30 @@ Memory is budgeted rather than filled blindly:
 | Frozen actor weights | below 0.5 GB |
 | macOS, dashboard, and pressure headroom | at least 4–5 GB |
 
-The dashboard surfaces CPU, resident/unified memory, Metal allocation, games/s, decisions/s, learner steps/s, and projected 24-hour totals. If memory pressure or throughput is poor, reduce replay or width before reducing evaluation quality.
+The dashboard surfaces CPU, resident/unified memory, Metal allocation, games/s, decisions/s, cumulative learner updates, and projected 24-hour totals. Profiling found that the rules engine alone was only about 5.5% of single-process neural-actor time; encoding and small NumPy inference dominated. The relational encoder and replay index sampler were therefore optimized before considering a native port. Native simulation becomes valuable when public-belief search needs many cloned continuations.
 
 PyTorch's official [MPS backend](https://docs.pytorch.org/docs/stable/notes/mps.html) remains a reasonable future fallback, but maintaining two learner implementations in the first release would reduce validation time without increasing playing strength.
 
-## 24-hour recipe
+## Suggested 24-hour experimental workflow
+
+The trainer automatically schedules its heuristic warmup, update-count cosine restarts, fixed opponent mixture, adaptive exploration response, checkpoints, and evaluation tiers. It does **not** switch to the time-phased opponent or consolidation regimes below. Treat those rows as a manual monitoring/experiment plan for future ablations, not as hidden behavior of `astro3_m4`.
 
 | Elapsed time | Work |
 |---|---|
 | 0–10 min | Rule/property smoke tests, Metal check, actor/model micro-benchmarks |
 | 10–30 min | Heuristic-trajectory curriculum (first 2,000 updates), then high exploration; no promotion claims |
-| 0.5–3 h | Bootstrapped current self-play; regular frozen snapshots |
-| 3–18 h | Full historical league and hard-opponent scheduling |
+| 0.5–3 h | Head-perturbed current-learner self-play; regular frozen snapshots |
+| 3–18 h | Monitor the fixed historical-league mixture and identify hard opponents for later experiments |
 | 6–22 h | Continue mixed self-play while monitoring head uncertainty and hard opponents |
-| 18–22 h | Hard-opponent refinement and lower exploration |
-| 22–23.5 h | Low learning rate, consolidation, no architecture changes |
-| 23.5–24 h | Let scheduled evaluation continue; preserve both champion and latest candidate for a final paired comparison |
+| 18–22 h | Optionally plan a separate hard-opponent/lower-exploration ablation; do not mutate the running recipe silently |
+| 22–23.5 h | Preserve the fixed recipe and inspect its update-count learning-rate phase |
+| At 24 h active time | The automatic final-evaluation lifecycle begins; it resolves the newest due candidate and may extend wall time beyond the training budget |
 
 Throughput targets are gates, not marketing numbers. The initial integrated benchmark should aim for at least 2,000 neural chooser decisions/s. A healthy optimized run may reach tens to low hundreds of games/s depending on learned game length and actor count. The GUI projects totals from the measured rate instead of claiming a fixed number in advance.
 
 ## Extensibility
 
-The typed engine boundary is intentionally independent from the learner:
+The typed engine boundary is intentionally independent from the learner. Conceptually, the learner needs operations equivalent to:
 
 ```text
 reset(seed, starting_seat) -> Decision
@@ -154,4 +160,6 @@ That boundary permits a future Rust vector engine, centralized fixed-shape Metal
 - No self-play method can guarantee an “excellent” model before measured comparisons; a day is a hard compute budget, not a strength certificate.
 - The original base-set rules and card fixtures must be validated before trusting long runs.
 - A single machine cannot both maximize simulation and run enormous evaluation continuously; evaluation is scheduled in blocks.
-- Terminal Monte-Carlo labels remain noisy. The answer is paired evaluation, large replay, coherent exploration, and later selective reanalysis—not invented dense rewards.
+- Terminal Monte-Carlo labels remain noisy and chosen-action-confounded. The next credit-assignment step is belief-consistent action-set search/reanalysis, not invented dense rewards.
+- The fixed random projections perturb behavior only. Fitted prior terms and genuinely independent ensemble networks remain future experiments.
+- No completed long Astro3 run yet establishes a large strength gain; fresh multi-seed paired evaluation is required.

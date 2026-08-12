@@ -2,8 +2,9 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 import pytest
-from astro2.cards import CARD_BY_ID
+from astro2.cards import CARD_BY_ID, CARD_BY_NAME
 from astro2.encoding import (
+    RELATION_FEATURE_SIZE,
     ActionKind,
     DecisionFamily,
     Encoder,
@@ -142,9 +143,7 @@ def test_actual_engine_observation_aliases_order_and_status_are_encoded():
 def test_actual_engine_actions_use_semantics_but_never_opaque_locator():
     encoder = Encoder()
     first = Action(EngineActionKind.PLAY_CARD, card_id=3, source_zone="hand", opaque=(0,))
-    relocated = Action(
-        EngineActionKind.PLAY_CARD, card_id=3, source_zone="hand", opaque=(999_999,)
-    )
+    relocated = Action(EngineActionKind.PLAY_CARD, card_id=3, source_zone="hand", opaque=(999_999,))
     np.testing.assert_array_equal(encoder.encode_action(first), encoder.encode_action(relocated))
     semantic = encoder.semantic_action(first)
     assert semantic.source_card == 3
@@ -171,3 +170,110 @@ def test_every_real_engine_decision_encodes_without_unknown_family_or_action():
     ).run()
     assert encoded_decisions == result.decisions - result.forced_choices
     assert encoded_decisions > 20
+
+
+def test_astro3_relational_features_expose_ally_acquisition_context():
+    game = Game(config=GameConfig(seed=91))
+    observation = game.observation(0)
+    acquire_blob_fighter = Action(
+        EngineActionKind.ACQUIRE,
+        card_id=CARD_BY_NAME["Blob Fighter"].card_id,
+        source_zone="trade_row",
+        amount=1,
+    )
+    decision = (
+        acquire_blob_fighter,
+        Action(EngineActionKind.END_TURN),
+    )
+    unsupported = replace(observation, own_discard=(), own_deck=(), hand=())
+    supported = replace(
+        unsupported,
+        own_discard=(CARD_BY_NAME["Battle Pod"], CARD_BY_NAME["Ram"]),
+    )
+
+    legacy = Encoder(version=1)
+    np.testing.assert_array_equal(
+        legacy.encode_decision(unsupported, decision).actions,
+        legacy.encode_decision(supported, decision).actions,
+    )
+
+    astro3 = Encoder(version=2)
+    assert astro3.action_size == legacy.action_size + RELATION_FEATURE_SIZE
+    unsupported_relation = astro3.encode_decision(unsupported, decision).actions[
+        0, -RELATION_FEATURE_SIZE:
+    ]
+    supported_relation = astro3.encode_decision(supported, decision).actions[
+        0, -RELATION_FEATURE_SIZE:
+    ]
+    assert unsupported_relation[3] == 1  # The candidate has an ally ability.
+    assert unsupported_relation[4] == 0  # No other Blob card is owned.
+    assert supported_relation[0] == pytest.approx(0.2)
+    assert supported_relation[4] == 1
+    assert supported_relation[5] > unsupported_relation[5]
+
+    # Blob Wheel has no ally text itself, but pairing it with an owned Blob
+    # Fighter can trigger the Fighter's ally ability on a future draw.
+    acquire_blob_wheel = Action(
+        EngineActionKind.ACQUIRE,
+        card_id=CARD_BY_NAME["Blob Wheel"].card_id,
+        source_zone="trade_row",
+        amount=3,
+    )
+    wheel_relations = astro3.encode_decision(
+        replace(unsupported, own_discard=(CARD_BY_NAME["Blob Fighter"],)),
+        (acquire_blob_wheel, Action(EngineActionKind.END_TURN)),
+    ).actions[0, -RELATION_FEATURE_SIZE:]
+    assert wheel_relations[3] == 0
+    assert wheel_relations[4] == 1
+
+
+def test_astro3_batched_relation_context_matches_per_action_reference():
+    game = Game(config=GameConfig(seed=92))
+    observation = replace(
+        game.observation(0),
+        combat=7,
+        trade=5,
+        turn=11,
+        own_discard=(CARD_BY_NAME["Battle Pod"], CARD_BY_NAME["Blob Fighter"]),
+        opponent_known_top=(CARD_BY_NAME["Corvette"], CARD_BY_NAME["Survey Ship"]),
+    )
+    actions = (
+        Action(
+            EngineActionKind.ACQUIRE,
+            card_id=CARD_BY_NAME["Blob Carrier"].card_id,
+            source_zone="trade_row",
+            amount=6,
+        ),
+        Action(
+            EngineActionKind.ATTACK_BASE,
+            target_card_id=CARD_BY_NAME["Space Station"].card_id,
+            amount=4,
+        ),
+        Action(
+            EngineActionKind.SCRAP_FOR_ABILITY,
+            card_id=CARD_BY_NAME["Battlecruiser"].card_id,
+            source_zone="own_in_play",
+            ability="draw",
+            amount=1,
+        ),
+        Action(EngineActionKind.END_TURN),
+    )
+
+    legacy = Encoder(version=1).encode_decision(observation, actions)
+    encoder = Encoder(version=2)
+    encoded = encoder.encode_decision(observation, actions)
+    state = encoder.encode_state(observation)
+    per_action_reference = np.stack(
+        [encoder._relation_features(observation, action, state) for action in actions]
+    )
+
+    np.testing.assert_array_equal(encoded.state, legacy.state)
+    np.testing.assert_array_equal(encoded.actions[:, :-RELATION_FEATURE_SIZE], legacy.actions)
+    np.testing.assert_array_equal(
+        encoded.actions[:, -RELATION_FEATURE_SIZE:],
+        per_action_reference,
+    )
+    attack_relations = encoded.actions[1, -RELATION_FEATURE_SIZE:]
+    assert attack_relations[10] == pytest.approx(0.4)  # Target defense / 10.
+    assert attack_relations[11] == pytest.approx(1.75)  # Current combat / defense.
+    assert attack_relations[7] > 0  # Opponent known-top combat remains separate.
