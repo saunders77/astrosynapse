@@ -74,6 +74,12 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /Deployment-policy self-play/);
   assert.match(page, /\/models\/\$\{encodeURIComponent\(modelId\)\}/);
   assert.match(page, /model_value/);
+  assert.match(page, /expected_win_rate/);
+  assert.match(page, /Expected win rate/);
+  assert.match(page, /policy_replay_capacity:\s*config\.policyReplayCapacity/);
+  assert.match(page, /Counterfactual decision fraction/);
+  assert.match(page, /Minimum head disagreement/);
+  assert.match(page, /maximumSignificantDigits:\s*4/);
   assert.match(page, /baseline:balanced/);
   assert.match(page, /explorersRemaining/);
   assert.match(page, /latest_arena/);

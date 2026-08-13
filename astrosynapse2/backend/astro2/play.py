@@ -30,8 +30,8 @@ class ActorChooser:
         index, _probabilities = self.score(decision)
         return index
 
-    def score(self, decision: Decision) -> tuple[int, np.ndarray]:
-        """Return the deployed head-average choice and value for each option."""
+    def score(self, decision: Decision) -> tuple[int, np.ndarray, float | None]:
+        """Return the deployed choice, option scores, and state win estimate."""
 
         encoded = self.encoder.encode_decision(decision.observation, decision)
         eligible = np.asarray(model_action_indices(decision), dtype=np.int64)
@@ -60,7 +60,14 @@ class ActorChooser:
                 probabilities /= probabilities.sum()
             else:
                 probabilities = 1.0 / (1.0 + np.exp(-np.clip(values, -40.0, 40.0)))
-        return int(eligible[local_index]), probabilities
+        state_value = None
+        if self.actor.spec.objective_version >= 2:
+            value_logits = self.actor.predict_values(
+                encoded.state,
+                np.asarray([int(encoded.family)], dtype=np.int64),
+            )[0]
+            state_value = float(np.mean(1.0 / (1.0 + np.exp(-np.clip(value_logits, -40, 40)))))
+        return int(eligible[local_index]), probabilities, state_value
 
 
 _BALANCED_FALLBACK = HeuristicChooser("balanced")
@@ -203,8 +210,11 @@ class GameSession:
             observation = self.game.observation(self.human_player)
             recommendation = None
             option_values: np.ndarray | None = None
+            expected_win_rate: float | None = None
             if pending is not None and self._actor_chooser is not None:
-                recommendation, option_values = self._actor_chooser.score(pending)
+                recommendation, option_values, expected_win_rate = self._actor_chooser.score(
+                    pending
+                )
             score_semantics = None
             if self._actor_chooser is not None:
                 score_semantics = (
@@ -226,6 +236,7 @@ class GameSession:
                 ),
                 "model_label": self.model_label,
                 "model_score_semantics": score_semantics,
+                "expected_win_rate": expected_win_rate,
                 "human_player": self.human_player,
                 "observation": observation.to_dict(),
                 "board": self.game.state_dict(include_hidden=False),
