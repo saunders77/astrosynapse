@@ -298,6 +298,13 @@ type DashboardSnapshot = {
   events: AuditEvent[];
 };
 
+type RunChoice = {
+  id: string;
+  name: string;
+  status: RunStatus;
+  games: number;
+};
+
 type TrainerConfig = {
   name: string;
   preset: "astro4_m4" | "astro3_m4" | "m4_24h" | "quick" | "custom";
@@ -2386,11 +2393,13 @@ export default function Home() {
   const [playModel, setPlayModel] = useState("champion-042");
   const [humanStarts, setHumanStarts] = useState(false);
   const [remoteRunId, setRemoteRunId] = useState<string | null>(null);
+  const [runChoices, setRunChoices] = useState<RunChoice[]>([]);
   const [remoteGame, setRemoteGame] = useState<RemoteGameSession | null>(null);
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const pollInFlight = useRef(false);
   const hasConnectedRef = useRef(false);
   const activeRunIdRef = useRef<string | null>(null);
+  const selectedRunOverrideRef = useRef<string | null>(null);
   const metricsSeqRef = useRef(-1);
   const gameRef = useRef(game);
   const basePresetRef = useRef<LaunchPreset>("astro4_m4");
@@ -2603,12 +2612,28 @@ export default function Home() {
         if (isRecord(presetsRaw) && Object.keys(presetsRaw).length) presetCatalogRef.current = presetsRaw;
         const health = isRecord(healthRaw) ? healthRaw : {};
         const runs = Array.isArray(runsRaw) ? runsRaw : [];
+        const normalizedRuns = runs.filter(isRecord).map((run) => ({
+          id: asString(run.id, ""),
+          name: asString(run.name, "Unnamed run"),
+          status: asString(run.status, "ready") as RunStatus,
+          games: asNumber(run.games, 0),
+        })).filter((run) => run.id);
+        setRunChoices(normalizedRuns);
         const activeId = typeof health.active_run_id === "string" ? health.active_run_id : null;
+        const liveId = normalizedRuns.find((run) =>
+          (["running", "pausing", "paused", "stopping"] as RunStatus[]).includes(run.status)
+        )?.id ?? null;
+        const selectedId = selectedRunOverrideRef.current;
+        const selectedExists = selectedId
+          ? normalizedRuns.some((run) => run.id === selectedId)
+          : false;
         const rememberedId = activeRunIdRef.current;
         const rememberedExists = rememberedId
           ? runs.some((run) => isRecord(run) && run.id === rememberedId)
           : false;
-        const runId = activeId
+        const runId = (selectedExists ? selectedId : null)
+          ?? activeId
+          ?? liveId
           ?? (rememberedExists ? rememberedId : null)
           ?? (isRecord(runs[0]) ? asString(runs[0].id, "") || null : null);
 
@@ -2820,6 +2845,7 @@ export default function Home() {
       const item = isRecord(result) ? result : {};
       const runId = asString(item.id, "");
       if (runId) {
+        selectedRunOverrideRef.current = runId;
         activeRunIdRef.current = runId;
         metricsSeqRef.current = -1;
         setRemoteRunId(runId);
@@ -2897,6 +2923,14 @@ export default function Home() {
     } finally {
       setCommandBusy(null);
     }
+  };
+
+  const selectRun = (runId: string) => {
+    selectedRunOverrideRef.current = runId;
+    activeRunIdRef.current = runId;
+    metricsSeqRef.current = -1;
+    setRemoteRunId(runId);
+    setCommandBusy(null);
   };
 
   const choosePreset = (preset: TrainerConfig["preset"]) => {
@@ -3234,9 +3268,11 @@ export default function Home() {
 
         <div className="topbar-context">
           <span className="run-monogram">M4</span>
-          <span>
+          <span className="run-context-copy">
             <small>Active run</small>
-            <strong>{snapshot.run.name}</strong>
+            {connected && runChoices.length ? <select className="run-selector" aria-label="Select run to view and control" value={remoteRunId ?? ""} onChange={(event) => selectRun(event.target.value)}>
+              {runChoices.map((run) => <option key={run.id} value={run.id}>{run.name} · {titleCase(run.status)} · {gameCountFormatter.format(run.games)}</option>)}
+            </select> : <strong>{snapshot.run.name}</strong>}
           </span>
         </div>
 

@@ -80,6 +80,9 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /Counterfactual decision fraction/);
   assert.match(page, /Minimum head disagreement/);
   assert.match(page, /maximumSignificantDigits:\s*4/);
+  assert.match(page, /Select run to view and control/);
+  assert.match(page, /\?\? activeId\s*\?\? liveId/);
+  assert.match(page, /selectedRunOverrideRef/);
   assert.match(page, /baseline:balanced/);
   assert.match(page, /explorersRemaining/);
   assert.match(page, /latest_arena/);
@@ -98,6 +101,7 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /artifacts pruned · history retained/);
   assert.match(page, /ModelDiagnosticStrip/);
   assert.match(styles, /\.checkpoint-diagnostics/);
+  assert.match(styles, /\.run-selector/);
   assert.match(page, /size_bytes/);
   assert.match(page, /truncation_rate/);
   assert.match(page, /heuristic_bootstrap_updates_remaining/);

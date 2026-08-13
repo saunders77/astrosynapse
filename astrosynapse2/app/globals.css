@@ -2642,6 +2642,25 @@ button.game-card:hover:not(:disabled) {
   white-space: nowrap;
 }
 
+.run-selector {
+  width: min(360px, 36vw);
+  margin-top: 3px;
+  padding: 3px 24px 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--ink-soft);
+  background: var(--panel-deep);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.run-selector:focus-visible {
+  border-color: var(--mint);
+  outline: 1px solid var(--mint);
+}
+
 .primary-tabs button > span {
   margin-right: 7px;
   color: var(--faint);
