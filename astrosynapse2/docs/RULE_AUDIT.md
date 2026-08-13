@@ -52,7 +52,7 @@ Corrected effect dispatch follows card text order. Tests cover draw-before-destr
 
 Legacy code could prohibit end turn while cards remained in hand and silently force a turn/game outcome after an action cap. Capped games could receive a fabricated heuristic winner.
 
-Corrected behavior always permits a legal end turn; unplayed hand cards are discarded normally. A turn/game safety cap produces an explicit truncation, never an invented winner. Truncated trajectories are excluded from replay and league rewards, and a truncated arena cannot promote a model.
+Corrected behavior always permits a legal end turn; unplayed hand cards are discarded normally. A turn/game safety cap produces an explicit truncation, never an invented winner. Truncated training trajectories are excluded from replay and league rewards. In an automatic arena, truncations are conservatively scored as candidate losses for promotion, and the adjusted paired confidence interval must still clear every normal gate.
 
 ### Randomness and observation safety
 

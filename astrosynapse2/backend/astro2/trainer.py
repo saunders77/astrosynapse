@@ -429,6 +429,47 @@ def _checkpoint_has_required_artifacts(
         return False
     if replay_items == 0:
         return True
+    replay_format = str(artifacts.get("replay_format") or "recent_v1")
+    if replay_format == "full_v2":
+        required = {
+            "format_version",
+            "capacity",
+            "state_size",
+            "action_size",
+            "bootstrap_heads",
+            "sequence_cursor",
+            "sample_calls",
+            "samples_drawn",
+            "last_recent_sample_items",
+            "last_sample_batch_size",
+            "last_importance_weight_min",
+            "last_importance_weight_max",
+            "last_importance_effective_sample_size",
+            "family_samples_drawn",
+        }
+        for family in range(FAMILY_COUNT):
+            prefix = f"family_{family}"
+            required.update(
+                {
+                    f"{prefix}_size",
+                    f"{prefix}_write_index",
+                    f"{prefix}_writes",
+                    f"{prefix}_overwrites",
+                    f"{prefix}_states",
+                    f"{prefix}_actions",
+                    f"{prefix}_targets",
+                    f"{prefix}_bootstrap_masks",
+                    f"{prefix}_game_ids",
+                    f"{prefix}_players",
+                    f"{prefix}_steps",
+                    f"{prefix}_heads",
+                    f"{prefix}_epsilons",
+                    f"{prefix}_td_targets",
+                    f"{prefix}_td_valid",
+                    f"{prefix}_sequences",
+                }
+            )
+        return _readable_npz(artifacts.get("replay_path"), required=required)
     return _readable_npz(
         artifacts.get("replay_path"),
         required={
@@ -542,9 +583,11 @@ def _is_trainer_evaluation(job: dict[str, Any]) -> bool:
 def _trainer_evaluation_outcome(job: dict[str, Any]) -> str:
     """Classify whether an arena is skill evidence or retryable infrastructure.
 
-    A completed SQLite row is not automatically a valid comparison. Truncated
-    games, a stale champion opponent, or a structurally incomplete automatic
-    result must be retried and must not look like a model regression.
+    A completed SQLite row is not automatically a valid comparison. A truncated
+    arena is valid only when it promoted after conservatively scoring every
+    truncation as a candidate loss. Other truncations, a stale champion
+    opponent, or a structurally incomplete result must be retried and must not
+    look like a model regression.
     """
 
     status = str(job.get("status", ""))
@@ -559,7 +602,10 @@ def _trainer_evaluation_outcome(job: dict[str, Any]) -> str:
 
     result = job.get("result") or {}
     promotion = result.get("promotion") or {}
-    if int(result.get("truncated_games", 0) or 0) > 0:
+    if (
+        int(result.get("truncated_games", 0) or 0) > 0
+        and not bool(promotion.get("promoted"))
+    ):
         return "truncated"
     if bool(promotion.get("stale_opponent") or result.get("stale_opponent")):
         return "stale"
@@ -623,6 +669,7 @@ def _save_checkpoint(
     optimizer: Any | None = None,
     replay: ReplayBuffer | None = None,
     resume_replay_items: int = 0,
+    full_replay: bool = False,
     training_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -641,8 +688,14 @@ def _save_checkpoint(
         artifacts["optimizer_path"] = str(optimizer_path)
     if replay is not None and resume_replay_items > 0:
         replay_path = checkpoint_dir / f"{stem}.replay.npz"
-        replay_items = replay.snapshot(replay_path, max_items=resume_replay_items)
+        replay_items = (
+            replay.snapshot_full(replay_path)
+            if full_replay
+            else replay.snapshot(replay_path, max_items=resume_replay_items)
+        )
         artifacts["replay_items"] = int(replay_items)
+        artifacts["replay_capacity"] = int(replay.capacity)
+        artifacts["replay_format"] = "full_v2" if full_replay else "recent_v1"
         if replay_items:
             artifacts["replay_path"] = str(replay_path)
     checkpoint = store.add_checkpoint(
@@ -1737,6 +1790,16 @@ def run_training(
         "league_opponents_restored": 0,
         "optimizer_persisted": bool(artifacts.get("optimizer_path")),
         "replay_items_persisted": replay_items_persisted,
+        "replay_capacity_at_snapshot": max(
+            0,
+            int(artifacts.get("replay_capacity") or config.replay_capacity),
+        ),
+        "replay_snapshot_mode": str(artifacts.get("replay_format") or "none"),
+        "latest_checkpoint_id": (latest or {}).get("id"),
+        "latest_checkpoint_games": int((latest or {}).get("games", 0)),
+        "latest_checkpoint_reason": str(
+            ((latest or {}).get("evaluation") or {}).get("reason") or ""
+        ),
         "checkpoint_artifacts_complete": artifacts_complete,
         "fallback_checkpoint_ids": list((latest or {}).get("_resume_skipped_checkpoint_ids", [])),
         "degraded_reasons": [],
@@ -1746,6 +1809,7 @@ def run_training(
             if config.resume_replay_items and artifacts.get("replay_path"):
                 durable_resume["replay_items_restored"] = replay.restore(artifacts["replay_path"])
         except (OSError, ValueError, KeyError) as error:
+            replay.clear()
             artifacts_complete = False
             durable_resume["checkpoint_artifacts_complete"] = False
             durable_resume["degraded_reasons"].append(
@@ -2151,6 +2215,7 @@ def run_training(
 
         nonlocal parent_checkpoint_id, last_checkpoint_games
         emit(force=True, phase="checkpointing")
+        save_started = time.monotonic()
         checkpoint = _save_checkpoint(
             store=store,
             run_id=run_id,
@@ -2164,6 +2229,7 @@ def run_training(
             optimizer=optimizer if config.persist_optimizer_state else None,
             replay=replay,
             resume_replay_items=config.resume_replay_items,
+            full_replay=reason in {"pause", "final"} and config.training_generation >= 3,
             training_state=_training_state(
                 totals,
                 seed_cursor=seed_cursor,
@@ -2176,6 +2242,28 @@ def run_training(
         )
         parent_checkpoint_id = checkpoint["id"]
         last_checkpoint_games = totals.games
+        checkpoint_artifacts = (checkpoint.get("evaluation") or {}).get("artifacts") or {}
+        durable_resume.update(
+            {
+                "optimizer_persisted": bool(checkpoint_artifacts.get("optimizer_path")),
+                "replay_items_persisted": max(
+                    0,
+                    int(checkpoint_artifacts.get("replay_items", 0)),
+                ),
+                "replay_capacity_at_snapshot": max(
+                    0,
+                    int(checkpoint_artifacts.get("replay_capacity", replay.capacity)),
+                ),
+                "replay_snapshot_mode": str(
+                    checkpoint_artifacts.get("replay_format") or "none"
+                ),
+                "checkpoint_artifacts_complete": True,
+                "latest_checkpoint_id": checkpoint["id"],
+                "latest_checkpoint_games": int(checkpoint["games"]),
+                "latest_checkpoint_reason": reason,
+                "latest_checkpoint_save_seconds": time.monotonic() - save_started,
+            }
+        )
         if schedule_evaluation:
             _sync_league(
                 league,
@@ -2362,7 +2450,15 @@ def run_training(
             requested_checkpoint = control.consume_checkpoint()
             if checkpoint_due or requested_checkpoint:
                 pausing = control.pause_requested.is_set()
-                reason = "pause" if pausing else "scheduled" if checkpoint_due else "manual"
+                reason = (
+                    "pause"
+                    if pausing
+                    else "final"
+                    if control.should_stop()
+                    else "scheduled"
+                    if checkpoint_due
+                    else "manual"
+                )
                 persist_checkpoint(
                     reason,
                     schedule_evaluation=not pausing and not control.should_stop(),
@@ -2387,6 +2483,7 @@ def run_training(
                 optimizer=optimizer if config.persist_optimizer_state else None,
                 replay=replay,
                 resume_replay_items=config.resume_replay_items,
+                full_replay=control.should_stop() and config.training_generation >= 3,
                 training_state=_training_state(
                     totals,
                     seed_cursor=seed_cursor,

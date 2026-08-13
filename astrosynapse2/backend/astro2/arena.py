@@ -217,6 +217,57 @@ def _paired_interval(values: list[float], confidence: float) -> dict[str, float 
     }
 
 
+def _truncations_as_losses(
+    result: dict[str, Any],
+    *,
+    confidence: float,
+) -> dict[str, Any]:
+    """Return promotion statistics with every truncated game scored as an A loss.
+
+    Truncated games are recorded as draws (0.5 points) by the arena. Replacing
+    each of those results with zero points lowers both the per-game and paired
+    means by ``0.5 / games_completed``. The paired Hoeffding radius is unchanged
+    because the number of completed pairs is unchanged.
+    """
+
+    pairs_completed = max(0, int(result.get("pairs_completed", 0)))
+    games_completed = max(
+        0,
+        int(result.get("games_completed", pairs_completed * 2)),
+    )
+    truncated_games = max(0, int(result.get("truncated_games", 0)))
+    if truncated_games > games_completed:
+        raise ValueError("truncated games cannot exceed completed games")
+
+    original_score = float(result.get("model_a_score", 0.5))
+    adjusted_points = max(0.0, original_score * games_completed - 0.5 * truncated_games)
+    adjusted_score = adjusted_points / games_completed if games_completed else 0.5
+    z = NormalDist().inv_cdf(0.5 + confidence / 2.0)
+    wilson = wilson_interval(adjusted_points, games_completed, z=z).as_dict()
+
+    if pairs_completed:
+        alpha = 1.0 - confidence
+        radius = math.sqrt(math.log(2.0 / alpha) / (2.0 * pairs_completed))
+        paired = {
+            "estimate": adjusted_score,
+            "low": max(0.0, adjusted_score - radius),
+            "high": min(1.0, adjusted_score + radius),
+            "samples": pairs_completed,
+            "confidence_radius": radius,
+        }
+    else:
+        paired = {"estimate": 0.5, "low": 0.0, "high": 1.0, "samples": 0}
+
+    return {
+        "applied": truncated_games > 0,
+        "assumption": "candidate_lost_all_truncated_games",
+        "truncated_games_scored_as_losses": truncated_games,
+        "model_a_score": adjusted_score,
+        "wilson_interval": wilson,
+        "paired_interval": paired,
+    }
+
+
 def _early_rejection_looks(config: ArenaConfig) -> tuple[int, ...]:
     """Return fixed geometric looks strictly before the full evaluation.
 
@@ -304,9 +355,11 @@ def _recommendation(
 ) -> str:
     threshold = 0.5 + config.promotion_margin
     if truncated_games:
+        outcome = "supports promotion" if paired_low > threshold else "does not support promotion"
         return (
-            f"ineligible: {truncated_games:,} truncated "
-            f"game{'s' if truncated_games != 1 else ''} require a clean evaluation"
+            f"{truncated_games:,} truncated game"
+            f"{'s' if truncated_games != 1 else ''} scored as candidate losses; "
+            f"the adjusted paired interval {outcome}"
         )
     if pairs_completed < config.minimum_promotion_pairs:
         return (
@@ -352,19 +405,30 @@ def _summary(
     wilson = wilson_interval(model_a_points, games_completed, z=z).as_dict()
     paired = _paired_interval(paired_scores, config.confidence)
     score = model_a_points / games_completed if games_completed else 0.5
+    truncation_adjustment = _truncations_as_losses(
+        {
+            "pairs_completed": pairs_completed,
+            "games_completed": games_completed,
+            "model_a_score": score,
+            "truncated_games": truncated_games,
+        },
+        confidence=config.confidence,
+    )
+    promotion_paired = (
+        truncation_adjustment["paired_interval"] if truncated_games else paired
+    )
     rate = games_completed / elapsed_seconds if elapsed_seconds > 0 else 0.0
     remaining_games = max(0, config.pairs * 2 - games_completed)
     promotion_eligible = (
-        truncated_games == 0
-        and pairs_completed == config.pairs
+        pairs_completed == config.pairs
         and pairs_completed >= config.minimum_promotion_pairs
     )
     promotion_threshold = 0.5 + config.promotion_margin
     recommendation = _recommendation(
         config,
         pairs_completed=pairs_completed,
-        paired_low=float(paired["low"]),
-        paired_high=float(paired["high"]),
+        paired_low=float(promotion_paired["low"]),
+        paired_high=float(promotion_paired["high"]),
         truncated_games=truncated_games,
     )
     return {
@@ -394,6 +458,7 @@ def _summary(
         "exact_seat_swap": True,
         "recent_pairs": pair_records[-20:],
         "truncated_games": truncated_games,
+        "truncation_adjustment": truncation_adjustment,
         "total_turns": total_turns,
         "total_decisions": total_decisions,
         "elapsed_seconds": elapsed_seconds,
@@ -415,6 +480,7 @@ def _summary(
             "paired_lower_bound_required": promotion_threshold,
             "promoted": False,
             "recommendation": recommendation,
+            "truncation_adjustment": truncation_adjustment,
         },
         "_first_seat_scores": first_scores,
         "_second_seat_scores": second_scores,
@@ -460,9 +526,12 @@ def finalize_automatic_evaluation(
 
     pairs_completed = int(result.get("pairs_completed", 0))
     paired = result.get("paired_interval") or {}
-    paired_low = float(paired.get("low", 0.0))
     early_stopped = bool(result.get("early_stopped", False))
     truncated_games = max(0, int(result.get("truncated_games", 0)))
+    conservative = _truncations_as_losses(result, confidence=config.confidence)
+    promotion["truncation_adjustment"] = conservative
+    effective_paired = conservative["paired_interval"] if truncated_games else paired
+    paired_low = float(effective_paired.get("low", 0.0))
     full = pairs_completed == config.pairs
     enough = pairs_completed >= config.minimum_promotion_pairs
     threshold = 0.5 + config.promotion_margin
@@ -473,13 +542,12 @@ def finalize_automatic_evaluation(
     comparison_is_current = opponent_still_champion or candidate_already_champion
     promote = (
         not early_stopped
-        and truncated_games == 0
         and full
         and enough
         and paired_low > threshold
         and comparison_is_current
     )
-    promotion["eligible"] = not early_stopped and truncated_games == 0 and full and enough
+    promotion["eligible"] = not early_stopped and full and enough
     promotion["promoted"] = promote
     promotion["opponent_still_champion"] = opponent_still_champion
     promotion["stale_opponent"] = not comparison_is_current
@@ -487,11 +555,6 @@ def finalize_automatic_evaluation(
         promotion["recommendation"] = str(
             result.get("early_stop_reason")
             or "not promoted: early rejection upper bound did not clear the threshold"
-        )
-    elif truncated_games:
-        promotion["recommendation"] = (
-            f"not promoted: evaluation contained {truncated_games:,} truncated "
-            f"game{'s' if truncated_games != 1 else ''}"
         )
     elif not full:
         promotion["recommendation"] = "inconclusive: automatic arena job is incomplete"
@@ -505,12 +568,25 @@ def finalize_automatic_evaluation(
             "not promoted: evaluation opponent is no longer the current champion"
         )
     elif promote:
+        prefix = (
+            f"promoted with {truncated_games:,} truncated "
+            f"game{'s' if truncated_games != 1 else ''} scored as losses: "
+            if truncated_games
+            else "promoted model_a: "
+        )
         promotion["recommendation"] = (
-            f"promoted model_a: paired lower bound {paired_low:.3f} exceeds {threshold:.3f}"
+            f"{prefix}paired lower bound {paired_low:.3f} exceeds {threshold:.3f}"
         )
     else:
+        prefix = (
+            f"with {truncated_games:,} truncated "
+            f"game{'s' if truncated_games != 1 else ''} scored as losses, "
+            if truncated_games
+            else ""
+        )
         promotion["recommendation"] = (
-            f"not promoted: paired lower bound {paired_low:.3f} does not exceed {threshold:.3f}"
+            f"not promoted: {prefix}paired lower bound {paired_low:.3f} "
+            f"does not exceed {threshold:.3f}"
         )
 
     evaluation = {
@@ -531,6 +607,7 @@ def finalize_automatic_evaluation(
         "early_stop_reason": result.get("early_stop_reason"),
         "early_rejection": result.get("early_rejection"),
         "truncated_games": truncated_games,
+        "truncation_adjustment": conservative,
         "opponent_still_champion": opponent_still_champion,
         "stale_opponent": not comparison_is_current,
     }

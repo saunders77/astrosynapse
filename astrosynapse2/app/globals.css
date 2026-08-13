@@ -614,6 +614,74 @@ code {
   font-size: 9px;
 }
 
+.restart-safety {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  max-width: 760px;
+  margin-top: 14px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.restart-safety-mark {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.restart-safety small,
+.restart-safety strong {
+  display: block;
+}
+
+.restart-safety small {
+  margin-bottom: 2px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.restart-safety strong {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.restart-safety p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.restart-ready,
+.restart-recoverable {
+  border-color: rgba(95, 230, 202, 0.27);
+  background: rgba(95, 230, 202, 0.04);
+}
+
+.restart-ready .restart-safety-mark,
+.restart-recoverable .restart-safety-mark {
+  border-color: rgba(95, 230, 202, 0.38);
+  color: var(--mint);
+}
+
+.restart-saving .restart-safety-mark {
+  color: var(--gold);
+  animation: orbit 1.4s linear infinite;
+}
+
 .phase-ribbon {
   display: flex;
   align-items: center;

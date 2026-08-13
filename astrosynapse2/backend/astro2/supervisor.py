@@ -136,7 +136,14 @@ class Supervisor:
                 return self.store.get_run(run_id)
 
             run = self.store.get_run(run_id)
-            if run["status"] not in {"ready", "stopped", "interrupted", "failed", "complete"}:
+            if run["status"] not in {
+                "ready",
+                "paused",
+                "stopped",
+                "interrupted",
+                "failed",
+                "complete",
+            }:
                 raise InvalidTransition(f"cannot start a run in state {run['status']}")
             control = RunControl()
             thread = threading.Thread(
@@ -243,6 +250,12 @@ class Supervisor:
         with self._lock:
             handle = self._handles.get(run_id)
             if handle and handle.thread.is_alive():
+                # A stop is restart-safe for the same reason as a pause: drain
+                # the current actor batch and persist a complete learner
+                # boundary before releasing the trainer thread.
+                run = self.store.get_run(run_id)
+                if run["status"] != "paused":
+                    handle.control.checkpoint_requested.set()
                 handle.control.stop_requested.set()
                 handle.control.pause_requested.clear()
                 self.store.update_run(run_id, status="stopping")
@@ -309,7 +322,11 @@ class Supervisor:
             for handle in handles:
                 handle.control.stop_requested.set()
                 handle.control.pause_requested.clear()
-                handle.control.checkpoint_requested.set()
+                # A reported paused state already follows a complete durable
+                # checkpoint. Avoid serializing the same full replay twice on
+                # the shutdown immediately following Pause & save.
+                if self.store.get_run(handle.run_id)["status"] != "paused":
+                    handle.control.checkpoint_requested.set()
                 self.store.update_run(handle.run_id, status="stopping", phase="stopping")
                 self.store.event(
                     handle.run_id,

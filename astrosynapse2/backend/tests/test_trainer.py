@@ -815,6 +815,70 @@ def test_stopping_thread_keeps_exclusive_trainer_slot(tmp_path):
         thread.join()
 
 
+def test_stop_requests_a_restart_safe_checkpoint(tmp_path):
+    store = Store(tmp_path / "state.sqlite3")
+    run = store.create_run(RunConfig.quick())
+    supervisor = Supervisor(store, tmp_path)
+    release = threading.Event()
+    thread = threading.Thread(target=release.wait)
+    control = RunControl()
+    thread.start()
+    try:
+        supervisor._handles[run["id"]] = TrainingHandle(
+            run_id=run["id"],
+            control=control,
+            thread=thread,
+        )
+        supervisor.stop(run["id"])
+        assert control.stop_requested.is_set()
+        assert control.checkpoint_requested.is_set()
+        assert store.get_run(run["id"])["status"] == "stopping"
+    finally:
+        release.set()
+        thread.join()
+
+
+def test_stopping_an_already_durable_pause_does_not_write_it_twice(tmp_path):
+    store = Store(tmp_path / "state.sqlite3")
+    run = store.create_run(RunConfig.quick())
+    store.update_run(run["id"], status="paused", phase="paused")
+    supervisor = Supervisor(store, tmp_path)
+    release = threading.Event()
+    thread = threading.Thread(target=release.wait)
+    control = RunControl()
+    control.pause_requested.set()
+    thread.start()
+    try:
+        supervisor._handles[run["id"]] = TrainingHandle(
+            run_id=run["id"],
+            control=control,
+            thread=thread,
+        )
+        supervisor.stop(run["id"])
+        assert control.stop_requested.is_set()
+        assert not control.checkpoint_requested.is_set()
+    finally:
+        release.set()
+        thread.join()
+
+
+def test_paused_run_can_hydrate_after_backend_restart(tmp_path, monkeypatch):
+    store = Store(tmp_path / "state.sqlite3")
+    run = store.create_run(RunConfig.quick())
+    store.update_run(run["id"], status="paused", phase="paused")
+    supervisor = Supervisor(store, tmp_path)
+    started = threading.Event()
+
+    def hydrated(_run_id, _control):
+        started.set()
+
+    monkeypatch.setattr(supervisor, "_run_thread", hydrated)
+    resumed = supervisor.resume(run["id"])
+
+    assert resumed["status"] == "running"
+    assert started.wait(1.0)
+
+
 def test_paused_control_services_durable_requests_before_announcing_paused():
     control = RunControl()
     log: list[str] = []
@@ -1149,6 +1213,19 @@ def test_invalid_evaluations_are_retryable_and_do_not_create_a_false_plateau(tmp
             }
         )
         == "truncated"
+    )
+    assert (
+        _trainer_evaluation_outcome(
+            truncated
+            | {
+                "status": "complete",
+                "result": {
+                    "truncated_games": 1,
+                    "promotion": {"eligible": True, "promoted": True},
+                },
+            }
+        )
+        == "promoted"
     )
     plateau = _plateau_status(store, run["id"], config)
     assert plateau["consecutive_non_promotions"] == 1

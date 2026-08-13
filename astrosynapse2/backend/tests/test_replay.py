@@ -342,6 +342,62 @@ def test_recent_replay_snapshot_round_trips_across_families(tmp_path):
         )
 
 
+def test_full_replay_snapshot_round_trips_every_ring_without_gathering(tmp_path):
+    replay = StratifiedReplayBuffer(
+        capacity=64,
+        state_size=5,
+        action_size=4,
+        bootstrap_heads=3,
+        seed=43,
+    )
+    for step in range(160):
+        family = (
+            DecisionFamily.COPY_SHIP
+            if step % 11 == 0
+            else DecisionFamily.SCRAP
+            if step % 5 == 0
+            else DecisionFamily.MAIN
+        )
+        replay.add(item(step, family))
+    replay.sample(24)
+
+    path = tmp_path / "full.replay.npz"
+    assert replay.snapshot_full(path) == len(replay)
+    restored = StratifiedReplayBuffer(
+        capacity=64,
+        state_size=5,
+        action_size=4,
+        bootstrap_heads=3,
+        seed=47,
+    )
+    assert restored.restore(path) == len(replay)
+    assert restored.metrics() == replay.metrics()
+    assert restored._sequence == replay._sequence
+    for family in DecisionFamily:
+        expected_ring = replay._rings[family]
+        actual_ring = restored._rings[family]
+        assert actual_ring.size == expected_ring.size
+        assert actual_ring.write_index == expected_ring.write_index
+        for name in (
+            "states",
+            "actions",
+            "targets",
+            "bootstrap_masks",
+            "game_ids",
+            "players",
+            "steps",
+            "heads",
+            "epsilons",
+            "td_targets",
+            "td_valid",
+            "sequences",
+        ):
+            np.testing.assert_array_equal(
+                getattr(actual_ring, name)[: actual_ring.size],
+                getattr(expected_ring, name)[: expected_ring.size],
+            )
+
+
 def test_replay_sampling_rng_resumes_at_the_same_batch():
     kwargs = dict(
         capacity=64,

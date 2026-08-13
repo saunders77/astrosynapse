@@ -52,6 +52,22 @@ NATURAL_SAMPLING_WEIGHTS: dict[DecisionFamily, float] = {
     DecisionFamily.ABILITY_MODE: 0.01,
 }
 
+_RING_ARRAY_NAMES = (
+    "states",
+    "actions",
+    "targets",
+    "bootstrap_masks",
+    "game_ids",
+    "players",
+    "steps",
+    "heads",
+    "epsilons",
+    "td_targets",
+    "td_valid",
+    "sequences",
+)
+FULL_REPLAY_FORMAT_VERSION = 2
+
 
 def make_bootstrap_mask(
     heads: int,
@@ -460,6 +476,25 @@ class StratifiedReplayBuffer:
 
         with self._lock:
             self._rng.bit_generator.state = copy.deepcopy(state)
+
+    def clear(self) -> None:
+        """Reset logical contents without reallocating the large backing arrays."""
+
+        with self._lock:
+            self._sequence = 0
+            self.sample_calls = 0
+            self.samples_drawn = 0
+            self.last_recent_sample_items = 0
+            self.last_sample_batch_size = 0
+            self.last_importance_weight_min = 1.0
+            self.last_importance_weight_max = 1.0
+            self.last_importance_effective_sample_size = 0.0
+            for family, ring in self._rings.items():
+                ring.write_index = 0
+                ring.size = 0
+                ring.writes = 0
+                ring.overwrites = 0
+                self.family_samples_drawn[family] = 0
 
     def _validate_item(self, item: ReplayItem) -> ReplayItem:
         family = DecisionFamily(int(item.family))
@@ -889,18 +924,181 @@ class StratifiedReplayBuffer:
                 ),
                 "sample_calls": np.asarray(self.sample_calls, dtype=np.uint64),
                 "samples_drawn": np.asarray(self.samples_drawn, dtype=np.uint64),
+                "last_recent_sample_items": np.asarray(
+                    self.last_recent_sample_items,
+                    dtype=np.uint64,
+                ),
+                "last_sample_batch_size": np.asarray(
+                    self.last_sample_batch_size,
+                    dtype=np.uint64,
+                ),
+                "last_importance_weight_min": np.asarray(
+                    self.last_importance_weight_min,
+                    dtype=np.float64,
+                ),
+                "last_importance_weight_max": np.asarray(
+                    self.last_importance_weight_max,
+                    dtype=np.float64,
+                ),
+                "last_importance_effective_sample_size": np.asarray(
+                    self.last_importance_effective_sample_size,
+                    dtype=np.float64,
+                ),
             }
         np.savez_compressed(temporary, **arrays)
         temporary.replace(target)
         return keep
 
+    def snapshot_full(self, path: str | Path) -> int:
+        """Persist every replay stratum with bounded extra memory.
+
+        Restart-boundary snapshots use the rings' physical layout directly,
+        avoiding the multi-gigabyte gather allocation required by the compact
+        recent-journal format. ``numpy`` streams each archive member while the
+        trainer is paused, so peak memory remains close to the live buffer.
+        """
+
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(f"{target.stem}.partial{target.suffix}")
+        with self._lock:
+            arrays: dict[str, np.ndarray] = {
+                "format_version": np.asarray(FULL_REPLAY_FORMAT_VERSION, dtype=np.uint16),
+                "capacity": np.asarray(self.capacity, dtype=np.uint64),
+                "state_size": np.asarray(self.state_size, dtype=np.uint32),
+                "action_size": np.asarray(self.action_size, dtype=np.uint32),
+                "bootstrap_heads": np.asarray(self.bootstrap_heads, dtype=np.uint16),
+                "sequence_cursor": np.asarray(self._sequence, dtype=np.uint64),
+                "sample_calls": np.asarray(self.sample_calls, dtype=np.uint64),
+                "samples_drawn": np.asarray(self.samples_drawn, dtype=np.uint64),
+                "last_recent_sample_items": np.asarray(
+                    self.last_recent_sample_items,
+                    dtype=np.uint64,
+                ),
+                "last_sample_batch_size": np.asarray(
+                    self.last_sample_batch_size,
+                    dtype=np.uint64,
+                ),
+                "last_importance_weight_min": np.asarray(
+                    self.last_importance_weight_min,
+                    dtype=np.float64,
+                ),
+                "last_importance_weight_max": np.asarray(
+                    self.last_importance_weight_max,
+                    dtype=np.float64,
+                ),
+                "last_importance_effective_sample_size": np.asarray(
+                    self.last_importance_effective_sample_size,
+                    dtype=np.float64,
+                ),
+                "family_samples_drawn": np.asarray(
+                    [self.family_samples_drawn[family] for family in DecisionFamily],
+                    dtype=np.uint64,
+                ),
+            }
+            total = 0
+            for family, ring in self._rings.items():
+                prefix = f"family_{int(family)}"
+                size = int(ring.size)
+                total += size
+                arrays[f"{prefix}_size"] = np.asarray(size, dtype=np.uint64)
+                arrays[f"{prefix}_write_index"] = np.asarray(
+                    ring.write_index,
+                    dtype=np.uint64,
+                )
+                arrays[f"{prefix}_writes"] = np.asarray(ring.writes, dtype=np.uint64)
+                arrays[f"{prefix}_overwrites"] = np.asarray(
+                    ring.overwrites,
+                    dtype=np.uint64,
+                )
+                for name in _RING_ARRAY_NAMES:
+                    arrays[f"{prefix}_{name}"] = getattr(ring, name)[:size]
+            if total == 0:
+                return 0
+            np.savez_compressed(temporary, **arrays)
+        temporary.replace(target)
+        return total
+
+    def _restore_full_archive(self, archive: Any) -> int:
+        version = int(np.asarray(archive["format_version"]).item())
+        if version != FULL_REPLAY_FORMAT_VERSION:
+            raise ValueError(f"unsupported full replay format version: {version}")
+        expected = {
+            "capacity": self.capacity,
+            "state_size": self.state_size,
+            "action_size": self.action_size,
+            "bootstrap_heads": self.bootstrap_heads,
+        }
+        for name, value in expected.items():
+            if int(np.asarray(archive[name]).item()) != value:
+                raise ValueError(f"full replay {name} does not match this run")
+
+        restored = 0
+        for family, ring in self._rings.items():
+            prefix = f"family_{int(family)}"
+            size = int(np.asarray(archive[f"{prefix}_size"]).item())
+            write_index = int(np.asarray(archive[f"{prefix}_write_index"]).item())
+            if not 0 <= size <= ring.capacity:
+                raise ValueError(f"full replay {prefix} size exceeds its capacity")
+            if not 0 <= write_index < ring.capacity:
+                raise ValueError(f"full replay {prefix} write index is invalid")
+            if size < ring.capacity and write_index != size:
+                raise ValueError(f"partial full replay {prefix} has a wrapped write index")
+            for name in _RING_ARRAY_NAMES:
+                source = np.asarray(archive[f"{prefix}_{name}"])
+                destination = getattr(ring, name)
+                if source.shape != (size, *destination.shape[1:]):
+                    raise ValueError(f"full replay {prefix}_{name} has an invalid shape")
+                destination[:size] = source
+            ring.size = size
+            ring.write_index = write_index
+            ring.writes = max(size, int(np.asarray(archive[f"{prefix}_writes"]).item()))
+            ring.overwrites = max(
+                0,
+                int(np.asarray(archive[f"{prefix}_overwrites"]).item()),
+            )
+            restored += size
+
+        self._sequence = int(np.asarray(archive["sequence_cursor"]).item())
+        self.sample_calls = max(0, int(np.asarray(archive["sample_calls"]).item()))
+        self.samples_drawn = max(0, int(np.asarray(archive["samples_drawn"]).item()))
+        self.last_recent_sample_items = max(
+            0,
+            int(np.asarray(archive["last_recent_sample_items"]).item()),
+        )
+        self.last_sample_batch_size = max(
+            0,
+            int(np.asarray(archive["last_sample_batch_size"]).item()),
+        )
+        self.last_importance_weight_min = float(
+            np.asarray(archive["last_importance_weight_min"]).item()
+        )
+        self.last_importance_weight_max = float(
+            np.asarray(archive["last_importance_weight_max"]).item()
+        )
+        self.last_importance_effective_sample_size = float(
+            np.asarray(archive["last_importance_effective_sample_size"]).item()
+        )
+        family_samples = np.asarray(archive["family_samples_drawn"], dtype=np.uint64)
+        if family_samples.shape != (FAMILY_COUNT,):
+            raise ValueError("full replay family sample counters are invalid")
+        for family in DecisionFamily:
+            self.family_samples_drawn[family] = int(family_samples[int(family)])
+        return restored
+
     def restore(self, path: str | Path) -> int:
-        """Restore a bounded replay journal created by :meth:`snapshot`."""
+        """Restore a recent journal or a full restart-boundary snapshot."""
 
         target = Path(path)
         if not target.is_file():
             return 0
         with np.load(target, allow_pickle=False) as archive:
+            if "format_version" in archive.files:
+                try:
+                    return self._restore_full_archive(archive)
+                except Exception:
+                    self.clear()
+                    raise
             compact = SimpleNamespace(
                 states=np.asarray(archive["states"]),
                 actions=np.asarray(archive["actions"]),

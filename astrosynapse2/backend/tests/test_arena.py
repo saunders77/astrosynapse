@@ -81,8 +81,9 @@ def test_arena_summary_separates_true_draws_from_truncations():
     assert clean["truncated_games"] == 0
     assert truncated["draws"] == 1
     assert truncated["truncated_games"] == 1
-    assert truncated["promotion"]["eligible"] is False
-    assert "ineligible" in truncated["promotion"]["recommendation"]
+    assert truncated["promotion"]["eligible"] is False  # Below the 5,000-pair minimum.
+    assert truncated["truncation_adjustment"]["model_a_score"] == 0.25
+    assert "scored as candidate losses" in truncated["promotion"]["recommendation"]
 
 
 def test_early_rejection_hoeffding_bound_stays_wide_for_zero_variance():
@@ -505,20 +506,49 @@ def test_automatic_finalization_never_promotes_manual_or_tiny_jobs_but_promotes_
     assert tiny_result["promotion"]["promoted"] is False
     assert store.get_run(run["id"])["champion_id"] == champion["id"]
 
+    marginal_truncated = {
+        "pairs_completed": 5_000,
+        "games_completed": 10_000,
+        "model_a_score": 0.5272,
+        "paired_interval": {
+            "estimate": 0.5272,
+            "low": 0.508,
+            "high": 0.5464,
+            "samples": 5_000,
+        },
+        "truncated_games": 200,
+        "promotion": {},
+    }
+    assert not finalize_automatic_evaluation(
+        store,
+        job_id="marginal-truncated",
+        config=automatic,
+        model_a=model_a,
+        model_b=model_b,
+        result=marginal_truncated,
+    )
+    assert marginal_truncated["promotion"]["eligible"] is True
+    assert marginal_truncated["promotion"]["promoted"] is False
+    assert marginal_truncated["promotion"]["truncation_adjustment"]["model_a_score"] == pytest.approx(
+        0.5172
+    )
+    assert marginal_truncated["promotion"]["truncation_adjustment"]["paired_interval"]["low"] < 0.5
+    assert store.get_run(run["id"])["champion_id"] == champion["id"]
+
     truncated_result = {
         "pairs_completed": 5_000,
         "games_completed": 10_000,
-        "model_a_score": 0.75,
+        "model_a_score": 0.55,
         "paired_interval": {
-            "estimate": 0.75,
-            "low": 0.70,
-            "high": 0.80,
+            "estimate": 0.55,
+            "low": 0.52,
+            "high": 0.58,
             "samples": 5_000,
         },
         "truncated_games": 1,
         "promotion": {},
     }
-    assert not finalize_automatic_evaluation(
+    assert finalize_automatic_evaluation(
         store,
         job_id="truncated",
         config=automatic,
@@ -526,9 +556,13 @@ def test_automatic_finalization_never_promotes_manual_or_tiny_jobs_but_promotes_
         model_b=model_b,
         result=truncated_result,
     )
-    assert truncated_result["promotion"]["eligible"] is False
-    assert "truncated" in truncated_result["promotion"]["recommendation"]
-    assert store.get_run(run["id"])["champion_id"] == champion["id"]
+    assert truncated_result["promotion"]["eligible"] is True
+    assert truncated_result["promotion"]["promoted"] is True
+    adjustment = truncated_result["promotion"]["truncation_adjustment"]
+    assert adjustment["model_a_score"] == pytest.approx(0.54995)
+    assert adjustment["paired_interval"]["low"] > 0.5
+    assert "scored as losses" in truncated_result["promotion"]["recommendation"]
+    assert store.get_run(run["id"])["champion_id"] == candidate["id"]
 
     provisional = ArenaConfig(
         pairs=200,
