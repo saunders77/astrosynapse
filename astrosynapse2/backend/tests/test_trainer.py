@@ -200,6 +200,18 @@ def test_astro3_recipe_repairs_policy_iteration_and_exploration_defaults():
     assert config.gate_heldout_brier_regression is False
 
 
+def test_astro4_recipe_uses_legal_set_training_and_m4_safe_batches():
+    config = RunConfig.astro4_m4()
+    assert config.training_generation == 4
+    assert config.seed == 20260813
+    assert config.batch_size == 256
+    assert config.policy_replay_capacity == 150_000
+    assert config.counterfactual_fraction > 0
+    assert config.require_resource_efficiency is True
+    assert config.gate_heldout_brier_regression is True
+    assert config.resume_replay_items == 0
+
+
 def test_heldout_brier_gate_migrates_by_training_generation():
     legacy = RunConfig.model_validate({"training_generation": 2})
     astro3 = RunConfig.model_validate({"training_generation": 3})
@@ -306,8 +318,8 @@ def test_astro2_rollout_contract_never_uses_deployment_collection_mode():
     assert plan.epsilons == (0.02, 0.02)
 
 
-def test_deployment_rollouts_are_generation_three_only():
-    with pytest.raises(ValueError, match="requires training_generation=3"):
+def test_deployment_rollouts_require_generation_three_or_later():
+    with pytest.raises(ValueError, match="requires training_generation>=3"):
         RunConfig(deployment_policy_selfplay_fraction=0.2)
 
 

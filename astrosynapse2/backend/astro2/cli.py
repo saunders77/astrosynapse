@@ -96,8 +96,8 @@ def build_parser() -> argparse.ArgumentParser:
     train = subparsers.add_parser("train", help="run training without the web interface")
     train.add_argument(
         "--preset",
-        choices=["astro3_m4", "m4_24h", "quick"],
-        default="astro3_m4",
+        choices=["astro4_m4", "astro3_m4", "m4_24h", "quick"],
+        default="astro4_m4",
     )
     train.add_argument("--name")
     train.add_argument(

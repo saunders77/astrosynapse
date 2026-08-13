@@ -13,6 +13,10 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         assert health.json()["ok"] is True
 
         presets = client.get("/api/presets").json()
+        assert presets["astro4_m4"]["training_generation"] == 4
+        assert presets["astro4_m4"]["seed"] == 20260813
+        assert presets["astro4_m4"]["batch_size"] == 256
+        assert presets["astro4_m4"]["counterfactual_fraction"] > 0
         assert presets["astro3_m4"]["training_generation"] == 3
         assert presets["astro3_m4"]["seed"] == 20260807
         assert presets["astro3_m4"]["deployment_policy_selfplay_fraction"] == 0.2

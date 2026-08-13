@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -24,7 +25,7 @@ from .engine import (
 )
 from .engine import DecisionFamily as EngineDecisionFamily
 from .model import NumpyActor
-from .replay import PreferenceItem, ReplayItem, make_bootstrap_mask
+from .replay import MAX_POLICY_ACTIONS, PolicyItem, PreferenceItem, ReplayItem, make_bootstrap_mask
 
 
 class EnginePolicy(Protocol):
@@ -75,7 +76,7 @@ class ActorPolicy:
         *,
         exploration_top_k: int = 3,
         randomized_prior_scale: float = 0.0,
-    ) -> tuple[Action, DecisionEncoding, float]:
+    ) -> tuple[Action, DecisionEncoding, float, float]:
         encoded = self.encoder.encode_decision(decision.observation, decision)
         eligible = np.asarray(model_action_indices(decision), dtype=np.int64)
         deployment_policy = exploration.deployment_policy
@@ -90,7 +91,25 @@ class ActorPolicy:
             rng=rng,
         )
         index = int(eligible[local_index])
-        return decision.actions[index], encoded, float(probabilities.max())
+        epsilon = 0.0 if deployment_policy else exploration.epsilon
+        count = (
+            len(probabilities)
+            if exploration_top_k == 0
+            else min(exploration_top_k, len(probabilities))
+        )
+        top = np.argpartition(probabilities, -count)[-count:]
+        best = np.flatnonzero(probabilities == probabilities.max())
+        behavior_probability = 0.0
+        if local_index in best:
+            behavior_probability += (1.0 - epsilon) / len(best)
+        if local_index in top:
+            behavior_probability += epsilon / count
+        return (
+            decision.actions[index],
+            encoded,
+            float(probabilities[local_index]),
+            max(float(behavior_probability), np.finfo(np.float32).tiny),
+        )
 
     def select(
         self,
@@ -101,7 +120,7 @@ class ActorPolicy:
         exploration_top_k: int = 3,
         randomized_prior_scale: float = 0.0,
     ) -> Action:
-        selected, _actions, _next_value = self.score(
+        selected, _actions, _next_value, _behavior_probability = self.score(
             decision,
             exploration,
             rng,
@@ -114,6 +133,7 @@ class ActorPolicy:
 @dataclass(frozen=True, slots=True)
 class CollectedGame:
     samples: tuple[ReplayItem, ...]
+    policy_samples: tuple[PolicyItem, ...]
     preferences: tuple[PreferenceItem, ...]
     result: GameResult
     heads: tuple[int, int]
@@ -244,8 +264,70 @@ class CompactPreferences:
 
 
 @dataclass(frozen=True, slots=True)
+class CompactPolicySamples:
+    """Ragged legal-action sets encoded as one concatenated action matrix."""
+
+    states: np.ndarray
+    legal_actions: np.ndarray
+    action_offsets: np.ndarray
+    selected_indices: np.ndarray
+    families: np.ndarray
+    targets: np.ndarray
+    behavior_probabilities: np.ndarray
+    bootstrap_masks: np.ndarray
+    game_ids: np.ndarray
+    players: np.ndarray
+    steps: np.ndarray
+
+    def __len__(self) -> int:
+        return int(self.targets.shape[0])
+
+    @classmethod
+    def from_items(
+        cls,
+        items: Sequence[PolicyItem],
+        *,
+        state_size: int,
+        action_size: int,
+        bootstrap_heads: int,
+    ) -> CompactPolicySamples:
+        if not items:
+            return cls(
+                states=np.empty((0, state_size), dtype=np.float16),
+                legal_actions=np.empty((0, action_size), dtype=np.float16),
+                action_offsets=np.zeros(1, dtype=np.uint32),
+                selected_indices=np.empty(0, dtype=np.uint16),
+                families=np.empty(0, dtype=np.uint8),
+                targets=np.empty(0, dtype=np.float16),
+                behavior_probabilities=np.empty(0, dtype=np.float16),
+                bootstrap_masks=np.empty((0, bootstrap_heads), dtype=np.uint8),
+                game_ids=np.empty(0, dtype=np.uint64),
+                players=np.empty(0, dtype=np.uint8),
+                steps=np.empty(0, dtype=np.uint32),
+            )
+        counts = np.asarray([len(item.legal_actions) for item in items], dtype=np.uint32)
+        offsets = np.concatenate((np.zeros(1, dtype=np.uint32), np.cumsum(counts, dtype=np.uint32)))
+        return cls(
+            states=np.stack([item.state for item in items]).astype(np.float16),
+            legal_actions=np.concatenate([item.legal_actions for item in items]).astype(np.float16),
+            action_offsets=offsets,
+            selected_indices=np.asarray([item.selected_index for item in items], dtype=np.uint16),
+            families=np.asarray([int(item.family) for item in items], dtype=np.uint8),
+            targets=np.asarray([item.target for item in items], dtype=np.float16),
+            behavior_probabilities=np.asarray(
+                [item.behavior_probability for item in items], dtype=np.float16
+            ),
+            bootstrap_masks=np.stack([item.bootstrap_mask for item in items]).astype(np.uint8),
+            game_ids=np.asarray([int(item.game_id) % (1 << 64) for item in items], dtype=np.uint64),
+            players=np.asarray([item.player for item in items], dtype=np.uint8),
+            steps=np.asarray([item.step for item in items], dtype=np.uint32),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class WorkerResult:
     samples: CompactSamples
+    policy_samples: CompactPolicySamples
     preferences: CompactPreferences
     games: int
     wins: tuple[int, int]
@@ -254,6 +336,7 @@ class WorkerResult:
     turns: int
     decisions: int
     forced_choices: int
+    counterfactual_preferences: int = 0
 
 
 @dataclass(slots=True)
@@ -265,6 +348,17 @@ class _PendingSample:
     step: int
     td_target: float = 0.5
     td_valid: bool = False
+
+
+@dataclass(slots=True)
+class _PendingPolicySample:
+    state: np.ndarray
+    legal_actions: np.ndarray
+    selected_index: int
+    behavior_probability: float
+    family: DecisionFamily
+    player: int
+    step: int
 
 
 def _tactical_preference(
@@ -351,6 +445,10 @@ def collect_game(
     deployment_policy: bool | Sequence[bool] = False,
     use_bootstrap_targets: bool = True,
     collect_preferences: bool = True,
+    collect_policy_decisions: bool = False,
+    collect_outcome_decisions: bool = True,
+    counterfactual_fraction: float = 0.0,
+    counterfactual_max_per_game: int = 1,
     collect_players: Sequence[bool] = (True, True),
     game_id: int | None = None,
     seating: Seating = Seating.FIXED,
@@ -365,6 +463,10 @@ def collect_game(
         raise ValueError("provide exactly one policy and collection flag per player")
     if bootstrap_heads < 1:
         raise ValueError("bootstrap_heads must be positive")
+    if not 0 <= counterfactual_fraction <= 1:
+        raise ValueError("counterfactual_fraction must be in [0, 1]")
+    if counterfactual_max_per_game < 0:
+        raise ValueError("counterfactual_max_per_game must be nonnegative")
     encoder = encoder or Encoder()
     requested_epsilon_pair = _coerce_pair(epsilons, "epsilons")
     if any(not 0 <= epsilon <= 1 for epsilon in requested_epsilon_pair):
@@ -420,9 +522,104 @@ def collect_game(
         for player in range(2)
     )
     pending: list[_PendingSample] = []
+    pending_policy: list[_PendingPolicySample] = []
     preferences: list[PreferenceItem] = []
     player_steps = [0, 0]
     previous_actor_sample: list[int | None] = [None, None]
+    counterfactual_count = 0
+    game_ref: list[Game] = []
+
+    def continuation_chooser(player: int, branch_seed: int):
+        policy = policies[player]
+        branch_rng = np.random.default_rng(
+            np.random.SeedSequence([normalized_seed, 0xC0FA, branch_seed, player])
+        )
+
+        def choose(player_id: int, decision: Decision) -> Action:
+            if isinstance(policy, ActorPolicy):
+                exploration = PlayerExploration(
+                    head=head_pair[player],
+                    epsilon=0.0,
+                    bootstrap_mask=explorations[player].bootstrap_mask,
+                    deployment_policy=True,
+                )
+                return policy.select(decision, exploration, branch_rng)
+            return _selected_action(policy(player_id, decision), decision)
+
+        return choose
+
+    def branch_score(game: Game, player: int, action: Action, branch_seed: int) -> float | None:
+        branch = copy.deepcopy(game)
+        branch.cancel_hook = None
+        branch.decision_hook = None
+        branch.choosers = {
+            0: continuation_chooser(0, branch_seed),
+            1: continuation_chooser(1, branch_seed),
+        }
+        result = branch.continue_from_main_action(action)
+        if result.truncated:
+            return None
+        if result.winner is not None:
+            return float(result.winner == player)
+        own = branch.players[player].authority
+        opponent = branch.players[1 - player].authority
+        return float(1.0 / (1.0 + np.exp(-(own - opponent) / 10.0)))
+
+    def counterfactual_hook(player: int, decision: Decision, selected: Action) -> None:
+        nonlocal counterfactual_count
+        if (
+            counterfactual_count >= counterfactual_max_per_game
+            or decision.family != EngineDecisionFamily.MAIN
+            or len(decision.actions) < 2
+            or rngs[player].random() >= counterfactual_fraction
+        ):
+            return
+        end = next(
+            (
+                index
+                for index, action in enumerate(decision.actions)
+                if action.kind == ActionKind.END_TURN
+            ),
+            None,
+        )
+        explorer = next(
+            (
+                index
+                for index, action in enumerate(decision.actions)
+                if action.kind == ActionKind.ACQUIRE and action.source_zone == "explorer_supply"
+            ),
+            None,
+        )
+        scrap = next(
+            (
+                index
+                for index, action in enumerate(decision.actions)
+                if action.kind == ActionKind.SCRAP_FOR_ABILITY
+            ),
+            None,
+        )
+        if explorer is not None and end is not None:
+            first, second = explorer, end
+        elif scrap is not None and end is not None:
+            first, second = scrap, end
+        else:
+            return
+        encoded = encoder.encode_decision(decision.observation, decision)
+        branch_seed = player_steps[player] + 1_000 * decision.observation.turn
+        counterfactual_count += 1
+        first_score = branch_score(game_ref[0], player, decision.actions[first], branch_seed)
+        second_score = branch_score(game_ref[0], player, decision.actions[second], branch_seed)
+        if first_score is None or second_score is None or abs(first_score - second_score) < 1e-6:
+            return
+        preferred, disfavored = (first, second) if first_score > second_score else (second, first)
+        preferences.append(
+            PreferenceItem(
+                state=encoded.state,
+                preferred_action=encoded.actions[preferred],
+                disfavored_action=encoded.actions[disfavored],
+                family=encoded.family,
+            )
+        )
 
     def make_chooser(player: int):
         def choose(player_id: int, decision: Decision) -> Action:
@@ -430,7 +627,7 @@ def collect_game(
                 raise RuntimeError("engine invoked a chooser for the wrong player")
             policy = policies[player]
             if isinstance(policy, ActorPolicy):
-                selected, encoded, next_value = policy.score(
+                selected, encoded, next_value, behavior_probability = policy.score(
                     decision,
                     explorations[player],
                     rngs[player],
@@ -443,24 +640,45 @@ def collect_game(
                     pending[previous].td_valid = True
             else:
                 selected = _selected_action(policy(player_id, decision), decision)
+                behavior_probability = 1.0
             if collect_players[player]:
                 if not isinstance(policy, ActorPolicy):
                     encoded = encoder.encode_decision(decision.observation, decision)
                 selected_index = decision.actions.index(selected)
+                if collect_policy_decisions:
+                    eligible = np.asarray(model_action_indices(decision), dtype=np.int64)
+                    if selected_index not in eligible:
+                        eligible = np.arange(len(decision.actions), dtype=np.int64)
+                    policy_selected = int(np.flatnonzero(eligible == selected_index)[0])
+                    # Exceptionally large legal sets are omitted intact; they
+                    # must never be silently truncated into a different policy.
+                    if 2 <= len(eligible) <= MAX_POLICY_ACTIONS:
+                        pending_policy.append(
+                            _PendingPolicySample(
+                                state=encoded.state,
+                                legal_actions=encoded.actions[eligible],
+                                selected_index=policy_selected,
+                                behavior_probability=behavior_probability,
+                                family=encoded.family,
+                                player=player,
+                                step=player_steps[player],
+                            )
+                        )
                 if collect_preferences:
                     preference = _tactical_preference(decision, encoded)
                     if preference is not None:
                         preferences.append(preference)
-                pending.append(
-                    _PendingSample(
-                        state=encoded.state,
-                        action=encoded.actions[selected_index],
-                        family=encoded.family,
-                        player=player,
-                        step=player_steps[player],
+                if collect_outcome_decisions:
+                    pending.append(
+                        _PendingSample(
+                            state=encoded.state,
+                            action=encoded.actions[selected_index],
+                            family=encoded.family,
+                            player=player,
+                            step=player_steps[player],
+                        )
                     )
-                )
-                if isinstance(policy, ActorPolicy):
+                if isinstance(policy, ActorPolicy) and collect_outcome_decisions:
                     previous_actor_sample[player] = len(pending) - 1
                 player_steps[player] += 1
             return selected
@@ -477,13 +695,16 @@ def collect_game(
             max_actions_per_turn=max_actions_per_turn,
         ),
         cancel_hook=cancel_hook,
+        decision_hook=counterfactual_hook if counterfactual_fraction > 0 else None,
     )
+    game_ref.append(game)
     result = game.run()
     targets = (0.5, 0.5)
     if result.winner is not None:
         targets = (1.0, 0.0) if result.winner == 0 else (0.0, 1.0)
     resolved_game_id = seed if game_id is None else game_id
     samples = ()
+    policy_samples = ()
     if not result.truncated:
         samples = tuple(
             ReplayItem(
@@ -502,8 +723,24 @@ def collect_game(
             )
             for item in pending
         )
+        policy_samples = tuple(
+            PolicyItem(
+                state=item.state,
+                legal_actions=item.legal_actions,
+                selected_index=item.selected_index,
+                family=item.family,
+                target=targets[item.player],
+                behavior_probability=item.behavior_probability,
+                bootstrap_mask=explorations[item.player].bootstrap_mask.copy(),
+                game_id=resolved_game_id,
+                player=item.player,
+                step=item.step,
+            )
+            for item in pending_policy
+        )
     return CollectedGame(
         samples=samples,
+        policy_samples=policy_samples,
         preferences=() if result.truncated else tuple(preferences),
         result=result,
         heads=head_pair,
@@ -558,6 +795,10 @@ def collect_worker_batch(
     deployment_policy: bool | Sequence[bool] = False,
     use_bootstrap_targets: bool = True,
     collect_preferences: bool = True,
+    collect_policy_decisions: bool = False,
+    collect_outcome_decisions: bool = True,
+    counterfactual_fraction: float = 0.0,
+    counterfactual_max_per_game: int = 1,
     encoder_version: int = 1,
 ) -> WorkerResult:
     """Top-level ProcessPool worker; imports no MLX and caches actor archives."""
@@ -581,9 +822,11 @@ def collect_worker_batch(
     )
 
     all_items: list[ReplayItem] = []
+    all_policy_items: list[PolicyItem] = []
     all_preferences: list[PreferenceItem] = []
     wins = [0, 0]
     draws = truncated = turns = decisions = forced_choices = 0
+    counterfactual_preferences = 0
     for game_index in range(games):
         game_seed = seed + game_index
         collected = collect_game(
@@ -603,9 +846,18 @@ def collect_worker_batch(
             deployment_policy=deployment_policy,
             use_bootstrap_targets=use_bootstrap_targets,
             collect_preferences=collect_preferences,
+            collect_policy_decisions=collect_policy_decisions,
+            collect_outcome_decisions=collect_outcome_decisions,
+            counterfactual_fraction=counterfactual_fraction,
+            counterfactual_max_per_game=counterfactual_max_per_game,
         )
         all_items.extend(collected.samples)
+        all_policy_items.extend(collected.policy_samples)
         all_preferences.extend(collected.preferences)
+        if counterfactual_fraction > 0:
+            # Tactical preference collection is disabled for generation 4, so
+            # every returned preference in that mode is a paired rollout.
+            counterfactual_preferences += len(collected.preferences)
         result = collected.result
         if result.truncated:
             truncated += 1
@@ -624,6 +876,12 @@ def collect_worker_batch(
             action_size=encoder.action_size,
             bootstrap_heads=bootstrap_heads,
         ),
+        policy_samples=CompactPolicySamples.from_items(
+            all_policy_items,
+            state_size=encoder.state_size,
+            action_size=encoder.action_size,
+            bootstrap_heads=bootstrap_heads,
+        ),
         preferences=CompactPreferences.from_items(
             all_preferences,
             state_size=encoder.state_size,
@@ -636,6 +894,7 @@ def collect_worker_batch(
         turns=turns,
         decisions=decisions,
         forced_choices=forced_choices,
+        counterfactual_preferences=counterfactual_preferences,
     )
 
 
@@ -644,6 +903,7 @@ __all__ = [
     "CollectedGame",
     "CompactSamples",
     "CompactPreferences",
+    "CompactPolicySamples",
     "PlayerExploration",
     "WorkerResult",
     "clear_actor_cache",

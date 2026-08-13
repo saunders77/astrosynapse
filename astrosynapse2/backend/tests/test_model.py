@@ -4,6 +4,7 @@ import numpy as np
 from astro2.model import (
     ModelSpec,
     NumpyActor,
+    actor_critic_policy_loss,
     build_model,
     export_actor,
     load_optimizer_state,
@@ -90,6 +91,17 @@ def test_single_eligible_action_keeps_its_learned_value():
     assert probabilities[0] == np.float32(1.0 / (1.0 + np.exp(2.0)))
 
 
+def test_generation_four_actor_returns_normalized_legal_action_policy():
+    actor = object.__new__(NumpyActor)
+    actor.spec = ModelSpec(1, 1, 1, objective_version=2)
+    actor.predict_options = lambda _state, _actions, _family: np.asarray(
+        [[-1.0], [0.0], [1.0]], dtype=np.float32
+    )
+    index, probabilities = actor.choose(np.zeros(1), np.zeros((3, 1)), 0, head=0)
+    assert index == 2
+    np.testing.assert_allclose(probabilities.sum(), 1.0)
+
+
 def test_numpy_actor_matches_mlx(tmp_path):
     import mlx.core as mx
 
@@ -161,6 +173,57 @@ def test_actor_exports_support_fast_uncompressed_runtime_archives(tmp_path):
     for path in (checkpoint_path, runtime_path):
         actual = NumpyActor.load(path).predict(state, action, family)
         np.testing.assert_allclose(actual, expected, rtol=2e-4, atol=2e-4)
+
+
+def test_generation_four_numpy_actor_and_actor_critic_loss(tmp_path):
+    import mlx.core as mx
+
+    spec = ModelSpec(
+        state_size=8,
+        action_size=6,
+        families=2,
+        hidden_size=32,
+        action_hidden_size=16,
+        residual_blocks=1,
+        bootstrap_heads=3,
+        objective_version=2,
+    )
+    model = build_model(spec)
+    rng = np.random.default_rng(29)
+    states = rng.normal(size=(4, spec.state_size)).astype(np.float32)
+    legal_actions = rng.normal(size=(4, 5, spec.action_size)).astype(np.float32)
+    legal_mask = np.ones((4, 5), dtype=np.float32)
+    families = np.asarray([0, 1, 0, 1], dtype=np.int32)
+    loss, diagnostics = actor_critic_policy_loss(
+        model,
+        mx.array(states),
+        mx.array(legal_actions),
+        mx.array(legal_mask),
+        mx.array(np.asarray([0, 1, 2, 3], dtype=np.int32)),
+        mx.array(families),
+        mx.array(np.asarray([1, 0, 1, 0], dtype=np.float32)),
+        mx.array(np.full(4, 0.2, dtype=np.float32)),
+        mx.array(np.ones((4, 3), dtype=np.float32)),
+        mx.array(np.ones(4, dtype=np.float32)),
+    )
+    mx.eval(loss, *diagnostics.values())
+    assert np.isfinite(float(loss.item()))
+
+    path = export_actor(model, spec, tmp_path / "generation4.actor.npz")
+    actor = NumpyActor.load(path)
+    expected_values = np.asarray(model.state_values(mx.array(states), mx.array(families)))
+    np.testing.assert_allclose(actor.predict_values(states, families), expected_values, atol=2e-4)
+    flat_states = np.repeat(states[:1], 5, axis=0)
+    expected_policy = np.asarray(
+        model(
+            mx.array(flat_states),
+            mx.array(legal_actions[0]),
+            mx.array(np.zeros(5, dtype=np.int32)),
+        )
+    )
+    np.testing.assert_allclose(
+        actor.predict_options(states[0], legal_actions[0], 0), expected_policy, atol=2e-4
+    )
 
 
 def test_tactical_preference_loss_is_finite_and_reports_ordering_metrics():

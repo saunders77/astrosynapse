@@ -270,3 +270,24 @@ def test_truncated_game_is_counted_separately_and_never_enters_replay():
     assert worker.draws == 0
     assert sum(worker.wins) == 0
     assert len(worker.samples) == 0
+
+
+def test_generation_four_collection_keeps_complete_legal_sets_and_counterfactual_pairs():
+    collected = collect_game(
+        (HeuristicChooser(), HeuristicChooser()),
+        seed=919,
+        encoder=Encoder(version=2),
+        bootstrap_heads=5,
+        collect_policy_decisions=True,
+        collect_preferences=False,
+        counterfactual_fraction=1.0,
+        counterfactual_max_per_game=1,
+        max_turns=80,
+    )
+    assert collected.policy_samples
+    assert all(len(item.legal_actions) >= 2 for item in collected.policy_samples)
+    assert all(
+        0 <= item.selected_index < len(item.legal_actions) for item in collected.policy_samples
+    )
+    assert all(0 < item.behavior_probability <= 1 for item in collected.policy_samples)
+    assert len(collected.preferences) <= 1

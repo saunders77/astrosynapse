@@ -14,14 +14,14 @@ class RunConfig(BaseModel):
     """A complete, checkpointed training recipe.
 
     Bare-model defaults preserve the Astro2 compatibility contract. New work
-    should use :meth:`astro3_m4`; every resolved field is persisted with a run.
+    should use :meth:`astro4_m4`; every resolved field is persisted with a run.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(default="M4 24-hour run", min_length=1, max_length=80)
-    preset: Literal["astro3_m4", "m4_24h", "quick", "custom"] = "m4_24h"
-    training_generation: Literal[2, 3] = 2
+    preset: Literal["astro4_m4", "astro3_m4", "m4_24h", "quick", "custom"] = "m4_24h"
+    training_generation: Literal[2, 3, 4] = 2
     # Keep seeds exactly representable by the JavaScript dashboard as well as
     # Python, so API/UI round-trips cannot silently change an experiment.
     seed: int = Field(default=20260807, ge=0, le=MAX_REPRODUCIBILITY_SEED)
@@ -60,6 +60,13 @@ class RunConfig(BaseModel):
     preference_loss_weight: float = Field(default=0.15, ge=0, le=10)
     preference_margin: float = Field(default=1.0, ge=0, le=10)
     tactical_preference_training: bool = True
+    policy_replay_capacity: int = Field(default=150_000, ge=1_000, le=1_000_000)
+    policy_value_loss_weight: float = Field(default=0.5, ge=0, le=10)
+    policy_entropy_weight: float = Field(default=0.01, ge=0, le=1)
+    policy_importance_clip: float = Field(default=2.0, ge=1, le=20)
+    counterfactual_fraction: float = Field(default=0.0, ge=0, le=1)
+    counterfactual_max_per_game: int = Field(default=0, ge=0, le=8)
+    counterfactual_loss_weight: float = Field(default=0.0, ge=0, le=10)
 
     epsilon_start: float = Field(default=0.20, ge=0, le=1)
     epsilon_end: float = Field(default=0.025, ge=0, le=1)
@@ -89,6 +96,9 @@ class RunConfig(BaseModel):
     max_tactical_violations: int = Field(default=0, ge=0, le=1_000)
     gate_raw_tactical_preferences: bool = True
     require_early_high_cost_retention: bool = False
+    require_resource_efficiency: bool = False
+    minimum_head_disagreement_rate: float = Field(default=0.0, ge=0, le=1)
+    maximum_heldout_brier: float = Field(default=1.0, ge=0, le=1)
 
     checkpoint_every_games: int = Field(default=100_000, ge=100)
     evaluate_every_games: int = Field(default=500_000, ge=100)
@@ -134,7 +144,11 @@ class RunConfig(BaseModel):
         if self.min_learning_rate > self.learning_rate:
             raise ValueError("min_learning_rate must not exceed learning_rate")
         if self.training_generation < 3 and self.deployment_policy_selfplay_fraction:
-            raise ValueError("deployment_policy_selfplay_fraction requires training_generation=3")
+            raise ValueError("deployment_policy_selfplay_fraction requires training_generation>=3")
+        if self.training_generation < 4 and (
+            self.counterfactual_fraction or self.counterfactual_max_per_game
+        ):
+            raise ValueError("counterfactual rollout training requires training_generation=4")
         return self
 
     @classmethod
@@ -251,6 +265,38 @@ class RunConfig(BaseModel):
             resume_replay_items=100_000,
         )
 
+    @classmethod
+    def astro4_m4(cls, name: str = "Astro4 policy self-play") -> RunConfig:
+        """Legal-set actor-critic training with paired strategic rollouts."""
+
+        base = cls.astro3_m4(name=name).model_dump()
+        base.update(
+            preset="astro4_m4",
+            training_generation=4,
+            seed=20260813,
+            # Legal-set batches retain up to 64 alternatives per decision;
+            # 2,048 such sets is unnecessarily large for unified 16 GB RAM.
+            batch_size=256,
+            bootstrap_inclusion_probability=0.20,
+            randomized_prior_scale=0.0,
+            policy_replay_capacity=150_000,
+            policy_value_loss_weight=0.5,
+            policy_entropy_weight=0.015,
+            policy_importance_clip=2.0,
+            counterfactual_fraction=0.02,
+            counterfactual_max_per_game=1,
+            counterfactual_loss_weight=0.25,
+            preference_loss_weight=0.0,
+            tactical_preference_training=False,
+            gate_heldout_brier_regression=True,
+            maximum_heldout_brier=0.24,
+            require_resource_efficiency=True,
+            minimum_head_disagreement_rate=0.05,
+            # Generation-3 replay rows do not contain complete legal sets.
+            resume_replay_items=0,
+        )
+        return cls.model_validate(base)
+
 
 SAFE_LIVE_FIELDS = {
     "duration_minutes",
@@ -271,6 +317,8 @@ SAFE_LIVE_FIELDS = {
 
 
 def preset_config(preset: str) -> RunConfig:
+    if preset == "astro4_m4":
+        return RunConfig.astro4_m4()
     if preset == "astro3_m4":
         return RunConfig.astro3_m4()
     if preset == "quick":

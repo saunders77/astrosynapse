@@ -30,6 +30,7 @@ from .league import League, Opponent
 from .model import (
     ModelSpec,
     NumpyActor,
+    actor_critic_policy_loss,
     bootstrap_bce_loss,
     build_model,
     export_actor,
@@ -39,7 +40,12 @@ from .model import (
     save_model,
     save_optimizer_state,
 )
-from .replay import NATURAL_SAMPLING_WEIGHTS, PreferenceReplayBuffer, ReplayBuffer
+from .replay import (
+    NATURAL_SAMPLING_WEIGHTS,
+    GameBalancedPolicyReplayBuffer,
+    PreferenceReplayBuffer,
+    ReplayBuffer,
+)
 from .retention import RetentionSafetyError, prune_checkpoint_artifacts
 from .selfplay import ActorPolicy, WorkerResult, collect_worker_batch
 from .storage import Store
@@ -92,6 +98,7 @@ class _Totals:
     truncated: int = 0
     turns: int = 0
     forced_choices: int = 0
+    counterfactual_preferences: int = 0
     rollout_games: dict[str, int] = field(default_factory=dict)
 
 
@@ -602,10 +609,7 @@ def _trainer_evaluation_outcome(job: dict[str, Any]) -> str:
 
     result = job.get("result") or {}
     promotion = result.get("promotion") or {}
-    if (
-        int(result.get("truncated_games", 0) or 0) > 0
-        and not bool(promotion.get("promoted"))
-    ):
+    if int(result.get("truncated_games", 0) or 0) > 0 and not bool(promotion.get("promoted")):
         return "truncated"
     if bool(promotion.get("stale_opponent") or result.get("stale_opponent")):
         return "stale"
@@ -1043,6 +1047,7 @@ def _restore_totals(
             int(latest["turns"]) if "turns" in latest else round(mean_turns * metric_games),
         ),
         forced_choices=max(0, int(latest.get("forced_choices", 0))),
+        counterfactual_preferences=max(0, int(latest.get("counterfactual_preferences", 0))),
         rollout_games={
             str(key): max(0, int(value))
             for key, value in (latest.get("rollout_games") or {}).items()
@@ -1073,6 +1078,7 @@ def _training_state(
         "turns": totals.turns,
         "mean_turns": totals.turns / max(1, totals.games),
         "forced_choices": totals.forced_choices,
+        "counterfactual_preferences": totals.counterfactual_preferences,
         "rollout_games": dict(totals.rollout_games),
         "seed_cursor": int(seed_cursor),
         "optimizer_updates_at_start": max(0, int(optimizer_updates_at_start)),
@@ -1328,6 +1334,8 @@ def _checkpoint_quality_gate(
     )
     tactical = diagnostics["tactical"]
     strategic = diagnostics.get("strategic") or {}
+    resource_efficiency = diagnostics.get("resource_efficiency") or {}
+    ensemble = diagnostics.get("ensemble") or {}
     heldout = diagnostics["heldout"]
     baselines = diagnostics["baselines"]
     champion_id = store.get_run(run_id).get("champion_id")
@@ -1368,12 +1376,22 @@ def _checkpoint_quality_gate(
         strategic.get("early_high_cost_passed")
     ):
         reasons.append("model preferred premature high-cost scraps over retaining the card")
+    if config.require_resource_efficiency and not bool(resource_efficiency.get("passed")):
+        reasons.append("model ended early turns while useful trade could be spent")
+    if (
+        config.minimum_head_disagreement_rate > 0
+        and float(ensemble.get("head_argmax_disagreement_rate", 0.0))
+        < config.minimum_head_disagreement_rate
+    ):
+        reasons.append("bootstrap heads collapsed below the required action-disagreement rate")
     if int(baselines["truncated_games"]) > 0:
         reasons.append("fixed-opponent diagnostics contained truncated games")
     if config.gate_baseline_regression and baseline_regression:
         reasons.append("fixed-opponent score regressed beyond the configured tolerance")
     if config.gate_heldout_brier_regression and heldout_regression:
         reasons.append("held-out Brier score regressed beyond the configured tolerance")
+    if float(heldout.get("game_grouped_brier", 1.0)) > config.maximum_heldout_brier:
+        reasons.append("held-out value calibration exceeded the absolute Brier limit")
     gate = {
         "passed": not reasons,
         "reasons": reasons,
@@ -1385,6 +1403,8 @@ def _checkpoint_quality_gate(
         "heldout_brier_regression_tolerance": config.heldout_brier_regression_tolerance,
         "heldout_brier_gate_enabled": config.gate_heldout_brier_regression,
         "heldout_brier_regression_detected": heldout_regression,
+        "maximum_heldout_brier": config.maximum_heldout_brier,
+        "minimum_head_disagreement_rate": config.minimum_head_disagreement_rate,
         "tactical_gate_metric": tactical_metric,
         "diagnostics": diagnostics,
     }
@@ -1525,6 +1545,14 @@ def _submit_rollout(
         deployment_policy=plan.deployment_policy,
         use_bootstrap_targets=config.use_bootstrap_targets,
         collect_preferences=config.tactical_preference_training,
+        collect_policy_decisions=config.training_generation >= 4,
+        collect_outcome_decisions=config.training_generation < 4,
+        counterfactual_fraction=(
+            config.counterfactual_fraction if config.training_generation >= 4 else 0.0
+        ),
+        counterfactual_max_per_game=(
+            config.counterfactual_max_per_game if config.training_generation >= 4 else 0
+        ),
         encoder_version=2 if config.training_generation >= 3 else 1,
     )
 
@@ -1534,6 +1562,7 @@ def _train_updates(
     model: Any,
     optimizer: Any,
     replay: ReplayBuffer,
+    policy_replay: GameBalancedPolicyReplayBuffer,
     preference_replay: PreferenceReplayBuffer,
     config: RunConfig,
     count: int,
@@ -1541,12 +1570,132 @@ def _train_updates(
     optimizer_updates_at_start: int,
     control: Any,
 ) -> dict[str, float]:
-    if count <= 0 or len(replay) < config.replay_warmup:
+    active_replay_size = len(policy_replay) if config.training_generation >= 4 else len(replay)
+    if count <= 0 or active_replay_size < config.replay_warmup:
         return {}
 
     import mlx.core as mx
     import mlx.nn as nn
     import mlx.optimizers as optim
+
+    if config.training_generation >= 4:
+
+        def policy_loss_function(
+            states,
+            legal_actions,
+            legal_mask,
+            selected_indices,
+            families,
+            targets,
+            behavior_probabilities,
+            masks,
+            weights,
+            preference_states,
+            preferred_actions,
+            disfavored_actions,
+            preference_families,
+            preference_weight,
+        ):
+            policy = actor_critic_policy_loss(
+                model,
+                states,
+                legal_actions,
+                legal_mask,
+                selected_indices,
+                families,
+                targets,
+                behavior_probabilities,
+                masks,
+                weights,
+                value_loss_weight=config.policy_value_loss_weight,
+                entropy_weight=config.policy_entropy_weight,
+                importance_clip=config.policy_importance_clip,
+            )[0]
+            counterfactual = preference_ranking_loss(
+                model,
+                preference_states,
+                preferred_actions,
+                disfavored_actions,
+                preference_families,
+                margin=config.preference_margin,
+            )[0]
+            return policy + preference_weight * counterfactual
+
+        loss_and_grad = nn.value_and_grad(model, policy_loss_function)
+        last_policy_arrays: tuple[Any, ...] | None = None
+        last_preference_arrays: tuple[Any, ...] | None = None
+        loss_value = gradient_norm = learning_rate = 0.0
+        completed = 0
+        for _ in range(count):
+            if control.should_stop() or control.pause_requested.is_set():
+                break
+            batch = policy_replay.sample(config.batch_size)
+            arrays = (
+                mx.array(batch.states),
+                mx.array(batch.legal_actions),
+                mx.array(batch.legal_mask),
+                mx.array(batch.selected_indices),
+                mx.array(batch.families),
+                mx.array(batch.targets),
+                mx.array(batch.behavior_probabilities),
+                mx.array(batch.bootstrap_mask),
+                mx.array(batch.sample_weights),
+            )
+            if len(preference_replay):
+                preference_batch = preference_replay.sample(config.preference_batch_size)
+                preference_arrays = (
+                    mx.array(preference_batch.states),
+                    mx.array(preference_batch.preferred_actions),
+                    mx.array(preference_batch.disfavored_actions),
+                    mx.array(preference_batch.families),
+                    mx.array(config.counterfactual_loss_weight),
+                )
+            else:
+                preference_arrays = (
+                    arrays[0][:1],
+                    arrays[1][:1, 0],
+                    arrays[1][:1, 0],
+                    arrays[4][:1],
+                    mx.array(0.0),
+                )
+            learning_rate = _learning_rate(
+                config, totals.updates, totals.updates - optimizer_updates_at_start
+            )
+            optimizer.learning_rate = learning_rate
+            loss, gradients = loss_and_grad(*arrays, *preference_arrays)
+            gradients, norm = optim.clip_grad_norm(gradients, config.gradient_clip)
+            optimizer.update(model, gradients)
+            mx.eval(model.parameters(), optimizer.state, loss, norm)
+            loss_value = float(loss.item())
+            gradient_norm = float(norm.item())
+            totals.updates += 1
+            completed += 1
+            last_policy_arrays = arrays
+            last_preference_arrays = preference_arrays
+        metrics: dict[str, float] = {
+            "loss": loss_value,
+            "gradient_norm": gradient_norm,
+            "learning_rate": learning_rate,
+            "learner_updates": float(completed),
+        }
+        if last_policy_arrays is not None:
+            diagnostic_loss, diagnostics = actor_critic_policy_loss(
+                model,
+                *last_policy_arrays,
+                value_loss_weight=config.policy_value_loss_weight,
+                entropy_weight=config.policy_entropy_weight,
+                importance_clip=config.policy_importance_clip,
+            )
+            mx.eval(diagnostic_loss, *diagnostics.values())
+            metrics.update(
+                {
+                    "loss": float(diagnostic_loss.item()),
+                    **{name: float(value.item()) for name, value in diagnostics.items()},
+                    "brier": float(diagnostics["value_brier"].item()),
+                    "accuracy": float(diagnostics["value_accuracy"].item()),
+                }
+            )
+        return metrics
 
     def loss_function(
         states,
@@ -1728,6 +1877,7 @@ def run_training(
             action_hidden_size=max(64, config.hidden_size // 2),
             residual_blocks=config.residual_blocks,
             bootstrap_heads=config.bootstrap_heads,
+            objective_version=2 if config.training_generation >= 4 else 1,
         )
         model = build_model(spec)
         parent_checkpoint_id = None
@@ -1736,8 +1886,9 @@ def run_training(
         or spec.action_size != encoder.action_size
         or spec.families != FAMILY_COUNT
         or spec.encoder_version != encoder.version
+        or spec.objective_version != (2 if config.training_generation >= 4 else 1)
     ):
-        raise RuntimeError("checkpoint encoder contract does not match this engine build")
+        raise RuntimeError("checkpoint training/encoder contract does not match this run")
 
     model.train()
     mx.eval(model.parameters())
@@ -1751,7 +1902,7 @@ def run_training(
         optimizer.init(model.trainable_parameters())
         mx.eval(optimizer.state)
     replay = ReplayBuffer(
-        capacity=config.replay_capacity,
+        capacity=(config.replay_capacity if config.training_generation < 4 else 10_000),
         state_size=encoder.state_size,
         action_size=encoder.action_size,
         bootstrap_heads=config.bootstrap_heads,
@@ -1767,6 +1918,13 @@ def run_training(
         state_size=encoder.state_size,
         action_size=encoder.action_size,
         seed=config.seed + 43,
+    )
+    policy_replay = GameBalancedPolicyReplayBuffer(
+        capacity=config.policy_replay_capacity,
+        state_size=encoder.state_size,
+        action_size=encoder.action_size,
+        bootstrap_heads=config.bootstrap_heads,
+        seed=config.seed + 47,
     )
     totals = _restore_totals(store, run, latest)
     restored_training_state = _checkpoint_training_state(latest)
@@ -2103,7 +2261,17 @@ def run_training(
         if not force and now - last_metric_at < config.metrics_interval_seconds:
             return
         rate_values = rate.sample(totals.games, totals.decisions)
-        replay_metrics = replay.metrics()
+        outcome_replay_metrics = replay.metrics()
+        policy_replay_metrics = policy_replay.metrics()
+        replay_metrics = (
+            {
+                **policy_replay_metrics,
+                "policy": policy_replay_metrics,
+                "outcome": outcome_replay_metrics,
+            }
+            if config.training_generation >= 4
+            else {**outcome_replay_metrics, "policy": policy_replay_metrics}
+        )
         replay_metrics["preferences"] = preference_replay.metrics()
         active_elapsed = current_active_elapsed()
         duration_seconds = config.duration_minutes * 60.0
@@ -2160,7 +2328,13 @@ def run_training(
             "deployment_policy_scheduled_fraction": (
                 config.current_selfplay_fraction * config.deployment_policy_selfplay_fraction
             ),
-            "target_mode": ("mixed_bootstrap" if config.use_bootstrap_targets else "monte_carlo"),
+            "target_mode": (
+                "legal_set_actor_critic"
+                if config.training_generation >= 4
+                else "mixed_bootstrap"
+                if config.use_bootstrap_targets
+                else "monte_carlo"
+            ),
             "plateau": dict(plateau),
             "exploration_health": {
                 "uncertainty": uncertainty,
@@ -2186,6 +2360,7 @@ def run_training(
             "truncation_rate": totals.truncated / max(1, totals.games),
             "mean_turns": totals.turns / max(1, totals.games),
             "forced_choices": totals.forced_choices,
+            "counterfactual_preferences": totals.counterfactual_preferences,
             "replay": replay_metrics,
             "system": snapshot,
             "metal": metal,
@@ -2254,9 +2429,7 @@ def run_training(
                     0,
                     int(checkpoint_artifacts.get("replay_capacity", replay.capacity)),
                 ),
-                "replay_snapshot_mode": str(
-                    checkpoint_artifacts.get("replay_format") or "none"
-                ),
+                "replay_snapshot_mode": str(checkpoint_artifacts.get("replay_format") or "none"),
                 "checkpoint_artifacts_complete": True,
                 "latest_checkpoint_id": checkpoint["id"],
                 "latest_checkpoint_games": int(checkpoint["games"]),
@@ -2370,9 +2543,8 @@ def run_training(
             futures: dict[Future[WorkerResult], _RolloutPlan] = {}
             for _ in range(config.actor_processes):
                 if (
-                    len(replay) < config.replay_warmup
-                    or totals.updates < config.heuristic_bootstrap_updates
-                ):
+                    len(policy_replay) if config.training_generation >= 4 else len(replay)
+                ) < config.replay_warmup or totals.updates < config.heuristic_bootstrap_updates:
                     plan = _make_bootstrap_plan(config=config, rng=rng, seed=seed_cursor)
                 else:
                     plan = _make_plan(
@@ -2391,6 +2563,7 @@ def run_training(
                 model=model,
                 optimizer=optimizer,
                 replay=replay,
+                policy_replay=policy_replay,
                 preference_replay=preference_replay,
                 config=config,
                 count=config.updates_per_iteration,
@@ -2417,10 +2590,15 @@ def run_training(
                     plan = futures.pop(future)
                     result = future.result()
                     replay.extend_compact(result.samples)
+                    policy_replay.extend_compact(result.policy_samples)
                     preference_replay.extend_compact(result.preferences)
                     totals.games += result.games
                     totals.decisions += result.decisions
-                    totals.samples += len(result.samples)
+                    totals.samples += (
+                        len(result.policy_samples)
+                        if config.training_generation >= 4
+                        else len(result.samples)
+                    )
                     totals.player_wins = (
                         totals.player_wins[0] + result.wins[0],
                         totals.player_wins[1] + result.wins[1],
@@ -2429,6 +2607,7 @@ def run_training(
                     totals.truncated += result.truncated
                     totals.turns += result.turns
                     totals.forced_choices += result.forced_choices
+                    totals.counterfactual_preferences += result.counterfactual_preferences
                     totals.rollout_games[plan.kind] = (
                         totals.rollout_games.get(plan.kind, 0) + result.games
                     )

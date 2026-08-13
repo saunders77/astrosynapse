@@ -1,15 +1,15 @@
-# Astrosynapse 2 / Astro3 training generation
+# Astrosynapse 2 / Astro4 training generation
 
-This repository is a from-scratch Star Realms self-play system built for a 16 GB Apple M4 Mac mini. The new Astro3 training generation corrects the policy-improvement failures found in the 4-million-game Astro2 run while keeping retained legacy checkpoint actors playable. It includes:
+This repository is a from-scratch Star Realms self-play system built for a 16 GB Apple M4 Mac mini. Astro4 replaces chosen-action outcome fitting with normalized legal-set policy learning, a separate value baseline, game-balanced replay, paired counterfactual rollouts, and competency gates. Retained Astro3 and Astro2 checkpoint actors remain playable. It includes:
 
 - a deterministic, typed base-set game engine;
 - parallel CPU self-play with a compact NumPy actor;
-- an MLX/Metal bootstrapped action-value learner;
+- an MLX/Metal bootstrapped legal-set actor-critic learner;
 - versioned flat and relational information-state encoders;
-- family-aware replay with a bounded recovery journal;
+- game- and turn-phase-balanced legal-set replay;
 - rules-level dominance masks without the unsafe global `END_TURN` preference objective;
 - learner, accepted champion-history, and corrected heuristic opponents;
-- coherent bootstrapped exploration with head-specific fixed behavior perturbations;
+- independent head adapters and bootstrapped exploration;
 - paired-seed, seat-swapped arena evaluation with confidence intervals;
 - a persistent local training dashboard and model registry;
 - a browser game for playing against any retained checkpoint actor.
@@ -51,17 +51,17 @@ Press Control-C in that Terminal to request a safe stop and final checkpoint. Du
 1. Open **Train**.
 2. Select **Quick validation** and click **Launch run**. Let this run for about five minutes to verify Metal, workers, replay, checkpoints, and live charts.
 3. Check **Diagnostics / Settings** for `MLX / Metal`, actor throughput, memory pressure, truncations, replay family balance, and non-finite/error warnings.
-4. If the quick run is healthy, create the **Astro3 adaptive champion** preset and launch it.
+4. If the quick run is healthy, create the **Astro4 legal-set policy** preset and launch it.
 5. When the 24-hour budget ends, wait for the visible **Finalizing evaluation** phase. Natural completion resolves any older trainer-owned job and then the newest due trainer comparison before reporting complete; then inspect the champion and final candidate in **Models & Arena**.
 
-The Astro3 preset is a starting point tuned for the base M4/16 GB target: 8 CPU actors, a 192-wide three-block model, 5 bootstrap heads, 900,000 outcome decisions, a 2,048-sample GPU batch, learner-driven population rollouts, and conservative paired promotion evaluations. It uses pure terminal returns, exploration across every deployment-eligible action, head-specific behavior perturbations, family-corrected replay weights, strategic scrap-retention gates, bounded optimizer/replay recovery, and a configured 12% scheduled share for the exact deployed policy. The fixed perturbations affect behavior choice only; they are not fitted prior terms in the MLX value loss. A separate **Astro2 compatibility** preset preserves the legacy generation-2 learner settings and checkpoint format for controlled comparisons; corrected shared engine, baseline, evaluator, and lifecycle behavior still applies. Actual throughput and strength depend on game length, memory pressure, and opponents, so the GUI reports measured rates rather than promising a fixed result.
+The Astro4 preset is the recommended M4/16 GB starting point: 8 CPU actors, a 192-wide three-block model, 5 head-specific policy adapters, 150,000 game-balanced legal-set decisions, a separate state-value objective, bounded paired counterfactual rollouts, and conservative promotion evaluations. Resource-efficiency, irreversible-action retention, ensemble diversity, and held-out calibration are release gates. Astro3 remains available for controlled chosen-action Monte Carlo comparisons, and **Astro2 compatibility** preserves generation-2 learner settings and checkpoint decoding.
 
 ## Dashboard guide
 
 - **Overview** — run phase, elapsed time and ETA, games/s, decisions/s, replay fill, learning quality, hardware, and recent persisted events.
-- **Train** — create a run, select Astro3, quick validation, or the Astro2 compatibility preset, expose advanced settings, and start, durably pause, resume, stop, or checkpoint at safe boundaries.
+- **Train** — create a run, select Astro4, Astro3, quick validation, or the Astro2 compatibility preset, expose advanced settings, and start, durably pause, resume, stop, or checkpoint at safe boundaries.
 - **Models & Arena** — inspect checkpoint lineage, pin models, download `.actor.npz` exports, and compare checkpoints or baselines with exact seed-paired seat swaps. Use 5,000 manual pairs before treating a comparison as release-strength evidence.
-- **Play** — select a checkpoint, choose the starting seat, and play through legal semantic actions. Checkpoint games show the model's value for each of your legal choices; baseline games do not invent model scores.
+- **Play** — select a checkpoint, choose the starting seat, and play through legal semantic actions. Astro4 shows normalized legal-action policy shares; legacy checkpoints show independent outcome estimates. Baseline games do not invent model scores.
 - **Diagnostics / Settings** — outcome losses, strategic retention gates, ensemble diagnostics, replay write/sample ratios and effective weights, effective exploration, population mix, plateau response, CPU/RAM/Metal telemetry, audit events, and settings that are safe to apply between batches.
 
 The first random checkpoint is only a lineage root and initial deployment anchor, not a trained opponent. After that root, “champion” means the latest model to pass its persisted automatic paired-evaluation contract; adaptive early tiers use fewer pairs than the mature 5,000-pair gate. It is not an absolute Elo claim.
@@ -75,7 +75,7 @@ data/astrosynapse2.sqlite3       runs, metrics, arena jobs, audit events
 data/checkpoints/<run-id>/       safetensors and NumPy actor snapshots
 ```
 
-Training survives browser disconnects. If the backend or Mac exits unexpectedly, the run is marked `interrupted` at restart and can resume from its latest compatible model checkpoint. Paired arena jobs retain completed pairs and recover after a clean backend restart. Astro3 checkpoints include AdamW moments, exact counters and elapsed time, rollout/replay random-generator state, league statistics, and the newest configured slice of replay. The default journal is 100,000 decisions rather than the complete 900,000-item buffer, so recovery is durable but not bit-for-bit identical to an uninterrupted full-replay process. Legacy Astro2 checkpoints remain weight-only.
+Training survives browser disconnects. If the backend or Mac exits unexpectedly, the run is marked `interrupted` at restart and can resume from its latest compatible model checkpoint. Paired arena jobs retain completed pairs and recover after a clean backend restart. Astro4 checkpoints preserve compatible weights, optimizer state, counters, elapsed time, rollout RNG state, and league statistics; legal-set replay is deliberately repopulated after restart before learning resumes. Astro3 retains its configured recent replay journal. Legacy Astro2 checkpoints remain weight-only.
 
 ## Command line
 
@@ -85,9 +85,10 @@ Training survives browser disconnects. If the backend or Mac exits unexpectedly,
 
 # Run without the browser
 ./.venv/bin/astro2 train --preset quick
-./.venv/bin/astro2 train --preset astro3_m4 --name "Astro3 seed 1" --seed 20260811
-./.venv/bin/astro2 train --preset astro3_m4 --name "Astro3 seed 2" --seed 20260812
-./.venv/bin/astro2 train --preset astro3_m4 --name "Astro3 seed 3" --seed 20260813
+./.venv/bin/astro2 train --preset astro4_m4 --name "Astro4 seed 1" --seed 20260813
+./.venv/bin/astro2 train --preset astro4_m4 --name "Astro4 seed 2" --seed 20260814
+./.venv/bin/astro2 train --preset astro4_m4 --name "Astro4 seed 3" --seed 20260815
+./.venv/bin/astro2 train --preset astro3_m4 --name "Astro3 control" --seed 20260816
 ./.venv/bin/astro2 train --preset m4_24h --name "Overnight league"
 
 # Start only the API (dashboard development or automation)
@@ -116,4 +117,4 @@ MLX initializes Metal when imported. A headless or restricted shell may report t
 
 ## Honest scope
 
-This is a corrected training platform, not a pre-trained “excellent” Astro3 model. The audit identifies direct causes of the Astro2 plateau and verifies the new system at unit/integration scale; only fresh multi-seed training and held-out paired arenas can establish a large skill gain. Use frozen opponents, paired seeds, seat splits, strategic scenario banks, truncation rates, and confidence intervals. The Python engine remains the production engine; a future native search engine should replace it only after differential replay tests prove rule equivalence.
+This is a corrected training platform, not a pre-trained “excellent” Astro4 model. The audit identifies direct causes of the Astro3 learning weakness and verifies the new system at unit/integration scale; only fresh multi-seed training and held-out paired arenas can establish a large skill gain. Use frozen opponents, paired seeds, seat splits, strategic scenario banks, truncation rates, and confidence intervals. The Python engine remains the production engine; a future native search engine should replace it only after differential replay tests prove rule equivalence.

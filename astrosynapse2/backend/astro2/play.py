@@ -54,7 +54,12 @@ class ActorChooser:
                 int(encoded.family),
             )
             values = logits.mean(axis=1) if logits.ndim > 1 else logits
-            probabilities = 1.0 / (1.0 + np.exp(-np.clip(values, -40.0, 40.0)))
+            if self.actor.spec.objective_version >= 2:
+                shifted = values - values.max()
+                probabilities = np.exp(np.clip(shifted, -40.0, 0.0))
+                probabilities /= probabilities.sum()
+            else:
+                probabilities = 1.0 / (1.0 + np.exp(-np.clip(values, -40.0, 40.0)))
         return int(eligible[local_index]), probabilities
 
 
@@ -200,6 +205,13 @@ class GameSession:
             option_values: np.ndarray | None = None
             if pending is not None and self._actor_chooser is not None:
                 recommendation, option_values = self._actor_chooser.score(pending)
+            score_semantics = None
+            if self._actor_chooser is not None:
+                score_semantics = (
+                    "policy_probability"
+                    if self._actor_chooser.actor.spec.objective_version >= 2
+                    else "win_outcome"
+                )
             return {
                 "id": self.id,
                 "seed": self.seed,
@@ -213,6 +225,7 @@ class GameSession:
                     else "model_thinking"
                 ),
                 "model_label": self.model_label,
+                "model_score_semantics": score_semantics,
                 "human_player": self.human_player,
                 "observation": observation.to_dict(),
                 "board": self.game.state_dict(include_hidden=False),

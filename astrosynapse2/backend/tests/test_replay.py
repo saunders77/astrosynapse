@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 from astro2.encoding import DecisionFamily
 from astro2.replay import (
+    GameBalancedPolicyReplayBuffer,
+    PolicyItem,
     PreferenceItem,
     PreferenceReplayBuffer,
     ReplayItem,
@@ -11,7 +13,7 @@ from astro2.replay import (
     _FamilyRing,
     make_bootstrap_mask,
 )
-from astro2.selfplay import CompactPreferences, CompactSamples
+from astro2.selfplay import CompactPolicySamples, CompactPreferences, CompactSamples
 
 
 def item(step: int, family: DecisionFamily, *, state_size=5, action_size=4, heads=3):
@@ -291,6 +293,39 @@ def test_preference_replay_is_bounded_and_round_trips_compact_rows():
     batch = replay.sample(6)
     assert batch.states.shape == (6, 5)
     assert batch.preferred_actions.shape == (6, 4)
+
+
+def test_policy_replay_samples_player_games_before_decisions():
+    replay = GameBalancedPolicyReplayBuffer(
+        capacity=64, state_size=5, action_size=4, bootstrap_heads=3, max_actions=5, seed=17
+    )
+    entries = []
+    for game_id, decisions in ((10, 30), (20, 2)):
+        for step in range(decisions):
+            entries.append(
+                PolicyItem(
+                    state=np.full(5, step, dtype=np.float32),
+                    legal_actions=np.stack(
+                        (np.full(4, step, dtype=np.float32), np.full(4, step + 1, dtype=np.float32))
+                    ),
+                    selected_index=step % 2,
+                    family=DecisionFamily.MAIN,
+                    target=float(game_id == 10),
+                    behavior_probability=0.5,
+                    bootstrap_mask=np.ones(3, dtype=np.uint8),
+                    game_id=game_id,
+                    player=0,
+                    step=step,
+                )
+            )
+    compact = CompactPolicySamples.from_items(
+        entries, state_size=5, action_size=4, bootstrap_heads=3
+    )
+    assert replay.extend_compact(compact) == 32
+    batch = replay.sample(2_000)
+    assert 0.45 < np.mean(batch.game_ids == 10) < 0.55
+    assert batch.legal_actions.shape == (2_000, 5, 4)
+    assert replay.metrics()["sampling"] == "uniform_player_game_then_turn_phase_then_decision"
 
 
 def test_recent_replay_snapshot_round_trips_across_families(tmp_path):

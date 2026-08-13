@@ -225,6 +225,79 @@ def strategic_metrics(actor: NumpyActor, decisions: tuple[Decision, ...]) -> dic
     }
 
 
+def resource_efficiency_decision_suite(*, seed: int) -> tuple[Decision, ...]:
+    """Early economic states where ending burns resources for no benefit."""
+
+    base = Game(config=GameConfig(seed=seed, starting_player=0)).observation(0)
+    explorer = CARD_BY_ID[2]
+    expensive_row = tuple(CARD_BY_ID[card_id] for card_id in (5, 15, 21, 22, 23))
+    decisions: list[Decision] = []
+    for index in range(12):
+        observation = replace(
+            base,
+            turn=2 + index % 4,
+            action_number=5 + index % 3,
+            own_authority=46 - index % 4,
+            opponent_authority=45 - index % 5,
+            combat=0,
+            trade=2,
+            hand=(),
+            own_in_play=(),
+            trade_row=expensive_row,
+            explorers_remaining=10 - index % 3,
+            explorer_supply=(explorer,) * (10 - index % 3),
+        )
+        decisions.append(
+            Decision(
+                DecisionFamily.MAIN,
+                observation,
+                (
+                    Action(
+                        ActionKind.ACQUIRE,
+                        card_id=explorer.card_id,
+                        source_zone="explorer_supply",
+                        amount=explorer.cost,
+                    ),
+                    Action(ActionKind.END_TURN),
+                ),
+                "Spend otherwise-wasted early trade or end the turn",
+            )
+        )
+    return tuple(decisions)
+
+
+def resource_efficiency_metrics(
+    actor: NumpyActor, decisions: tuple[Decision, ...]
+) -> dict[str, Any]:
+    encoder = _actor_encoder(actor)
+    margins: list[float] = []
+    for decision in decisions:
+        encoded = encoder.encode_decision(decision.observation, decision)
+        logits = actor.predict_options(encoded.state, encoded.actions, int(encoded.family)).mean(
+            axis=1
+        )
+        acquire = next(
+            index
+            for index, action in enumerate(decision.actions)
+            if action.kind == ActionKind.ACQUIRE
+        )
+        end = next(
+            index
+            for index, action in enumerate(decision.actions)
+            if action.kind == ActionKind.END_TURN
+        )
+        margins.append(float(logits[acquire] - logits[end]))
+    violations = sum(margin <= 0 for margin in margins)
+    return {
+        "positions": len(margins),
+        "unused_resource_violations": int(violations),
+        "unused_resource_violation_rate": float(violations / max(1, len(margins))),
+        "mean_spend_over_end_logit_margin": float(np.mean(margins)) if margins else 0.0,
+        "minimum_spend_over_end_logit_margin": float(np.min(margins)) if margins else 0.0,
+        "passed": bool(margins and violations == 0),
+    }
+
+
 def all_family_decision_suite(*, seed: int) -> tuple[Decision, ...]:
     """Return a compact deterministic corpus containing every decision family."""
 
@@ -441,7 +514,12 @@ def ensemble_metrics(actor: NumpyActor, decisions: tuple[Decision, ...]) -> dict
             logits = logits[:, None]
         head_choices = np.argmax(logits, axis=0)
         disagreements += int(len(np.unique(head_choices)) > 1)
-        probabilities = 1.0 / (1.0 + np.exp(-np.clip(logits, -40.0, 40.0)))
+        if getattr(getattr(actor, "spec", None), "objective_version", 1) >= 2:
+            shifted = logits - logits.max(axis=0, keepdims=True)
+            probabilities = np.exp(np.clip(shifted, -40.0, 0.0))
+            probabilities /= probabilities.sum(axis=0, keepdims=True)
+        else:
+            probabilities = 1.0 / (1.0 + np.exp(-np.clip(logits, -40.0, 40.0)))
         probability_stds.extend(np.std(probabilities, axis=1).tolist())
         action_options += len(eligible)
         family_positions[decision.family.value] += 1
@@ -486,7 +564,11 @@ def heldout_outcome_metrics(
         actions = np.stack([sample.action for sample in collected.samples])
         families = np.asarray([int(sample.family) for sample in collected.samples])
         targets = np.asarray([sample.target for sample in collected.samples], dtype=np.float32)
-        logits = actor.predict(states, actions, families)
+        logits = (
+            actor.predict_values(states, families)
+            if getattr(actor.spec, "objective_version", 1) >= 2
+            else actor.predict(states, actions, families)
+        )
         predictions = (1.0 / (1.0 + np.exp(-np.clip(logits, -40.0, 40.0)))).mean(axis=1)
         all_predictions.append(predictions)
         all_targets.append(targets)
@@ -574,13 +656,17 @@ def checkpoint_diagnostics(
         actor,
         strategic_decision_suite(seed=seed + 710_000),
     )
+    resource_efficiency = resource_efficiency_metrics(
+        actor,
+        resource_efficiency_decision_suite(seed=seed + 715_000),
+    )
     ensemble = ensemble_metrics(
         actor,
         all_family_decision_suite(seed=seed + 720_000),
     )
     heldout = heldout_outcome_metrics(actor, seed=seed + 800_000, games=games)
     baselines = baseline_metrics(actor_path, seed=seed + 900_000, pairs=baseline_pairs)
-    values = (tactical, strategic, ensemble, heldout, baselines)
+    values = (tactical, strategic, resource_efficiency, ensemble, heldout, baselines)
     if not all(
         math.isfinite(float(value))
         for group in values
@@ -591,6 +677,7 @@ def checkpoint_diagnostics(
     return {
         "tactical": tactical,
         "strategic": strategic,
+        "resource_efficiency": resource_efficiency,
         "ensemble": ensemble,
         "heldout": heldout,
         "baselines": baselines,
@@ -603,6 +690,8 @@ __all__ = [
     "checkpoint_diagnostics",
     "ensemble_metrics",
     "heldout_outcome_metrics",
+    "resource_efficiency_decision_suite",
+    "resource_efficiency_metrics",
     "strategic_decision_suite",
     "strategic_metrics",
     "tactical_metrics",

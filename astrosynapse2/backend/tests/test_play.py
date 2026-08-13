@@ -5,6 +5,7 @@ def test_human_game_advances_after_legal_choice():
     manager = PlayManager()
     initial = manager.create(seed=17, human_starts=True)
     assert initial["status"] == "your_turn"
+    assert initial["model_score_semantics"] is None
     assert initial["decision"]["actions"]
     play_actions = [
         action for action in initial["decision"]["actions"] if action["kind"] == "play_card"

@@ -459,6 +459,48 @@ class Game:
         )
         return self.result
 
+    def continue_from_main_action(self, action: Action) -> GameResult:
+        """Continue a cloned game from a main-phase decision already emitted.
+
+        The live engine calls decision hooks before applying the selected
+        action. Counterfactual training can therefore clone that exact state,
+        force a different legal action here, and roll both branches forward
+        with identical hidden state and RNG streams.
+        """
+
+        if self.result is not None:
+            raise RuntimeError("cannot continue a completed game")
+        player = self.players[self.active_player]
+        ended = self._apply_main_action(player, action)
+        try:
+            while not ended and self._winner is None:
+                selected = self._choose(
+                    player, DecisionFamily.MAIN, self._main_actions(player), "Main phase"
+                )
+                ended = self._apply_main_action(player, selected)
+            if self._winner is None:
+                self._cleanup_and_draw(player)
+                self.active_player = 1 - self.active_player
+            while self._winner is None and self.turns < self.config.max_turns:
+                self._take_turn(self.players[self.active_player])
+                if self._winner is None:
+                    self.active_player = 1 - self.active_player
+            if self._winner is None and self._truncation_reason is None:
+                self._truncation_reason = "max_turns"
+        except _TruncateGame:
+            pass
+        self.result = GameResult(
+            winner=self._winner if self._truncation_reason is None else None,
+            turns=self.turns,
+            decisions=self.decisions,
+            forced_choices=self.forced_choices,
+            truncated=self._truncation_reason is not None,
+            truncation_reason=self._truncation_reason,
+            seed=self.config.seed,
+            starting_player=self.starting_player,
+        )
+        return self.result
+
     def observation(self, player_id: int) -> Observation:
         if player_id not in (0, 1):
             raise ValueError("unknown player")

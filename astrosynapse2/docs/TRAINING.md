@@ -1,19 +1,32 @@
 # Training and evaluation
 
-Astrosynapse has two explicit training contracts. Astro3 is recommended for new work. Astro2 remains available so legacy learner settings and persisted checkpoints remain interpretable.
+Astrosynapse has three explicit training contracts. Astro4 is recommended for new work. Astro3 and Astro2 remain available so earlier experiments and persisted checkpoints remain interpretable.
 
-| Capability | Astro3 (`astro3_m4`) | Astro2 compatibility (`m4_24h`) |
-|---|---|---|
-| Behavior policy | Exploratory heads plus direct deployment-policy data, league/baselines | Accepted champion |
-| Rejected candidate | Learner continues; champion stays deployed | Learner rolls back |
-| Outcome target | Terminal Monte Carlo | 60% terminal / 40% next-decision max |
-| Tactical preference loss | Disabled | Enabled |
-| Exploration schedule | 0.15 → 0.05 before the adaptive multiplier | 0.20 → 0.025, then scaled to an applied 0.020 → 0.0025 |
-| Exploration support | Every eligible action | Current head's top 3 |
-| Bootstrap heads | 5, lower overlap, fixed behavior-time perturbations | 3, high overlap, no perturbations |
-| Replay | Natural profile with family-stratification correction | Rare-family-balanced, uncorrected |
-| Encoder | v2 relational | v1 flat |
-| Recovery | Optimizer, counters, RNG, league, bounded replay | Weights and persisted counters |
+| Capability | Astro4 (`astro4_m4`) | Astro3 (`astro3_m4`) | Astro2 compatibility (`m4_24h`) |
+|---|---|---|---|
+| Learning objective | Normalized legal-set actor-critic plus separate state value | Chosen-action terminal outcome | Chosen-action mixed outcome |
+| Replay unit | Whole player-games; game → turn phase → decision sampling | Individual decisions | Individual decisions |
+| Counterfactual data | Matched forced-action rollouts for selected strategic choices | None | None |
+| Behavior policy | Learner heads plus direct deployment-policy data, league/baselines | Learner heads plus direct deployment-policy data, league/baselines | Accepted champion |
+| Rejected candidate | Learner continues; champion stays deployed | Learner continues; champion stays deployed | Learner rolls back |
+| Outcome target | Terminal return minus learned state baseline | Terminal Monte Carlo | 60% terminal / 40% next-decision max |
+| Tactical preference loss | Only rollout-derived comparisons | Disabled | Enabled |
+| Exploration support | Every eligible action | Every eligible action | Current head's top 3 |
+| Bootstrap heads | 5, head-specific adapters, lower mask overlap | 5, shared trunk and behavior perturbations | 3, high overlap |
+| Encoder | v2 relational | v2 relational | v1 flat |
+| Promotion gates | Resource efficiency, retention, head diversity, absolute and relative calibration | Retention plus diagnostic calibration/diversity | Legacy gates |
+
+## What Astro4 changes
+
+Generation 4 records the complete deployment-eligible action set, selected action, behavior probability, terminal result, bootstrap ownership, and player-game identity for every non-forced decision. The policy loss is normalized across those legal actions, so raising one action necessarily lowers its alternatives. A separate state-value head supplies the advantage baseline and is the only output trained as a win probability.
+
+Policy replay evicts complete player-game trajectories. A batch samples a player-game uniformly, then an available early/middle/late turn phase uniformly, then one decision in that phase. Long games therefore do not dominate merely because they emit more decisions, and early economic decisions remain represented.
+
+A bounded fraction of games clones selected information states before the chosen action, forces two legal alternatives through identical hidden state and RNG streams, and rolls both branches to completion. Only outcome-different pairs enter the ranking buffer. The initial suite targets general resource conservation and irreversible optional actions; these comparisons come from the engine rollouts rather than a hard-coded deployment rule.
+
+Generation-4 heads have independent residual adapters and output banks. Promotion requires nonzero action disagreement on the fixed all-family suite, while deployment still uses their mean policy. The gate also enforces early resource efficiency and premium-card retention, and rejects checkpoints whose absolute held-out state-value Brier score or regression exceeds the configured limit.
+
+Generation-4 replay is intentionally not restored from Astro3 snapshots: those rows do not contain legal sets or behavior probabilities. Resume preserves compatible generation-4 weights and optimizer state but repopulates policy replay before updates continue.
 
 The compatibility mode preserves the legacy generation-2 learner configuration and checkpoint decoding, but it is not a bit-for-bit historical simulator: corrected shared engine, heuristic-baseline, evaluator, retention, and control-lifecycle behavior still applies. It is not the recommended route out of the measured plateau. See the [forensic analysis](PLATEAU_ANALYSIS_AND_ASTROSYNAPSE3.md) for evidence and the staged research plan.
 

@@ -30,6 +30,9 @@ class ModelSpec:
     # third-party callers that constructed ModelSpec positionally remain
     # source-compatible. Internal code should still prefer keyword arguments.
     encoder_version: int = 1
+    # Version 1 is the historical chosen-action outcome model. Version 2 uses
+    # normalized legal-action policy logits plus a separate state-value head.
+    objective_version: int = 1
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -80,12 +83,37 @@ def build_model(spec: ModelSpec):
             self.fusion_in = nn.Linear(h + ah, h)
             self.fusion_norm = nn.LayerNorm(h, eps=spec.layer_norm_eps)
             self.fusion_blocks = [ResidualBlock(h) for _ in range(spec.residual_blocks)]
-            self.output = nn.Linear(h, spec.families * spec.bootstrap_heads)
+            if spec.objective_version >= 2:
+                # A small independent adapter/output path per head prevents the
+                # shared trunk from collapsing every bootstrap hypothesis into
+                # an effectively identical policy.
+                self.head_blocks = [ResidualBlock(h) for _ in range(spec.bootstrap_heads)]
+                self.head_outputs = [
+                    nn.Linear(h, spec.families) for _ in range(spec.bootstrap_heads)
+                ]
+                self.value_output = nn.Linear(h, spec.families * spec.bootstrap_heads)
+            else:
+                self.output = nn.Linear(h, spec.families * spec.bootstrap_heads)
 
-        def __call__(self, states, actions, families=None):
+        def state_features(self, states):
             state = nn.silu(self.state_norm(self.state_in(states)))
             for block in self.state_blocks:
                 state = block(state)
+            return state
+
+        def state_values(self, states, families):
+            if spec.objective_version < 2:
+                raise RuntimeError("separate state values require objective_version >= 2")
+            state = self.state_features(states)
+            values = self.value_output(state).reshape((-1, spec.families, spec.bootstrap_heads))
+            indices = mx.broadcast_to(
+                families.astype(mx.int32).reshape((-1, 1, 1)),
+                (families.shape[0], 1, spec.bootstrap_heads),
+            )
+            return mx.take_along_axis(values, indices, axis=1).squeeze(axis=1)
+
+        def __call__(self, states, actions, families=None):
+            state = self.state_features(states)
 
             action = nn.silu(self.action_norm(self.action_in(actions)))
             for block in self.action_blocks:
@@ -96,7 +124,16 @@ def build_model(spec: ModelSpec):
             )
             for block in self.fusion_blocks:
                 value = block(value)
-            all_logits = self.output(value).reshape((-1, spec.families, spec.bootstrap_heads))
+            if spec.objective_version >= 2:
+                all_logits = mx.stack(
+                    [
+                        output(block(value))
+                        for block, output in zip(self.head_blocks, self.head_outputs, strict=True)
+                    ],
+                    axis=-1,
+                )
+            else:
+                all_logits = self.output(value).reshape((-1, spec.families, spec.bootstrap_heads))
             if families is None:
                 return all_logits
             indices = mx.broadcast_to(
@@ -106,6 +143,76 @@ def build_model(spec: ModelSpec):
             return mx.take_along_axis(all_logits, indices, axis=1).squeeze(axis=1)
 
     return ActionValueNet()
+
+
+def actor_critic_policy_loss(
+    model,
+    states,
+    legal_actions,
+    legal_mask,
+    selected_indices,
+    families,
+    targets,
+    behavior_probabilities,
+    bootstrap_mask,
+    sample_weights,
+    *,
+    value_loss_weight: float = 0.5,
+    entropy_weight: float = 0.01,
+    importance_clip: float = 2.0,
+):
+    """Game-balanced off-policy actor-critic loss over complete legal sets."""
+
+    mx, nn = _mlx_modules()
+    batch, options, action_size = legal_actions.shape
+    repeated_states = mx.broadcast_to(
+        states[:, None, :], (batch, options, states.shape[-1])
+    ).reshape((batch * options, states.shape[-1]))
+    repeated_families = mx.broadcast_to(families[:, None], (batch, options)).reshape(
+        (batch * options,)
+    )
+    policy_logits = model(
+        repeated_states,
+        legal_actions.reshape((batch * options, action_size)),
+        repeated_families,
+    ).reshape((batch, options, -1))
+    masked_logits = mx.where(legal_mask[:, :, None] > 0, policy_logits, -1e9)
+    log_probs = masked_logits - mx.logsumexp(masked_logits, axis=1, keepdims=True)
+    probabilities = mx.exp(log_probs) * legal_mask[:, :, None]
+    selected = (mx.arange(options)[None, :] == selected_indices.astype(mx.int32)[:, None]).astype(
+        policy_logits.dtype
+    )[:, :, None]
+    chosen_log_probs = mx.sum(log_probs * selected, axis=1)
+    chosen_probabilities = mx.sum(probabilities * selected, axis=1)
+
+    value_logits = model.state_values(states, families)
+    values = mx.sigmoid(value_logits)
+    target_matrix = mx.broadcast_to(targets[:, None], values.shape)
+    advantages = mx.stop_gradient(target_matrix - values)
+    behavior = mx.maximum(behavior_probabilities[:, None], mx.array(1e-6))
+    ratios = mx.stop_gradient(
+        mx.minimum(chosen_probabilities / behavior, mx.array(float(importance_clip)))
+    )
+    weights = bootstrap_mask * sample_weights[:, None]
+    denominator = mx.maximum(mx.sum(weights), mx.array(1.0))
+    policy_loss = -mx.sum(weights * ratios * advantages * chosen_log_probs) / denominator
+    value_losses = nn.losses.binary_cross_entropy(
+        value_logits, target_matrix, with_logits=True, reduction="none"
+    )
+    value_loss = mx.sum(weights * value_losses) / denominator
+    entropy = -mx.sum(probabilities * log_probs, axis=1)
+    entropy = mx.sum(weights * entropy) / denominator
+    loss = policy_loss + float(value_loss_weight) * value_loss - float(entropy_weight) * entropy
+    prediction = mx.mean(values, axis=1)
+    return loss, {
+        "policy_loss": policy_loss,
+        "value_loss": value_loss,
+        "policy_entropy": entropy,
+        "value_brier": mx.mean(mx.square(prediction - targets)),
+        "value_accuracy": mx.mean((prediction >= 0.5) == (targets >= 0.5)),
+        "mean_importance_ratio": mx.sum(weights * ratios) / denominator,
+        "uncertainty": mx.mean(mx.std(probabilities, axis=2)),
+    }
 
 
 def bootstrap_bce_loss(
@@ -313,9 +420,36 @@ class NumpyActor:
         value = _silu(self._norm(self._linear(value, "fusion_in"), "fusion_norm"))
         for index in range(self.spec.residual_blocks):
             value = self._residual(value, f"fusion_blocks.{index}")
+        if getattr(getattr(self, "spec", None), "objective_version", 1) >= 2:
+            return np.stack(
+                [
+                    self._linear(
+                        self._residual(value, f"head_blocks.{head}"),
+                        f"head_outputs.{head}",
+                    )
+                    for head in range(self.spec.bootstrap_heads)
+                ],
+                axis=-1,
+            )
         return self._linear(value, "output").reshape(
             (-1, self.spec.families, self.spec.bootstrap_heads)
         )
+
+    def predict_values(self, states: np.ndarray, families: np.ndarray) -> np.ndarray:
+        """Return state-value logits for generation-4 actors."""
+
+        if self.spec.objective_version < 2:
+            raise RuntimeError("separate state values require objective_version >= 2")
+        states = np.asarray(states, dtype=np.float32)
+        families = np.asarray(families, dtype=np.int64)
+        if states.ndim == 1:
+            states = states[None, :]
+        if families.ndim == 0:
+            families = families[None]
+        values = self._linear(self._state_features(states), "value_output").reshape(
+            (-1, self.spec.families, self.spec.bootstrap_heads)
+        )
+        return values[np.arange(len(values)), families]
 
     def predict(
         self,
@@ -410,7 +544,12 @@ class NumpyActor:
             values = values + randomized_prior_scale * self._randomized_prior(
                 state, actions, family, head
             )
-        probabilities = 1.0 / (1.0 + np.exp(-np.clip(values, -40.0, 40.0)))
+        if getattr(getattr(self, "spec", None), "objective_version", 1) >= 2:
+            shifted = values - np.max(values)
+            probabilities = np.exp(np.clip(shifted, -40.0, 0.0))
+            probabilities /= probabilities.sum()
+        else:
+            probabilities = 1.0 / (1.0 + np.exp(-np.clip(values, -40.0, 40.0)))
         if exploration_top_k < 0:
             raise ValueError("exploration_top_k must be nonnegative")
         if len(actions) == 1:

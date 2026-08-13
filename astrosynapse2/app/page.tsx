@@ -300,7 +300,7 @@ type DashboardSnapshot = {
 
 type TrainerConfig = {
   name: string;
-  preset: "astro3_m4" | "m4_24h" | "quick" | "custom";
+  preset: "astro4_m4" | "astro3_m4" | "m4_24h" | "quick" | "custom";
   seed: number;
   trainingGeneration: number;
   behaviorPolicy: string;
@@ -399,6 +399,7 @@ type RemoteGameSession = {
   family: string;
   actions: RemoteGameAction[];
   modelLabel: string;
+  scoreSemantics: "policy_probability" | "win_outcome" | null;
   result?: string;
   error?: string;
 };
@@ -425,26 +426,26 @@ const tabs: Array<{ id: TabId; label: string; short: string }> = [
 ];
 
 const initialConfig: TrainerConfig = {
-  name: "Astro3 M4 self-play",
-  preset: "astro3_m4",
-  seed: 20260807,
-  trainingGeneration: 3,
+  name: "Astro4 policy self-play",
+  preset: "astro4_m4",
+  seed: 20260813,
+  trainingGeneration: 4,
   behaviorPolicy: "learner",
   useBootstrapTargets: false,
   tacticalPreferenceTraining: false,
-  randomizedPriorScale: 0.25,
+  randomizedPriorScale: 0,
   deploymentPolicySelfplayFraction: 0.2,
-  bootstrapInclusionProbability: 0.35,
+  bootstrapInclusionProbability: 0.2,
   adaptiveTraining: true,
   persistOptimizerState: true,
-  resumeReplayItems: 100_000,
+  resumeReplayItems: 0,
   durationMinutes: 1_440,
   actorProcesses: 8,
   gamesPerActorBatch: 16,
   hiddenSize: 192,
   residualBlocks: 3,
   bootstrapHeads: 5,
-  batchSize: 2_048,
+  batchSize: 256,
   learningRate: 0.0002,
   learningRateDecayUpdates: 400_000,
   replayCapacity: 900_000,
@@ -465,6 +466,16 @@ const initialConfig: TrainerConfig = {
   explorationTopK: 0,
   terminalTargetWeight: 1,
   preferenceLossWeight: 0,
+};
+
+const astro3Config: TrainerConfig = {
+  ...initialConfig,
+  name: "Astro3 M4 self-play",
+  preset: "astro3_m4",
+  trainingGeneration: 3,
+  randomizedPriorScale: 0.25,
+  bootstrapInclusionProbability: 0.35,
+  resumeReplayItems: 100_000,
 };
 
 const legacyM4Config: TrainerConfig = {
@@ -498,6 +509,7 @@ const quickConfig: TrainerConfig = {
   ...initialConfig,
   name: "Quick validation run",
   preset: "quick",
+  trainingGeneration: 3,
   durationMinutes: 5,
   actorProcesses: 4,
   gamesPerActorBatch: 2,
@@ -1687,6 +1699,10 @@ function normalizeRemoteGame(raw: unknown, previous: GameState): {
         };
       }),
       modelLabel: asString(raw.model_label, "Opponent"),
+      scoreSemantics:
+        raw.model_score_semantics === "policy_probability" || raw.model_score_semantics === "win_outcome"
+          ? raw.model_score_semantics
+          : null,
       result: resultText,
       error: asString(raw.error, "") || undefined,
     },
@@ -1787,19 +1803,21 @@ function configToApi(config: TrainerConfig): Record<string, string | number | bo
 function configFromApi(raw: unknown, prior: TrainerConfig): TrainerConfig {
   const item = isRecord(raw) ? raw : {};
   const presetValue = String(item.preset ?? prior.preset);
-  const preset: TrainerConfig["preset"] = ["astro3_m4", "m4_24h", "quick", "custom"].includes(presetValue)
+  const preset: TrainerConfig["preset"] = ["astro4_m4", "astro3_m4", "m4_24h", "quick", "custom"].includes(presetValue)
     ? presetValue as TrainerConfig["preset"]
     : prior.preset;
   const requestedGeneration = asOptionalNumber(item.training_generation);
-  const previous = preset === "astro3_m4"
+  const previous = preset === "astro4_m4"
     ? initialConfig
+    : preset === "astro3_m4"
+    ? astro3Config
     : preset === "m4_24h"
       ? legacyM4Config
       : preset === "quick"
         ? quickConfig
         : requestedGeneration === null
           ? prior.trainingGeneration < 3 ? legacyM4Config : prior
-          : requestedGeneration < 3 ? legacyM4Config : initialConfig;
+          : requestedGeneration < 3 ? legacyM4Config : requestedGeneration === 3 ? astro3Config : initialConfig;
   const trainingGeneration = asNumber(item.training_generation, previous.trainingGeneration);
   return {
     name: asString(item.name, previous.name),
@@ -1874,7 +1892,7 @@ function configFromApi(raw: unknown, prior: TrainerConfig): TrainerConfig {
 function launchPresetForConfig(config: TrainerConfig, remembered: LaunchPreset): LaunchPreset {
   if (config.preset !== "custom") return config.preset;
   if (config.trainingGeneration < 3) return "m4_24h";
-  return remembered === "m4_24h" ? "astro3_m4" : remembered;
+  return remembered === "m4_24h" ? "astro4_m4" : remembered;
 }
 
 async function fetchJson(path: string, options?: RequestInit): Promise<unknown> {
@@ -2269,7 +2287,7 @@ export default function Home() {
   const activeRunIdRef = useRef<string | null>(null);
   const metricsSeqRef = useRef(-1);
   const gameRef = useRef(game);
-  const basePresetRef = useRef<LaunchPreset>("astro3_m4");
+  const basePresetRef = useRef<LaunchPreset>("astro4_m4");
   const presetCatalogRef = useRef<Record<string, unknown>>({});
 
   const latestMetric = snapshot.metrics.at(-1) ?? (connected ? emptyMetric : buildDemoMetrics(1)[0]);
@@ -2773,9 +2791,12 @@ export default function Home() {
   };
 
   const choosePreset = (preset: TrainerConfig["preset"]) => {
-    if (preset === "astro3_m4") {
+    if (preset === "astro4_m4") {
+      basePresetRef.current = "astro4_m4";
+      setConfig(configFromApi(presetCatalogRef.current.astro4_m4, initialConfig));
+    } else if (preset === "astro3_m4") {
       basePresetRef.current = "astro3_m4";
-      setConfig(configFromApi(presetCatalogRef.current.astro3_m4, initialConfig));
+      setConfig(configFromApi(presetCatalogRef.current.astro3_m4, astro3Config));
     } else if (preset === "m4_24h") {
       basePresetRef.current = "m4_24h";
       setConfig(configFromApi(presetCatalogRef.current.m4_24h, legacyM4Config));
@@ -3353,16 +3374,19 @@ export default function Home() {
         {activeTab === "train" ? (
           <section className="tab-panel train-panel" aria-labelledby="train-title">
             <header className="section-heading">
-              <div><span className="section-number">02 / TRAIN</span><h1 id="train-title">Shape the training mission.</h1><p>Start from the recommended Astro3 M4 recipe, or retain an Astro2-compatible run for controlled comparisons.</p></div>
+              <div><span className="section-number">02 / TRAIN</span><h1 id="train-title">Shape the training mission.</h1><p>Start from the legal-set Astro4 recipe, or retain Astro3/Astro2 recipes for controlled comparisons.</p></div>
               <div className="section-summary"><span>Projected games</span><strong>{compactFormatter.format(latestMetric.gamesPerSecond * config.durationMinutes * 60)}</strong><small>at {latestMetric.gamesPerSecond.toFixed(0)} games/s</small></div>
             </header>
 
             <div className="train-layout">
               <form className="recipe-form panel" onSubmit={saveConfig}>
-                <div className="recipe-title"><div><span className="panel-kicker">Run recipe</span><h2>Choose a flight plan</h2></div><span className="recommended-label">Astro3 · M4 · 16 GB tuned</span></div>
+                <div className="recipe-title"><div><span className="panel-kicker">Run recipe</span><h2>Choose a flight plan</h2></div><span className="recommended-label">Astro4 · M4 · 16 GB tuned</span></div>
                 <div className="preset-grid" role="radiogroup" aria-label="Training preset">
+                  <button type="button" role="radio" aria-checked={config.preset === "astro4_m4"} className={config.preset === "astro4_m4" ? "is-selected" : ""} onClick={() => choosePreset("astro4_m4")}>
+                    <span>Recommended</span><strong>Astro4 legal-set policy</strong><p>Actor-critic legal-action learning, paired rollouts, game-balanced replay, and competency gates.</p><small>8 actors · 5 heads · 150k policy decisions</small>
+                  </button>
                   <button type="button" role="radio" aria-checked={config.preset === "astro3_m4"} className={config.preset === "astro3_m4" ? "is-selected" : ""} onClick={() => choosePreset("astro3_m4")}>
-                    <span>Recommended</span><strong>Astro3 adaptive champion</strong><p>Learner-driven rollouts, head-diversity diagnostics, plateau recovery, and durable resume.</p><small>8 actors · 5 heads · 900k replay</small>
+                    <span>Previous</span><strong>Astro3 adaptive champion</strong><p>Chosen-action outcome learning retained for controlled comparisons.</p><small>8 actors · 5 heads · 900k outcome replay</small>
                   </button>
                   <button type="button" role="radio" aria-checked={config.preset === "m4_24h"} className={config.preset === "m4_24h" ? "is-selected" : ""} onClick={() => choosePreset("m4_24h")}>
                     <span>Compatibility</span><strong>Astro2 24-hour recipe</strong><p>Preserves champion-only collection and legacy resume behavior for comparisons.</p><small>8 actors · 3 heads · 900k replay</small>
@@ -3388,9 +3412,9 @@ export default function Home() {
 
                 {advancedOpen ? (
                   <div className="advanced-fields">
-                    <div className="field-section"><h3>Astro3 policy improvement</h3><div className="field-grid">
+                    <div className="field-section"><h3>Policy improvement</h3><div className="field-grid">
                       <label title="Use a distinct seed for each independent training run; reuse one only when reproducing a run."><span><Jargon term="seed">Training seed</Jargon></span><input type="number" min="0" max="9007199254740991" step="1" value={config.seed} onChange={(event) => updateConfig("seed", Number(event.target.value))} /></label>
-                      <label title="This expert field changes the generation/encoder contract only. Use the preset cards above to switch the complete recipe."><span><Jargon term="trainingGeneration">Generation contract</Jargon></span><select value={config.trainingGeneration} onChange={(event) => updateConfig("trainingGeneration", Number(event.target.value))}><option value={3}>Astro3 encoder</option><option value={2}>Astro2 encoder · hybrid</option></select></label>
+                      <label title="This expert field changes the generation/learner contract only. Use the preset cards above to switch the complete recipe."><span><Jargon term="trainingGeneration">Generation contract</Jargon></span><select value={config.trainingGeneration} onChange={(event) => updateConfig("trainingGeneration", Number(event.target.value))}><option value={4}>Astro4 legal-set actor-critic</option><option value={3}>Astro3 chosen-action MC</option><option value={2}>Astro2 encoder · hybrid</option></select></label>
                       <label><span><Jargon term="behaviorPolicy">Behavior policy</Jargon></span><select value={config.behaviorPolicy} onChange={(event) => updateConfig("behaviorPolicy", event.target.value)}><option value="learner">Learner</option><option value="champion">Champion</option></select></label>
                       <label title="Scale of fixed random per-head behavior offsets used only to perturb action selection; this is not a fitted prior or an added training loss."><span>Behavior perturbation scale</span><input type="number" min="0" max="5" step="0.05" value={config.randomizedPriorScale} onChange={(event) => updateConfig("randomizedPriorScale", Number(event.target.value))} /></label>
                       <label title="Fraction of current self-play that uses the exact prior-free mean-head policy deployed in arenas and human play. Generation 2 requires zero."><span>Deployment-policy self-play</span><input type="number" min="0" max="1" step="0.05" disabled={config.trainingGeneration < 3} value={config.trainingGeneration >= 3 ? config.deploymentPolicySelfplayFraction : 0} onChange={(event) => updateConfig("deploymentPolicySelfplayFraction", Number(event.target.value))} /></label>
@@ -3541,7 +3565,7 @@ export default function Home() {
                 <div className="decision-label"><span className="connection-pulse" /><p><small>{remoteGame?.status === "model_thinking" ? "Opponent thinking" : remoteGame?.status === "complete" ? "Game complete" : "Decision requested"}</small><strong>{remoteGame?.result ?? remoteGame?.prompt ?? "Your main phase"}</strong></p><b>Turn {game.turn}</b></div>
                 <div className="legal-actions">
                   <span className="panel-kicker"><Jargon term="actions">Legal actions</Jargon></span>
-                  {remoteGame ? remoteGame.actions.map((action, index) => <button key={action.id} type="button" className={`action-button${action.recommended ? " is-recommended" : ""}`} onClick={() => submitRemoteChoice(action.id)} disabled={commandBusy === "game-choice" || remoteGame.status !== "your_turn"}><b>{titleCase(action.label)}</b><span>{action.modelValue === null ? `${titleCase(remoteGame.family)} · legal engine action` : `${formatPercent(action.modelValue)} acting-player outcome value${action.recommended ? " · model choice" : ""}`}</span><i>{index + 1}</i></button>) : <>
+                  {remoteGame ? remoteGame.actions.map((action, index) => <button key={action.id} type="button" className={`action-button${action.recommended ? " is-recommended" : ""}`} onClick={() => submitRemoteChoice(action.id)} disabled={commandBusy === "game-choice" || remoteGame.status !== "your_turn"}><b>{titleCase(action.label)}</b><span>{action.modelValue === null ? `${titleCase(remoteGame.family)} · legal engine action` : `${formatPercent(action.modelValue)} ${remoteGame.scoreSemantics === "policy_probability" ? "legal-action policy share" : "acting-player outcome value"}${action.recommended ? " · model choice" : ""}`}</span><i>{index + 1}</i></button>) : <>
                     {selectedCard && game.hand.some((card) => card.id === selectedCard) ? <button type="button" className="action-button is-recommended" onClick={() => playHandCard(game.hand.find((card) => card.id === selectedCard)!)}><b>Play selected card</b><span>Resolve its primary effect</span><i>↵</i></button> : null}
                     {selectedCard && game.market.some((card) => card.id === selectedCard) ? <button type="button" className="action-button is-recommended" onClick={acquireSelected} disabled={(game.market.find((card) => card.id === selectedCard)?.cost ?? 99) > game.trade}><b>Acquire selected</b><span>Cost {(game.market.find((card) => card.id === selectedCard)?.cost ?? 0)} · {game.trade} trade available</span><i>↵</i></button> : null}
                     <button type="button" className="action-button" onClick={attackOpponent} disabled={game.attack <= 0 || game.opponentBases.length > 0}><b>Attack opponent</b><span>{game.opponentBases.length ? "Destroy the outpost first" : `${game.attack} combat available`}</span><i>A</i></button>
@@ -3551,7 +3575,9 @@ export default function Home() {
                 </div>
                 <div className="choice-inspector"><span className="panel-kicker">Model lens</span>{remoteGame ? (() => {
                   const recommendation = remoteGame.actions.find((action) => action.recommended);
-                  return recommendation && recommendation.modelValue !== null ? <><div><span>Recommended action</span><strong>{titleCase(recommendation.label)}</strong><b>{formatPercent(recommendation.modelValue)}</b></div><div><span><Jargon term="actionValue">Value semantics</Jargon></span><strong>Acting-player win outcome</strong><b>Q</b></div><p>Values come directly from the checkpoint actor’s bootstrapped heads. Your choice is sent unchanged.</p></> : <><div><span><Jargon term="actionValue">Action values</Jargon></span><strong>Not exposed for this opponent</strong><b>—</b></div><p>Baseline sessions provide legal actions but no model scores; no values are inferred or fabricated.</p></>;
+                  if (!recommendation || recommendation.modelValue === null) return <><div><span><Jargon term="actionValue">Action values</Jargon></span><strong>Not exposed for this opponent</strong><b>—</b></div><p>Baseline sessions provide legal actions but no model scores; no values are inferred or fabricated.</p></>;
+                  const policyScore = remoteGame.scoreSemantics === "policy_probability";
+                  return <><div><span>Recommended action</span><strong>{titleCase(recommendation.label)}</strong><b>{formatPercent(recommendation.modelValue)}</b></div><div><span><Jargon term="actionValue">Value semantics</Jargon></span><strong>{policyScore ? "Legal-action policy share" : "Acting-player win outcome"}</strong><b>{policyScore ? "π" : "Q"}</b></div><p>{policyScore ? "Shares are normalized across the legal actions in this decision; they are not win probabilities." : "Values come directly from the checkpoint actor’s bootstrapped heads."} Your choice is sent unchanged.</p></>;
                 })() : <><div><span>Recommended action</span><strong>Play Federation Shuttle</strong><b>42%</b></div><div><span><Jargon term="outcomeEstimate">Outcome estimate</Jargon></span><strong>Acting-player win value</strong><b>56.4%</b></div><p>Illustrative demo values are replaced by live checkpoint scores when the local service connects.</p></>}</div>
                 <div className="game-log"><header><span className="panel-kicker">Action log</span><button type="button" onClick={() => setGame((current) => ({ ...current, log: [] }))}>Clear</button></header>{game.log.length ? game.log.map((entry, index) => <p key={`${entry}-${index}`}><span>{String(game.turn - Math.min(index, 2)).padStart(2, "0")}</span>{entry}</p>) : <EmptyState title="No actions yet" detail="Play a card to begin the log." />}</div>
               </aside>

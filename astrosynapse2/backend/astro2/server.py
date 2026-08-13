@@ -35,7 +35,7 @@ DATA_DIR = Path(os.environ.get("ASTRO2_DATA_DIR", PROJECT_ROOT / "data")).expand
 
 class CreateRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    preset: str = "astro3_m4"
+    preset: str = "astro4_m4"
     name: str | None = Field(default=None, max_length=80)
     overrides: dict[str, Any] = Field(default_factory=dict)
     start: bool = False
@@ -82,7 +82,7 @@ def _build_config(request: CreateRunRequest) -> RunConfig:
     if request.name:
         base["name"] = request.name
     base.update(request.overrides)
-    if request.preset not in {"astro3_m4", "m4_24h", "quick"}:
+    if request.preset not in {"astro4_m4", "astro3_m4", "m4_24h", "quick"}:
         base["preset"] = "custom"
     return RunConfig.model_validate(base)
 
@@ -220,6 +220,7 @@ def system() -> dict[str, Any]:
 @app.get("/api/presets")
 def presets() -> dict[str, Any]:
     return {
+        "astro4_m4": RunConfig.astro4_m4().model_dump(),
         "astro3_m4": RunConfig.astro3_m4().model_dump(),
         "m4_24h": RunConfig().model_dump(),
         "quick": RunConfig.quick().model_dump(),

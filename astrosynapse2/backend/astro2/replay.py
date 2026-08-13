@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +14,8 @@ from typing import Any
 import numpy as np
 
 from .encoding import FAMILY_COUNT, DecisionFamily
+
+MAX_POLICY_ACTIONS = 64
 
 DEFAULT_CAPACITY_WEIGHTS: dict[DecisionFamily, float] = {
     DecisionFamily.MAIN: 0.82,
@@ -120,6 +123,41 @@ class ReplayItem:
     epsilon: float = 0.0
     td_target: float = 0.5
     td_valid: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyItem:
+    """One complete legal-action decision for actor-critic policy learning."""
+
+    state: np.ndarray
+    legal_actions: np.ndarray
+    selected_index: int
+    family: DecisionFamily | int
+    target: float
+    behavior_probability: float
+    bootstrap_mask: np.ndarray
+    game_id: int | str = 0
+    player: int = 0
+    step: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyBatch:
+    states: np.ndarray
+    legal_actions: np.ndarray
+    legal_mask: np.ndarray
+    selected_indices: np.ndarray
+    families: np.ndarray
+    targets: np.ndarray
+    behavior_probabilities: np.ndarray
+    bootstrap_mask: np.ndarray
+    sample_weights: np.ndarray
+    game_ids: np.ndarray
+    players: np.ndarray
+    steps: np.ndarray
+
+    def __len__(self) -> int:
+        return int(self.targets.shape[0])
 
 
 @dataclass(frozen=True, slots=True)
@@ -1296,3 +1334,190 @@ class PreferenceReplayBuffer:
 
 # Concise compatibility alias for trainer code.
 ReplayBuffer = StratifiedReplayBuffer
+
+
+class GameBalancedPolicyReplayBuffer:
+    """Bounded policy replay sampled uniformly by player-game, then decision.
+
+    Evicting whole player-game trajectories and sampling one decision from a
+    uniformly selected trajectory prevents a 400-decision game from receiving
+    20 times the policy weight of a concise 20-decision game.
+    """
+
+    def __init__(
+        self,
+        capacity: int,
+        state_size: int,
+        action_size: int,
+        bootstrap_heads: int,
+        *,
+        max_actions: int = MAX_POLICY_ACTIONS,
+        seed: int = 0,
+    ) -> None:
+        if capacity < 1:
+            raise ValueError("capacity must be positive")
+        self.capacity = int(capacity)
+        self.state_size = int(state_size)
+        self.action_size = int(action_size)
+        self.bootstrap_heads = int(bootstrap_heads)
+        self.max_actions = int(max_actions)
+        self._episodes: OrderedDict[tuple[int, int], list[PolicyItem]] = OrderedDict()
+        self._size = 0
+        self._writes = 0
+        self._evicted_decisions = 0
+        self._rng = np.random.default_rng(seed)
+        self._lock = threading.RLock()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return self._size
+
+    def _validate(self, item: PolicyItem) -> PolicyItem:
+        state = np.asarray(item.state, dtype=np.float16)
+        actions = np.asarray(item.legal_actions, dtype=np.float16)
+        mask = np.asarray(item.bootstrap_mask, dtype=np.uint8)
+        family = DecisionFamily(int(item.family))
+        if state.shape != (self.state_size,):
+            raise ValueError("policy state has the wrong shape")
+        if (
+            actions.ndim != 2
+            or actions.shape[1] != self.action_size
+            or len(actions) < 2
+            or len(actions) > self.max_actions
+        ):
+            raise ValueError("policy legal_actions must contain at least two encoded actions")
+        if not 0 <= int(item.selected_index) < len(actions):
+            raise ValueError("selected policy action is outside the legal set")
+        if (
+            mask.shape != (self.bootstrap_heads,)
+            or not np.isin(mask, (0, 1)).all()
+            or not mask.any()
+        ):
+            raise ValueError("policy bootstrap mask must be binary and nonempty")
+        if not np.isfinite(state).all() or not np.isfinite(actions).all():
+            raise ValueError("policy features must be finite")
+        if not 0 <= float(item.target) <= 1:
+            raise ValueError("policy target must be in [0, 1]")
+        if not 0 < float(item.behavior_probability) <= 1:
+            raise ValueError("behavior probability must be in (0, 1]")
+        return PolicyItem(
+            state=state,
+            legal_actions=actions,
+            selected_index=int(item.selected_index),
+            family=family,
+            target=float(item.target),
+            behavior_probability=float(item.behavior_probability),
+            bootstrap_mask=mask,
+            game_id=item.game_id,
+            player=int(item.player),
+            step=int(item.step),
+        )
+
+    def extend(self, items: list[PolicyItem] | tuple[PolicyItem, ...]) -> int:
+        validated = [self._validate(item) for item in items]
+        grouped: OrderedDict[tuple[int, int], list[PolicyItem]] = OrderedDict()
+        for item in validated:
+            key = (int(_numeric_game_id(item.game_id)), item.player)
+            grouped.setdefault(key, []).append(item)
+        with self._lock:
+            for key, episode in grouped.items():
+                previous = self._episodes.pop(key, None)
+                if previous:
+                    self._size -= len(previous)
+                self._episodes[key] = episode
+                self._size += len(episode)
+            self._writes += len(validated)
+            while self._size > self.capacity and self._episodes:
+                _key, removed = self._episodes.popitem(last=False)
+                self._size -= len(removed)
+                self._evicted_decisions += len(removed)
+        return len(validated)
+
+    def extend_compact(self, compact: Any) -> int:
+        offsets = np.asarray(compact.action_offsets, dtype=np.int64)
+        count = int(len(compact.targets))
+        if offsets.shape != (count + 1,) or offsets[0] != 0:
+            raise ValueError("invalid compact policy offsets")
+        actions = np.asarray(compact.legal_actions)
+        if offsets[-1] != len(actions):
+            raise ValueError("compact policy offsets do not cover legal actions")
+        items = [
+            PolicyItem(
+                state=np.asarray(compact.states[index], dtype=np.float32),
+                legal_actions=np.asarray(
+                    actions[offsets[index] : offsets[index + 1]], dtype=np.float32
+                ),
+                selected_index=int(compact.selected_indices[index]),
+                family=int(compact.families[index]),
+                target=float(compact.targets[index]),
+                behavior_probability=float(compact.behavior_probabilities[index]),
+                bootstrap_mask=np.asarray(compact.bootstrap_masks[index], dtype=np.uint8),
+                game_id=int(compact.game_ids[index]),
+                player=int(compact.players[index]),
+                step=int(compact.steps[index]),
+            )
+            for index in range(count)
+        ]
+        return self.extend(items)
+
+    def sample(self, batch_size: int) -> PolicyBatch:
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        with self._lock:
+            if not self._episodes:
+                raise ValueError("cannot sample empty policy replay")
+            keys = list(self._episodes)
+            chosen_keys = self._rng.choice(
+                len(keys), size=batch_size, replace=batch_size > len(keys)
+            )
+            items: list[PolicyItem] = []
+            for key_index in chosen_keys:
+                episode = self._episodes[keys[int(key_index)]]
+                phases = ([], [], [])
+                for item in episode:
+                    turn = float(item.state[11]) * 50.0 if len(item.state) > 11 else 0.0
+                    phase = 0 if turn <= 6 else 1 if turn <= 16 else 2
+                    phases[phase].append(item)
+                available_phases = [phase for phase, rows in enumerate(phases) if rows]
+                phase = available_phases[int(self._rng.integers(0, len(available_phases)))]
+                rows = phases[phase]
+                items.append(rows[int(self._rng.integers(0, len(rows)))])
+        maximum = self.max_actions
+        legal_actions = np.zeros((batch_size, maximum, self.action_size), dtype=np.float32)
+        legal_mask = np.zeros((batch_size, maximum), dtype=np.float32)
+        for index, item in enumerate(items):
+            count = len(item.legal_actions)
+            legal_actions[index, :count] = item.legal_actions
+            legal_mask[index, :count] = 1.0
+        return PolicyBatch(
+            states=np.stack([item.state for item in items]).astype(np.float32),
+            legal_actions=legal_actions,
+            legal_mask=legal_mask,
+            selected_indices=np.asarray([item.selected_index for item in items], dtype=np.int32),
+            families=np.asarray([int(item.family) for item in items], dtype=np.int32),
+            targets=np.asarray([item.target for item in items], dtype=np.float32),
+            behavior_probabilities=np.asarray(
+                [item.behavior_probability for item in items], dtype=np.float32
+            ),
+            bootstrap_mask=np.stack([item.bootstrap_mask for item in items]).astype(np.float32),
+            sample_weights=np.ones(batch_size, dtype=np.float32),
+            game_ids=np.asarray(
+                [int(_numeric_game_id(item.game_id)) for item in items], dtype=np.uint64
+            ),
+            players=np.asarray([item.player for item in items], dtype=np.uint8),
+            steps=np.asarray([item.step for item in items], dtype=np.uint32),
+        )
+
+    def metrics(self) -> dict[str, Any]:
+        with self._lock:
+            lengths = [len(items) for items in self._episodes.values()]
+            return {
+                "size": self._size,
+                "capacity": self.capacity,
+                "utilization": self._size / self.capacity,
+                "player_games": len(lengths),
+                "mean_decisions_per_player_game": float(np.mean(lengths)) if lengths else 0.0,
+                "writes": self._writes,
+                "evicted_decisions": self._evicted_decisions,
+                "sampling": "uniform_player_game_then_turn_phase_then_decision",
+            }

@@ -5,6 +5,8 @@ from astro2.cards import CARD_BY_ID
 from astro2.diagnostics import (
     all_family_decision_suite,
     ensemble_metrics,
+    resource_efficiency_decision_suite,
+    resource_efficiency_metrics,
     strategic_decision_suite,
     strategic_metrics,
     tactical_metrics,
@@ -77,6 +79,13 @@ def test_bootstrap_baseline_keeps_every_high_cost_card_in_strategic_suite():
     assert checked >= 4
 
 
+def test_resource_efficiency_suite_detects_ending_with_spendable_trade():
+    decisions = resource_efficiency_decision_suite(seed=319)
+    metrics = resource_efficiency_metrics(EndFavoringActor(), decisions)
+    assert metrics["unused_resource_violations"] == len(decisions)
+    assert metrics["passed"] is False
+
+
 def test_all_family_ensemble_suite_reports_independent_head_choices():
     decisions = all_family_decision_suite(seed=419)
     assert {decision.family for decision in decisions} == set(DecisionFamily)
@@ -123,6 +132,13 @@ def test_checkpoint_diagnostics_keeps_existing_groups_and_adds_regressions(monke
         baseline_pairs=1,
     )
 
-    assert set(result) == {"tactical", "strategic", "ensemble", "heldout", "baselines"}
+    assert set(result) == {
+        "tactical",
+        "strategic",
+        "resource_efficiency",
+        "ensemble",
+        "heldout",
+        "baselines",
+    }
     assert result["strategic"]["early_high_cost_passed"] is False
     assert result["ensemble"]["families"] == len(DecisionFamily)
