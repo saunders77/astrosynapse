@@ -60,7 +60,7 @@ The Astro4 preset is the recommended M4/16 GB starting point: 8 CPU actors, a 19
 
 - **Overview** — run phase, elapsed time and ETA, games/s, decisions/s, replay fill, learning quality, hardware, and recent persisted events.
 - **Train** — create a run, select Astro4, Astro3, quick validation, or the Astro2 compatibility preset, expose advanced settings, and start, durably pause, resume, stop, or checkpoint at safe boundaries.
-- **Models & Arena** — inspect checkpoint lineage, pin models, download `.actor.npz` exports, and compare checkpoints or baselines with exact seed-paired seat swaps. Use 5,000 manual pairs before treating a comparison as release-strength evidence.
+- **Models & Arena** — inspect checkpoint lineage, pin models, download `.actor.npz` exports, compare checkpoints or baselines with exact seed-paired seat swaps, and select any retained candidate for a one-click 1,000-game Scrap Elo or Acquire Elo card-choice probe. Use 5,000 manual pairs before treating a head-to-head comparison as release-strength evidence.
 - **Play** — select a checkpoint, choose the starting seat, and play through legal semantic actions. Astro4 shows normalized legal-action policy shares; legacy checkpoints show independent outcome estimates. Baseline games do not invent model scores.
 - **Diagnostics / Settings** — outcome losses, calibration and ensemble diagnostics, replay write/sample ratios and effective weights, effective exploration, population mix, plateau response, CPU/RAM/Metal telemetry, audit events, and settings that are safe to apply between batches.
 
@@ -73,6 +73,7 @@ Runtime state is local and ignored by Git:
 ```text
 data/astrosynapse2.sqlite3       runs, metrics, arena jobs, audit events
 data/checkpoints/<run-id>/       safetensors and NumPy actor snapshots
+data/analysis/                   completed card-choice Elo text and JSON reports
 ```
 
 Training survives browser disconnects. If the backend or Mac exits unexpectedly, the run is marked `interrupted` at restart and can resume from its latest compatible model checkpoint. Paired arena jobs retain completed pairs and recover after a clean backend restart. Astro4 checkpoints preserve compatible weights, optimizer state, counters, elapsed time, rollout RNG state, and league statistics; legal-set replay is deliberately repopulated after restart before learning resumes. Astro3 retains its configured recent replay journal. Legacy Astro2 checkpoints remain weight-only.
@@ -90,6 +91,10 @@ Training survives browser disconnects. If the backend or Mac exits unexpectedly,
 ./.venv/bin/astro2 train --preset astro4_m4 --name "Astro4 seed 3" --seed 20260815
 ./.venv/bin/astro2 train --preset astro3_m4 --name "Astro3 control" --seed 20260816
 ./.venv/bin/astro2 train --preset m4_24h --name "Overnight league"
+
+# Run the same card probe offered in Models & Arena
+./.venv/bin/astro2 card-analysis --model <checkpoint-id> --kind scrap
+./.venv/bin/astro2 card-analysis --model <checkpoint-id> --kind acquire
 
 # Start only the API (dashboard development or automation)
 ./.venv/bin/astro2 serve

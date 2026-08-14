@@ -23,6 +23,13 @@ from .arena import (
     ArenaManager,
     ModelResolutionError,
 )
+from .card_analysis import (
+    DEFAULT_ANALYSIS_GAMES,
+    MAX_ANALYSIS_GAMES,
+    AnalysisKind,
+    CardAnalysisConfig,
+    CardAnalysisManager,
+)
 from .config import RunConfig, preset_config
 from .hardware import system_snapshot
 from .play import PlayManager
@@ -78,6 +85,16 @@ class CreateArenaRequest(BaseModel):
     )
 
 
+class CreateCardAnalysisRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    model_id: str = Field(min_length=1, max_length=128)
+    kind: AnalysisKind
+    games: int = Field(default=DEFAULT_ANALYSIS_GAMES, ge=1, le=MAX_ANALYSIS_GAMES)
+    seed: int = Field(default=20260813, ge=0, le=9_007_199_254_740_991)
+    max_turns: int = Field(default=400, ge=20, le=500)
+    max_actions_per_turn: int = Field(default=200, ge=20, le=500)
+
+
 def _build_config(request: CreateRunRequest) -> RunConfig:
     base = preset_config(request.preset).model_dump()
     if request.name:
@@ -94,6 +111,7 @@ async def lifespan(app: FastAPI):
     store = Store(DATA_DIR / "astrosynapse2.sqlite3")
     app.state.store = store
     app.state.arena = ArenaManager(store)
+    app.state.card_analysis = CardAnalysisManager(store, DATA_DIR / "analysis")
     app.state.supervisor = Supervisor(
         store,
         PROJECT_ROOT,
@@ -105,6 +123,7 @@ async def lifespan(app: FastAPI):
     finally:
         app.state.supervisor.shutdown()
         app.state.play.shutdown()
+        app.state.card_analysis.shutdown()
         app.state.arena.shutdown()
 
 
@@ -141,6 +160,10 @@ def _play(request: Request) -> PlayManager:
 
 def _arena(request: Request) -> ArenaManager:
     return request.app.state.arena
+
+
+def _card_analysis(request: Request) -> CardAnalysisManager:
+    return request.app.state.card_analysis
 
 
 def _artifact_retention(checkpoint: dict[str, Any]) -> dict[str, Any]:
@@ -454,6 +477,53 @@ def arena_job(job_id: str, request: Request) -> dict[str, Any]:
         return _arena(request).get(job_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="arena job not found") from error
+
+
+@app.post("/api/card-analysis", status_code=201)
+def create_card_analysis(
+    payload: CreateCardAnalysisRequest, request: Request
+) -> dict[str, Any]:
+    try:
+        return _card_analysis(request).create(
+            payload.model_id,
+            payload.kind,
+            CardAnalysisConfig(
+                games=payload.games,
+                seed=payload.seed,
+                max_turns=payload.max_turns,
+                max_actions_per_turn=payload.max_actions_per_turn,
+            ),
+        )
+    except ModelResolutionError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get("/api/card-analysis")
+def card_analysis_jobs(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=500),
+    model_id: str | None = None,
+    run_id: str | None = None,
+) -> list[dict[str, Any]]:
+    if run_id is None:
+        return _card_analysis(request).list(limit=limit, model_id=model_id)
+    try:
+        checkpoint_ids = {item["id"] for item in _store(request).checkpoints(run_id)}
+        _store(request).get_run(run_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="run not found") from error
+    jobs = _card_analysis(request).list(limit=500, model_id=model_id)
+    return [job for job in jobs if job["model_id"] in checkpoint_ids][:limit]
+
+
+@app.get("/api/card-analysis/{job_id}")
+def card_analysis_job(job_id: str, request: Request) -> dict[str, Any]:
+    try:
+        return _card_analysis(request).get(job_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="card analysis job not found") from error
 
 
 @app.get("/api/games")

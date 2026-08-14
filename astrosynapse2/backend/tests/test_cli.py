@@ -133,3 +133,13 @@ def test_train_parser_accepts_an_explicit_seed():
     args = cli.build_parser().parse_args(["train", "--preset", "astro3_m4", "--seed", "20260812"])
 
     assert args.seed == 20260812
+
+
+def test_card_analysis_parser_defaults_to_one_thousand_games():
+    args = cli.build_parser().parse_args(
+        ["card-analysis", "--model", "candidate-42", "--kind", "acquire"]
+    )
+
+    assert args.model == "candidate-42"
+    assert args.kind == "acquire"
+    assert args.games == 1_000

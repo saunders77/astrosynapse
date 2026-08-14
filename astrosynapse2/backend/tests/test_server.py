@@ -164,6 +164,62 @@ def test_run_seed_rejects_values_that_cannot_round_trip_through_the_dashboard(
             assert response.status_code == 409
 
 
+def test_card_analysis_api_queues_and_polls_a_fixed_thousand_game_candidate_job(
+    tmp_path, monkeypatch
+):
+    calls = []
+
+    class FakeCardAnalysisManager:
+        def __init__(self, store, output_dir):
+            self.store = store
+            self.output_dir = output_dir
+
+        def create(self, model_id, kind, config):
+            calls.append((model_id, str(kind), config))
+            return {
+                "id": "analysis-1",
+                "status": "queued",
+                "model_id": model_id,
+                "kind": str(kind),
+                "config": config.to_dict(),
+                "result": {
+                    "games_requested": config.games,
+                    "games_completed": 0,
+                    "progress": 0.0,
+                },
+            }
+
+        def get(self, job_id):
+            if job_id != "analysis-1":
+                raise KeyError(job_id)
+            return {"id": job_id, "status": "running", "result": {"games_completed": 7}}
+
+        def list(self, *, limit, model_id=None):
+            return [{"id": "analysis-1", "model_id": model_id, "limit": limit}]
+
+        def shutdown(self):
+            pass
+
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(server, "CardAnalysisManager", FakeCardAnalysisManager)
+    with TestClient(server.app) as client:
+        response = client.post(
+            "/api/card-analysis",
+            json={"model_id": "candidate-42", "kind": "scrap", "games": 1_000},
+        )
+
+        assert response.status_code == 201
+        assert response.json()["config"]["games"] == 1_000
+        assert calls[0][0:2] == ("candidate-42", "scrap")
+        assert client.get("/api/card-analysis/analysis-1").json()["status"] == "running"
+        assert client.get("/api/card-analysis/missing").status_code == 404
+        listing = client.get(
+            "/api/card-analysis?limit=3&model_id=candidate-42"
+        ).json()
+        assert listing == [{"id": "analysis-1", "model_id": "candidate-42", "limit": 3}]
+        assert client.get("/api/card-analysis?run_id=missing").status_code == 404
+
+
 def test_generation_two_custom_run_can_be_loaded_and_cloned(tmp_path, monkeypatch):
     """Exercise the request shape emitted by the GUI for a loaded custom run."""
 

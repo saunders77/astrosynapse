@@ -29,6 +29,8 @@ import {
  * POST  /arena
  *   <- { model_a, model_b, pairs } (service enforces paired seeds and seat reversal)
  * GET   /arena/:id -> persistent paired-evaluation progress and result
+ * POST  /card-analysis <- { model_id, kind, games }
+ * GET   /card-analysis/:id -> 1,000-game card-choice Elo progress and rankings
  * POST  /games
  *   <- { model_id, human_starts }
  * GET   /games/:id -> GameSession
@@ -280,6 +282,37 @@ type ArenaResultView = {
   gamesCompleted: number;
   intervalMethod: string;
   recommendation: string;
+};
+
+type CardEloEntry = {
+  key: string;
+  cardName: string;
+  source: string;
+  label: string;
+  elo: number;
+  uncertainty: number | null;
+  decisions: number;
+  comparisons: number;
+  wins: number;
+  losses: number;
+};
+
+type CardAnalysisView = {
+  id: string;
+  status: string;
+  kind: "scrap" | "acquire";
+  modelId: string;
+  modelLabel: string;
+  progress: number;
+  gamesCompleted: number;
+  gamesRequested: number;
+  singleCardTurns: number;
+  scoredDecisions: number;
+  comparisons: number;
+  truncatedGames: number;
+  durationSeconds: number;
+  leaderboard: CardEloEntry[];
+  error: string;
 };
 
 type AuditEvent = {
@@ -1632,6 +1665,51 @@ function normalizeArenaJob(raw: unknown): ArenaResultView | null {
   };
 }
 
+function normalizeCardAnalysis(raw: unknown): CardAnalysisView | null {
+  if (!isRecord(raw)) return null;
+  const result = isRecord(raw.result) ? raw.result : {};
+  const model = isRecord(result.model) ? result.model : {};
+  const config = isRecord(raw.config) ? raw.config : {};
+  const gamesRequested = asNumber(result.games_requested ?? config.games, 1_000);
+  const gamesCompleted = asNumber(result.games_completed, 0);
+  const rawProgress = asNumber(
+    result.progress,
+    gamesRequested ? gamesCompleted / gamesRequested : 0,
+  );
+  const rawLeaderboard = Array.isArray(result.leaderboard) ? result.leaderboard : [];
+  return {
+    id: asString(raw.id, ""),
+    status: asString(raw.status, "queued"),
+    kind: asString(raw.kind ?? result.kind, "acquire") === "scrap" ? "scrap" : "acquire",
+    modelId: asString(raw.model_id ?? model.id, ""),
+    modelLabel: asString(raw.model_label ?? model.label, "Selected candidate"),
+    progress: Math.max(0, Math.min(100, rawProgress <= 1 ? rawProgress * 100 : rawProgress)),
+    gamesCompleted,
+    gamesRequested,
+    singleCardTurns: asNumber(result.single_card_turns, 0),
+    scoredDecisions: asNumber(result.scored_decisions ?? result.decisions_captured, 0),
+    comparisons: asNumber(result.pairwise_comparisons, 0),
+    truncatedGames: asNumber(result.truncated_games, 0),
+    durationSeconds: asNumber(result.duration_seconds, 0),
+    leaderboard: rawLeaderboard.map((entry, index): CardEloEntry => {
+      const item = isRecord(entry) ? entry : {};
+      return {
+        key: asString(item.key, `card-elo-${index}`),
+        cardName: asString(item.card_name, "Unknown card"),
+        source: asString(item.source, ""),
+        label: asString(item.label ?? item.card_name, "Unknown card"),
+        elo: asNumber(item.elo, 0),
+        uncertainty: asOptionalNumber(item.uncertainty),
+        decisions: asNumber(item.decision_count, 0),
+        comparisons: asNumber(item.pairwise_comparisons, 0),
+        wins: asNumber(item.wins, 0),
+        losses: asNumber(item.losses, 0),
+      };
+    }),
+    error: asString(raw.error, ""),
+  };
+}
+
 const abilityDescriptions: Record<string, string> = {
   all_ally: "All of your factions count as allied this turn",
   barter_world: "Choose: gain 2 authority or gain 2 trade",
@@ -2382,6 +2460,10 @@ export default function Home() {
   const [arenaProgress, setArenaProgress] = useState(0);
   const [arenaJobId, setArenaJobId] = useState<string | null>(null);
   const [arenaResult, setArenaResult] = useState<ArenaResultView | null>(demoArenaResult);
+  const [analysisModel, setAnalysisModel] = useState("champion-042");
+  const [analysisRunning, setAnalysisRunning] = useState(false);
+  const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<CardAnalysisView | null>(null);
   const [game, setGame] = useState<GameState>(initialGame);
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
   const [playModel, setPlayModel] = useState("champion-042");
@@ -2667,6 +2749,9 @@ export default function Home() {
           setArenaProgress(0);
           setArenaRunning(false);
           setArenaJobId(null);
+          setAnalysisRunning(false);
+          setAnalysisJobId(null);
+          setAnalysisResult(null);
           setSnapshot((current) => {
             const next = normalizeSnapshot({ system: systemRaw }, current);
             return {
@@ -2692,12 +2777,13 @@ export default function Home() {
         } else {
           const changedRun = activeRunIdRef.current !== runId;
           const after = changedRun ? -1 : metricsSeqRef.current;
-          const [detailRaw, metricsRaw, modelsRaw, eventsRaw, arenaJobsRaw] = await Promise.all([
+          const [detailRaw, metricsRaw, modelsRaw, eventsRaw, arenaJobsRaw, analysisJobsRaw] = await Promise.all([
             fetchJson(`/runs/${encodeURIComponent(runId)}`),
             fetchJson(`/runs/${encodeURIComponent(runId)}/metrics?after=${after}`),
             fetchJson(`/models?run_id=${encodeURIComponent(runId)}`),
             fetchJson(`/runs/${encodeURIComponent(runId)}/events?limit=100`),
             fetchJson(`/arena?limit=1&run_id=${encodeURIComponent(runId)}`).catch(() => []),
+            fetchJson(`/card-analysis?limit=1&run_id=${encodeURIComponent(runId)}`).catch(() => []),
           ]);
           if (cancelled) return;
           const latestArenaRaw = Array.isArray(arenaJobsRaw) ? arenaJobsRaw[0] : null;
@@ -2712,6 +2798,17 @@ export default function Home() {
             setArenaProgress(0);
             setArenaRunning(false);
             setArenaJobId(null);
+          }
+          const latestAnalysisRaw = Array.isArray(analysisJobsRaw) ? analysisJobsRaw[0] : null;
+          const latestAnalysis = latestAnalysisRaw ? normalizeCardAnalysis(latestAnalysisRaw) : null;
+          setAnalysisResult(latestAnalysis);
+          if (latestAnalysis) {
+            const activeAnalysis = ["queued", "running"].includes(latestAnalysis.status.toLowerCase());
+            setAnalysisRunning(activeAnalysis);
+            setAnalysisJobId(activeAnalysis ? latestAnalysis.id : null);
+          } else {
+            setAnalysisRunning(false);
+            setAnalysisJobId(null);
           }
           const detail = isRecord(detailRaw) ? detailRaw : { run: detailRaw };
           const detailedRun = isRecord(detail.run) ? detail.run : {};
@@ -2811,6 +2908,40 @@ export default function Home() {
   }, [connected, arenaJobId, arenaRunning, arenaPairs]);
 
   useEffect(() => {
+    if (!connected || !analysisJobId || !analysisRunning) return;
+    let cancelled = false;
+    let inFlight = false;
+    const pollAnalysis = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const raw = await fetchJson(`/card-analysis/${encodeURIComponent(analysisJobId)}`);
+        if (cancelled) return;
+        const normalized = normalizeCardAnalysis(raw);
+        if (normalized) setAnalysisResult(normalized);
+        const status = isRecord(raw) ? asString(raw.status, "running").toLowerCase() : "running";
+        if (["complete", "cancelled", "failed", "error"].includes(status)) {
+          setAnalysisRunning(false);
+          showToast(status === "complete" ? "Card Elo analysis complete" : `Card analysis ${status}`);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setAnalysisRunning(false);
+          showToast(`Card analysis polling stopped: ${error instanceof Error ? error.message : "unknown error"}`);
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+    pollAnalysis();
+    const interval = window.setInterval(pollAnalysis, 1_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [connected, analysisJobId, analysisRunning]);
+
+  useEffect(() => {
     if (!snapshot.models.length) return;
     const champion = availableModels.find((model) => model.isChampion) ?? availableModels[0];
     const challenger = availableModels.find((model) => model.id !== champion?.id);
@@ -2818,7 +2949,8 @@ export default function Home() {
     if (!availableModels.some((model) => model.id === arenaA) && !arenaBaselines.some((model) => model.id === arenaA)) setArenaA(champion?.id ?? "baseline:balanced");
     if (!availableModels.some((model) => model.id === arenaB) && !arenaBaselines.some((model) => model.id === arenaB)) setArenaB(challenger?.id ?? "baseline:balanced");
     if (arenaA === arenaB) setArenaB(challenger?.id ?? "baseline:balanced");
-  }, [snapshot.models, availableModels, playModel, arenaA, arenaB]);
+    if (!availableModels.some((model) => model.id === analysisModel)) setAnalysisModel(champion?.id ?? "");
+  }, [snapshot.models, availableModels, playModel, arenaA, arenaB, analysisModel]);
 
   useEffect(() => {
     if (!connected || !remoteGame?.id || remoteGame.status !== "model_thinking") return;
@@ -3066,6 +3198,34 @@ export default function Home() {
     }
   };
 
+  const runCardAnalysis = async (kind: "scrap" | "acquire") => {
+    if (!analysisModel || !availableModels.some((model) => model.id === analysisModel)) {
+      showToast("Choose an available candidate checkpoint first");
+      return;
+    }
+    if (!connected) {
+      showToast("Card Elo tests require the local Astrosynapse service");
+      return;
+    }
+    setAnalysisRunning(true);
+    setAnalysisJobId(null);
+    setAnalysisResult(null);
+    try {
+      const raw = await fetchJson("/card-analysis", {
+        method: "POST",
+        body: JSON.stringify({ model_id: analysisModel, kind, games: 1_000 }),
+      });
+      const normalized = normalizeCardAnalysis(raw);
+      if (!normalized?.id) throw new Error("service did not return a job ID");
+      setAnalysisJobId(normalized.id);
+      setAnalysisResult(normalized);
+      showToast(`${titleCase(kind)} Elo test queued for 1,000 games`);
+    } catch (error) {
+      setAnalysisRunning(false);
+      showToast(`Card Elo test could not start: ${error instanceof Error ? error.message : "unknown error"}`);
+    }
+  };
+
   const refreshModels = async () => {
     if (!connected) {
       showToast("Demo registry is already current");
@@ -3292,7 +3452,7 @@ export default function Home() {
           <span className="run-monogram">M4</span>
           <span className="run-context-copy">
             <small>Active run</small>
-            {connected && runChoices.length ? <select className="run-selector" aria-label="Select run and model to view or start" value={remoteRunId ?? ""} onChange={(event) => selectRun(event.target.value)}>
+            {connected && runChoices.length ? <select className="run-selector" aria-label="Select run to view and control" value={remoteRunId ?? ""} onChange={(event) => selectRun(event.target.value)}>
               {runChoices.map((run) => <option key={run.id} value={run.id}>{run.name} · {run.latestModel?.label ?? "No saved model"} · {titleCase(run.status)}</option>)}
             </select> : <strong>{snapshot.run.name}</strong>}
           </span>
@@ -3720,6 +3880,25 @@ export default function Home() {
                 </div>
               </article>
             </div>
+
+            <article className="panel card-analysis-panel">
+              <header className="panel-header"><div><span className="panel-kicker">Candidate behavior probe</span><h2>Card scrap & acquire Elo</h2></div><span className="paired-chip">1,000 self-play games</span></header>
+              <p className="card-analysis-intro">Choose one immutable candidate, then rank the card choices its greedy deployment policy actually makes. A chosen card is compared with every unchosen card available at that decision; turns with multiple scraps or acquisitions are excluded.</p>
+              <div className="card-analysis-controls">
+                <label><span>Candidate checkpoint</span><select value={availableModels.some((model) => model.id === analysisModel) ? analysisModel : ""} onChange={(event) => setAnalysisModel(event.target.value)} disabled={analysisRunning}>{availableModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</select></label>
+                <div><span>Fixed sample</span><strong>1,000 games</strong><small>candidate vs itself · greedy mean heads</small></div>
+                <button type="button" className="button" onClick={() => runCardAnalysis("scrap")} disabled={analysisRunning || !availableModels.length}>{analysisRunning && analysisResult?.kind === "scrap" ? "Running Scrap Elo…" : "Run Scrap Elo"}</button>
+                <button type="button" className="button button-primary" onClick={() => runCardAnalysis("acquire")} disabled={analysisRunning || !availableModels.length}>{analysisRunning && analysisResult?.kind === "acquire" ? "Running Acquire Elo…" : "Run Acquire Elo"}</button>
+              </div>
+              {analysisResult ? <>
+                <div className="arena-progress card-analysis-progress" aria-live="polite"><div><span>{titleCase(analysisResult.kind)} Elo · {analysisResult.modelLabel}</span><strong>{Math.round(analysisResult.progress)}%</strong></div><i><b style={{ width: `${analysisResult.progress}%` }} /></i><p>{numberFormatter.format(analysisResult.gamesCompleted)} of {numberFormatter.format(analysisResult.gamesRequested)} games · {numberFormatter.format(analysisResult.singleCardTurns)} eligible single-card turns{analysisResult.status === "complete" ? ` · ${numberFormatter.format(analysisResult.comparisons)} alternative comparisons` : ""}</p></div>
+                {analysisResult.error ? <p className="card-analysis-error">{analysisResult.error}</p> : null}
+                {analysisResult.leaderboard.length ? <div className="card-elo-results">
+                  <div className="card-elo-summary"><span><small>Scored choices</small><strong>{numberFormatter.format(analysisResult.scoredDecisions)}</strong></span><span><small>Comparisons</small><strong>{numberFormatter.format(analysisResult.comparisons)}</strong></span><span><small>Truncations</small><strong>{numberFormatter.format(analysisResult.truncatedGames)}</strong></span><span><small>Duration</small><strong>{formatDuration(analysisResult.durationSeconds)}</strong></span></div>
+                  <div className="card-elo-table" role="table" aria-label={`${analysisResult.kind} card Elo rankings`}><div className="card-elo-row card-elo-header" role="row"><span role="columnheader">Rank / card</span><span role="columnheader">Elo</span><span role="columnheader">± uncertainty</span><span role="columnheader">Decisions</span><span role="columnheader">Comparisons</span></div>{analysisResult.leaderboard.map((entry, index) => <div className="card-elo-row" role="row" key={entry.key}><span role="cell"><b>{index + 1}</b><strong>{entry.label}</strong></span><span role="cell">{entry.elo.toFixed(2)}</span><span role="cell">{entry.uncertainty === null ? "—" : entry.uncertainty.toFixed(2)}</span><span role="cell">{numberFormatter.format(entry.decisions)}</span><span role="cell">{numberFormatter.format(entry.comparisons)}</span></div>)}</div>
+                </div> : analysisRunning ? null : <EmptyState title="No comparable choices observed" detail="The candidate completed the sample without a single-card turn containing at least one alternate card choice." />}
+              </> : <EmptyState title="Choose a candidate and a probe" detail="Scrap Elo combines hand and discard evidence into one score per card. Acquire Elo compares every card that was legally acquirable at the selected purchase or free-acquire decision." />}
+            </article>
 
             <article className="panel registry-panel">
               <header className="panel-header"><div><span className="panel-kicker">Model registry</span><h2><Jargon term="checkpoint">Checkpoints</Jargon></h2></div><div className="registry-actions"><button type="button" className="button button-quiet" onClick={refreshModels} disabled={commandBusy !== null}>Refresh</button><button type="button" className="button" onClick={() => {

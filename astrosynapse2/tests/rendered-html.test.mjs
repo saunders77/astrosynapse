@@ -73,6 +73,10 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /launchPresetForConfig\(loaded, basePresetRef\.current\)/);
   assert.match(page, /Deployment-policy self-play/);
   assert.match(page, /\/models\/\$\{encodeURIComponent\(modelId\)\}/);
+  assert.match(page, /fetchJson\("\/card-analysis"/);
+  assert.match(page, /Run Scrap Elo/);
+  assert.match(page, /Run Acquire Elo/);
+  assert.match(page, /1,000 self-play games/);
   assert.match(page, /model_value/);
   assert.match(page, /expected_win_rate/);
   assert.match(page, /Expected win rate/);

@@ -1616,6 +1616,166 @@ textarea:focus {
   grid-column: 1 / -1;
 }
 
+.card-analysis-panel {
+  margin-top: 14px;
+  padding: 26px;
+  overflow: hidden;
+}
+
+.card-analysis-intro {
+  max-width: 920px;
+  margin: 11px 0 20px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.card-analysis-controls {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.5fr) minmax(170px, 0.75fr) auto auto;
+  gap: 11px;
+  align-items: end;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(3, 7, 11, 0.36);
+}
+
+.card-analysis-controls label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.card-analysis-controls > div {
+  padding: 0 4px 5px;
+}
+
+.card-analysis-controls > div span,
+.card-analysis-controls > div small {
+  display: block;
+  color: var(--faint);
+  font-size: 8px;
+}
+
+.card-analysis-controls > div strong {
+  display: block;
+  margin: 3px 0;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.card-analysis-progress {
+  margin-bottom: 20px;
+}
+
+.card-analysis-error {
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 119, 127, 0.3);
+  border-radius: 7px;
+  color: var(--danger);
+  font-size: 9px;
+}
+
+.card-elo-results {
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.card-elo-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 15px;
+}
+
+.card-elo-summary span {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.card-elo-summary small,
+.card-elo-summary strong {
+  display: block;
+}
+
+.card-elo-summary small {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 7px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.card-elo-summary strong {
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 540;
+}
+
+.card-elo-table {
+  max-height: 440px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.card-elo-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.5fr) repeat(4, minmax(90px, 0.6fr));
+  gap: 10px;
+  align-items: center;
+  min-width: 720px;
+  min-height: 38px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.card-elo-row:first-child {
+  border-top: 0;
+}
+
+.card-elo-row > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.card-elo-row > span:first-child b {
+  width: 24px;
+  color: var(--faint);
+  font-weight: 500;
+}
+
+.card-elo-row > span:first-child strong {
+  font-weight: 600;
+}
+
+.card-elo-header {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  min-height: 32px;
+  border-top: 0;
+  background: var(--surface);
+  color: var(--faint);
+  font-size: 7px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .versus-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 65px minmax(0, 1fr);
@@ -3326,6 +3486,11 @@ button.game-card:hover:not(:disabled) {
   .arena-settings label { grid-column: 1 / -1; }
   .arena-settings .button { grid-column: 1 / -1; }
   .arena-result { grid-template-columns: 1fr; }
+  .card-analysis-panel { padding: 19px; }
+  .card-analysis-controls { grid-template-columns: 1fr 1fr; }
+  .card-analysis-controls label,
+  .card-analysis-controls > div { grid-column: 1 / -1; }
+  .card-elo-summary { grid-template-columns: 1fr 1fr; }
   .registry-actions { display: none; }
   .play-heading { display: block; }
   .game-setup { flex-wrap: wrap; justify-content: flex-start; margin-top: 18px; }
@@ -3374,6 +3539,10 @@ button.game-card:hover:not(:disabled) {
   .arena-settings { grid-template-columns: 1fr; }
   .arena-settings label,
   .arena-settings .button { grid-column: auto; }
+  .card-analysis-controls { grid-template-columns: 1fr; }
+  .card-analysis-controls label,
+  .card-analysis-controls > div { grid-column: auto; }
+  .card-elo-summary { grid-template-columns: 1fr; }
   .interval-labels span:last-child { display: none; }
   .game-setup .button { flex: 1; }
   .toggle-label { flex: 1; }

@@ -44,6 +44,16 @@ Every public/manual arena job is hard-coded to `automatic_promotion=false`, even
 
 Trainer cadence and plateau state count only complete, current evidence. A truncated arena can promote only after every truncated game is conservatively rescored as a candidate loss and the adjusted paired confidence interval still clears the promotion threshold; otherwise it remains retryable and does not create a false plateau. Natural training completion enters `finalizing_evaluation`, waits for that run's trainer job rather than globally draining every arena, and checks the newest due checkpoint before reporting complete. A trainer job can queue behind an occupied evaluator slot. Pause or stop cancels that one automatic arena at the next game boundary, or immediately before it starts if still queued, without cancelling the unrelated job.
 
+## Card-choice Elo probes
+
+- `POST /card-analysis` — queue a probe with `{model_id, kind: "scrap"|"acquire", games?, seed?, max_turns?, max_actions_per_turn?}`. The GUI always requests 1,000 games.
+- `GET /card-analysis?limit={n}&model_id={checkpoint}&run_id={run}` — recent process-local jobs, optionally filtered to one checkpoint or run. The dashboard uses this to reconnect to an active job after a browser refresh.
+- `GET /card-analysis/{id}` — live progress or the completed card leaderboard.
+
+The selected checkpoint plays both seats using its greedy mean-head deployment policy. An acquire choice rates the selected purchase or free-acquire card against every other card legal in that decision. A scrap choice rates a selected hand/discard card against every other card legal in that decision; hand and discard evidence is combined into one score per card, and decline is not a card alternative. The analyzer groups events by player turn and rejects the complete turn unless exactly one card was acquired or exactly one card was scrapped; standard and free acquisitions both count, and hand/discard plus in-play scrap-for-ability actions all count toward the scrap filter. Acquire Elo uses the original multinomial/Plackett-Luce update and is normalized so Explorer is `2.0`; Scrap Elo uses the original pairwise update.
+
+Completed text and JSON reports are written under `data/analysis/`. Job progress itself is process-local; restarting the backend clears the in-memory job list but does not remove completed reports.
+
 ## Human games
 
 - `GET /games` — active/recent in-memory game sessions.
@@ -55,4 +65,4 @@ The server validates the submitted action against the exact pending legal-action
 
 ## Persistence and reconnects
 
-SQLite runs in WAL mode. Browser ownership is never used as a liveness signal. Runs, metrics, checkpoints, arena progress/results, and audit events survive browser reconnects. Completed arena pairs are retained and a clean backend restart requeues unfinished jobs. Ordinary Astro3 checkpoints persist optimizer state, exact counters/elapsed time, RNG states, league state, and a bounded recent replay journal. Pause and Stop boundaries persist the complete stratified replay buffer using a streamed archive that avoids a second full-buffer RAM allocation. The run detail and metrics report the actual recovery coverage. Human game sessions are intentionally process-local and are lost if the backend exits.
+SQLite runs in WAL mode. Browser ownership is never used as a liveness signal. Runs, metrics, checkpoints, arena progress/results, and audit events survive browser reconnects. Completed arena pairs are retained and a clean backend restart requeues unfinished jobs. Ordinary Astro3 checkpoints persist optimizer state, exact counters/elapsed time, RNG states, league state, and a bounded recent replay journal. Pause and Stop boundaries persist the complete stratified replay buffer using a streamed archive that avoids a second full-buffer RAM allocation. The run detail and metrics report the actual recovery coverage. Human game sessions and active card-analysis jobs are intentionally process-local and are lost if the backend exits; completed card-analysis report files remain on disk.

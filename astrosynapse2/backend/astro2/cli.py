@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from .arena import ArenaManager
+from .card_analysis import AnalysisKind, CardAnalysisConfig, run_card_analysis
 from .config import RunConfig, preset_config
 from .hardware import system_snapshot
 from .storage import Store
@@ -79,6 +80,29 @@ def command_train(args: argparse.Namespace) -> int:
         arena.shutdown()
 
 
+def command_card_analysis(args: argparse.Namespace) -> int:
+    """Run a checkpoint's card-choice probe without starting the web UI."""
+
+    data_dir = Path(args.data_dir).expanduser().resolve()
+    store = Store(data_dir / "astrosynapse2.sqlite3")
+
+    def progress(games: int, _single_card_turns: int, _decisions: int) -> None:
+        if games == args.games or games % max(1, args.games // 20) == 0:
+            print(f"{args.kind}: {games:,}/{args.games:,} games", file=sys.stderr)
+
+    result = run_card_analysis(
+        store,
+        args.model,
+        AnalysisKind(args.kind),
+        CardAnalysisConfig(games=args.games, seed=args.seed),
+        progress=progress,
+        output_dir=data_dir / "analysis",
+    )
+    print(result["report_text"])
+    print(f"\nJSON: {result.get('json_path', '-')}", file=sys.stderr)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astro2", description="Astrosynapse 2 control CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -108,6 +132,17 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--minutes", type=int)
     train.add_argument("--data-dir", default=str(PROJECT_ROOT / "data"))
     train.set_defaults(func=command_train)
+
+    analysis = subparsers.add_parser(
+        "card-analysis",
+        help="run a 1,000-game scrap/acquire Elo probe for one checkpoint",
+    )
+    analysis.add_argument("--model", required=True, help="checkpoint ID to analyze")
+    analysis.add_argument("--kind", choices=[kind.value for kind in AnalysisKind], required=True)
+    analysis.add_argument("--games", type=int, default=1_000)
+    analysis.add_argument("--seed", type=int, default=20260813)
+    analysis.add_argument("--data-dir", default=str(PROJECT_ROOT / "data"))
+    analysis.set_defaults(func=command_card_analysis)
     return parser
 
 
