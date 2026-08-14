@@ -253,10 +253,8 @@ type ModelCheckpoint = {
   qualityGateAvailable: boolean;
   qualityGatePassed: boolean | null;
   qualityGateReasons: string[];
-  earlyHighCostPassed: boolean | null;
-  earlyHighCostPositions: number | null;
-  earlyHighCostScrapRate: number | null;
-  earlyHighCostScrapMargin: number | null;
+  heldoutBrier: number | null;
+  baselineMeanScore: number | null;
   ensemblePositions: number | null;
   ensembleDisagreementRate: number | null;
   ensembleProbabilityStd: number | null;
@@ -353,7 +351,6 @@ type TrainerConfig = {
   counterfactualFraction: number;
   counterfactualMaxPerGame: number;
   counterfactualLossWeight: number;
-  requireResourceEfficiency: boolean;
   minimumHeadDisagreementRate: number;
   maximumHeldoutBrier: number;
   gateHeldoutBrierRegression: boolean;
@@ -473,14 +470,14 @@ const initialConfig: TrainerConfig = {
   learningRateDecayUpdates: 400_000,
   replayCapacity: 900_000,
   replayWarmup: 50_000,
-  heuristicBootstrapUpdates: 2_000,
+  heuristicBootstrapUpdates: 0,
   currentSelfplayFraction: 0.6,
   leagueFraction: 0.3,
   baselineFraction: 0.1,
   evaluationPairs: 5_000,
   adaptiveEvaluation: true,
-  evaluateEveryGames: 500_000,
-  checkpointEveryGames: 100_000,
+  evaluateEveryGames: 250_000,
+  checkpointEveryGames: 50_000,
   promotionConfidence: 0.95,
   promotionMargin: 0,
   epsilonStart: 0.15,
@@ -496,7 +493,6 @@ const initialConfig: TrainerConfig = {
   counterfactualFraction: 0.02,
   counterfactualMaxPerGame: 1,
   counterfactualLossWeight: 0.25,
-  requireResourceEfficiency: true,
   minimumHeadDisagreementRate: 0.05,
   maximumHeldoutBrier: 0.24,
   gateHeldoutBrierRegression: true,
@@ -510,10 +506,11 @@ const astro3Config: TrainerConfig = {
   randomizedPriorScale: 0.25,
   bootstrapInclusionProbability: 0.35,
   resumeReplayItems: 100_000,
+  checkpointEveryGames: 100_000,
+  evaluateEveryGames: 500_000,
   counterfactualFraction: 0,
   counterfactualMaxPerGame: 0,
   counterfactualLossWeight: 0,
-  requireResourceEfficiency: false,
   minimumHeadDisagreementRate: 0,
   maximumHeldoutBrier: 1,
   gateHeldoutBrierRegression: false,
@@ -544,10 +541,11 @@ const legacyM4Config: TrainerConfig = {
   explorationTopK: 3,
   terminalTargetWeight: 0.6,
   preferenceLossWeight: 0.15,
+  checkpointEveryGames: 100_000,
+  evaluateEveryGames: 500_000,
   counterfactualFraction: 0,
   counterfactualMaxPerGame: 0,
   counterfactualLossWeight: 0,
-  requireResourceEfficiency: false,
   minimumHeadDisagreementRate: 0,
   maximumHeldoutBrier: 1,
   gateHeldoutBrierRegression: true,
@@ -577,7 +575,6 @@ const quickConfig: TrainerConfig = {
   counterfactualFraction: 0,
   counterfactualMaxPerGame: 0,
   counterfactualLossWeight: 0,
-  requireResourceEfficiency: false,
   minimumHeadDisagreementRate: 0,
   maximumHeldoutBrier: 1,
   gateHeldoutBrierRegression: false,
@@ -590,10 +587,8 @@ const demoCheckpointDiagnostics = {
   qualityGateAvailable: true,
   qualityGatePassed: true,
   qualityGateReasons: [] as string[],
-  earlyHighCostPassed: true,
-  earlyHighCostPositions: 4,
-  earlyHighCostScrapRate: 0,
-  earlyHighCostScrapMargin: -0.38,
+  heldoutBrier: 0.18,
+  baselineMeanScore: 0.58,
   ensemblePositions: 8,
   ensembleDisagreementRate: 0.25,
   ensembleProbabilityStd: 0.041,
@@ -1316,10 +1311,8 @@ const emptyModel: ModelCheckpoint = {
   qualityGateAvailable: false,
   qualityGatePassed: null,
   qualityGateReasons: [],
-  earlyHighCostPassed: null,
-  earlyHighCostPositions: null,
-  earlyHighCostScrapRate: null,
-  earlyHighCostScrapMargin: null,
+  heldoutBrier: null,
+  baselineMeanScore: null,
   ensemblePositions: null,
   ensembleDisagreementRate: null,
   ensembleProbabilityStd: null,
@@ -1334,8 +1327,9 @@ function normalizeModel(raw: unknown, fallback: ModelCheckpoint = emptyModel): M
     : isRecord(evaluation.diagnostics)
       ? evaluation.diagnostics
       : {};
-  const strategic = isRecord(diagnostics.strategic) ? diagnostics.strategic : {};
   const ensemble = isRecord(diagnostics.ensemble) ? diagnostics.ensemble : {};
+  const heldout = isRecord(diagnostics.heldout) ? diagnostics.heldout : {};
+  const baselines = isRecord(diagnostics.baselines) ? diagnostics.baselines : {};
   const qualityGateReasons = Array.isArray(qualityGate.reasons)
     ? qualityGate.reasons.filter((reason): reason is string => typeof reason === "string" && Boolean(reason.trim()))
     : fallback.qualityGateReasons;
@@ -1403,20 +1397,16 @@ function normalizeModel(raw: unknown, fallback: ModelCheckpoint = emptyModel): M
       : fallback.artifactState,
     evaluated,
     qualityGateAvailable: Object.keys(qualityGate).length > 0
-      || Object.keys(strategic).length > 0
       || Object.keys(ensemble).length > 0
+      || Object.keys(heldout).length > 0
+      || Object.keys(baselines).length > 0
       || fallback.qualityGateAvailable,
     qualityGatePassed: asOptionalBoolean(qualityGate.passed) ?? fallback.qualityGatePassed,
     qualityGateReasons,
-    earlyHighCostPassed: asOptionalBoolean(strategic.early_high_cost_passed)
-      ?? fallback.earlyHighCostPassed,
-    earlyHighCostPositions: asOptionalNumber(strategic.early_high_cost_positions)
-      ?? fallback.earlyHighCostPositions,
-    earlyHighCostScrapRate: asOptionalNumber(strategic.early_high_cost_scrap_over_keep_rate)
-      ?? fallback.earlyHighCostScrapRate,
-    earlyHighCostScrapMargin: asOptionalNumber(
-      strategic.early_high_cost_mean_scrap_over_keep_logit_margin,
-    ) ?? fallback.earlyHighCostScrapMargin,
+    heldoutBrier: asOptionalNumber(heldout.game_grouped_brier ?? heldout.brier)
+      ?? fallback.heldoutBrier,
+    baselineMeanScore: asOptionalNumber(baselines.mean_score)
+      ?? fallback.baselineMeanScore,
     ensemblePositions: asOptionalNumber(ensemble.positions) ?? fallback.ensemblePositions,
     ensembleDisagreementRate: asOptionalNumber(ensemble.head_argmax_disagreement_rate)
       ?? fallback.ensembleDisagreementRate,
@@ -1862,7 +1852,6 @@ function configToApi(config: TrainerConfig): Record<string, string | number | bo
     counterfactual_fraction: config.counterfactualFraction,
     counterfactual_max_per_game: config.counterfactualMaxPerGame,
     counterfactual_loss_weight: config.counterfactualLossWeight,
-    require_resource_efficiency: config.requireResourceEfficiency,
     minimum_head_disagreement_rate: config.minimumHeadDisagreementRate,
     maximum_heldout_brier: config.maximumHeldoutBrier,
     gate_heldout_brier_regression: config.gateHeldoutBrierRegression,
@@ -1982,10 +1971,6 @@ function configFromApi(raw: unknown, prior: TrainerConfig): TrainerConfig {
     counterfactualLossWeight: asNumber(
       item.counterfactual_loss_weight,
       previous.counterfactualLossWeight,
-    ),
-    requireResourceEfficiency: asBoolean(
-      item.require_resource_efficiency,
-      previous.requireResourceEfficiency,
     ),
     minimumHeadDisagreementRate: asNumber(
       item.minimum_head_disagreement_rate,
@@ -2335,13 +2320,6 @@ function ModelDiagnosticStrip({ model }: { model: ModelCheckpoint }) {
     : model.qualityGatePassed
       ? "Passed"
       : "Failed";
-  const retentionStatus = model.earlyHighCostPassed === null
-    ? "Pending"
-    : model.earlyHighCostPassed
-      ? "Passed"
-      : "Failed";
-  const marginIsUnsafe = model.earlyHighCostScrapMargin !== null
-    && model.earlyHighCostScrapMargin > 0;
   const ensembleLooksCollapsed = model.ensembleProbabilityStd !== null
     && model.ensembleProbabilityStd < 0.005;
   return (
@@ -2350,17 +2328,17 @@ function ModelDiagnosticStrip({ model }: { model: ModelCheckpoint }) {
         <div className={model.qualityGatePassed === false ? "is-warning" : model.qualityGatePassed ? "is-positive" : ""}>
           <span>Quality gate</span>
           <strong>{gateStatus}</strong>
-          <small>{model.qualityGateReasons.length ? model.qualityGateReasons.join(" · ") : "deterministic checkpoint checks recorded"}</small>
+          <small>{model.qualityGateReasons.length ? model.qualityGateReasons.join(" · ") : "general checkpoint checks recorded"}</small>
         </div>
-        <div className={model.earlyHighCostPassed === false ? "is-warning" : model.earlyHighCostPassed ? "is-positive" : ""}>
-          <span>Early high-cost retention</span>
-          <strong>{retentionStatus}</strong>
-          <small>{model.earlyHighCostScrapRate === null ? "strategic suite pending" : `${formatPercent(model.earlyHighCostScrapRate)} chose scrap · ${numberFormatter.format(model.earlyHighCostPositions ?? 0)} positions`}</small>
+        <div className={model.heldoutBrier !== null && model.heldoutBrier > 0.24 ? "is-warning" : model.heldoutBrier !== null ? "is-positive" : ""}>
+          <span>Held-out calibration</span>
+          <strong>{model.heldoutBrier === null ? "Pending" : model.heldoutBrier.toFixed(4)}</strong>
+          <small>{model.heldoutBrier === null ? "held-out games pending" : "game-grouped Brier score · lower is better"}</small>
         </div>
-        <div className={marginIsUnsafe ? "is-warning" : model.earlyHighCostScrapMargin !== null ? "is-positive" : ""}>
-          <span>Scrap − keep logit margin</span>
-          <strong>{model.earlyHighCostScrapMargin === null ? "Pending" : `${model.earlyHighCostScrapMargin >= 0 ? "+" : ""}${model.earlyHighCostScrapMargin.toFixed(3)}`}</strong>
-          <small>{model.earlyHighCostScrapMargin === null ? "strategic suite pending" : marginIsUnsafe ? "positive means premature scrap is preferred" : "negative means card retention is preferred"}</small>
+        <div className={model.baselineMeanScore !== null && model.baselineMeanScore < 0.5 ? "is-warning" : model.baselineMeanScore !== null ? "is-positive" : ""}>
+          <span>Fixed-opponent score</span>
+          <strong>{model.baselineMeanScore === null ? "Pending" : formatPercent(model.baselineMeanScore)}</strong>
+          <small>{model.baselineMeanScore === null ? "fixed-opponent games pending" : "general diagnostic; paired arena determines promotion"}</small>
         </div>
         <div className={ensembleLooksCollapsed ? "is-warning" : model.ensembleProbabilityStd !== null ? "is-positive" : ""}>
           <span>Ensemble head diversity</span>
@@ -2409,6 +2387,18 @@ export default function Home() {
   const activeReplayCapacity = config.trainingGeneration >= 4
     ? config.policyReplayCapacity
     : config.replayCapacity;
+  const provisionalEvaluationPairs = Math.min(
+    config.evaluationPairs,
+    Math.max(200, Math.floor(config.evaluationPairs / 25)),
+  );
+  const developmentEvaluationPairs = Math.min(
+    config.evaluationPairs,
+    Math.max(1_000, Math.floor(config.evaluationPairs / 5)),
+  );
+  const developmentEvaluationCadence = Math.max(
+    config.checkpointEveryGames,
+    Math.floor(config.evaluateEveryGames / 2),
+  );
   const availableModels = useMemo(
     () => snapshot.models.filter((model) => model.actorAvailable),
     [snapshot.models],
@@ -3600,10 +3590,10 @@ export default function Home() {
                         <label><span>Terminal target weight</span><input type="number" min="0" max="1" step="0.05" value={config.terminalTargetWeight} onChange={(event) => updateConfig("terminalTargetWeight", Number(event.target.value))} /></label>
                         <label><span>Tactical loss weight</span><input type="number" min="0" max="10" step="0.05" value={config.preferenceLossWeight} onChange={(event) => updateConfig("preferenceLossWeight", Number(event.target.value))} /></label>
                       </>}
-                      <label><span><Jargon term="checkpoint">Checkpoint games</Jargon></span><input type="number" value={config.checkpointEveryGames} onChange={(event) => updateConfig("checkpointEveryGames", Number(event.target.value))} /></label>
-                      <label><span>Evaluation games</span><input type="number" value={config.evaluateEveryGames} onChange={(event) => updateConfig("evaluateEveryGames", Number(event.target.value))} /></label>
+                      <label><span><Jargon term="checkpoint">{config.trainingGeneration >= 4 ? "Checkpoint / provisional cadence" : "Checkpoint games"}</Jargon></span><input type="number" value={config.checkpointEveryGames} onChange={(event) => updateConfig("checkpointEveryGames", Number(event.target.value))} /></label>
+                      <label><span>{config.trainingGeneration >= 4 ? "Full promotion cadence" : "Evaluation games"}</span><input type="number" value={config.evaluateEveryGames} onChange={(event) => updateConfig("evaluateEveryGames", Number(event.target.value))} /></label>
                       <label className="toggle-label"><input type="checkbox" checked={config.adaptiveEvaluation} onChange={(event) => updateConfig("adaptiveEvaluation", event.target.checked)} /><span /><Jargon term="adaptiveEvaluation">Adaptive early evaluation</Jargon></label>
-                    </div></div>
+                    </div>{config.trainingGeneration >= 4 && config.adaptiveEvaluation && config.evaluationPairs >= 5_000 ? <p className="panel-note">Adaptive schedule: {numberFormatter.format(provisionalEvaluationPairs)} pairs every {gameCountFormatter.format(config.checkpointEveryGames)} games before {gameCountFormatter.format(config.evaluateEveryGames)}; {numberFormatter.format(developmentEvaluationPairs)} pairs every {gameCountFormatter.format(developmentEvaluationCadence)} through {gameCountFormatter.format(config.evaluateEveryGames * 2)}; then {numberFormatter.format(config.evaluationPairs)} pairs every {gameCountFormatter.format(config.evaluateEveryGames)}.</p> : null}</div>
                     <div className="field-section"><h3>Curriculum, league & promotion</h3><div className="field-grid">
                       <label><span><Jargon term="bootstrapUpdates">Bootstrap updates</Jargon></span><input type="number" min="0" value={config.heuristicBootstrapUpdates} onChange={(event) => updateConfig("heuristicBootstrapUpdates", Number(event.target.value))} /></label>
                       <label><span><Jargon term="selfPlay">{config.behaviorPolicy === "learner" ? "Learner" : "Champion"} self-play</Jargon></span><input type="number" min="0" max="1" step="0.01" value={config.currentSelfplayFraction} onChange={(event) => updateConfig("currentSelfplayFraction", Number(event.target.value))} /></label>
@@ -3614,7 +3604,6 @@ export default function Home() {
                       {config.trainingGeneration >= 4 ? <>
                         <label><span>Minimum head disagreement</span><input type="number" min="0" max="1" step="0.01" value={config.minimumHeadDisagreementRate} onChange={(event) => updateConfig("minimumHeadDisagreementRate", Number(event.target.value))} /></label>
                         <label><span>Maximum held-out Brier</span><input type="number" min="0" max="1" step="0.01" value={config.maximumHeldoutBrier} onChange={(event) => updateConfig("maximumHeldoutBrier", Number(event.target.value))} /></label>
-                        <label className="toggle-label"><input type="checkbox" checked={config.requireResourceEfficiency} onChange={(event) => updateConfig("requireResourceEfficiency", event.target.checked)} /><span />Require resource efficiency</label>
                         <label className="toggle-label"><input type="checkbox" checked={config.gateHeldoutBrierRegression} onChange={(event) => updateConfig("gateHeldoutBrierRegression", event.target.checked)} /><span />Gate Brier regressions</label>
                       </> : null}
                     </div></div>
@@ -3773,9 +3762,9 @@ export default function Home() {
                 <div className="field-grid">
                   <label><span>Time budget (minutes)</span><input type="number" value={config.durationMinutes} onChange={(event) => updateConfig("durationMinutes", Number(event.target.value))} /></label>
                   <label><span><Jargon term="evaluationPairs">Evaluation pairs</Jargon></span><input type="number" min="8" max="20000" value={config.evaluationPairs} onChange={(event) => updateConfig("evaluationPairs", Number(event.target.value))} /></label>
-                  <label><span>Evaluate every games</span><input type="number" value={config.evaluateEveryGames} onChange={(event) => updateConfig("evaluateEveryGames", Number(event.target.value))} /></label>
+                  <label><span>{config.trainingGeneration >= 4 ? "Full promotion every games" : "Evaluate every games"}</span><input type="number" value={config.evaluateEveryGames} onChange={(event) => updateConfig("evaluateEveryGames", Number(event.target.value))} /></label>
                   <label className="toggle-label"><input type="checkbox" checked={config.adaptiveEvaluation} onChange={(event) => updateConfig("adaptiveEvaluation", event.target.checked)} /><span /><Jargon term="adaptiveEvaluation">Adaptive early evaluation</Jargon></label>
-                  <label><span><Jargon term="checkpoint">Checkpoint every games</Jargon></span><input type="number" value={config.checkpointEveryGames} onChange={(event) => updateConfig("checkpointEveryGames", Number(event.target.value))} /></label>
+                  <label><span><Jargon term="checkpoint">{config.trainingGeneration >= 4 ? "Provisional opportunity every games" : "Checkpoint every games"}</Jargon></span><input type="number" value={config.checkpointEveryGames} onChange={(event) => updateConfig("checkpointEveryGames", Number(event.target.value))} /></label>
                   <label><span><Jargon term="selfPlay">{config.behaviorPolicy === "learner" ? "Learner" : "Champion"} self-play</Jargon></span><input type="number" step="0.01" value={config.currentSelfplayFraction} onChange={(event) => updateConfig("currentSelfplayFraction", Number(event.target.value))} /></label>
                   <label><span><Jargon term="league">League opponents</Jargon></span><input type="number" step="0.01" value={config.leagueFraction} onChange={(event) => updateConfig("leagueFraction", Number(event.target.value))} /></label>
                   <label><span><Jargon term="baseline">Baseline anchors</Jargon></span><input type="number" step="0.01" value={config.baselineFraction} onChange={(event) => updateConfig("baselineFraction", Number(event.target.value))} /></label>

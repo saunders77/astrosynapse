@@ -574,36 +574,15 @@ def collect_game(
             or rngs[player].random() >= counterfactual_fraction
         ):
             return
-        end = next(
-            (
-                index
-                for index, action in enumerate(decision.actions)
-                if action.kind == ActionKind.END_TURN
-            ),
-            None,
-        )
-        explorer = next(
-            (
-                index
-                for index, action in enumerate(decision.actions)
-                if action.kind == ActionKind.ACQUIRE and action.source_zone == "explorer_supply"
-            ),
-            None,
-        )
-        scrap = next(
-            (
-                index
-                for index, action in enumerate(decision.actions)
-                if action.kind == ActionKind.SCRAP_FOR_ABILITY
-            ),
-            None,
-        )
-        if explorer is not None and end is not None:
-            first, second = explorer, end
-        elif scrap is not None and end is not None:
-            first, second = scrap, end
-        else:
+        eligible = np.asarray(model_action_indices(decision), dtype=np.int64)
+        selected_index = decision.actions.index(selected)
+        alternatives = eligible[eligible != selected_index]
+        if selected_index not in eligible or not len(alternatives):
             return
+        # Compare the behavior action with an unbiased eligible alternative.
+        # Outcome determines the preference; no card or strategy is privileged.
+        first = selected_index
+        second = int(rngs[player].choice(alternatives))
         encoded = encoder.encode_decision(decision.observation, decision)
         branch_seed = player_steps[player] + 1_000 * decision.observation.turn
         counterfactual_count += 1

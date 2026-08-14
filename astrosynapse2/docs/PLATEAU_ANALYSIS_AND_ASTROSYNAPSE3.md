@@ -19,7 +19,7 @@ The plateau is not primarily a lack of model parameters, a shortage of games, or
 
 The result is predictable: millions of additional games are generated, but almost all are drawn from policies and actions the system already prefers. More compute makes the network more confident in the same biased objective.
 
-Astrosynapse 3 is implemented as a new, explicit training generation. It keeps retained old checkpoint actors playable and the legacy learner configuration loadable, while changing the recommended learning contract: learner-driven rollouts, exploration across every deployment-eligible action, pure terminal Monte Carlo targets, family-corrected replay weighting, bootstrapped heads with fixed behavior-time perturbations, no global tactical preference loss, no rollback of rejected learners, stronger strategic diagnostics, resumable optimizer/replay state, and an information representation containing important card/action relationships. The compatibility preset is not a bit-for-bit historical simulator because corrected shared engine, baseline, evaluator, and lifecycle behavior applies to it too.
+Astrosynapse 3 is implemented as a new, explicit training generation. It keeps retained old checkpoint actors playable and the legacy learner configuration loadable, while changing the recommended learning contract: learner-driven rollouts, exploration across every deployment-eligible action, pure terminal Monte Carlo targets, family-corrected replay weighting, bootstrapped heads with fixed behavior-time perturbations, no global tactical preference loss, no rollback of rejected learners, general outcome diagnostics, resumable optimizer/replay state, and an information representation containing important card/action relationships. The compatibility preset is not a bit-for-bit historical simulator because corrected shared engine, baseline, evaluator, and lifecycle behavior applies to it too.
 
 This is a corrected platform, not a claim that a new expert model has already been trained. Establishing a large strength gain requires fresh multi-seed runs and paired held-out evaluation.
 
@@ -65,7 +65,7 @@ The mean scrap-minus-keep logit margin jumped from about `+0.61` to `+8.55` at 2
 
 A separate 100-game behavior probe found that the current champion scrapped 17 of the 18 distinct cost-6-or-higher ships for which it received an optional scrap opportunity; 15 of 17 happened while the opponent still had at least 20 authority. All three heads agreed. The original heuristic baseline independently scrapped 60 of 63 such ships because of its fixed action score. Thus both learned supervision and bootstrap data pushed in the same wrong direction.
 
-Astrosynapse 3 removes the global preference loss, makes optional scrap neutral in the baseline unless its immediate tactical benefit clears a retention threshold, and blocks promotion when a deterministic early-high-cost retention suite regresses. The deployment action mask still enforces truly dominated rules actions, but the network is no longer trained to generalize an `END_TURN` penalty across unrelated semantic decisions.
+Astrosynapse 3 removes the global preference loss and makes optional scrap neutral in the baseline unless its immediate tactical benefit clears a retention threshold. A later revision also removed the deterministic early-high-cost promotion suite because it prescribed a particular strategy; terminal outcomes and general paired arenas now decide whether such behavior is strong. The deployment action mask still enforces truly dominated rules actions, but the network is no longer trained to generalize an `END_TURN` penalty across unrelated semantic decisions.
 
 ## Why the learner stopped discovering alternatives
 
@@ -181,10 +181,9 @@ The repository now contains the new `astro3_m4` preset alongside the compatibili
 ### Representation and diagnostics
 
 - Versioned relational action encoding; old actors continue to use the old dimensions.
-- Fixed strategic retention states, including early optional high-cost scrap decisions.
 - Ensemble diagnostics across all decision families, including argmax disagreement and probability dispersion.
 - Larger held-out and baseline checkpoint diagnostics.
-- Quality-gate reasons and strategic/ensemble metrics visible in the GUI.
+- Quality-gate reasons and general calibration/ensemble metrics visible in the GUI.
 - Baseline-score and held-out Brier regressions remain visible but are diagnostic-only for Astro3; the low-sample estimates no longer veto a candidate before the paired arena. Generation 2 keeps its legacy gates.
 - Distribution-free paired Hoeffding confidence intervals for automatic promotion, plus Bonferroni-adjusted one-sided Hoeffding bounds at fixed early-rejection looks; early acceptance is forbidden.
 
@@ -280,8 +279,7 @@ The following gates should be automated before describing a model as substantial
 | Information integrity | No feature or search path can access hidden deck/hand order unavailable to the actor |
 | Resume integrity | Continuous and interrupted/resumed deterministic test agree on counters, RNG continuation, optimizer availability, and checkpoint lineage |
 | Operations | Pause checkpoint completes before `paused`; pause/checkpoint/stop integration tests pass; bounded pause latency displayed |
-| Basic strategy | 100% pass on deterministic dominance suite and early high-cost retention gate |
-| Broader strategy | Held-out ally, acquisition, scrap, base-target, lethal, and known-top scenario banks show no material regression |
+| Learned strategy | Improving terminal outcomes and paired lower confidence bounds across diverse frozen opponents |
 | Exploration | Every eligible action has nonzero configured support; head collapse warning remains off on held-out states |
 | Replay | Family write/sample shares, applied weight range/effective sample size, recency share, and family drift are reported |
 | Evaluation | Game-grouped held-out metrics and paired seat-swapped arenas use immutable seeds |
@@ -289,7 +287,6 @@ The following gates should be automated before describing a model as substantial
 | Astro2 superiority | Paired lower confidence bound above 0.55 against the best Astro2 champion |
 | Population robustness | Paired lower bound above 0.52 against each of the five strongest/diverse frozen opponents |
 | Exploitability proxy | No newly trained held-out best response scores above 0.55 after its own validation |
-| Requested concepts | Purpose-built ally-trigger and known-top/base benchmarks pass before relying on anecdotes |
 | Native engine | At least 10× search-simulation throughput after parity is established |
 
 An isolated lucky promotion is insufficient. The meaningful success criterion is a rising lower confidence envelope across seeds and opponents, plus disappearance of the diagnosed strategic failures.
@@ -300,7 +297,7 @@ An isolated lucky promotion is insufficient. The meaningful success criterion is
 2. Pin several strategically distinct, credible Astro2 checkpoints. The current champion is admitted automatically; pinning preserves useful older anchors when champion status changes.
 3. Run the quick validation recipe after installing the updated code.
 4. Launch three fresh `astro3_m4` runs with distinct numeric seeds (the GUI exposes **Training seed**, and the CLI accepts `--seed`). On a single machine, run them sequentially so they do not compete for Metal and memory.
-5. Inspect early-high-cost retention, ensemble disagreement, effective epsilon, replay effective weights, rollout mix, truncations, and held-out Brier at every evaluated checkpoint.
+5. Inspect ensemble disagreement, effective epsilon, replay effective weights, rollout mix, truncations, held-out Brier, and paired arena strength at every evaluated checkpoint.
 6. Do not promote or warm-start from the current champion merely because it has four million games. Its measured scrap bias is strong prior evidence against using it as the new learner initialization.
 7. After the first 500k–1M games per seed, run a common paired matrix against the current champion and diverse historical/baseline opponents before investing in longer runs.
 

@@ -1,4 +1,4 @@
-"""Deterministic held-out and tactical checkpoint diagnostics."""
+"""General checkpoint strength, calibration, and ensemble diagnostics."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 
 from .baselines import make_baseline
-from .cards import ALL_CARDS, CARD_BY_ID
+from .cards import CARD_BY_ID
 from .encoding import Encoder
 from .engine import (
     Action,
@@ -25,277 +25,9 @@ from .engine import (
 from .model import NumpyActor
 from .selfplay import collect_game
 
-EARLY_TURN_MAX = 18
-HIGH_COST_MIN = 6
-
-
 def _actor_encoder(actor: Any) -> Encoder:
     version = int(getattr(getattr(actor, "spec", None), "encoder_version", 1))
     return Encoder(version=version)
-
-
-def _behavioral_suite(*, seed: int, games: int, limit: int = 512) -> tuple[Decision, ...]:
-    decisions: list[Decision] = []
-    styles = ("balanced", "economy", "aggressive")
-    for game_index in range(games):
-        first = make_baseline(styles[game_index % len(styles)], seed + 2 * game_index)
-        second = make_baseline(styles[(game_index + 1) % len(styles)], seed + 2 * game_index + 1)
-
-        def hook(_player: int, decision: Decision, _selected: Any) -> None:
-            kinds = {action.kind for action in decision.actions}
-            if ActionKind.END_TURN in kinds and kinds.intersection(
-                {
-                    ActionKind.PLAY_CARD,
-                    ActionKind.ACTIVATE_BASE,
-                    ActionKind.ATTACK_BASE,
-                    ActionKind.ATTACK_PLAYER,
-                }
-            ):
-                decisions.append(decision)
-
-        Game(
-            choosers=(first, second),
-            config=GameConfig(
-                seed=seed + game_index,
-                starting_player=game_index % 2,
-                max_turns=180,
-                max_actions_per_turn=160,
-            ),
-            decision_hook=hook,
-        ).run()
-        if len(decisions) >= limit:
-            break
-    return tuple(decisions[:limit])
-
-
-def tactical_metrics(actor: NumpyActor, decisions: tuple[Decision, ...]) -> dict[str, Any]:
-    encoder = _actor_encoder(actor)
-    raw_end = masked_end = attack_end = play_end = activate_end = 0
-    margins: list[float] = []
-    for decision in decisions:
-        encoded = encoder.encode_decision(decision.observation, decision)
-        logits = actor.predict_options(encoded.state, encoded.actions, int(encoded.family)).mean(
-            axis=1
-        )
-        raw_index = int(np.argmax(logits))
-        eligible = np.asarray(model_action_indices(decision), dtype=np.int64)
-        masked_index = int(eligible[int(np.argmax(logits[eligible]))])
-        raw_end += decision.actions[raw_index].kind == ActionKind.END_TURN
-        masked_end += decision.actions[masked_index].kind == ActionKind.END_TURN
-        end_index = next(
-            index
-            for index, action in enumerate(decision.actions)
-            if action.kind == ActionKind.END_TURN
-        )
-        preferred = [
-            index
-            for index, action in enumerate(decision.actions)
-            if action.kind
-            in {
-                ActionKind.PLAY_CARD,
-                ActionKind.ACTIVATE_BASE,
-                ActionKind.ATTACK_BASE,
-                ActionKind.ATTACK_PLAYER,
-            }
-        ]
-        margins.append(float(max(logits[preferred]) - logits[end_index]))
-        if decision.actions[raw_index].kind == ActionKind.END_TURN:
-            kinds = {decision.actions[index].kind for index in preferred}
-            attack_end += bool(kinds & {ActionKind.ATTACK_BASE, ActionKind.ATTACK_PLAYER})
-            play_end += ActionKind.PLAY_CARD in kinds
-            activate_end += ActionKind.ACTIVATE_BASE in kinds
-    return {
-        "positions": len(decisions),
-        "raw_end_turn_violations": int(raw_end),
-        "masked_end_turn_violations": int(masked_end),
-        "raw_attack_end_violations": int(attack_end),
-        "raw_play_end_violations": int(play_end),
-        "raw_activate_end_violations": int(activate_end),
-        "mean_preference_logit_margin": float(np.mean(margins)) if margins else 0.0,
-        "minimum_preference_logit_margin": float(np.min(margins)) if margins else 0.0,
-    }
-
-
-def strategic_decision_suite(*, seed: int) -> tuple[Decision, ...]:
-    """Build exact optional-scrap positions where retaining the card is available.
-
-    Each position occurs early, while both players have substantial authority,
-    and contains only the card's optional scrap ability and END_TURN.  That
-    makes END_TURN the semantically explicit "keep this card" action instead
-    of relying on an inferred label from a rollout policy.
-    """
-
-    base = Game(config=GameConfig(seed=seed, starting_player=0)).observation(0)
-    scrappable = tuple(card for card in ALL_CARDS if card.scrap)
-    decisions: list[Decision] = []
-    for index, card in enumerate(scrappable):
-        observation = replace(
-            base,
-            turn=6 + index % 7,
-            action_number=4 + index % 3,
-            own_authority=44 - index % 4,
-            opponent_authority=39 - index % 5,
-            combat=0,
-            trade=0,
-            hand=(),
-            own_in_play=(
-                InPlayObservation(
-                    card=card,
-                    activated=True,
-                    ally_triggered=False,
-                    copied_from_stealth_needle=False,
-                ),
-            ),
-        )
-        decisions.append(
-            Decision(
-                DecisionFamily.MAIN,
-                observation,
-                (
-                    Action(
-                        ActionKind.SCRAP_FOR_ABILITY,
-                        card_id=card.card_id,
-                        ability=card.scrap,
-                        source_zone="in_play",
-                        amount=card.scrap_amount,
-                        opaque=(index + 1,),
-                    ),
-                    Action(ActionKind.END_TURN),
-                ),
-                f"Retain {card.name} or use its optional scrap ability",
-            )
-        )
-    return tuple(decisions)
-
-
-def strategic_metrics(actor: NumpyActor, decisions: tuple[Decision, ...]) -> dict[str, Any]:
-    """Measure whether optional scrap actions outrank the explicit keep action."""
-
-    encoder = _actor_encoder(actor)
-    margins: list[float] = []
-    early_high_cost_margins: list[float] = []
-    for decision in decisions:
-        scrap_indices = [
-            index
-            for index, action in enumerate(decision.actions)
-            if action.kind == ActionKind.SCRAP_FOR_ABILITY
-        ]
-        keep_indices = [
-            index
-            for index, action in enumerate(decision.actions)
-            if action.kind == ActionKind.END_TURN
-        ]
-        if not scrap_indices or not keep_indices:
-            continue
-        encoded = encoder.encode_decision(decision.observation, decision)
-        logits = actor.predict_options(
-            encoded.state,
-            encoded.actions,
-            int(encoded.family),
-        ).mean(axis=1)
-        keep_logit = float(logits[keep_indices[0]])
-        for scrap_index in scrap_indices:
-            margin = float(logits[scrap_index] - keep_logit)
-            margins.append(margin)
-            card = CARD_BY_ID.get(decision.actions[scrap_index].card_id)
-            if (
-                card is not None
-                and card.cost >= HIGH_COST_MIN
-                and decision.observation.turn <= EARLY_TURN_MAX
-            ):
-                early_high_cost_margins.append(margin)
-
-    scrap_over_keep = sum(margin > 0.0 for margin in margins)
-    high_cost_scrap_over_keep = sum(margin > 0.0 for margin in early_high_cost_margins)
-    return {
-        "positions": len(decisions),
-        "optional_scrap_positions": len(margins),
-        "scrap_over_keep_count": int(scrap_over_keep),
-        "scrap_over_keep_rate": float(scrap_over_keep / max(1, len(margins))),
-        "mean_scrap_over_keep_logit_margin": (float(np.mean(margins)) if margins else 0.0),
-        "early_high_cost_positions": len(early_high_cost_margins),
-        "early_high_cost_scrap_over_keep_count": int(high_cost_scrap_over_keep),
-        "early_high_cost_scrap_over_keep_rate": float(
-            high_cost_scrap_over_keep / max(1, len(early_high_cost_margins))
-        ),
-        "early_high_cost_mean_scrap_over_keep_logit_margin": (
-            float(np.mean(early_high_cost_margins)) if early_high_cost_margins else 0.0
-        ),
-        "early_high_cost_passed": bool(early_high_cost_margins and high_cost_scrap_over_keep == 0),
-    }
-
-
-def resource_efficiency_decision_suite(*, seed: int) -> tuple[Decision, ...]:
-    """Early economic states where ending burns resources for no benefit."""
-
-    base = Game(config=GameConfig(seed=seed, starting_player=0)).observation(0)
-    explorer = CARD_BY_ID[2]
-    expensive_row = tuple(CARD_BY_ID[card_id] for card_id in (5, 15, 21, 22, 23))
-    decisions: list[Decision] = []
-    for index in range(12):
-        observation = replace(
-            base,
-            turn=2 + index % 4,
-            action_number=5 + index % 3,
-            own_authority=46 - index % 4,
-            opponent_authority=45 - index % 5,
-            combat=0,
-            trade=2,
-            hand=(),
-            own_in_play=(),
-            trade_row=expensive_row,
-            explorers_remaining=10 - index % 3,
-            explorer_supply=(explorer,) * (10 - index % 3),
-        )
-        decisions.append(
-            Decision(
-                DecisionFamily.MAIN,
-                observation,
-                (
-                    Action(
-                        ActionKind.ACQUIRE,
-                        card_id=explorer.card_id,
-                        source_zone="explorer_supply",
-                        amount=explorer.cost,
-                    ),
-                    Action(ActionKind.END_TURN),
-                ),
-                "Spend otherwise-wasted early trade or end the turn",
-            )
-        )
-    return tuple(decisions)
-
-
-def resource_efficiency_metrics(
-    actor: NumpyActor, decisions: tuple[Decision, ...]
-) -> dict[str, Any]:
-    encoder = _actor_encoder(actor)
-    margins: list[float] = []
-    for decision in decisions:
-        encoded = encoder.encode_decision(decision.observation, decision)
-        logits = actor.predict_options(encoded.state, encoded.actions, int(encoded.family)).mean(
-            axis=1
-        )
-        acquire = next(
-            index
-            for index, action in enumerate(decision.actions)
-            if action.kind == ActionKind.ACQUIRE
-        )
-        end = next(
-            index
-            for index, action in enumerate(decision.actions)
-            if action.kind == ActionKind.END_TURN
-        )
-        margins.append(float(logits[acquire] - logits[end]))
-    violations = sum(margin <= 0 for margin in margins)
-    return {
-        "positions": len(margins),
-        "unused_resource_violations": int(violations),
-        "unused_resource_violation_rate": float(violations / max(1, len(margins))),
-        "mean_spend_over_end_logit_margin": float(np.mean(margins)) if margins else 0.0,
-        "minimum_spend_over_end_logit_margin": float(np.min(margins)) if margins else 0.0,
-        "passed": bool(margins and violations == 0),
-    }
 
 
 def all_family_decision_suite(*, seed: int) -> tuple[Decision, ...]:
@@ -650,23 +382,13 @@ def checkpoint_diagnostics(
     baseline_pairs: int,
 ) -> dict[str, Any]:
     actor = NumpyActor.load(actor_path)
-    suite = _behavioral_suite(seed=seed + 700_000, games=games)
-    tactical = tactical_metrics(actor, suite)
-    strategic = strategic_metrics(
-        actor,
-        strategic_decision_suite(seed=seed + 710_000),
-    )
-    resource_efficiency = resource_efficiency_metrics(
-        actor,
-        resource_efficiency_decision_suite(seed=seed + 715_000),
-    )
     ensemble = ensemble_metrics(
         actor,
         all_family_decision_suite(seed=seed + 720_000),
     )
     heldout = heldout_outcome_metrics(actor, seed=seed + 800_000, games=games)
     baselines = baseline_metrics(actor_path, seed=seed + 900_000, pairs=baseline_pairs)
-    values = (tactical, strategic, resource_efficiency, ensemble, heldout, baselines)
+    values = (ensemble, heldout, baselines)
     if not all(
         math.isfinite(float(value))
         for group in values
@@ -675,9 +397,6 @@ def checkpoint_diagnostics(
     ):
         raise RuntimeError("checkpoint diagnostics produced a non-finite metric")
     return {
-        "tactical": tactical,
-        "strategic": strategic,
-        "resource_efficiency": resource_efficiency,
         "ensemble": ensemble,
         "heldout": heldout,
         "baselines": baselines,
@@ -690,9 +409,4 @@ __all__ = [
     "checkpoint_diagnostics",
     "ensemble_metrics",
     "heldout_outcome_metrics",
-    "resource_efficiency_decision_suite",
-    "resource_efficiency_metrics",
-    "strategic_decision_suite",
-    "strategic_metrics",
-    "tactical_metrics",
 ]

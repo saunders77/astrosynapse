@@ -207,8 +207,13 @@ def test_astro4_recipe_uses_legal_set_training_and_m4_safe_batches():
     assert config.batch_size == 256
     assert config.policy_replay_capacity == 150_000
     assert config.counterfactual_fraction > 0
-    assert config.require_resource_efficiency is True
+    assert config.require_resource_efficiency is False
+    assert config.heuristic_bootstrap_updates == 0
     assert config.gate_heldout_brier_regression is True
+    assert config.checkpoint_every_games == 50_000
+    assert config.evaluate_every_games == 250_000
+    assert config.evaluation_pairs == 5_000
+    assert config.adaptive_evaluation is True
     assert config.resume_replay_items == 0
 
 
@@ -1504,13 +1509,12 @@ def test_final_evaluation_cancels_only_trainer_job_when_pause_is_requested(tmp_p
     assert store.arena_job(unrelated["id"])["status"] == "queued"
 
 
-def test_quality_gate_checks_raw_tactics_and_heldout_regression(tmp_path, monkeypatch):
+def test_quality_gate_checks_general_heldout_regression(tmp_path, monkeypatch):
     store = Store(tmp_path / "state.sqlite3")
     config = RunConfig.quick().model_copy(
         update={
             "heldout_brier_regression_tolerance": 0.03,
             "gate_heldout_brier_regression": True,
-            "gate_raw_tactical_preferences": True,
         }
     )
     run = store.create_run(config)
@@ -1531,10 +1535,7 @@ def test_quality_gate_checks_raw_tactics_and_heldout_regression(tmp_path, monkey
     monkeypatch.setattr(
         "astro2.diagnostics.checkpoint_diagnostics",
         lambda *_args, **_kwargs: {
-            "tactical": {
-                "raw_end_turn_violations": 1,
-                "masked_end_turn_violations": 0,
-            },
+            "ensemble": {"head_argmax_disagreement_rate": 0.2},
             "heldout": {"game_grouped_brier": 0.25},
             "baselines": {"mean_score": 0.59, "truncated_games": 0},
         },
@@ -1546,11 +1547,10 @@ def test_quality_gate_checks_raw_tactics_and_heldout_regression(tmp_path, monkey
         config=config,
     )
     assert gate["passed"] is False
-    assert any("raw model logits" in reason for reason in gate["reasons"])
     assert any("Brier" in reason for reason in gate["reasons"])
 
 
-def test_astro3_quality_gate_does_not_recreate_global_end_turn_pressure(
+def test_astro3_quality_gate_keeps_small_general_regressions_diagnostic_only(
     tmp_path,
     monkeypatch,
 ):
@@ -1573,11 +1573,7 @@ def test_astro3_quality_gate_does_not_recreate_global_end_turn_pressure(
     monkeypatch.setattr(
         "astro2.diagnostics.checkpoint_diagnostics",
         lambda *_args, **_kwargs: {
-            "tactical": {
-                "raw_end_turn_violations": 7,
-                "masked_end_turn_violations": 0,
-            },
-            "strategic": {"early_high_cost_passed": True},
+            "ensemble": {"head_argmax_disagreement_rate": 0.2},
             "heldout": {"game_grouped_brier": 0.25},
             "baselines": {"mean_score": 0.2, "truncated_games": 0},
         },
@@ -1589,7 +1585,6 @@ def test_astro3_quality_gate_does_not_recreate_global_end_turn_pressure(
         config=config,
     )
     assert gate["passed"] is True
-    assert gate["tactical_gate_metric"] == "masked_end_turn_violations"
     assert gate["baseline_regression_gate_enabled"] is False
     assert gate["baseline_regression_detected"] is True
     assert gate["heldout_brier_gate_enabled"] is False

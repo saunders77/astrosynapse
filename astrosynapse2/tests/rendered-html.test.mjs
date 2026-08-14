@@ -79,6 +79,9 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /policy_replay_capacity:\s*config\.policyReplayCapacity/);
   assert.match(page, /Counterfactual decision fraction/);
   assert.match(page, /Minimum head disagreement/);
+  assert.match(page, /Full promotion cadence/);
+  assert.match(page, /Provisional opportunity every games/);
+  assert.match(page, /Adaptive schedule:/);
   assert.match(page, /maximumSignificantDigits:\s*4/);
   assert.match(page, /Select run to view and control/);
   assert.match(page, /\?\? activeId\s*\?\? liveId/);
@@ -89,8 +92,8 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /modelEvaluationPoints/);
   assert.match(page, /latestEvaluatedModel/);
   assert.match(page, /evaluation\.quality_gate/);
-  assert.match(page, /early_high_cost_scrap_over_keep_rate/);
-  assert.match(page, /early_high_cost_mean_scrap_over_keep_logit_margin/);
+  assert.match(page, /game_grouped_brier/);
+  assert.match(page, /baselineMeanScore/);
   assert.match(page, /head_argmax_disagreement_rate/);
   assert.match(page, /mean_probability_std/);
   assert.match(page, /checkpoint_artifacts_complete/);

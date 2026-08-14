@@ -6,7 +6,7 @@ Astrosynapse has three explicit training contracts. Astro4 is recommended for ne
 |---|---|---|---|
 | Learning objective | Normalized legal-set actor-critic plus separate state value | Chosen-action terminal outcome | Chosen-action mixed outcome |
 | Replay unit | Whole player-games; game → turn phase → decision sampling | Individual decisions | Individual decisions |
-| Counterfactual data | Matched forced-action rollouts for selected strategic choices | None | None |
+| Counterfactual data | Matched forced-action rollouts against a uniformly sampled legal alternative | None | None |
 | Behavior policy | Learner heads plus direct deployment-policy data, league/baselines | Learner heads plus direct deployment-policy data, league/baselines | Accepted champion |
 | Rejected candidate | Learner continues; champion stays deployed | Learner continues; champion stays deployed | Learner rolls back |
 | Outcome target | Terminal return minus learned state baseline | Terminal Monte Carlo | 60% terminal / 40% next-decision max |
@@ -14,7 +14,7 @@ Astrosynapse has three explicit training contracts. Astro4 is recommended for ne
 | Exploration support | Every eligible action | Every eligible action | Current head's top 3 |
 | Bootstrap heads | 5, head-specific adapters, lower mask overlap | 5, shared trunk and behavior perturbations | 3, high overlap |
 | Encoder | v2 relational | v2 relational | v1 flat |
-| Promotion gates | Resource efficiency, retention, head diversity, absolute and relative calibration | Retention plus diagnostic calibration/diversity | Legacy gates |
+| Promotion gates | Head diversity, truncation safety, calibration, and paired arena strength | General diagnostic calibration/diversity plus paired arena | Legacy general gates |
 
 ## What Astro4 changes
 
@@ -22,11 +22,13 @@ Generation 4 records the complete deployment-eligible action set, selected actio
 
 Policy replay evicts complete player-game trajectories. A batch samples a player-game uniformly, then an available early/middle/late turn phase uniformly, then one decision in that phase. Long games therefore do not dominate merely because they emit more decisions, and early economic decisions remain represented.
 
-A bounded fraction of games clones selected information states before the chosen action, forces two legal alternatives through identical hidden state and RNG streams, and rolls both branches to completion. Only outcome-different pairs enter the ranking buffer. The initial suite targets general resource conservation and irreversible optional actions; these comparisons come from the engine rollouts rather than a hard-coded deployment rule.
+A bounded fraction of games clones selected information states before the chosen action, compares it with a uniformly sampled deployment-eligible alternative under identical hidden state and RNG streams, and rolls both branches to completion. Only outcome-different pairs enter the ranking buffer. No action kind, card, opening, or named strategy is privileged.
 
-Generation-4 heads have independent residual adapters and output banks. Promotion requires nonzero action disagreement on the fixed all-family suite, while deployment still uses their mean policy. The gate also enforces early resource efficiency and premium-card retention, and rejects checkpoints whose absolute held-out state-value Brier score or regression exceeds the configured limit.
+Generation-4 heads have independent residual adapters and output banks. Promotion requires nonzero action disagreement on the fixed all-family suite, while deployment still uses their mean policy. The gate rejects truncations, collapsed heads, and checkpoints whose absolute held-out state-value Brier score or regression exceeds the configured limit. Strategy quality is decided by terminal outcomes and paired arenas, not hand-authored move expectations.
 
 Generation-4 replay is intentionally not restored from Astro3 snapshots: those rows do not contain legal sets or behavior probabilities. Resume preserves compatible generation-4 weights and optimizer state but repopulates policy replay before updates continue.
+
+The M4 Astro4 preset checkpoints every 50,000 games and uses adaptive promotion evaluation: 200 pairs every 50,000 games before 250,000, 1,000 pairs every 125,000 games through 500,000, then the full 5,000-pair gate every 250,000 games. Pair counts remain conservative; only the game-count cadence is shortened for Astro4's slower, richer collection pipeline.
 
 The compatibility mode preserves the legacy generation-2 learner configuration and checkpoint decoding, but it is not a bit-for-bit historical simulator: corrected shared engine, heuristic-baseline, evaluator, retention, and control-lifecycle behavior still applies. It is not the recommended route out of the measured plateau. See the [forensic analysis](PLATEAU_ANALYSIS_AND_ASTROSYNAPSE3.md) for evidence and the staged research plan.
 
@@ -152,19 +154,15 @@ The five-minute `quick` recipe uses the Astro3 contract with smaller model, repl
 
 ## Checkpoint quality gates
 
-Before an automatic arena, a candidate runs deterministic and held-out diagnostics:
+Before an automatic arena, a candidate runs general held-out diagnostics:
 
-- deployment-masked tactical legality/dominance states;
-- early optional high-cost scrap retention;
 - game-grouped held-out BCE and Brier score;
-- paired games against deterministic strategy baselines;
+- paired games against fixed opponents;
 - all-family ensemble dispersion and argmax disagreement.
 
-Astro2 compatibility can still require raw-logit `END_TURN` preference ordering. Astro3 gates deployed masked behavior instead; otherwise disabling the unsafe global preference loss would create an impossible raw-logit gate.
+The small fixed-opponent sample and game-grouped Brier score remain checkpoint diagnostics in Astro3, but do not hard-block an arena by default: neither comparison has enough independent evidence to serve as a strength test. Fixed-opponent diagnostic truncations hard-block that checkpoint; truncations in an arena invalidate the comparison and trigger the retry policy rather than counting as wins or losses. The paired arena is the statistical strength gate.
 
-The small fixed-opponent sample and game-grouped Brier score remain checkpoint diagnostics in Astro3, but do not hard-block an arena by default: neither comparison has enough independent evidence to serve as a strength test. Generation 2 retains both legacy regression gates, and either gate can be explicitly enabled. Fixed-opponent diagnostic truncations and deterministic strategic violations hard-block that checkpoint; truncations in an arena invalidate the comparison and trigger the retry policy rather than counting as wins or losses. The paired arena is the statistical strength gate.
-
-The strategic and ensemble diagnostic objects, pass/fail reasons, scrap rate/margin, and head statistics are stored with the immutable checkpoint and shown in Models & Arena.
+Calibration, fixed-opponent, and ensemble diagnostics plus pass/fail reasons are stored with the immutable checkpoint and shown in Models & Arena.
 
 ## Paired arena evaluation
 

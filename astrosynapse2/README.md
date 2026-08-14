@@ -54,7 +54,7 @@ Press Control-C in that Terminal to request a safe stop and final checkpoint. Du
 4. If the quick run is healthy, create the **Astro4 legal-set policy** preset and launch it.
 5. When the 24-hour budget ends, wait for the visible **Finalizing evaluation** phase. Natural completion resolves any older trainer-owned job and then the newest due trainer comparison before reporting complete; then inspect the champion and final candidate in **Models & Arena**.
 
-The Astro4 preset is the recommended M4/16 GB starting point: 8 CPU actors, a 192-wide three-block model, 5 head-specific policy adapters, 150,000 game-balanced legal-set decisions, a separate state-value objective, bounded paired counterfactual rollouts, and conservative promotion evaluations. Resource-efficiency, irreversible-action retention, ensemble diversity, and held-out calibration are release gates. Astro3 remains available for controlled chosen-action Monte Carlo comparisons, and **Astro2 compatibility** preserves generation-2 learner settings and checkpoint decoding.
+The Astro4 preset is the recommended M4/16 GB starting point: 8 CPU actors, a 192-wide three-block model, 5 head-specific policy adapters, 150,000 game-balanced legal-set decisions, a separate state-value objective, unbiased bounded paired counterfactual rollouts, and conservative promotion evaluations. Ensemble diversity, truncation safety, held-out calibration, and paired arena strength are release gates. Astro3 remains available for controlled chosen-action Monte Carlo comparisons, and **Astro2 compatibility** preserves generation-2 learner settings and checkpoint decoding.
 
 ## Dashboard guide
 
@@ -62,7 +62,7 @@ The Astro4 preset is the recommended M4/16 GB starting point: 8 CPU actors, a 19
 - **Train** — create a run, select Astro4, Astro3, quick validation, or the Astro2 compatibility preset, expose advanced settings, and start, durably pause, resume, stop, or checkpoint at safe boundaries.
 - **Models & Arena** — inspect checkpoint lineage, pin models, download `.actor.npz` exports, and compare checkpoints or baselines with exact seed-paired seat swaps. Use 5,000 manual pairs before treating a comparison as release-strength evidence.
 - **Play** — select a checkpoint, choose the starting seat, and play through legal semantic actions. Astro4 shows normalized legal-action policy shares; legacy checkpoints show independent outcome estimates. Baseline games do not invent model scores.
-- **Diagnostics / Settings** — outcome losses, strategic retention gates, ensemble diagnostics, replay write/sample ratios and effective weights, effective exploration, population mix, plateau response, CPU/RAM/Metal telemetry, audit events, and settings that are safe to apply between batches.
+- **Diagnostics / Settings** — outcome losses, calibration and ensemble diagnostics, replay write/sample ratios and effective weights, effective exploration, population mix, plateau response, CPU/RAM/Metal telemetry, audit events, and settings that are safe to apply between batches.
 
 The first random checkpoint is only a lineage root and initial deployment anchor, not a trained opponent. After that root, “champion” means the latest model to pass its persisted automatic paired-evaluation contract; adaptive early tiers use fewer pairs than the mature 5,000-pair gate. It is not an absolute Elo claim.
 
@@ -117,4 +117,4 @@ MLX initializes Metal when imported. A headless or restricted shell may report t
 
 ## Honest scope
 
-This is a corrected training platform, not a pre-trained “excellent” Astro4 model. The audit identifies direct causes of the Astro3 learning weakness and verifies the new system at unit/integration scale; only fresh multi-seed training and held-out paired arenas can establish a large skill gain. Use frozen opponents, paired seeds, seat splits, strategic scenario banks, truncation rates, and confidence intervals. The Python engine remains the production engine; a future native search engine should replace it only after differential replay tests prove rule equivalence.
+This is a corrected training platform, not a pre-trained “excellent” Astro4 model. The audit identifies direct causes of the Astro3 learning weakness and verifies the new system at unit/integration scale; only fresh multi-seed training and held-out paired arenas can establish a large skill gain. Use diverse frozen opponents, paired seeds, seat splits, truncation rates, calibration, and confidence intervals. The Python engine remains the production engine; a future native search engine should replace it only after differential replay tests prove rule equivalence.

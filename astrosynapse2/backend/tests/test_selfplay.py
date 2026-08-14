@@ -3,10 +3,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 from astro2.baselines import BASELINE_NAMES, HeuristicChooser, RandomChooser, make_baseline
-from astro2.cards import CARD_BY_NAME
 from astro2.encoding import DecisionFamily as EncodedDecisionFamily
 from astro2.encoding import Encoder
-from astro2.engine import ActionKind, Decision, DecisionFamily, Game, GameConfig, _InPlay
+from astro2.engine import Decision, DecisionFamily, Game, GameConfig
 from astro2.selfplay import (
     ActorPolicy,
     CompactSamples,
@@ -33,27 +32,6 @@ def test_every_baseline_returns_only_legal_actions_and_seeded_random_repeats():
         config=GameConfig(seed=123, max_turns=50),
     ).run()
     assert first == second
-
-
-def test_heuristic_keeps_an_early_high_cost_scrap_card_without_tactical_urgency():
-    game = Game(config=GameConfig(seed=441))
-    player = game.players[0]
-    card = CARD_BY_NAME["Dreadnaught"]
-    player.hand = []
-    player.in_play = [_InPlay(9001, card, card, True)]
-    player.combat = 0
-    game.players[1].authority = 40
-    decision = Decision(
-        DecisionFamily.MAIN,
-        game.observation(player.player_id),
-        game._main_actions(player),
-    )
-    assert {action.kind for action in decision.actions} == {
-        ActionKind.SCRAP_FOR_ABILITY,
-        ActionKind.END_TURN,
-    }
-    selected = HeuristicChooser()(player.player_id, decision)
-    assert selected.kind == ActionKind.END_TURN
 
 
 class CountingPolicy:

@@ -93,8 +93,10 @@ class RunConfig(BaseModel):
     gate_baseline_regression: bool = True
     heldout_brier_regression_tolerance: float = Field(default=0.03, ge=0, le=1)
     gate_heldout_brier_regression: bool = True
+    # Deprecated strategy-gate fields remain loadable for persisted runs but
+    # are intentionally ignored by checkpoint promotion.
     max_tactical_violations: int = Field(default=0, ge=0, le=1_000)
-    gate_raw_tactical_preferences: bool = True
+    gate_raw_tactical_preferences: bool = False
     require_early_high_cost_retention: bool = False
     require_resource_efficiency: bool = False
     minimum_head_disagreement_rate: float = Field(default=0.0, ge=0, le=1)
@@ -200,7 +202,7 @@ class RunConfig(BaseModel):
             gate_baseline_regression=False,
             gate_heldout_brier_regression=False,
             gate_raw_tactical_preferences=False,
-            require_early_high_cost_retention=True,
+            require_early_high_cost_retention=False,
             checkpoint_every_games=1_000,
             evaluate_every_games=2_000,
             evaluation_pairs=16,
@@ -258,7 +260,7 @@ class RunConfig(BaseModel):
             heldout_brier_regression_tolerance=0.02,
             gate_heldout_brier_regression=False,
             gate_raw_tactical_preferences=False,
-            require_early_high_cost_retention=True,
+            require_early_high_cost_retention=False,
             evaluate_every_games=500_000,
             evaluation_early_rejection=True,
             persist_optimizer_state=True,
@@ -267,7 +269,7 @@ class RunConfig(BaseModel):
 
     @classmethod
     def astro4_m4(cls, name: str = "Astro4 policy self-play") -> RunConfig:
-        """Legal-set actor-critic training with paired strategic rollouts."""
+        """Legal-set actor-critic training with unbiased paired rollouts."""
 
         base = cls.astro3_m4(name=name).model_dump()
         base.update(
@@ -288,10 +290,16 @@ class RunConfig(BaseModel):
             counterfactual_loss_weight=0.25,
             preference_loss_weight=0.0,
             tactical_preference_training=False,
+            heuristic_bootstrap_updates=0,
             gate_heldout_brier_regression=True,
             maximum_heldout_brier=0.24,
-            require_resource_efficiency=True,
+            require_early_high_cost_retention=False,
+            require_resource_efficiency=False,
             minimum_head_disagreement_rate=0.05,
+            # Astro4 collects fewer but richer decisions per second. Evaluate
+            # twice as often in game-count terms without weakening pair counts.
+            checkpoint_every_games=50_000,
+            evaluate_every_games=250_000,
             # Generation-3 replay rows do not contain complete legal sets.
             resume_replay_items=0,
         )

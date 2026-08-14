@@ -1319,7 +1319,7 @@ def _checkpoint_quality_gate(
     checkpoint: dict[str, Any],
     config: RunConfig,
 ) -> dict[str, Any]:
-    """Run deterministic tactical, held-out, and fixed-opponent checks."""
+    """Run general ensemble, calibration, and fixed-opponent checks."""
 
     existing = (checkpoint.get("evaluation") or {}).get("quality_gate")
     if existing:
@@ -1332,9 +1332,6 @@ def _checkpoint_quality_gate(
         games=config.checkpoint_diagnostic_games,
         baseline_pairs=config.checkpoint_baseline_pairs,
     )
-    tactical = diagnostics["tactical"]
-    strategic = diagnostics.get("strategic") or {}
-    resource_efficiency = diagnostics.get("resource_efficiency") or {}
     ensemble = diagnostics.get("ensemble") or {}
     heldout = diagnostics["heldout"]
     baselines = diagnostics["baselines"]
@@ -1361,23 +1358,6 @@ def _checkpoint_quality_gate(
         > config.heldout_brier_regression_tolerance
     )
     reasons: list[str] = []
-    tactical_metric = (
-        "raw_end_turn_violations"
-        if config.gate_raw_tactical_preferences
-        else "masked_end_turn_violations"
-    )
-    if int(tactical[tactical_metric]) > config.max_tactical_violations:
-        reasons.append(
-            "raw model logits failed the tactical dominance suite"
-            if config.gate_raw_tactical_preferences
-            else "deployed action policy failed the tactical dominance suite"
-        )
-    if config.require_early_high_cost_retention and not bool(
-        strategic.get("early_high_cost_passed")
-    ):
-        reasons.append("model preferred premature high-cost scraps over retaining the card")
-    if config.require_resource_efficiency and not bool(resource_efficiency.get("passed")):
-        reasons.append("model ended early turns while useful trade could be spent")
     if (
         config.minimum_head_disagreement_rate > 0
         and float(ensemble.get("head_argmax_disagreement_rate", 0.0))
@@ -1405,7 +1385,6 @@ def _checkpoint_quality_gate(
         "heldout_brier_regression_detected": heldout_regression,
         "maximum_heldout_brier": config.maximum_heldout_brier,
         "minimum_head_disagreement_rate": config.minimum_head_disagreement_rate,
-        "tactical_gate_metric": tactical_metric,
         "diagnostics": diagnostics,
     }
     store.update_checkpoint_evaluation(checkpoint["id"], {"quality_gate": gate})
@@ -2542,9 +2521,13 @@ def run_training(
             )
             futures: dict[Future[WorkerResult], _RolloutPlan] = {}
             for _ in range(config.actor_processes):
-                if (
+                active_replay_size = (
                     len(policy_replay) if config.training_generation >= 4 else len(replay)
-                ) < config.replay_warmup or totals.updates < config.heuristic_bootstrap_updates:
+                )
+                needs_labeled_warmup = (
+                    config.training_generation < 4 and active_replay_size < config.replay_warmup
+                )
+                if needs_labeled_warmup or totals.updates < config.heuristic_bootstrap_updates:
                     plan = _make_bootstrap_plan(config=config, rng=rng, seed=seed_cursor)
                 else:
                     plan = _make_plan(
