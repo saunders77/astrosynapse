@@ -284,6 +284,23 @@ class Store:
             )
         return self.checkpoint(checkpoint_id)
 
+    def set_run_champion(self, run_id: str, checkpoint_id: str) -> dict[str, Any]:
+        """Atomically restore a run's deployment anchor without inventing an arena result."""
+
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT run_id FROM checkpoints WHERE id = ?", (checkpoint_id,)
+            ).fetchone()
+            if row is None or row["run_id"] != run_id:
+                raise KeyError(checkpoint_id)
+            db.execute("UPDATE checkpoints SET is_champion = 0 WHERE run_id = ?", (run_id,))
+            db.execute("UPDATE checkpoints SET is_champion = 1 WHERE id = ?", (checkpoint_id,))
+            db.execute(
+                "UPDATE runs SET champion_id = ?, updated_at = ? WHERE id = ?",
+                (checkpoint_id, time.time(), run_id),
+            )
+        return self.checkpoint(checkpoint_id)
+
     def finalize_checkpoint_arena(
         self,
         checkpoint_id: str,

@@ -66,6 +66,11 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         assert model["id"] == checkpoint["id"]
         assert model["size_bytes"] == len(b"actorweights")
         assert model["evaluated"] is False
+        enriched_run = next(
+            item for item in client.get("/api/runs").json() if item["id"] == run["id"]
+        )
+        assert enriched_run["latest_model"]["label"] == "Candidate"
+        assert enriched_run["deployment_model"] is None
         assert (
             client.patch(f"/api/models/{checkpoint['id']}", json={"pinned": True}).json()[
                 "is_pinned"
@@ -106,6 +111,41 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         assert patched.status_code == 200
         assert patched.json()["config"]["epsilon_end"] == 0.04
 
+
+def test_models_hide_tainted_random_restart_lineage(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    with TestClient(server.app) as client:
+        run = client.post(
+            "/api/runs",
+            json={"preset": "quick", "name": "Recovery", "start": False},
+        ).json()
+        store = client.app.state.store
+        verified = store.add_checkpoint(
+            run_id=run["id"], label="Candidate 98k", path=str(tmp_path / "verified"),
+            actor_path=None, games=98_000, evaluation={"reason": "pause"},
+        )
+        bad_anchor = store.add_checkpoint(
+            run_id=run["id"], label="Champion 98k", path=str(tmp_path / "bad"),
+            actor_path=None, games=98_000, champion=True,
+            evaluation={"reason": "initial random model"},
+        )
+        descendant = store.add_checkpoint(
+            run_id=run["id"], label="Candidate 127k", path=str(tmp_path / "child"),
+            actor_path=None, games=127_000, parent_id=bad_anchor["id"],
+            evaluation={"reason": "final"},
+        )
+
+        visible = client.get(f"/api/models?run_id={run['id']}").json()
+        audited = client.get(
+            f"/api/models?run_id={run['id']}&include_tainted=true"
+        ).json()
+
+        assert [item["id"] for item in visible] == [verified["id"]]
+        assert {item["id"] for item in audited} == {
+            verified["id"], bad_anchor["id"], descendant["id"]
+        }
+        tainted = {item["id"] for item in audited if item["integrity_status"] != "verified_lineage"}
+        assert tainted == {bad_anchor["id"], descendant["id"]}
 
 def test_run_seed_rejects_values_that_cannot_round_trip_through_the_dashboard(
     tmp_path, monkeypatch

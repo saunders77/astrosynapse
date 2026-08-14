@@ -250,6 +250,8 @@ type ModelCheckpoint = {
   modelAvailable: boolean;
   artifactState: "available" | "partial" | "pruned" | "missing";
   evaluated: boolean;
+  role: "champion" | "anchor" | "candidate";
+  reason: string;
   qualityGateAvailable: boolean;
   qualityGatePassed: boolean | null;
   qualityGateReasons: string[];
@@ -301,6 +303,8 @@ type RunChoice = {
   name: string;
   status: RunStatus;
   games: number;
+  latestModel: { id: string; label: string; games: number } | null;
+  deploymentModel: { id: string; label: string; games: number; evaluated: boolean } | null;
 };
 
 type TrainerConfig = {
@@ -592,6 +596,8 @@ const demoCheckpointDiagnostics = {
   ensemblePositions: 8,
   ensembleDisagreementRate: 0.25,
   ensembleProbabilityStd: 0.041,
+  role: "candidate" as const,
+  reason: "demo checkpoint",
 };
 
 const demoModels: ModelCheckpoint[] = [
@@ -611,6 +617,7 @@ const demoModels: ModelCheckpoint[] = [
     isPinned: true,
     sizeMb: 6.4,
     evaluated: true,
+    role: "champion",
   },
   {
     ...demoCheckpointDiagnostics,
@@ -1308,6 +1315,8 @@ const emptyModel: ModelCheckpoint = {
   modelAvailable: true,
   artifactState: "available",
   evaluated: false,
+  role: "candidate",
+  reason: "",
   qualityGateAvailable: false,
   qualityGatePassed: null,
   qualityGateReasons: [],
@@ -1348,6 +1357,11 @@ function normalizeModel(raw: unknown, fallback: ModelCheckpoint = emptyModel): M
     || item.evaluated === true
     || hasLegacyEvaluation
     || (item.evaluated === undefined && item.score !== undefined);
+  const isChampion = Boolean(item.is_champion ?? fallback.isChampion);
+  const persistedLabel = asString(item.label ?? item.name, fallback.label);
+  const displayLabel = isChampion && !evaluated
+    ? persistedLabel.replace(/^Champion\b/i, "Anchor")
+    : persistedLabel;
   const eloValue = item.elo_delta
     ?? latestArena.elo_difference_a_minus_b
     ?? evaluation.elo_delta
@@ -1360,7 +1374,7 @@ function normalizeModel(raw: unknown, fallback: ModelCheckpoint = emptyModel): M
       : fallback.sizeMb;
   return {
     id: asString(item.id, fallback.id),
-    label: asString(item.label ?? item.name, fallback.label),
+    label: displayLabel,
     parentId: typeof item.parent_id === "string" && item.parent_id ? item.parent_id : undefined,
     games: asNumber(item.games, fallback.games),
     created: displayTime(item.created ?? item.created_at ?? item.created_at_display, fallback.created),
@@ -1383,7 +1397,7 @@ function normalizeModel(raw: unknown, fallback: ModelCheckpoint = emptyModel): M
       : 1,
     eloDelta: evaluated && hasElo ? asNumber(eloValue, 0) : 0,
     hasElo: evaluated && hasElo,
-    isChampion: Boolean(item.is_champion ?? fallback.isChampion),
+    isChampion,
     isPinned: Boolean(item.is_pinned ?? fallback.isPinned),
     sizeMb: sizeValue === null ? null : Math.max(0, sizeValue),
     actorAvailable: asOptionalBoolean(
@@ -1396,6 +1410,8 @@ function normalizeModel(raw: unknown, fallback: ModelCheckpoint = emptyModel): M
       ? item.artifact_state as "available" | "partial" | "pruned" | "missing"
       : fallback.artifactState,
     evaluated,
+    role: isChampion ? (evaluated ? "champion" : "anchor") : "candidate",
+    reason: asString(evaluation.reason, fallback.reason),
     qualityGateAvailable: Object.keys(qualityGate).length > 0
       || Object.keys(ensemble).length > 0
       || Object.keys(heldout).length > 0
@@ -2403,6 +2419,7 @@ export default function Home() {
     () => snapshot.models.filter((model) => model.actorAvailable),
     [snapshot.models],
   );
+  const selectedRunChoice = runChoices.find((run) => run.id === remoteRunId) ?? null;
   const evaluatedModels = snapshot.models
     .filter((model) => model.evaluated)
     .sort((left, right) => left.games - right.games);
@@ -2602,12 +2619,27 @@ export default function Home() {
         if (isRecord(presetsRaw) && Object.keys(presetsRaw).length) presetCatalogRef.current = presetsRaw;
         const health = isRecord(healthRaw) ? healthRaw : {};
         const runs = Array.isArray(runsRaw) ? runsRaw : [];
-        const normalizedRuns = runs.filter(isRecord).map((run) => ({
-          id: asString(run.id, ""),
-          name: asString(run.name, "Unnamed run"),
-          status: asString(run.status, "ready") as RunStatus,
-          games: asNumber(run.games, 0),
-        })).filter((run) => run.id);
+        const normalizedRuns = runs.filter(isRecord).map((run) => {
+          const latestModel = isRecord(run.latest_model) ? run.latest_model : null;
+          const deploymentModel = isRecord(run.deployment_model) ? run.deployment_model : null;
+          return {
+            id: asString(run.id, ""),
+            name: asString(run.name, "Unnamed run"),
+            status: normalizeStatus(run.status, "ready"),
+            games: asNumber(run.games, 0),
+            latestModel: latestModel ? {
+              id: asString(latestModel.id, ""),
+              label: asString(latestModel.label, "Unnamed checkpoint"),
+              games: asNumber(latestModel.games, 0),
+            } : null,
+            deploymentModel: deploymentModel ? {
+              id: asString(deploymentModel.id, ""),
+              label: asString(deploymentModel.label, "Unnamed deployment model"),
+              games: asNumber(deploymentModel.games, 0),
+              evaluated: Boolean(deploymentModel.evaluated),
+            } : null,
+          };
+        }).filter((run) => run.id);
         setRunChoices(normalizedRuns);
         const activeId = typeof health.active_run_id === "string" ? health.active_run_id : null;
         const liveId = normalizedRuns.find((run) =>
@@ -3260,8 +3292,8 @@ export default function Home() {
           <span className="run-monogram">M4</span>
           <span className="run-context-copy">
             <small>Active run</small>
-            {connected && runChoices.length ? <select className="run-selector" aria-label="Select run to view and control" value={remoteRunId ?? ""} onChange={(event) => selectRun(event.target.value)}>
-              {runChoices.map((run) => <option key={run.id} value={run.id}>{run.name} · {titleCase(run.status)} · {gameCountFormatter.format(run.games)}</option>)}
+            {connected && runChoices.length ? <select className="run-selector" aria-label="Select run and model to view or start" value={remoteRunId ?? ""} onChange={(event) => selectRun(event.target.value)}>
+              {runChoices.map((run) => <option key={run.id} value={run.id}>{run.name} · {run.latestModel?.label ?? "No saved model"} · {titleCase(run.status)}</option>)}
             </select> : <strong>{snapshot.run.name}</strong>}
           </span>
         </div>
@@ -3513,6 +3545,28 @@ export default function Home() {
               <div className="section-summary"><span>Projected games</span><strong>{gameCountFormatter.format(latestMetric.gamesPerSecond * config.durationMinutes * 60)}</strong><small>at {latestMetric.gamesPerSecond.toFixed(0)} games/s</small></div>
             </header>
 
+            {connected && runChoices.length ? <article className="panel resume-picker-panel">
+              <div>
+                <span className="panel-kicker">Resume existing training</span>
+                <h2>Choose the persisted run and model</h2>
+                <p>The selected run resumes from its newest compatible saved checkpoint. Its deployment model is shown separately so an unevaluated anchor cannot be mistaken for a promoted champion.</p>
+              </div>
+              <label>
+                <span>Run / resume checkpoint</span>
+                <select value={remoteRunId ?? ""} onChange={(event) => selectRun(event.target.value)}>
+                  {runChoices.map((run) => <option key={run.id} value={run.id}>{run.name} — resume {run.latestModel?.label ?? "no saved model"} — {titleCase(run.status)}</option>)}
+                </select>
+              </label>
+              <div className="resume-picker-summary">
+                <span><small>Resume source</small><strong>{selectedRunChoice?.latestModel?.label ?? "No checkpoint saved"}</strong></span>
+                <span><small>Deployment model</small><strong>{selectedRunChoice?.deploymentModel ? `${selectedRunChoice.deploymentModel.evaluated ? "Evaluated champion" : "Unevaluated anchor"}: ${selectedRunChoice.deploymentModel.label}` : "None"}</strong></span>
+                <span><small>Run progress</small><strong>{gameCountFormatter.format(selectedRunChoice?.games ?? 0)} games</strong></span>
+              </div>
+              <button type="button" className="button button-primary" onClick={() => invokeControl(selectedRunChoice?.status === "paused" ? "resume" : "start")} disabled={!selectedRunChoice || !(["ready", "paused", "complete", "error", "interrupted"] as RunStatus[]).includes(selectedRunChoice.status) || commandBusy !== null}>
+                {commandBusy === "start" || commandBusy === "resume" ? "Starting…" : "Start selected run"}
+              </button>
+            </article> : null}
+
             <div className="train-layout">
               <form className="recipe-form panel" onSubmit={saveConfig}>
                 <div className="recipe-title"><div><span className="panel-kicker">Run recipe</span><h2>Choose a flight plan</h2></div><span className="recommended-label">Astro4 · M4 · 16 GB tuned</span></div>
@@ -3638,7 +3692,7 @@ export default function Home() {
           <section className="tab-panel models-panel" aria-labelledby="models-title">
             <header className="section-heading">
               <div><span className="section-number">03 / MODELS & ARENA</span><h1 id="models-title">Prove strength, don’t infer it.</h1><p>Every result uses <Jargon term="pairedSeeds">paired seeds</Jargon>, reversed seats, and a <Jargon term="confidenceInterval">confidence interval</Jargon>.</p></div>
-              <div className="section-summary"><span>Current <Jargon term="champion">champion</Jargon></span><strong>{snapshot.models.find((model) => model.isChampion)?.label ?? "—"}</strong><small>{snapshot.models.find((model) => model.isChampion)?.evaluated ? <>{formatPercent(snapshot.models.find((model) => model.isChampion)!.score)} <Jargon term="heldOutStrength">held-out score</Jargon></> : "Not evaluated"}</small></div>
+              <div className="section-summary"><span>Current deployment model</span><strong>{snapshot.models.find((model) => model.isChampion)?.label ?? "—"}</strong><small>{snapshot.models.find((model) => model.isChampion)?.evaluated ? <>{formatPercent(snapshot.models.find((model) => model.isChampion)!.score)} <Jargon term="heldOutStrength">held-out score</Jargon> · evaluated champion</> : "Unevaluated anchor · not a promoted champion"}</small></div>
             </header>
 
             <div className="arena-layout">
@@ -3675,7 +3729,7 @@ export default function Home() {
               }} disabled={commandBusy !== null || !availableModels.some((model) => model.isChampion)}>Export champion</button></div></header>
               <div className="model-table" role="table" aria-label="Model checkpoints">
                 <div className="model-row model-header" role="row"><span role="columnheader">Model</span><span role="columnheader">Games</span><span role="columnheader"><Jargon term="heldOutStrength">Held-out score</Jargon></span><span role="columnheader"><Jargon term="confidenceInterval">Confidence</Jargon></span><span role="columnheader">Δ <Jargon term="elo">Elo</Jargon></span><span role="columnheader">Created</span><span role="columnheader"><Jargon term="modelActions" align="right">Actions</Jargon></span></div>
-                {snapshot.models.map((model) => <div className="model-entry" role="rowgroup" key={model.id}><div className="model-row" role="row"><span role="cell"><i className={model.isChampion ? "champion-gem" : "model-node"} /><span><strong>{model.label}</strong><small>{model.id} · {model.artifactState === "pruned" ? "artifacts pruned · history retained" : model.sizeMb === null ? "size —" : `${model.sizeMb.toFixed(1)} MB`}</small></span>{model.isChampion ? <b className="champion-label"><Jargon term="champion">Champion</Jargon></b> : null}</span><span role="cell">{gameCountFormatter.format(model.games)}</span><span role="cell"><strong>{model.evaluated ? formatPercent(model.score) : "Not evaluated"}</strong></span><span role="cell">{model.evaluated ? `${formatPercent(model.ciLow)}–${formatPercent(model.ciHigh)}` : "—"}</span><span role="cell" className={model.hasElo && model.eloDelta >= 0 ? "positive" : ""}>{model.hasElo ? `${model.eloDelta >= 0 ? "+" : ""}${model.eloDelta.toFixed(0)}` : "—"}</span><span role="cell">{model.created}</span><span role="cell"><button type="button" aria-label={`${model.isPinned ? "Unpin" : "Pin"} ${model.label}`} onClick={() => togglePinned(model.id)} className={model.isPinned ? "is-pinned" : ""} disabled={commandBusy !== null}>◇</button><button type="button" aria-label={`Download actor for ${model.label}`} title={model.actorAvailable ? "Download actor" : "Actor artifact was pruned"} onClick={() => exportModel(model.id)} disabled={commandBusy !== null || !model.actorAvailable}>↓</button></span></div><ModelDiagnosticStrip model={model} /></div>)}
+                {snapshot.models.map((model) => <div className="model-entry" role="rowgroup" key={model.id}><div className="model-row" role="row"><span role="cell"><i className={model.isChampion ? "champion-gem" : "model-node"} /><span><strong>{model.label}</strong><small>{model.id} · {model.artifactState === "pruned" ? "artifacts pruned · history retained" : model.sizeMb === null ? "size —" : `${model.sizeMb.toFixed(1)} MB`}{model.reason ? ` · ${model.reason}` : ""}</small></span>{model.role === "champion" ? <b className="champion-label"><Jargon term="champion">Evaluated champion</Jargon></b> : model.role === "anchor" ? <b className="champion-label anchor-label">Unevaluated anchor</b> : null}</span><span role="cell">{gameCountFormatter.format(model.games)}</span><span role="cell"><strong>{model.evaluated ? formatPercent(model.score) : "Not evaluated"}</strong></span><span role="cell">{model.evaluated ? `${formatPercent(model.ciLow)}–${formatPercent(model.ciHigh)}` : "—"}</span><span role="cell" className={model.hasElo && model.eloDelta >= 0 ? "positive" : ""}>{model.hasElo ? `${model.eloDelta >= 0 ? "+" : ""}${model.eloDelta.toFixed(0)}` : "—"}</span><span role="cell">{model.created}</span><span role="cell"><button type="button" aria-label={`${model.isPinned ? "Unpin" : "Pin"} ${model.label}`} onClick={() => togglePinned(model.id)} className={model.isPinned ? "is-pinned" : ""} disabled={commandBusy !== null}>◇</button><button type="button" aria-label={`Download actor for ${model.label}`} title={model.actorAvailable ? "Download actor" : "Actor artifact was pruned"} onClick={() => exportModel(model.id)} disabled={commandBusy !== null || !model.actorAvailable}>↓</button></span></div><ModelDiagnosticStrip model={model} /></div>)}
                 {!snapshot.models.length ? <EmptyState title="Registry is empty" detail="Checkpoints, actor exports, evaluations, and lineage metadata will appear here." /> : null}
               </div>
             </article>

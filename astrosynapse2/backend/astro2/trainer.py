@@ -299,9 +299,29 @@ def _expected_model_weight_shapes(spec: ModelSpec) -> dict[str, tuple[int, ...]]
         "fusion_in.bias": (hidden,),
         "fusion_norm.weight": (hidden,),
         "fusion_norm.bias": (hidden,),
-        "output.weight": (spec.families * spec.bootstrap_heads, hidden),
-        "output.bias": (spec.families * spec.bootstrap_heads,),
     }
+
+    if spec.objective_version >= 2:
+        shapes.update(
+            {
+                "value_output.weight": (spec.families * spec.bootstrap_heads, hidden),
+                "value_output.bias": (spec.families * spec.bootstrap_heads,),
+            }
+        )
+        for index in range(spec.bootstrap_heads):
+            shapes.update(
+                {
+                    f"head_outputs.{index}.weight": (spec.families, hidden),
+                    f"head_outputs.{index}.bias": (spec.families,),
+                }
+            )
+    else:
+        shapes.update(
+            {
+                "output.weight": (spec.families * spec.bootstrap_heads, hidden),
+                "output.bias": (spec.families * spec.bootstrap_heads,),
+            }
+        )
 
     def add_residual(prefix: str, width: int) -> None:
         shapes.update(
@@ -319,6 +339,9 @@ def _expected_model_weight_shapes(spec: ModelSpec) -> dict[str, tuple[int, ...]]
         add_residual(f"state_blocks.{index}", hidden)
         add_residual(f"fusion_blocks.{index}", hidden)
     add_residual("action_blocks.0", action_hidden)
+    if spec.objective_version >= 2:
+        for index in range(spec.bootstrap_heads):
+            add_residual(f"head_blocks.{index}", hidden)
     return shapes
 
 
@@ -503,9 +526,30 @@ def _latest_loadable_checkpoint(
     run_id: str,
     config: RunConfig | None = None,
 ) -> dict[str, Any] | None:
+    checkpoints = store.checkpoints(run_id)
+    tainted_ids = {
+        checkpoint["id"]
+        for checkpoint in checkpoints
+        if (checkpoint.get("evaluation") or {}).get("reason") == "initial random model"
+        and int(checkpoint["games"]) > 0
+    }
+    changed = True
+    while changed:
+        changed = False
+        for checkpoint in checkpoints:
+            if checkpoint.get("parent_id") in tainted_ids and checkpoint["id"] not in tainted_ids:
+                tainted_ids.add(checkpoint["id"])
+                changed = True
+
     model_candidates: list[dict[str, Any]] = []
     skipped: list[str] = []
-    for checkpoint in store.checkpoints(run_id):
+    for checkpoint in checkpoints:
+        if checkpoint["id"] in tainted_ids:
+            # Older builds could stamp restored counters onto a fresh random
+            # model after incorrectly rejecting every Astro4 checkpoint. Its
+            # descendants are equally unsafe even when saved as candidates.
+            skipped.append(checkpoint["id"])
+            continue
         path = Path(checkpoint["path"])
         if not _checkpoint_model_is_loadable(path, config):
             skipped.append(checkpoint["id"])
@@ -566,6 +610,49 @@ def _champion_actor_path(store: Store, run_id: str, fallback: Path) -> str:
         if actor_path and Path(actor_path).is_file():
             return str(Path(actor_path))
     return str(fallback)
+
+
+def _repair_anomalous_deployment_anchor(store: Store, run_id: str) -> dict[str, Any] | None:
+    """Undo the legacy nonzero-game random-anchor corruption on resume."""
+
+    run = store.get_run(run_id)
+    champion_id = run.get("champion_id")
+    if not champion_id:
+        return None
+    champion = store.checkpoint(champion_id)
+    evaluation = champion.get("evaluation") or {}
+    if evaluation.get("reason") != "initial random model" or int(champion["games"]) == 0:
+        return champion
+
+    checkpoints = store.checkpoints(run_id)
+    evaluated = [
+        item
+        for item in checkpoints
+        if item["id"] != champion_id
+        and bool(
+            ((item.get("evaluation") or {}).get("latest_arena") or {}).get("promoted")
+        )
+    ]
+    roots = [
+        item
+        for item in checkpoints
+        if item["id"] != champion_id
+        and int(item["games"]) == 0
+        and (item.get("evaluation") or {}).get("reason") == "initial random model"
+    ]
+    replacement = evaluated[0] if evaluated else (roots[-1] if roots else None)
+    if replacement is None:
+        raise RuntimeError(
+            "the deployment model is an invalid nonzero-game random anchor and no safe anchor exists"
+        )
+    restored = store.set_run_champion(run_id, replacement["id"])
+    store.event(
+        run_id,
+        "deployment_anchor_repaired",
+        f"Restored deployment model {restored['label']}",
+        {"invalid_checkpoint_id": champion_id, "restored_checkpoint_id": restored["id"]},
+    )
+    return restored
 
 
 def _completed_trainer_evaluations(store: Store, run_id: str) -> list[dict[str, Any]]:
@@ -1843,10 +1930,16 @@ def run_training(
     checkpoint_root = store.path.parent / "checkpoints" / run_id
     runtime_actor = checkpoint_root / "runtime" / "current.actor.npz"
     latest = _learner_resume_checkpoint(store, run_id, config)
+    _repair_anomalous_deployment_anchor(store, run_id)
     if latest is not None:
         model, spec = load_model(latest["path"])
         parent_checkpoint_id = latest["id"]
     else:
+        if int(run.get("games", 0)) > 0 or store.checkpoints(run_id):
+            raise RuntimeError(
+                "refusing to initialize a random model for a non-empty run: "
+                "no compatible checkpoint could be loaded"
+            )
         spec = ModelSpec(
             state_size=encoder.state_size,
             action_size=encoder.action_size,

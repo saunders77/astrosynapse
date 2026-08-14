@@ -29,6 +29,7 @@ from astro2.trainer import (
     _optimizer_schedule_origin,
     _persisted_active_elapsed,
     _plateau_status,
+    _repair_anomalous_deployment_anchor,
     _restore_totals,
     _save_checkpoint,
     _schedule_evaluation,
@@ -53,6 +54,7 @@ def _write_test_model(path: Path, config: RunConfig) -> Path:
         residual_blocks=config.residual_blocks,
         bootstrap_heads=config.bootstrap_heads,
         encoder_version=encoder.version,
+        objective_version=2 if config.training_generation >= 4 else 1,
     )
     arrays = {
         name: np.zeros(shape, dtype=np.float32)
@@ -64,6 +66,69 @@ def _write_test_model(path: Path, config: RunConfig) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def test_astro4_weight_contract_matches_head_adapters_and_value_output():
+    config = RunConfig.astro4_m4()
+    encoder = Encoder(version=2)
+    spec = ModelSpec(
+        state_size=encoder.state_size,
+        action_size=encoder.action_size,
+        families=FAMILY_COUNT,
+        hidden_size=config.hidden_size,
+        action_hidden_size=max(64, config.hidden_size // 2),
+        residual_blocks=config.residual_blocks,
+        bootstrap_heads=config.bootstrap_heads,
+        encoder_version=encoder.version,
+        objective_version=2,
+    )
+
+    shapes = _expected_model_weight_shapes(spec)
+
+    assert "output.weight" not in shapes
+    assert shapes["value_output.weight"] == (
+        spec.families * spec.bootstrap_heads,
+        spec.hidden_size,
+    )
+    assert shapes["head_outputs.0.weight"] == (spec.families, spec.hidden_size)
+    assert shapes["head_blocks.0.fc1.weight"] == (
+        spec.hidden_size * 2,
+        spec.hidden_size,
+    )
+
+
+def test_resume_skips_and_repairs_nonzero_random_anchor(tmp_path):
+    store = Store(tmp_path / "state.sqlite3")
+    config = RunConfig.astro4_m4()
+    run = store.create_run(config)
+    root_path = _write_test_model(tmp_path / "root.safetensors", config)
+    candidate_path = _write_test_model(tmp_path / "candidate.safetensors", config)
+    invalid_path = _write_test_model(tmp_path / "invalid.safetensors", config)
+    root = store.add_checkpoint(
+        run_id=run["id"], label="Initial anchor", path=str(root_path), actor_path=None,
+        games=0, champion=True, evaluation={"reason": "initial random model"},
+    )
+    candidate = store.add_checkpoint(
+        run_id=run["id"], label="Candidate 98k", path=str(candidate_path), actor_path=None,
+        games=98_176, evaluation={"reason": "pause"},
+    )
+    invalid = store.add_checkpoint(
+        run_id=run["id"], label="Bad anchor 98k", path=str(invalid_path), actor_path=None,
+        games=98_176, champion=True, evaluation={"reason": "initial random model"},
+    )
+    tainted_path = _write_test_model(tmp_path / "tainted.safetensors", config)
+    store.add_checkpoint(
+        run_id=run["id"], label="Tainted candidate 126k", path=str(tainted_path),
+        actor_path=None, games=126_848, parent_id=invalid["id"],
+        evaluation={"reason": "pause"},
+    )
+
+    selected = _latest_loadable_checkpoint(store, run["id"], config)
+    restored = _repair_anomalous_deployment_anchor(store, run["id"])
+
+    assert selected["id"] == candidate["id"]
+    assert restored["id"] == root["id"]
+    assert store.get_run(run["id"])["champion_id"] == root["id"]
 
 
 class FakeArenaManager:

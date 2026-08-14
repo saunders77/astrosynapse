@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -156,6 +157,25 @@ def _actor_unavailable_detail(checkpoint: dict[str, Any]) -> str:
     return "model actor snapshot is unavailable"
 
 
+def _tainted_checkpoint_ids(checkpoints: list[dict[str, Any]]) -> set[str]:
+    """Return legacy random-restart checkpoints and every descendant."""
+
+    tainted = {
+        checkpoint["id"]
+        for checkpoint in checkpoints
+        if (checkpoint.get("evaluation") or {}).get("reason") == "initial random model"
+        and int(checkpoint["games"]) > 0
+    }
+    changed = True
+    while changed:
+        changed = False
+        for checkpoint in checkpoints:
+            if checkpoint.get("parent_id") in tainted and checkpoint["id"] not in tainted:
+                tainted.add(checkpoint["id"])
+                changed = True
+    return tainted
+
+
 def _model_document(checkpoint: dict[str, Any]) -> dict[str, Any]:
     result = dict(checkpoint)
     model_path = Path(str(checkpoint.get("path") or ""))
@@ -229,7 +249,49 @@ def presets() -> dict[str, Any]:
 
 @app.get("/api/runs")
 def runs(request: Request) -> list[dict[str, Any]]:
-    return _store(request).list_runs()
+    store = _store(request)
+    result = []
+    for run in store.list_runs():
+        item = dict(run)
+        checkpoints = store.checkpoints(run["id"])
+        tainted_ids = _tainted_checkpoint_ids(checkpoints)
+        latest = next(
+            (
+                model
+                for model in checkpoints
+                if model["id"] not in tainted_ids
+            ),
+            None,
+        )
+        champion = next((model for model in checkpoints if model["is_champion"]), None)
+        champion_evaluated = bool(
+            champion and (champion.get("evaluation") or {}).get("latest_arena")
+        )
+        item["latest_model"] = (
+            {
+                "id": latest["id"],
+                "label": latest["label"],
+                "games": latest["games"],
+            }
+            if latest
+            else None
+        )
+        item["deployment_model"] = (
+            {
+                "id": champion["id"],
+                "label": (
+                    champion["label"]
+                    if champion_evaluated
+                    else re.sub(r"^Champion\b", "Anchor", champion["label"], flags=re.IGNORECASE)
+                ),
+                "games": champion["games"],
+                "evaluated": champion_evaluated,
+            }
+            if champion
+            else None
+        )
+        result.append(item)
+    return result
 
 
 @app.post("/api/runs", status_code=201)
@@ -299,8 +361,26 @@ def audit_events(
 
 
 @app.get("/api/models")
-def models(request: Request, run_id: str | None = None) -> list[dict[str, Any]]:
-    return [_model_document(item) for item in _store(request).checkpoints(run_id)]
+def models(
+    request: Request,
+    run_id: str | None = None,
+    include_tainted: bool = False,
+) -> list[dict[str, Any]]:
+    checkpoints = _store(request).checkpoints(run_id)
+    tainted_ids = _tainted_checkpoint_ids(checkpoints)
+    visible = (
+        checkpoints
+        if include_tainted
+        else [item for item in checkpoints if item["id"] not in tainted_ids]
+    )
+    result = []
+    for item in visible:
+        document = _model_document(item)
+        document["integrity_status"] = (
+            "tainted_random_restart" if item["id"] in tainted_ids else "verified_lineage"
+        )
+        result.append(document)
+    return result
 
 
 @app.patch("/api/models/{model_id}")

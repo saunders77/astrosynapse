@@ -1284,6 +1284,30 @@ code {
   align-items: start;
 }
 
+.resume-picker-panel {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(300px, 1.1fr) auto;
+  gap: 18px;
+  align-items: end;
+  margin-bottom: 14px;
+  padding: 20px 24px;
+}
+
+.resume-picker-panel h2 { margin: 4px 0 6px; }
+.resume-picker-panel p { max-width: 620px; color: var(--muted); font-size: 10px; line-height: 1.55; }
+.resume-picker-panel label { display: grid; gap: 7px; color: var(--muted); font-size: 9px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; }
+.resume-picker-summary { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.resume-picker-summary span { padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; background: rgba(255, 255, 255, 0.015); }
+.resume-picker-summary small, .resume-picker-summary strong { display: block; }
+.resume-picker-summary small { margin-bottom: 5px; color: var(--faint); font-family: var(--mono); font-size: 8px; text-transform: uppercase; }
+.resume-picker-summary strong { color: var(--ink-soft); font-size: 10px; }
+
+.anchor-label {
+  border-color: rgba(241, 190, 86, 0.34) !important;
+  color: var(--warning) !important;
+  background: rgba(241, 190, 86, 0.07) !important;
+}
+
 .recipe-form {
   padding: 28px;
 }
@@ -3215,6 +3239,8 @@ button.game-card:hover:not(:disabled) {
 }
 
 @media (max-width: 900px) {
+  .resume-picker-panel { grid-template-columns: 1fr; align-items: stretch; }
+  .resume-picker-summary { grid-template-columns: 1fr; }
   .topbar { grid-template-columns: 1fr auto; }
   .topbar-context { display: none; }
   .mission-hero { grid-template-columns: 1fr; }
@@ -3250,6 +3276,7 @@ button.game-card:hover:not(:disabled) {
 }
 
 @media (max-width: 680px) {
+  .resume-picker-panel { padding: 18px; }
   .topbar { min-height: 59px; padding: 0 14px; }
   .brand { font-size: 11px; }
   .sync-copy { display: none; }
