@@ -232,6 +232,7 @@ class CompactPreferences:
     preferred_actions: np.ndarray
     disfavored_actions: np.ndarray
     families: np.ndarray
+    bootstrap_masks: np.ndarray
 
     def __len__(self) -> int:
         return int(self.families.shape[0])
@@ -243,6 +244,7 @@ class CompactPreferences:
         *,
         state_size: int,
         action_size: int,
+        bootstrap_heads: int,
     ) -> CompactPreferences:
         if not items:
             return cls(
@@ -250,6 +252,7 @@ class CompactPreferences:
                 preferred_actions=np.empty((0, action_size), dtype=np.float16),
                 disfavored_actions=np.empty((0, action_size), dtype=np.float16),
                 families=np.empty(0, dtype=np.uint8),
+                bootstrap_masks=np.empty((0, bootstrap_heads), dtype=np.uint8),
             )
         return cls(
             states=np.stack([item.state for item in items]).astype(np.float16),
@@ -260,6 +263,7 @@ class CompactPreferences:
                 np.float16
             ),
             families=np.asarray([int(item.family) for item in items], dtype=np.uint8),
+            bootstrap_masks=np.stack([item.bootstrap_mask for item in items]).astype(np.uint8),
         )
 
 
@@ -364,6 +368,7 @@ class _PendingPolicySample:
 def _tactical_preference(
     decision: Decision,
     encoded: DecisionEncoding,
+    bootstrap_mask: np.ndarray,
 ) -> PreferenceItem | None:
     """Create one deterministic, exact dominance pair for this decision."""
 
@@ -396,6 +401,7 @@ def _tactical_preference(
         preferred_action=encoded.actions[preferred_index],
         disfavored_action=encoded.actions[end_indices[0]],
         family=encoded.family,
+        bootstrap_mask=bootstrap_mask.copy(),
     )
 
 
@@ -597,6 +603,7 @@ def collect_game(
                 preferred_action=encoded.actions[preferred],
                 disfavored_action=encoded.actions[disfavored],
                 family=encoded.family,
+                bootstrap_mask=explorations[player].bootstrap_mask.copy(),
             )
         )
 
@@ -644,7 +651,11 @@ def collect_game(
                             )
                         )
                 if collect_preferences:
-                    preference = _tactical_preference(decision, encoded)
+                    preference = _tactical_preference(
+                        decision,
+                        encoded,
+                        explorations[player].bootstrap_mask,
+                    )
                     if preference is not None:
                         preferences.append(preference)
                 if collect_outcome_decisions:
@@ -865,6 +876,7 @@ def collect_worker_batch(
             all_preferences,
             state_size=encoder.state_size,
             action_size=encoder.action_size,
+            bootstrap_heads=bootstrap_heads,
         ),
         games=games,
         wins=(wins[0], wins[1]),

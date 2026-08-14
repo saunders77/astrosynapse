@@ -282,17 +282,23 @@ def test_preference_replay_is_bounded_and_round_trips_compact_rows():
             preferred_action=np.full(4, step + 1, dtype=np.float32),
             disfavored_action=np.full(4, step - 1, dtype=np.float32),
             family=DecisionFamily.MAIN,
+            bootstrap_mask=np.asarray([1, step % 2, 0], dtype=np.uint8),
         )
         for step in range(12)
     ]
-    compact = CompactPreferences.from_items(entries, state_size=5, action_size=4)
-    replay = PreferenceReplayBuffer(capacity=8, state_size=5, action_size=4, seed=3)
+    compact = CompactPreferences.from_items(
+        entries, state_size=5, action_size=4, bootstrap_heads=3
+    )
+    replay = PreferenceReplayBuffer(
+        capacity=8, state_size=5, action_size=4, bootstrap_heads=3, seed=3
+    )
     assert replay.extend_compact(compact) == 12
     assert len(replay) == 8
     assert replay.metrics()["overwrites"] == 4
     batch = replay.sample(6)
     assert batch.states.shape == (6, 5)
     assert batch.preferred_actions.shape == (6, 4)
+    assert batch.bootstrap_mask.shape == (6, 3)
 
 
 def test_policy_replay_samples_player_games_before_decisions():

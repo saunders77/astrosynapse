@@ -270,8 +270,14 @@ def test_astro4_recipe_uses_legal_set_training_and_m4_safe_batches():
     assert config.training_generation == 4
     assert config.seed == 20260813
     assert config.batch_size == 256
-    assert config.policy_replay_capacity == 150_000
+    assert config.policy_replay_capacity == 250_000
     assert config.counterfactual_fraction > 0
+    assert config.counterfactual_loss_weight == pytest.approx(0.05)
+    assert config.policy_entropy_weight == pytest.approx(0.03)
+    assert config.randomized_prior_scale > 0
+    assert config.rollback_rejected_candidates is True
+    assert config.learning_rate == pytest.approx(1e-4)
+    assert config.gradient_clip == pytest.approx(1.0)
     assert config.require_resource_efficiency is False
     assert config.heuristic_bootstrap_updates == 0
     assert config.gate_heldout_brier_regression is True

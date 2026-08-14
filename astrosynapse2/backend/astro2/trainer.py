@@ -1660,6 +1660,7 @@ def _train_updates(
             preferred_actions,
             disfavored_actions,
             preference_families,
+            preference_masks,
             preference_weight,
         ):
             policy = actor_critic_policy_loss(
@@ -1684,6 +1685,7 @@ def _train_updates(
                 disfavored_actions,
                 preference_families,
                 margin=config.preference_margin,
+                bootstrap_mask=preference_masks,
             )[0]
             return policy + preference_weight * counterfactual
 
@@ -1714,6 +1716,7 @@ def _train_updates(
                     mx.array(preference_batch.preferred_actions),
                     mx.array(preference_batch.disfavored_actions),
                     mx.array(preference_batch.families),
+                    mx.array(preference_batch.bootstrap_mask),
                     mx.array(config.counterfactual_loss_weight),
                 )
             else:
@@ -1722,6 +1725,7 @@ def _train_updates(
                     arrays[1][:1, 0],
                     arrays[1][:1, 0],
                     arrays[4][:1],
+                    arrays[7][:1],
                     mx.array(0.0),
                 )
             learning_rate = _learning_rate(
@@ -1761,6 +1765,30 @@ def _train_updates(
                     "accuracy": float(diagnostics["value_accuracy"].item()),
                 }
             )
+            if last_preference_arrays is not None:
+                preference_loss, preference_diagnostics = preference_ranking_loss(
+                    model,
+                    *last_preference_arrays[:4],
+                    margin=config.preference_margin,
+                    bootstrap_mask=last_preference_arrays[4],
+                )
+                mx.eval(preference_loss, *preference_diagnostics.values())
+                counterfactual_loss = float(preference_loss.item())
+                weighted_counterfactual_loss = (
+                    float(last_preference_arrays[5].item()) * counterfactual_loss
+                )
+                metrics.update(
+                    {
+                        "loss": float(diagnostic_loss.item()) + weighted_counterfactual_loss,
+                        "actor_critic_loss": float(diagnostic_loss.item()),
+                        "counterfactual_loss": counterfactual_loss,
+                        "weighted_counterfactual_loss": weighted_counterfactual_loss,
+                        **{
+                            f"counterfactual_{name}": float(value.item())
+                            for name, value in preference_diagnostics.items()
+                        },
+                    }
+                )
         return metrics
 
     def loss_function(
@@ -1989,6 +2017,7 @@ def run_training(
         capacity=config.preference_replay_capacity,
         state_size=encoder.state_size,
         action_size=encoder.action_size,
+        bootstrap_heads=config.bootstrap_heads,
         seed=config.seed + 43,
     )
     policy_replay = GameBalancedPolicyReplayBuffer(

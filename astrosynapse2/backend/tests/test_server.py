@@ -17,6 +17,9 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         assert presets["astro4_m4"]["seed"] == 20260813
         assert presets["astro4_m4"]["batch_size"] == 256
         assert presets["astro4_m4"]["counterfactual_fraction"] > 0
+        assert presets["astro4_m4"]["counterfactual_loss_weight"] == 0.05
+        assert presets["astro4_m4"]["rollback_rejected_candidates"] is True
+        assert presets["astro4_m4"]["randomized_prior_scale"] > 0
         assert presets["astro4_m4"]["checkpoint_every_games"] == 50_000
         assert presets["astro4_m4"]["evaluate_every_games"] == 250_000
         assert presets["astro3_m4"]["training_generation"] == 3

@@ -490,7 +490,7 @@ const initialConfig: TrainerConfig = {
   behaviorPolicy: "learner",
   useBootstrapTargets: false,
   tacticalPreferenceTraining: false,
-  randomizedPriorScale: 0,
+  randomizedPriorScale: 0.25,
   deploymentPolicySelfplayFraction: 0.2,
   bootstrapInclusionProbability: 0.2,
   adaptiveTraining: true,
@@ -503,7 +503,7 @@ const initialConfig: TrainerConfig = {
   residualBlocks: 3,
   bootstrapHeads: 5,
   batchSize: 256,
-  learningRate: 0.0002,
+  learningRate: 0.0001,
   learningRateDecayUpdates: 400_000,
   replayCapacity: 900_000,
   replayWarmup: 50_000,
@@ -523,13 +523,13 @@ const initialConfig: TrainerConfig = {
   explorationTopK: 0,
   terminalTargetWeight: 1,
   preferenceLossWeight: 0,
-  policyReplayCapacity: 150_000,
+  policyReplayCapacity: 250_000,
   policyValueLossWeight: 0.5,
-  policyEntropyWeight: 0.015,
+  policyEntropyWeight: 0.03,
   policyImportanceClip: 2,
   counterfactualFraction: 0.02,
   counterfactualMaxPerGame: 1,
-  counterfactualLossWeight: 0.25,
+  counterfactualLossWeight: 0.05,
   minimumHeadDisagreementRate: 0.05,
   maximumHeldoutBrier: 0.24,
   gateHeldoutBrierRegression: true,
@@ -540,6 +540,7 @@ const astro3Config: TrainerConfig = {
   name: "Astro3 M4 self-play",
   preset: "astro3_m4",
   trainingGeneration: 3,
+  learningRate: 0.0002,
   randomizedPriorScale: 0.25,
   bootstrapInclusionProbability: 0.35,
   resumeReplayItems: 100_000,
@@ -593,6 +594,7 @@ const quickConfig: TrainerConfig = {
   name: "Quick validation run",
   preset: "quick",
   trainingGeneration: 3,
+  learningRate: 0.0002,
   durationMinutes: 5,
   actorProcesses: 4,
   gamesPerActorBatch: 2,
@@ -3765,7 +3767,7 @@ export default function Home() {
                       <label title="Use a distinct seed for each independent training run; reuse one only when reproducing a run."><span><Jargon term="seed">Training seed</Jargon></span><input type="number" min="0" max="9007199254740991" step="1" value={config.seed} onChange={(event) => updateConfig("seed", Number(event.target.value))} /></label>
                       <label title="This expert field changes the generation/learner contract only. Use the preset cards above to switch the complete recipe."><span><Jargon term="trainingGeneration">Generation contract</Jargon></span><select value={config.trainingGeneration} onChange={(event) => updateConfig("trainingGeneration", Number(event.target.value))}><option value={4}>Astro4 legal-set actor-critic</option><option value={3}>Astro3 chosen-action MC</option><option value={2}>Astro2 encoder · hybrid</option></select></label>
                       <label><span><Jargon term="behaviorPolicy">Behavior policy</Jargon></span><select value={config.behaviorPolicy} onChange={(event) => updateConfig("behaviorPolicy", event.target.value)}><option value="learner">Learner</option><option value="champion">Champion</option></select></label>
-                      {config.trainingGeneration < 4 ? <label title="Scale of fixed random per-head behavior offsets used only to perturb action selection; this is not a fitted prior or an added training loss."><span>Behavior perturbation scale</span><input type="number" min="0" max="5" step="0.05" value={config.randomizedPriorScale} onChange={(event) => updateConfig("randomizedPriorScale", Number(event.target.value))} /></label> : null}
+                      <label title="Scale of fixed random per-head behavior offsets used only to perturb action selection; this is not a fitted prior or an added training loss."><span>Behavior perturbation scale</span><input type="number" min="0" max="5" step="0.05" value={config.randomizedPriorScale} onChange={(event) => updateConfig("randomizedPriorScale", Number(event.target.value))} /></label>
                       <label title="Fraction of current self-play that uses the exact prior-free mean-head policy deployed in arenas and human play. Generation 2 requires zero."><span>Deployment-policy self-play</span><input type="number" min="0" max="1" step="0.05" disabled={config.trainingGeneration < 3} value={config.trainingGeneration >= 3 ? config.deploymentPolicySelfplayFraction : 0} onChange={(event) => updateConfig("deploymentPolicySelfplayFraction", Number(event.target.value))} /></label>
                       <label><span>Bootstrap inclusion</span><input type="number" min="0.01" max="1" step="0.05" value={config.bootstrapInclusionProbability} onChange={(event) => updateConfig("bootstrapInclusionProbability", Number(event.target.value))} /></label>
                       {config.trainingGeneration >= 4 ? <>

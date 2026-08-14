@@ -8,7 +8,7 @@ Astrosynapse has three explicit training contracts. Astro4 is recommended for ne
 | Replay unit | Whole player-games; game → turn phase → decision sampling | Individual decisions | Individual decisions |
 | Counterfactual data | Matched forced-action rollouts against a uniformly sampled legal alternative | None | None |
 | Behavior policy | Learner heads plus direct deployment-policy data, league/baselines | Learner heads plus direct deployment-policy data, league/baselines | Accepted champion |
-| Rejected candidate | Learner continues; champion stays deployed | Learner continues; champion stays deployed | Learner rolls back |
+| Rejected candidate | Learner rolls back to the accepted champion | Learner continues; champion stays deployed | Learner rolls back |
 | Outcome target | Terminal return minus learned state baseline | Terminal Monte Carlo | 60% terminal / 40% next-decision max |
 | Tactical preference loss | Only rollout-derived comparisons | Disabled | Enabled |
 | Exploration support | Every eligible action | Every eligible action | Current head's top 3 |
@@ -22,9 +22,9 @@ Generation 4 records the complete deployment-eligible action set, selected actio
 
 Policy replay evicts complete player-game trajectories. A batch samples a player-game uniformly, then an available early/middle/late turn phase uniformly, then one decision in that phase. Long games therefore do not dominate merely because they emit more decisions, and early economic decisions remain represented.
 
-A bounded fraction of games clones selected information states before the chosen action, compares it with a uniformly sampled deployment-eligible alternative under identical hidden state and RNG streams, and rolls both branches to completion. Only outcome-different pairs enter the ranking buffer. No action kind, card, opening, or named strategy is privileged.
+A bounded fraction of games clones selected information states before the chosen action, compares it with a uniformly sampled deployment-eligible alternative under identical hidden state and RNG streams, and rolls both branches to completion. Only outcome-different pairs enter the ranking buffer. No action kind, card, opening, or named strategy is privileged. The auxiliary ranking loss uses the originating trajectory's bootstrap mask, so it cannot train every policy head toward the same answer from every pair.
 
-Generation-4 heads have independent residual adapters and output banks. Promotion requires nonzero action disagreement on the fixed all-family suite, while deployment still uses their mean policy. The gate rejects truncations, collapsed heads, and checkpoints whose absolute held-out state-value Brier score or regression exceeds the configured limit. Strategy quality is decided by terminal outcomes and paired arenas, not hand-authored move expectations.
+Generation-4 heads have independent residual adapters and output banks plus fixed behavior-time perturbations. Promotion requires nonzero action disagreement on the fixed all-family suite, while deployment still uses their mean policy. The gate rejects truncations, collapsed heads, and checkpoints whose absolute held-out state-value Brier score or regression exceeds the configured limit. Strategy quality is decided by terminal outcomes and paired arenas, not hand-authored move expectations. A rejected Astro4 branch restores the accepted champion before collecting the next branch, preventing a known regression from becoming the next learner baseline.
 
 Generation-4 replay is intentionally not restored from Astro3 snapshots: those rows do not contain legal sets or behavior probabilities. Resume preserves compatible generation-4 weights and optimizer state but repopulates policy replay before updates continue.
 

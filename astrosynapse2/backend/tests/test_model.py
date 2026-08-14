@@ -247,6 +247,9 @@ def test_tactical_preference_loss_is_finite_and_reports_ordering_metrics():
         mx.array(rng.normal(size=(5, spec.action_size)).astype(np.float32)),
         mx.array(np.zeros(5, dtype=np.int32)),
         margin=1.0,
+        bootstrap_mask=mx.array(
+            np.tile(np.asarray([[1, 0, 0]], dtype=np.float32), (5, 1))
+        ),
     )
     mx.eval(loss, *diagnostics.values())
     assert np.isfinite(float(loss.item()))

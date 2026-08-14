@@ -260,6 +260,7 @@ def preference_ranking_loss(
     families,
     *,
     margin: float = 1.0,
+    bootstrap_mask=None,
 ):
     """Soft pairwise loss for exact rules-derived tactical preferences."""
 
@@ -268,9 +269,11 @@ def preference_ranking_loss(
     disfavored_logits = model(states, disfavored_actions, families)
     differences = preferred_logits - disfavored_logits
     losses = mx.logaddexp(mx.array(0.0), mx.array(float(margin)) - differences)
-    return mx.mean(losses), {
-        "preference_accuracy": mx.mean(differences > 0),
-        "preference_margin_mean": mx.mean(differences),
+    weights = mx.ones_like(losses) if bootstrap_mask is None else bootstrap_mask
+    denominator = mx.maximum(mx.sum(weights), mx.array(1.0))
+    return mx.sum(weights * losses) / denominator, {
+        "preference_accuracy": mx.sum(weights * (differences > 0)) / denominator,
+        "preference_margin_mean": mx.sum(weights * differences) / denominator,
     }
 
 

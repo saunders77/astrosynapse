@@ -279,18 +279,32 @@ class RunConfig(BaseModel):
             # Legal-set batches retain up to 64 alternatives per decision;
             # 2,048 such sets is unnecessarily large for unified 16 GB RAM.
             batch_size=256,
+            # Keep cross-head replay overlap low; the required behavior head
+            # still guarantees that every trajectory trains its owner.
             bootstrap_inclusion_probability=0.20,
-            randomized_prior_scale=0.0,
-            policy_replay_capacity=150_000,
+            randomized_prior_scale=0.25,
+            # The original 150k window held only about 1,500 player-games in
+            # the first real run and forgot useful play within one checkpoint.
+            policy_replay_capacity=250_000,
             policy_value_loss_weight=0.5,
-            policy_entropy_weight=0.015,
+            policy_entropy_weight=0.03,
             policy_importance_clip=2.0,
             counterfactual_fraction=0.02,
             counterfactual_max_per_game=1,
-            counterfactual_loss_weight=0.25,
+            # Paired rollouts are an auxiliary ordering signal, not the main
+            # objective.  At 0.25 their replayed loss could dominate the much
+            # smaller advantage loss and rapidly collapse policy entropy.
+            counterfactual_loss_weight=0.05,
             preference_loss_weight=0.0,
             tactical_preference_training=False,
             heuristic_bootstrap_updates=0,
+            learning_rate=1e-4,
+            min_learning_rate=2e-5,
+            gradient_clip=1.0,
+            # Keep the deployed champion monotonic. A failed candidate is a
+            # branch to abandon, while the next branch still gets fresh
+            # learner-driven games and exploration from the champion.
+            rollback_rejected_candidates=True,
             gate_heldout_brier_regression=True,
             maximum_heldout_brier=0.24,
             require_early_high_cost_retention=False,

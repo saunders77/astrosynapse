@@ -168,6 +168,7 @@ class PreferenceItem:
     preferred_action: np.ndarray
     disfavored_action: np.ndarray
     family: DecisionFamily | int
+    bootstrap_mask: np.ndarray
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +177,7 @@ class PreferenceBatch:
     preferred_actions: np.ndarray
     disfavored_actions: np.ndarray
     families: np.ndarray
+    bootstrap_mask: np.ndarray
 
     def __len__(self) -> int:
         return int(self.families.shape[0])
@@ -1218,19 +1220,22 @@ class PreferenceReplayBuffer:
         capacity: int,
         state_size: int,
         action_size: int,
+        bootstrap_heads: int,
         storage_dtype: np.dtype | type = np.float16,
         seed: int | None = None,
     ):
-        if capacity < 1 or state_size < 1 or action_size < 1:
+        if capacity < 1 or state_size < 1 or action_size < 1 or bootstrap_heads < 1:
             raise ValueError("preference replay dimensions must be positive")
         self.capacity = int(capacity)
         self.state_size = int(state_size)
         self.action_size = int(action_size)
+        self.bootstrap_heads = int(bootstrap_heads)
         dtype = np.dtype(storage_dtype)
         self.states = np.empty((capacity, state_size), dtype=dtype)
         self.preferred_actions = np.empty((capacity, action_size), dtype=dtype)
         self.disfavored_actions = np.empty((capacity, action_size), dtype=dtype)
         self.families = np.empty(capacity, dtype=np.uint8)
+        self.bootstrap_masks = np.empty((capacity, bootstrap_heads), dtype=np.uint8)
         self.write_index = 0
         self.size = 0
         self.writes = 0
@@ -1246,18 +1251,21 @@ class PreferenceReplayBuffer:
         preferred = np.asarray(compact.preferred_actions)
         disfavored = np.asarray(compact.disfavored_actions)
         families = np.asarray(compact.families)
+        bootstrap_masks = np.asarray(compact.bootstrap_masks)
         count = int(len(families))
         expected = {
             "states": (count, self.state_size),
             "preferred_actions": (count, self.action_size),
             "disfavored_actions": (count, self.action_size),
             "families": (count,),
+            "bootstrap_masks": (count, self.bootstrap_heads),
         }
         actual = {
             "states": states.shape,
             "preferred_actions": preferred.shape,
             "disfavored_actions": disfavored.shape,
             "families": families.shape,
+            "bootstrap_masks": bootstrap_masks.shape,
         }
         invalid = [name for name, shape in actual.items() if shape != expected[name]]
         if invalid:
@@ -1275,6 +1283,12 @@ class PreferenceReplayBuffer:
             raise ValueError("preference features must be finite")
         if families.dtype.kind not in "iu" or np.any((families < 0) | (families >= FAMILY_COUNT)):
             raise ValueError("preferences contain an unknown decision family")
+        if (
+            bootstrap_masks.dtype.kind not in "biu"
+            or not np.isin(bootstrap_masks, (0, 1)).all()
+            or (count and np.any(np.sum(bootstrap_masks, axis=1) == 0))
+        ):
+            raise ValueError("preference bootstrap masks must be binary and nonempty")
 
         incoming = count
         if count > self.capacity:
@@ -1283,6 +1297,7 @@ class PreferenceReplayBuffer:
             preferred = preferred[start:]
             disfavored = disfavored[start:]
             families = families[start:]
+            bootstrap_masks = bootstrap_masks[start:]
             count = self.capacity
         self.overwrites += max(0, self.size + incoming - self.capacity)
         first = min(count, self.capacity - self.write_index)
@@ -1297,6 +1312,7 @@ class PreferenceReplayBuffer:
         copy(self.preferred_actions, preferred)
         copy(self.disfavored_actions, disfavored)
         copy(self.families, families)
+        copy(self.bootstrap_masks, bootstrap_masks)
         self.write_index = (self.write_index + count) % self.capacity
         self.size = min(self.capacity, self.size + count)
         self.writes += incoming
@@ -1313,6 +1329,7 @@ class PreferenceReplayBuffer:
             preferred_actions=self.preferred_actions[indices].astype(np.float32),
             disfavored_actions=self.disfavored_actions[indices].astype(np.float32),
             families=self.families[indices].astype(np.int32),
+            bootstrap_mask=self.bootstrap_masks[indices].astype(np.float32),
         )
 
     def metrics(self) -> dict[str, int | float]:
@@ -1328,6 +1345,7 @@ class PreferenceReplayBuffer:
                 + self.preferred_actions.nbytes
                 + self.disfavored_actions.nbytes
                 + self.families.nbytes
+                + self.bootstrap_masks.nbytes
             ),
         }
 

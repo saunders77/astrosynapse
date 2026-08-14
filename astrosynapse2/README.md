@@ -54,7 +54,7 @@ Press Control-C in that Terminal to request a safe stop and final checkpoint. Du
 4. If the quick run is healthy, create the **Astro4 legal-set policy** preset and launch it.
 5. When the 24-hour budget ends, wait for the visible **Finalizing evaluation** phase. Natural completion resolves any older trainer-owned job and then the newest due trainer comparison before reporting complete; then inspect the champion and final candidate in **Models & Arena**.
 
-The Astro4 preset is the recommended M4/16 GB starting point: 8 CPU actors, a 192-wide three-block model, 5 head-specific policy adapters, 150,000 game-balanced legal-set decisions, a separate state-value objective, unbiased bounded paired counterfactual rollouts, and conservative promotion evaluations. Ensemble diversity, truncation safety, held-out calibration, and paired arena strength are release gates. Astro3 remains available for controlled chosen-action Monte Carlo comparisons, and **Astro2 compatibility** preserves generation-2 learner settings and checkpoint decoding.
+The Astro4 preset is the recommended M4/16 GB starting point: 8 CPU actors, a 192-wide three-block model, 5 head-specific policy adapters, 250,000 game-balanced legal-set decisions, a separate state-value objective, bootstrap-masked bounded paired counterfactual rollouts, rejected-branch rollback, and conservative promotion evaluations. Ensemble diversity, truncation safety, held-out calibration, and paired arena strength are release gates. Astro3 remains available for controlled chosen-action Monte Carlo comparisons, and **Astro2 compatibility** preserves generation-2 learner settings and checkpoint decoding.
 
 ## Dashboard guide
 
