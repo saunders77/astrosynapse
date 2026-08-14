@@ -27,7 +27,7 @@ class ActorChooser:
         )
 
     def __call__(self, _player_id: int, decision: Decision) -> int:
-        index, _probabilities = self.score(decision)
+        index, _probabilities, _state_value = self.score(decision)
         return index
 
     def score(self, decision: Decision) -> tuple[int, np.ndarray, float | None]:
