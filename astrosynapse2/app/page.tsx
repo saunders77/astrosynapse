@@ -142,6 +142,7 @@ type RunStatus =
 
 type MetricPoint = {
   seq: number;
+  createdAt: number;
   games: number;
   gamesPerSecond: number;
   decisionsPerSecond: number;
@@ -750,6 +751,7 @@ function buildDemoMetrics(count = 48): MetricPoint[] {
     const winRate = 0.492 + progress * 0.124 + ripple;
     return {
       seq: index,
+      createdAt: Math.floor(Date.now() / 1_000) - (count - index - 1) * 5,
       games: Math.round(176_600 + progress * 28_800),
       gamesPerSecond: 9.8 + Math.sin(index * 0.47) * 0.55 + progress * 0.9,
       decisionsPerSecond: 2_320 + Math.cos(index * 0.38) * 130 + progress * 150,
@@ -825,6 +827,7 @@ function buildDemoMetrics(count = 48): MetricPoint[] {
 
 const emptyMetric: MetricPoint = {
   seq: -1,
+  createdAt: 0,
   games: 0,
   gamesPerSecond: 0,
   decisionsPerSecond: 0,
@@ -1208,6 +1211,7 @@ function normalizeMetric(raw: unknown, fallback: MetricPoint): MetricPoint {
   const truncations = asNumber(item.truncations, fallback.truncationRate * games);
   return {
     seq: asNumber(item.seq ?? item.sequence, fallback.seq),
+    createdAt: asNumber(item.created_at ?? item.timestamp, fallback.createdAt),
     games,
     gamesPerSecond: asNumber(item.games_per_second ?? item.games_per_sec ?? item.games_s, fallback.gamesPerSecond),
     decisionsPerSecond: asNumber(
@@ -2142,10 +2146,29 @@ function MetricCanvas({
       context.scale(ratio, ratio);
       context.clearRect(0, 0, width, height);
 
-      const padding = { top: 16, right: 12, bottom: 24, left: 12 };
+      const padding = { top: 16, right: mode === "throughput" ? 52 : 12, bottom: 32, left: 52 };
       const chartWidth = width - padding.left - padding.right;
       const chartHeight = height - padding.top - padding.bottom;
-      const visible = points.slice(-72);
+      const buckets = new Map<number, MetricPoint[]>();
+      points.forEach((point, index) => {
+        const timestamp = point.createdAt > 0 ? point.createdAt : index * 5;
+        const bucket = Math.floor(timestamp / 5) * 5;
+        buckets.set(bucket, [...(buckets.get(bucket) ?? []), point]);
+      });
+      const visible = [...buckets.entries()].slice(-72).map(([timestamp, samples]) => {
+        const average = (pick: (point: MetricPoint) => number) =>
+          samples.reduce((sum, point) => sum + pick(point), 0) / samples.length;
+        return {
+          timestamp,
+          games: average((point) => point.gamesPerSecond) * 5,
+          decisions: average((point) => point.decisionsPerSecond) * 5,
+          winRate: average((point) => point.winRate),
+          ciLow: average((point) => point.ciLow),
+          ciHigh: average((point) => point.ciHigh),
+          outcomeLoss: average((point) => point.outcomeLoss),
+          brier: average((point) => point.brier),
+        };
+      });
       if (visible.length < 2) return;
 
       context.strokeStyle = "rgba(140, 167, 193, 0.12)";
@@ -2158,12 +2181,15 @@ function MetricCanvas({
         context.stroke();
       }
 
-      const xAt = (index: number) => padding.left + (index / (visible.length - 1)) * chartWidth;
+      const firstTimestamp = visible[0].timestamp;
+      const lastTimestamp = visible.at(-1)?.timestamp ?? firstTimestamp + 5;
+      const xAt = (index: number) => padding.left
+        + ((visible[index].timestamp - firstTimestamp) / Math.max(5, lastTimestamp - firstTimestamp)) * chartWidth;
       const series =
         mode === "throughput"
           ? [
-              { values: visible.map((point) => point.gamesPerSecond), color: "#5fe6ca" },
-              { values: visible.map((point) => point.decisionsPerSecond / 240), color: "#6aa9ff" },
+              { values: visible.map((point) => point.games), color: "#5fe6ca" },
+              { values: visible.map((point) => point.decisions / 240), color: "#6aa9ff" },
             ]
           : mode === "quality"
             ? [{ values: visible.map((point) => point.winRate), color: "#e8bd64" }]
@@ -2182,6 +2208,36 @@ function MetricCanvas({
       const min = mode === "quality" ? Math.max(0.42, rawMin - range * 0.12) : Math.max(0, rawMin - range * 0.12);
       const max = rawMax + range * 0.12;
       const yAt = (value: number) => padding.top + chartHeight - ((value - min) / Math.max(max - min, 0.001)) * chartHeight;
+
+      context.fillStyle = "rgba(176, 195, 214, 0.72)";
+      context.font = "9px ui-monospace, SFMono-Regular, Menlo, monospace";
+      context.textAlign = "right";
+      context.textBaseline = "middle";
+      for (let row = 0; row <= 4; row += 1) {
+        const value = max - ((max - min) / 4) * row;
+        const label = mode === "quality"
+          ? `${(value * 100).toFixed(0)}%`
+          : value >= 1_000 ? `${(value / 1_000).toFixed(1)}k` : value.toFixed(value < 10 ? 2 : 0);
+        context.fillText(label, padding.left - 7, padding.top + (chartHeight / 4) * row);
+        if (mode === "throughput") {
+          const decisions = value * 240;
+          const decisionsLabel = decisions >= 1_000
+            ? `${(decisions / 1_000).toFixed(1)}k`
+            : decisions.toFixed(0);
+          context.fillStyle = "rgba(106, 169, 255, 0.82)";
+          context.textAlign = "left";
+          context.fillText(decisionsLabel, width - padding.right + 7, padding.top + (chartHeight / 4) * row);
+          context.fillStyle = "rgba(176, 195, 214, 0.72)";
+          context.textAlign = "right";
+        }
+      }
+      context.textBaseline = "top";
+      [0, Math.floor((visible.length - 1) / 2), visible.length - 1].forEach((index) => {
+        const secondsAgo = lastTimestamp - visible[index].timestamp;
+        const label = secondsAgo === 0 ? "now" : secondsAgo >= 60 ? `−${Math.round(secondsAgo / 60)}m` : `−${secondsAgo}s`;
+        context.textAlign = index === 0 ? "left" : index === visible.length - 1 ? "right" : "center";
+        context.fillText(label, xAt(index), height - padding.bottom + 9);
+      });
 
       if (mode === "quality") {
         context.fillStyle = "rgba(232, 189, 100, 0.12)";
@@ -2254,7 +2310,7 @@ function MetricCanvas({
 
   const label =
     mode === "throughput"
-      ? "Training throughput over recent samples"
+      ? "Training throughput in five-second intervals"
       : mode === "quality"
         ? "Held-out win rate and confidence interval over recent evaluations"
         : "Outcome binary cross-entropy and Brier score over recent updates";
@@ -3618,15 +3674,14 @@ export default function Home() {
               <article className="panel performance-panel">
                 <header className="panel-header">
                   <div><span className="panel-kicker">Velocity</span><h2><Jargon term="selfPlay">Self-play</Jargon> throughput</h2></div>
-                  <div className="chart-legend"><span className="legend-mint">Games/s</span><span className="legend-blue">Decisions/s ÷ 240</span></div>
+                  <div className="chart-legend"><span className="legend-mint">Games / 5 sec (left)</span><span className="legend-blue">Decisions / 5 sec (right)</span></div>
                 </header>
                 <div className="metric-headline">
-                  <div><strong>{latestMetric.gamesPerSecond.toFixed(1)}</strong><span>games / sec</span></div>
-                  <div><strong>{compactFormatter.format(latestMetric.decisionsPerSecond)}</strong><span>decisions / sec</span></div>
+                  <div><strong>{(latestMetric.gamesPerSecond * 5).toFixed(0)}</strong><span>games / 5 sec</span></div>
+                  <div><strong>{compactFormatter.format(latestMetric.decisionsPerSecond * 5)}</strong><span>decisions / 5 sec</span></div>
                   <div><strong>{gameCountFormatter.format(snapshot.run.games)}</strong><span>games total</span></div>
                 </div>
                 <MetricCanvas points={snapshot.metrics} mode="throughput" />
-                <footer className="chart-axis"><span>Earlier</span><span>Last 72 samples</span><span>Now</span></footer>
               </article>
 
               <article className="panel quality-panel">
