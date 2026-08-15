@@ -88,8 +88,8 @@ def test_arena_summary_separates_true_draws_from_truncations():
 
 def test_early_rejection_hoeffding_bound_stays_wide_for_zero_variance():
     config = ArenaConfig(
-        pairs=64,
-        minimum_promotion_pairs=64,
+        pairs=1_000,
+        minimum_promotion_pairs=1_000,
         automatic_promotion=True,
         early_rejection=True,
         early_rejection_min_pairs=8,
@@ -201,8 +201,8 @@ def test_automatic_arena_early_rejects_only_at_adjusted_safe_look(
     monkeypatch.setattr(arena_module, "Game", FakeGame)
     manager = ArenaManager(store, recover=False)
     options = {
-        "pairs": 64,
-        "minimum_promotion_pairs": 64,
+        "pairs": 1_000,
+        "minimum_promotion_pairs": 1_000,
         "early_rejection": True,
         "early_rejection_min_pairs": 8,
         "early_rejection_confidence": 0.995,
@@ -217,13 +217,21 @@ def test_automatic_arena_early_rejects_only_at_adjusted_safe_look(
     assert weak_result["games_completed"] == 32
     assert weak_result["early_stopped"] is True
     assert "upper bound" in weak_result["early_stop_reason"]
-    assert weak_result["early_rejection"]["planned_look_pairs"] == [8, 16, 32]
+    assert weak_result["early_rejection"]["planned_look_pairs"] == [
+        8,
+        16,
+        32,
+        64,
+        128,
+        256,
+        512,
+    ]
     assert weak_result["early_rejection"]["looks_completed"] == 2
     look = weak_result["early_rejection"]["latest_look"]
     assert look["method"] == "bonferroni_one_sided_hoeffding"
     assert look["look_index"] == 2
     assert look["configured_confidence"] == pytest.approx(0.995)
-    assert look["bonferroni_look_alpha"] == pytest.approx((1.0 - 0.995) / 3)
+    assert look["bonferroni_look_alpha"] == pytest.approx((1.0 - 0.995) / 7)
     assert 0.0 < look["upper_bound"] < 0.5
     assert look["reject"] is True
     assert weak_result["promotion"]["eligible"] is False
@@ -239,9 +247,9 @@ def test_automatic_arena_early_rejects_only_at_adjusted_safe_look(
     strong_complete = _wait_for_job(manager, strong_job["id"])
     manager.shutdown()
     strong_result = strong_complete["result"]
-    assert strong_result["pairs_completed"] == 64
+    assert strong_result["pairs_completed"] == 1_000
     assert strong_result["early_stopped"] is False
-    assert strong_result["early_rejection"]["looks_completed"] == 3
+    assert strong_result["early_rejection"]["looks_completed"] == 7
     assert strong_result["early_rejection"]["latest_look"]["reject"] is False
     assert strong_result["promotion"]["promoted"] is True
 
@@ -305,16 +313,16 @@ def test_cancelling_running_or_queued_automatic_arena_prevents_promotion(tmp_pat
     job = manager.create_automatic(
         candidate["id"],
         champion["id"],
-        pairs=8,
-        minimum_promotion_pairs=8,
+        pairs=1_000,
+        minimum_promotion_pairs=1_000,
         cancellation_hook=stop_requested.is_set,
     )
     assert started.wait(1.0)
     queued = manager.create_automatic(
         candidate["id"],
         champion["id"],
-        pairs=8,
-        minimum_promotion_pairs=8,
+        pairs=1_000,
+        minimum_promotion_pairs=1_000,
     )
     assert manager.cancel(queued["id"], timeout=1.0) is True
     assert store.arena_job(queued["id"])["status"] == "cancelled"
@@ -565,20 +573,20 @@ def test_automatic_finalization_never_promotes_manual_or_tiny_jobs_but_promotes_
     assert store.get_run(run["id"])["champion_id"] == candidate["id"]
 
     provisional = ArenaConfig(
-        pairs=200,
-        minimum_promotion_pairs=200,
+        pairs=1_000,
+        minimum_promotion_pairs=1_000,
         promotion_tier="provisional",
         automatic_promotion=True,
     )
     provisional_result = {
-        "pairs_completed": 200,
-        "games_completed": 400,
+        "pairs_completed": 1_000,
+        "games_completed": 2_000,
         "model_a_score": 0.65,
         "paired_interval": {
             "estimate": 0.65,
             "low": 0.58,
             "high": 0.72,
-            "samples": 200,
+            "samples": 1_000,
         },
         "promotion": {},
     }
@@ -660,14 +668,14 @@ def test_stale_automatic_evaluation_cannot_replace_a_newer_champion(tmp_path):
         checkpoint_id=old_champion["id"],
     )
     result = {
-        "pairs_completed": 200,
-        "games_completed": 400,
+        "pairs_completed": 1_000,
+        "games_completed": 2_000,
         "model_a_score": 0.65,
         "paired_interval": {
             "estimate": 0.65,
             "low": 0.58,
             "high": 0.72,
-            "samples": 200,
+            "samples": 1_000,
         },
         "promotion": {},
     }
@@ -675,8 +683,8 @@ def test_stale_automatic_evaluation_cannot_replace_a_newer_champion(tmp_path):
         store,
         job_id="stale",
         config=ArenaConfig(
-            pairs=200,
-            minimum_promotion_pairs=200,
+            pairs=1_000,
+            minimum_promotion_pairs=1_000,
             promotion_tier="provisional",
             automatic_promotion=True,
         ),

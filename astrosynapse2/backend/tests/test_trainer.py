@@ -1073,7 +1073,7 @@ def test_adaptive_evaluation_grows_from_provisional_to_full():
     assert (provisional.tier, provisional.cadence_games, provisional.pairs) == (
         "provisional",
         100_000,
-        200,
+        1_000,
     )
     assert provisional.automatic_promotion is True
 
@@ -1109,8 +1109,8 @@ def test_provisional_evaluation_can_promote_with_its_recorded_gate(tmp_path):
     kind, model_a, model_b, options = manager.calls[0]
     assert kind == "automatic"
     assert (model_a, model_b) == (candidate["id"], champion["id"])
-    assert options["pairs"] == 200
-    assert options["minimum_promotion_pairs"] == 200
+    assert options["pairs"] == 1_000
+    assert options["minimum_promotion_pairs"] == 1_000
     assert options["promotion_tier"] == "provisional"
 
 
@@ -1135,8 +1135,8 @@ def test_small_evaluation_tier_disables_rather_than_moves_configured_early_look(
     )
 
     options = manager.calls[0][3]
-    assert options["pairs"] == 200
-    assert options["early_rejection"] is False
+    assert options["pairs"] == 1_000
+    assert options["early_rejection"] is True
     assert options["early_rejection_min_pairs"] == 512
 
 

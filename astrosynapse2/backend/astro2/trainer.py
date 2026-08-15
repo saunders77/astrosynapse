@@ -23,7 +23,7 @@ from typing import Any
 import numpy as np
 from safetensors import SafetensorError, safe_open
 
-from .config import RunConfig
+from .config import MINIMUM_PROMOTION_PAIRS, RunConfig
 from .encoding import FAMILY_COUNT, Encoder
 from .hardware import RateMeter, mlx_snapshot, system_snapshot
 from .league import League, Opponent
@@ -164,7 +164,10 @@ def _evaluation_plan(config: RunConfig, games: int) -> _EvaluationPlan:
         return _EvaluationPlan(
             tier="provisional",
             cadence_games=config.checkpoint_every_games,
-            pairs=min(config.evaluation_pairs, max(200, config.evaluation_pairs // 25)),
+            pairs=min(
+                config.evaluation_pairs,
+                max(MINIMUM_PROMOTION_PAIRS, config.evaluation_pairs // 25),
+            ),
             automatic_promotion=True,
         )
     if games < 2 * config.evaluate_every_games:

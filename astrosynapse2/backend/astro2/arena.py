@@ -22,6 +22,7 @@ import numpy as np
 
 from .baselines import BASELINE_NAMES, make_baseline
 from .cards import ALL_CARDS
+from .config import MINIMUM_PROMOTION_PAIRS
 from .encoding import DecisionFamily, Encoder
 from .engine import (
     Action,
@@ -82,6 +83,10 @@ class ArenaConfig:
             raise ValueError(f"minimum_promotion_pairs must be between 8 and {MAX_PAIRS:,}")
         if self.automatic_promotion and self.pairs < self.minimum_promotion_pairs:
             raise ValueError("automatic promotion jobs must run the full minimum paired evaluation")
+        if self.automatic_promotion and self.minimum_promotion_pairs < MINIMUM_PROMOTION_PAIRS:
+            raise ValueError(
+                f"automatic promotion jobs require at least {MINIMUM_PROMOTION_PAIRS:,} pairs"
+            )
         if not 8 <= self.early_rejection_min_pairs <= MAX_PAIRS:
             raise ValueError(f"early_rejection_min_pairs must be between 8 and {MAX_PAIRS:,}")
         if not 0.80 <= self.early_rejection_confidence < 1.0:

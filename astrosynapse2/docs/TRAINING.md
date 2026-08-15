@@ -28,7 +28,7 @@ Generation-4 heads have independent residual adapters and output banks plus fixe
 
 Generation-4 replay is intentionally not restored from Astro3 snapshots: those rows do not contain legal sets or behavior probabilities. Resume preserves compatible generation-4 weights and optimizer state but repopulates policy replay before updates continue.
 
-The M4 Astro4 preset checkpoints every 50,000 games and uses adaptive promotion evaluation: 200 pairs every 50,000 games before 250,000, 1,000 pairs every 125,000 games through 500,000, then the full 5,000-pair gate every 250,000 games. Pair counts remain conservative; only the game-count cadence is shortened for Astro4's slower, richer collection pipeline.
+The M4 Astro4 preset checkpoints every 50,000 games and uses adaptive promotion evaluation: 1,000 pairs every 50,000 games before 250,000, 1,000 pairs every 125,000 games through 500,000, then the full 5,000-pair gate every 250,000 games. Every promotion evaluation therefore runs at least 2,000 seat-swapped games. Pair counts remain conservative; only the game-count cadence is shortened for Astro4's slower, richer collection pipeline.
 
 The compatibility mode preserves the legacy generation-2 learner configuration and checkpoint decoding, but it is not a bit-for-bit historical simulator: corrected shared engine, heuristic-baseline, evaluator, retention, and control-lifecycle behavior still applies. It is not the recommended route out of the measured plateau. See the [forensic analysis](PLATEAU_ANALYSIS_AND_ASTROSYNAPSE3.md) for evidence and the staged research plan.
 

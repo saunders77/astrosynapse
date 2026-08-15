@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 MAX_REPRODUCIBILITY_SEED = (1 << 53) - 1
+MINIMUM_PROMOTION_PAIRS = 1_000
 
 
 class RunConfig(BaseModel):
