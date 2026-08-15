@@ -25,6 +25,9 @@ export PYTHONPATH="${PROJECT_DIR}/backend"
 export ASTRO2_HOST="127.0.0.1"
 export ASTRO2_PORT="8765"
 
+# Keep the production bundle synchronized with dashboard source changes.
+npm run build
+
 "${PROJECT_DIR}/.venv/bin/python" -m astro2.server &
 BACKEND_PID=$!
 npm run start &
