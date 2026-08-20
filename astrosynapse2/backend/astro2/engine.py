@@ -555,6 +555,69 @@ class Game:
             fleet_active=self._fleet_hq_active(own),
         )
 
+    def resample_public_belief(self, observer: int, seed: int) -> None:
+        """Redeterminize hidden zones without changing any public quantity.
+
+        Search training must not turn the learner into an oracle for the exact
+        opponent hand or future market order present in a worker process. Each
+        rollout therefore samples a state from the current public information
+        set, while paired actions use the same seed (common random numbers).
+        """
+
+        if observer not in (0, 1):
+            raise ValueError("unknown observer")
+        rng = random.Random(int(seed) & 0xFFFFFFFFFFFFFFFF)
+        own = self.players[observer]
+        opponent = self.players[1 - observer]
+
+        known_count = min(len(own.known_top), len(own.deck))
+        if known_count:
+            unknown = own.deck[:-known_count]
+            rng.shuffle(unknown)
+            own.deck = unknown + own.deck[-known_count:]
+        else:
+            rng.shuffle(own.deck)
+
+        # Revealed cards must remain in the opponent's hand, and a publicly
+        # known top-deck suffix must remain on top. Only the complementary
+        # hidden cards may move between hand and deck.
+        hand_slots: list[Card | None] = list(opponent.hand)
+        unmatched_indices = list(range(len(hand_slots)))
+        for known in opponent.revealed_hand:
+            matched = next(
+                (
+                    index
+                    for index in unmatched_indices
+                    if hand_slots[index] is not None
+                    and hand_slots[index].card_id == known.card_id
+                ),
+                None,
+            )
+            if matched is not None:
+                unmatched_indices.remove(matched)
+        hidden_hand = [hand_slots[index] for index in unmatched_indices]
+        for index in unmatched_indices:
+            hand_slots[index] = None
+
+        opponent_known_count = min(len(opponent.known_top), len(opponent.deck))
+        if opponent_known_count:
+            unknown_deck = list(opponent.deck[:-opponent_known_count])
+            known_deck = list(opponent.deck[-opponent_known_count:])
+        else:
+            unknown_deck = list(opponent.deck)
+            known_deck = []
+        hidden_opponent = [*hidden_hand, *unknown_deck]
+        rng.shuffle(hidden_opponent)
+        hidden_iter = iter(hidden_opponent[: len(unmatched_indices)])
+        opponent.hand = [
+            card if card is not None else next(hidden_iter) for card in hand_slots
+        ]
+        opponent.deck = hidden_opponent[len(unmatched_indices) :] + known_deck
+
+        # The remaining trade deck order is hidden. The visible row and every
+        # zone/card count stay untouched.
+        rng.shuffle(self.trade_deck)
+
     def unordered_card_zones(self, player_id: int) -> dict[str, dict[str, list[dict[str, Any]]]]:
         """Return inspectable hidden cards without revealing any card order or opponent split.
 

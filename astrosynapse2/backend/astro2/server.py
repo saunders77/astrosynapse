@@ -49,6 +49,16 @@ class CreateRunRequest(BaseModel):
     start: bool = False
 
 
+class CreateBranchExperimentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_checkpoint_id: str = Field(min_length=1, max_length=128)
+    name: str = Field(default="Champion branch lab", min_length=1, max_length=80)
+    variants: list[dict[str, Any]] = Field(default_factory=lambda: [{"label": "Balanced"}])
+    base_overrides: dict[str, Any] = Field(default_factory=dict)
+    auto_advance: bool = True
+    start: bool = False
+
+
 class ConfigPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     changes: dict[str, Any]
@@ -100,7 +110,13 @@ def _build_config(request: CreateRunRequest) -> RunConfig:
     if request.name:
         base["name"] = request.name
     base.update(request.overrides)
-    if request.preset not in {"astro4_m4", "astro3_m4", "m4_24h", "quick"}:
+    if request.preset not in {
+        "astro5_search",
+        "astro4_m4",
+        "astro3_m4",
+        "m4_24h",
+        "quick",
+    }:
         base["preset"] = "custom"
     return RunConfig.model_validate(base)
 
@@ -203,8 +219,17 @@ def _model_document(checkpoint: dict[str, Any]) -> dict[str, Any]:
     result = dict(checkpoint)
     model_path = Path(str(checkpoint.get("path") or ""))
     actor_path = Path(str(checkpoint.get("actor_path") or ""))
-    model_available = model_path.is_file() and Path(f"{model_path}.json").is_file()
+    sidecar_path = Path(f"{model_path}.json")
+    model_available = model_path.is_file() and sidecar_path.is_file()
     actor_available = actor_path.is_file()
+    model_spec: dict[str, Any] = {}
+    if model_available:
+        try:
+            loaded_spec = json.loads(sidecar_path.read_text())
+            if isinstance(loaded_spec, dict):
+                model_spec = loaded_spec
+        except (OSError, json.JSONDecodeError):
+            model_spec = {}
     retention = _artifact_retention(checkpoint)
     retention_pruned = bool(retention.get("pruned"))
     size_bytes = 0
@@ -220,6 +245,12 @@ def _model_document(checkpoint: dict[str, Any]) -> dict[str, Any]:
     }
     result["actor_available"] = actor_available
     result["model_available"] = model_available
+    result["branch_compatible"] = bool(
+        model_available
+        and actor_available
+        and model_spec.get("encoder_version") == 2
+        and model_spec.get("objective_version") == 2
+    )
     result["playable"] = actor_available
     result["actor_downloadable"] = actor_available
     result["artifact_state"] = (
@@ -263,11 +294,59 @@ def system() -> dict[str, Any]:
 @app.get("/api/presets")
 def presets() -> dict[str, Any]:
     return {
+        "astro5_search": RunConfig.astro5_search().model_dump(),
         "astro4_m4": RunConfig.astro4_m4().model_dump(),
         "astro3_m4": RunConfig.astro3_m4().model_dump(),
         "m4_24h": RunConfig().model_dump(),
         "quick": RunConfig.quick().model_dump(),
     }
+
+
+@app.get("/api/branches")
+def branch_experiments(
+    request: Request,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[dict[str, Any]]:
+    return _store(request).branch_experiments(limit=limit)
+
+
+@app.post("/api/branches", status_code=201)
+def create_branch_experiment(
+    payload: CreateBranchExperimentRequest, request: Request
+) -> dict[str, Any]:
+    if not 1 <= len(payload.variants) <= 8:
+        raise HTTPException(status_code=422, detail="create between 1 and 8 branches")
+    try:
+        return _supervisor(request).create_branch_experiment(
+            source_checkpoint_id=payload.source_checkpoint_id,
+            name=payload.name,
+            variants=payload.variants,
+            base_overrides=payload.base_overrides,
+            auto_advance=payload.auto_advance,
+            start=payload.start,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="source checkpoint not found") from error
+    except (ValueError, InvalidTransition) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.get("/api/branches/{experiment_id}")
+def branch_experiment(experiment_id: str, request: Request) -> dict[str, Any]:
+    try:
+        return _store(request).branch_experiment(experiment_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="branch experiment not found") from error
+
+
+@app.post("/api/branches/{experiment_id}/start")
+def start_branch_experiment(experiment_id: str, request: Request) -> dict[str, Any]:
+    try:
+        return _supervisor(request).start_branch_experiment(experiment_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="branch experiment not found") from error
+    except InvalidTransition as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @app.get("/api/runs")

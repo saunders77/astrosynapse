@@ -129,7 +129,7 @@ function Jargon({
   );
 }
 
-type TabId = "overview" | "train" | "models" | "play" | "diagnostics";
+type TabId = "overview" | "train" | "branches" | "models" | "play" | "diagnostics";
 type RunStatus =
   | "ready"
   | "running"
@@ -204,6 +204,19 @@ type MetricPoint = {
   latestCheckpointGames: number | null;
   latestCheckpointReason: string;
   latestCheckpointSaveSeconds: number | null;
+  normalizedPolicyEntropy: number | null;
+  searchPolicyLoss: number | null;
+  searchValueLoss: number | null;
+  searchedFraction: number | null;
+  gradientClipFraction: number | null;
+  actorGradientNorm: number | null;
+  valueGradientNorm: number | null;
+  searchGradientNorm: number | null;
+  governorLearningRateMultiplier: number;
+  governorUpdatesMultiplier: number;
+  governorReanalysisMultiplier: number;
+  governorBranchRequested: boolean;
+  governorReasons: string[];
 };
 
 type RunView = {
@@ -251,6 +264,7 @@ type ModelCheckpoint = {
   sizeMb: number | null;
   actorAvailable: boolean;
   modelAvailable: boolean;
+  branchCompatible: boolean;
   artifactState: "available" | "partial" | "pruned" | "missing";
   evaluated: boolean;
   role: "champion" | "anchor" | "candidate";
@@ -343,7 +357,7 @@ type RunChoice = {
 
 type TrainerConfig = {
   name: string;
-  preset: "astro4_m4" | "astro3_m4" | "m4_24h" | "quick" | "custom";
+  preset: "astro5_search" | "astro4_m4" | "astro3_m4" | "m4_24h" | "quick" | "custom";
   seed: number;
   trainingGeneration: number;
   behaviorPolicy: string;
@@ -392,6 +406,42 @@ type TrainerConfig = {
   minimumHeadDisagreementRate: number;
   maximumHeldoutBrier: number;
   gateHeldoutBrierRegression: boolean;
+  reanalysisFraction: number;
+  reanalysisMaxPerGame: number;
+  reanalysisMaxActions: number;
+  reanalysisRolloutsPerAction: number;
+  reanalysisPolicyTemperature: number;
+  reanalysisPolicyLossWeight: number;
+  reanalysisValueLossWeight: number;
+  policyReplayDecisionsPerPlayerGame: number;
+  policyReplayFamilyBalanced: boolean;
+  canaryEveryGames: number;
+  canaryPairs: number;
+  realtimeGovernor: boolean;
+  governorTargetNormalizedEntropy: number;
+  naturalDiagnosticPositions: number;
+  checkpointKlLimit: number;
+};
+
+type BranchMember = {
+  run_id: string;
+  label: string;
+  status: string;
+  run_status: string;
+  games: number;
+  updates: number;
+  score: number | null;
+  last_error?: string;
+};
+
+type BranchExperiment = {
+  id: string;
+  name: string;
+  status: string;
+  source_checkpoint_id: string;
+  autoAdvance: boolean;
+  created_at: number;
+  members: BranchMember[];
 };
 
 type LaunchPreset = Exclude<TrainerConfig["preset"], "custom">;
@@ -478,44 +528,45 @@ const arenaBaselines = [
 const tabs: Array<{ id: TabId; label: string; short: string }> = [
   { id: "overview", label: "Overview", short: "01" },
   { id: "train", label: "Train", short: "02" },
-  { id: "models", label: "Models & Arena", short: "03" },
-  { id: "play", label: "Play", short: "04" },
-  { id: "diagnostics", label: "Diagnostics / Settings", short: "05" },
+  { id: "branches", label: "Branch Lab", short: "03" },
+  { id: "models", label: "Models & Arena", short: "04" },
+  { id: "play", label: "Play", short: "05" },
+  { id: "diagnostics", label: "Diagnostics / Settings", short: "06" },
 ];
 
 const initialConfig: TrainerConfig = {
-  name: "Astro4 policy self-play",
-  preset: "astro4_m4",
-  seed: 20260813,
-  trainingGeneration: 4,
+  name: "Astro5 search & branching",
+  preset: "astro5_search",
+  seed: 20260819,
+  trainingGeneration: 5,
   behaviorPolicy: "learner",
   useBootstrapTargets: false,
   tacticalPreferenceTraining: false,
   randomizedPriorScale: 0.25,
   deploymentPolicySelfplayFraction: 0.2,
   bootstrapInclusionProbability: 0.2,
-  adaptiveTraining: true,
+  adaptiveTraining: false,
   persistOptimizerState: true,
-  resumeReplayItems: 0,
+  resumeReplayItems: 500_000,
   durationMinutes: 1_440,
   actorProcesses: 8,
   gamesPerActorBatch: 16,
   hiddenSize: 192,
   residualBlocks: 3,
   bootstrapHeads: 5,
-  batchSize: 256,
+  batchSize: 384,
   learningRate: 0.0001,
   learningRateDecayUpdates: 400_000,
   replayCapacity: 900_000,
-  replayWarmup: 50_000,
+  replayWarmup: 12_000,
   heuristicBootstrapUpdates: 0,
   currentSelfplayFraction: 0.6,
   leagueFraction: 0.3,
   baselineFraction: 0.1,
   evaluationPairs: 5_000,
   adaptiveEvaluation: true,
-  evaluateEveryGames: 250_000,
-  checkpointEveryGames: 50_000,
+  evaluateEveryGames: 200_000,
+  checkpointEveryGames: 25_000,
   promotionConfidence: 0.95,
   promotionMargin: 0,
   epsilonStart: 0.15,
@@ -524,20 +575,66 @@ const initialConfig: TrainerConfig = {
   explorationTopK: 0,
   terminalTargetWeight: 1,
   preferenceLossWeight: 0,
-  policyReplayCapacity: 250_000,
+  policyReplayCapacity: 1_500_000,
   policyValueLossWeight: 0.5,
-  policyEntropyWeight: 0.03,
+  policyEntropyWeight: 0.02,
   policyImportanceClip: 2,
+  counterfactualFraction: 0,
+  counterfactualMaxPerGame: 0,
+  counterfactualLossWeight: 0,
+  minimumHeadDisagreementRate: 0,
+  maximumHeldoutBrier: 1,
+  gateHeldoutBrierRegression: false,
+  reanalysisFraction: 0.0125,
+  reanalysisMaxPerGame: 2,
+  reanalysisMaxActions: 6,
+  reanalysisRolloutsPerAction: 2,
+  reanalysisPolicyTemperature: 0.35,
+  reanalysisPolicyLossWeight: 1,
+  reanalysisValueLossWeight: 0.5,
+  policyReplayDecisionsPerPlayerGame: 12,
+  policyReplayFamilyBalanced: true,
+  canaryEveryGames: 25_000,
+  canaryPairs: 128,
+  realtimeGovernor: true,
+  governorTargetNormalizedEntropy: 0.55,
+  naturalDiagnosticPositions: 2_000,
+  checkpointKlLimit: 0.35,
+};
+
+const astro4Config: TrainerConfig = {
+  ...initialConfig,
+  name: "Astro4 policy self-play",
+  preset: "astro4_m4",
+  seed: 20260813,
+  trainingGeneration: 4,
+  adaptiveTraining: true,
+  batchSize: 256,
+  replayWarmup: 50_000,
+  resumeReplayItems: 0,
+  policyReplayCapacity: 250_000,
+  policyEntropyWeight: 0.03,
   counterfactualFraction: 0.02,
   counterfactualMaxPerGame: 1,
   counterfactualLossWeight: 0.05,
+  evaluateEveryGames: 250_000,
+  checkpointEveryGames: 50_000,
+  reanalysisFraction: 0,
+  reanalysisMaxPerGame: 0,
+  reanalysisPolicyLossWeight: 0,
+  reanalysisValueLossWeight: 0,
+  policyReplayDecisionsPerPlayerGame: 0,
+  policyReplayFamilyBalanced: false,
+  canaryEveryGames: 0,
+  realtimeGovernor: false,
+  naturalDiagnosticPositions: 2_000,
   minimumHeadDisagreementRate: 0.05,
   maximumHeldoutBrier: 0.24,
   gateHeldoutBrierRegression: true,
 };
 
 const astro3Config: TrainerConfig = {
-  ...initialConfig,
+  ...astro4Config,
   name: "Astro3 M4 self-play",
   preset: "astro3_m4",
   trainingGeneration: 3,
@@ -556,7 +653,7 @@ const astro3Config: TrainerConfig = {
 };
 
 const legacyM4Config: TrainerConfig = {
-  ...initialConfig,
+  ...astro4Config,
   name: "M4 24-hour run",
   preset: "m4_24h",
   trainingGeneration: 2,
@@ -591,7 +688,7 @@ const legacyM4Config: TrainerConfig = {
 };
 
 const quickConfig: TrainerConfig = {
-  ...initialConfig,
+  ...astro4Config,
   name: "Quick validation run",
   preset: "quick",
   trainingGeneration: 3,
@@ -623,6 +720,7 @@ const quickConfig: TrainerConfig = {
 const demoCheckpointDiagnostics = {
   actorAvailable: true,
   modelAvailable: true,
+  branchCompatible: true,
   artifactState: "available" as const,
   qualityGateAvailable: true,
   qualityGatePassed: true,
@@ -821,6 +919,19 @@ function buildDemoMetrics(count = 48): MetricPoint[] {
       latestCheckpointGames: 205_400,
       latestCheckpointReason: "pause",
       latestCheckpointSaveSeconds: 18.4,
+      normalizedPolicyEntropy: 0.58,
+      searchPolicyLoss: 0.72,
+      searchValueLoss: 0.21,
+      searchedFraction: 0.08,
+      gradientClipFraction: 0.12,
+      actorGradientNorm: 0.8,
+      valueGradientNorm: 0.45,
+      searchGradientNorm: 0.62,
+      governorLearningRateMultiplier: 1,
+      governorUpdatesMultiplier: 1,
+      governorReanalysisMultiplier: 1,
+      governorBranchRequested: false,
+      governorReasons: [],
     };
   });
 }
@@ -889,6 +1000,19 @@ const emptyMetric: MetricPoint = {
   latestCheckpointGames: null,
   latestCheckpointReason: "",
   latestCheckpointSaveSeconds: null,
+  normalizedPolicyEntropy: null,
+  searchPolicyLoss: null,
+  searchValueLoss: null,
+  searchedFraction: null,
+  gradientClipFraction: null,
+  actorGradientNorm: null,
+  valueGradientNorm: null,
+  searchGradientNorm: null,
+  governorLearningRateMultiplier: 1,
+  governorUpdatesMultiplier: 1,
+  governorReanalysisMultiplier: 1,
+  governorBranchRequested: false,
+  governorReasons: [],
 };
 
 const demoSnapshot: DashboardSnapshot = {
@@ -1184,6 +1308,7 @@ function normalizeMetric(raw: unknown, fallback: MetricPoint): MetricPoint {
   const preferenceReplay = isRecord(replay.preferences) ? replay.preferences : {};
   const importanceWeights = isRecord(replay.importance_weights) ? replay.importance_weights : {};
   const plateau = isRecord(item.plateau) ? item.plateau : {};
+  const governor = isRecord(item.governor) ? item.governor : {};
   const explorationHealth = isRecord(item.exploration_health) ? item.exploration_health : {};
   const durableResume = isRecord(item.durable_resume) ? item.durable_resume : {};
   const rolloutMixRoot = isRecord(item.rollout_mix) ? item.rollout_mix : {};
@@ -1334,6 +1459,38 @@ function normalizeMetric(raw: unknown, fallback: MetricPoint): MetricPoint {
     latestCheckpointSaveSeconds: asOptionalNumber(
       durableResume.latest_checkpoint_save_seconds,
     ) ?? fallback.latestCheckpointSaveSeconds,
+    normalizedPolicyEntropy: asOptionalNumber(item.normalized_policy_entropy)
+      ?? fallback.normalizedPolicyEntropy,
+    searchPolicyLoss: asOptionalNumber(item.search_policy_loss) ?? fallback.searchPolicyLoss,
+    searchValueLoss: asOptionalNumber(item.search_value_loss) ?? fallback.searchValueLoss,
+    searchedFraction: asOptionalNumber(item.searched_fraction) ?? fallback.searchedFraction,
+    gradientClipFraction: asOptionalNumber(item.gradient_clip_fraction)
+      ?? fallback.gradientClipFraction,
+    actorGradientNorm: asOptionalNumber(item.objective_actor_gradient_norm)
+      ?? fallback.actorGradientNorm,
+    valueGradientNorm: asOptionalNumber(item.objective_value_gradient_norm)
+      ?? fallback.valueGradientNorm,
+    searchGradientNorm: asOptionalNumber(item.objective_search_gradient_norm)
+      ?? fallback.searchGradientNorm,
+    governorLearningRateMultiplier: asNumber(
+      governor.learning_rate_multiplier,
+      fallback.governorLearningRateMultiplier,
+    ),
+    governorUpdatesMultiplier: asNumber(
+      governor.updates_multiplier,
+      fallback.governorUpdatesMultiplier,
+    ),
+    governorReanalysisMultiplier: asNumber(
+      governor.reanalysis_multiplier,
+      fallback.governorReanalysisMultiplier,
+    ),
+    governorBranchRequested: asBoolean(
+      governor.branch_requested,
+      fallback.governorBranchRequested,
+    ),
+    governorReasons: Array.isArray(governor.reasons)
+      ? governor.reasons.filter((reason): reason is string => typeof reason === "string")
+      : fallback.governorReasons,
   };
 }
 
@@ -1352,6 +1509,7 @@ const emptyModel: ModelCheckpoint = {
   sizeMb: null,
   actorAvailable: true,
   modelAvailable: true,
+  branchCompatible: false,
   artifactState: "available",
   evaluated: false,
   role: "candidate",
@@ -1443,6 +1601,7 @@ function normalizeModel(raw: unknown, fallback: ModelCheckpoint = emptyModel): M
       item.actor_available ?? item.actor_downloadable ?? item.playable,
     ) ?? fallback.actorAvailable,
     modelAvailable: asOptionalBoolean(item.model_available) ?? fallback.modelAvailable,
+    branchCompatible: asOptionalBoolean(item.branch_compatible) ?? fallback.branchCompatible,
     artifactState: (["available", "partial", "pruned", "missing"] as const).includes(
       item.artifact_state as "available" | "partial" | "pruned" | "missing",
     )
@@ -1955,18 +2114,35 @@ function configToApi(config: TrainerConfig): Record<string, string | number | bo
     minimum_head_disagreement_rate: config.minimumHeadDisagreementRate,
     maximum_heldout_brier: config.maximumHeldoutBrier,
     gate_heldout_brier_regression: config.gateHeldoutBrierRegression,
+    reanalysis_fraction: config.trainingGeneration >= 5 ? config.reanalysisFraction : 0,
+    reanalysis_max_per_game: config.trainingGeneration >= 5 ? config.reanalysisMaxPerGame : 0,
+    reanalysis_max_actions: config.reanalysisMaxActions,
+    reanalysis_rollouts_per_action: config.reanalysisRolloutsPerAction,
+    reanalysis_policy_temperature: config.reanalysisPolicyTemperature,
+    reanalysis_policy_loss_weight: config.trainingGeneration >= 5 ? config.reanalysisPolicyLossWeight : 0,
+    reanalysis_value_loss_weight: config.trainingGeneration >= 5 ? config.reanalysisValueLossWeight : 0,
+    policy_replay_decisions_per_player_game: config.trainingGeneration >= 5 ? config.policyReplayDecisionsPerPlayerGame : 0,
+    policy_replay_family_balanced: config.trainingGeneration >= 5 && config.policyReplayFamilyBalanced,
+    canary_every_games: config.trainingGeneration >= 5 ? config.canaryEveryGames : 0,
+    canary_pairs: config.canaryPairs,
+    realtime_governor: config.trainingGeneration >= 5 && config.realtimeGovernor,
+    governor_target_normalized_entropy: config.governorTargetNormalizedEntropy,
+    natural_diagnostic_positions: config.naturalDiagnosticPositions,
+    checkpoint_kl_limit: config.checkpointKlLimit,
   };
 }
 
 function configFromApi(raw: unknown, prior: TrainerConfig): TrainerConfig {
   const item = isRecord(raw) ? raw : {};
   const presetValue = String(item.preset ?? prior.preset);
-  const preset: TrainerConfig["preset"] = ["astro4_m4", "astro3_m4", "m4_24h", "quick", "custom"].includes(presetValue)
+  const preset: TrainerConfig["preset"] = ["astro5_search", "astro4_m4", "astro3_m4", "m4_24h", "quick", "custom"].includes(presetValue)
     ? presetValue as TrainerConfig["preset"]
     : prior.preset;
   const requestedGeneration = asOptionalNumber(item.training_generation);
-  const previous = preset === "astro4_m4"
+  const previous = preset === "astro5_search"
     ? initialConfig
+    : preset === "astro4_m4"
+    ? astro4Config
     : preset === "astro3_m4"
     ? astro3Config
     : preset === "m4_24h"
@@ -1975,7 +2151,7 @@ function configFromApi(raw: unknown, prior: TrainerConfig): TrainerConfig {
         ? quickConfig
         : requestedGeneration === null
           ? prior.trainingGeneration < 3 ? legacyM4Config : prior
-          : requestedGeneration < 3 ? legacyM4Config : requestedGeneration === 3 ? astro3Config : initialConfig;
+          : requestedGeneration < 3 ? legacyM4Config : requestedGeneration === 3 ? astro3Config : requestedGeneration === 4 ? astro4Config : initialConfig;
   const trainingGeneration = asNumber(item.training_generation, previous.trainingGeneration);
   return {
     name: asString(item.name, previous.name),
@@ -2084,6 +2260,21 @@ function configFromApi(raw: unknown, prior: TrainerConfig): TrainerConfig {
       item.gate_heldout_brier_regression,
       previous.gateHeldoutBrierRegression,
     ),
+    reanalysisFraction: asNumber(item.reanalysis_fraction, previous.reanalysisFraction),
+    reanalysisMaxPerGame: asNumber(item.reanalysis_max_per_game, previous.reanalysisMaxPerGame),
+    reanalysisMaxActions: asNumber(item.reanalysis_max_actions, previous.reanalysisMaxActions),
+    reanalysisRolloutsPerAction: asNumber(item.reanalysis_rollouts_per_action, previous.reanalysisRolloutsPerAction),
+    reanalysisPolicyTemperature: asNumber(item.reanalysis_policy_temperature, previous.reanalysisPolicyTemperature),
+    reanalysisPolicyLossWeight: asNumber(item.reanalysis_policy_loss_weight, previous.reanalysisPolicyLossWeight),
+    reanalysisValueLossWeight: asNumber(item.reanalysis_value_loss_weight, previous.reanalysisValueLossWeight),
+    policyReplayDecisionsPerPlayerGame: asNumber(item.policy_replay_decisions_per_player_game, previous.policyReplayDecisionsPerPlayerGame),
+    policyReplayFamilyBalanced: asBoolean(item.policy_replay_family_balanced, previous.policyReplayFamilyBalanced),
+    canaryEveryGames: asNumber(item.canary_every_games, previous.canaryEveryGames),
+    canaryPairs: asNumber(item.canary_pairs, previous.canaryPairs),
+    realtimeGovernor: asBoolean(item.realtime_governor, previous.realtimeGovernor),
+    governorTargetNormalizedEntropy: asNumber(item.governor_target_normalized_entropy, previous.governorTargetNormalizedEntropy),
+    naturalDiagnosticPositions: asNumber(item.natural_diagnostic_positions, previous.naturalDiagnosticPositions),
+    checkpointKlLimit: asNumber(item.checkpoint_kl_limit, previous.checkpointKlLimit),
   };
 }
 
@@ -2093,11 +2284,39 @@ function launchPresetForConfig(config: TrainerConfig, remembered: LaunchPreset):
   return remembered === "m4_24h" ? "astro4_m4" : remembered;
 }
 
+function normalizeBranchExperiment(raw: unknown): BranchExperiment | null {
+  if (!isRecord(raw)) return null;
+  const id = asString(raw.id, "");
+  if (!id) return null;
+  const experimentConfig = isRecord(raw.config) ? raw.config : {};
+  return {
+    id,
+    name: asString(raw.name, "Branch experiment"),
+    status: asString(raw.status, "ready"),
+    source_checkpoint_id: asString(raw.source_checkpoint_id, ""),
+    autoAdvance: asBoolean(experimentConfig.auto_advance, true),
+    created_at: asNumber(raw.created_at, 0),
+    members: Array.isArray(raw.members)
+      ? raw.members.filter(isRecord).map((member) => ({
+          run_id: asString(member.run_id, ""),
+          label: asString(member.label, "Branch"),
+          status: asString(member.status, "queued"),
+          run_status: asString(member.run_status, "ready"),
+          games: asNumber(member.games, 0),
+          updates: asNumber(member.updates, 0),
+          score: asOptionalNumber(member.score),
+          last_error: asString(member.last_error, "") || undefined,
+        }))
+      : [],
+  };
+}
+
 async function fetchJson(path: string, options?: RequestInit): Promise<unknown> {
   const controller = new AbortController();
   const method = (options?.method ?? "GET").toUpperCase();
   const timeoutMs = method === "GET" ? 3_000 : 10_000;
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  const resolvedTimeoutMs = method === "POST" && path === "/branches" ? 120_000 : timeoutMs;
+  const timeout = window.setTimeout(() => controller.abort(), resolvedTimeoutMs);
   try {
     const response = await fetch(`${API_BASE}${path}`, {
       ...options,
@@ -2530,13 +2749,20 @@ export default function Home() {
   const [runChoices, setRunChoices] = useState<RunChoice[]>([]);
   const [remoteGame, setRemoteGame] = useState<RemoteGameSession | null>(null);
   const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [branchExperiments, setBranchExperiments] = useState<BranchExperiment[]>([]);
+  const [branchSources, setBranchSources] = useState<ModelCheckpoint[]>([]);
+  const [branchSourceId, setBranchSourceId] = useState("");
+  const [branchName, setBranchName] = useState("Champion branch lab");
+  const [branchCount, setBranchCount] = useState(3);
+  const [branchMinutes, setBranchMinutes] = useState(120);
+  const [branchAutoAdvance, setBranchAutoAdvance] = useState(true);
   const pollInFlight = useRef(false);
   const hasConnectedRef = useRef(false);
   const activeRunIdRef = useRef<string | null>(null);
   const selectedRunOverrideRef = useRef<string | null>(null);
   const metricsSeqRef = useRef(-1);
   const gameRef = useRef(game);
-  const basePresetRef = useRef<LaunchPreset>("astro4_m4");
+  const basePresetRef = useRef<LaunchPreset>("astro5_search");
   const presetCatalogRef = useRef<Record<string, unknown>>({});
 
   const latestMetric = snapshot.metrics.at(-1) ?? (connected ? emptyMetric : buildDemoMetrics(1)[0]);
@@ -2559,6 +2785,13 @@ export default function Home() {
     () => snapshot.models.filter((model) => model.actorAvailable),
     [snapshot.models],
   );
+  useEffect(() => {
+    if (branchSourceId && branchSources.some((model) => model.id === branchSourceId)) return;
+    const preferred = branchSources.find((model) => model.isChampion && model.evaluated)
+      ?? branchSources.find((model) => model.isChampion)
+      ?? branchSources[0];
+    if (preferred) setBranchSourceId(preferred.id);
+  }, [branchSourceId, branchSources]);
   const selectedRunChoice = runChoices.find((run) => run.id === remoteRunId) ?? null;
   const evaluatedModels = snapshot.models
     .filter((model) => model.evaluated)
@@ -2747,16 +2980,33 @@ export default function Home() {
       if (pollInFlight.current) return;
       pollInFlight.current = true;
       try {
-        const [healthRaw, systemRaw, presetsRaw, runsRaw] = await Promise.all([
+        const [healthRaw, systemRaw, presetsRaw, runsRaw, branchesRaw, branchModelsRaw] = await Promise.all([
           fetchJson("/health"),
           fetchJson("/system"),
           Object.keys(presetCatalogRef.current).length
             ? Promise.resolve(presetCatalogRef.current)
             : fetchJson("/presets").catch(() => ({})),
           fetchJson("/runs"),
+          fetchJson("/branches").catch(() => []),
+          fetchJson("/models").catch(() => []),
         ]);
         if (cancelled) return;
         if (isRecord(presetsRaw) && Object.keys(presetsRaw).length) presetCatalogRef.current = presetsRaw;
+        if (Array.isArray(branchesRaw)) {
+          setBranchExperiments(
+            branchesRaw
+              .map((raw) => normalizeBranchExperiment(raw))
+              .filter((experiment): experiment is BranchExperiment => experiment !== null),
+          );
+        }
+        if (Array.isArray(branchModelsRaw)) {
+          setBranchSources(
+            branchModelsRaw
+              .filter(isRecord)
+              .map((model) => normalizeModel(model))
+              .filter((model) => model.branchCompatible),
+          );
+        }
         const health = isRecord(healthRaw) ? healthRaw : {};
         const runs = Array.isArray(runsRaw) ? runsRaw : [];
         const normalizedRuns = runs.filter(isRecord).map((run) => {
@@ -3146,9 +3396,12 @@ export default function Home() {
   };
 
   const choosePreset = (preset: TrainerConfig["preset"]) => {
-    if (preset === "astro4_m4") {
+    if (preset === "astro5_search") {
+      basePresetRef.current = "astro5_search";
+      setConfig(configFromApi(presetCatalogRef.current.astro5_search, initialConfig));
+    } else if (preset === "astro4_m4") {
       basePresetRef.current = "astro4_m4";
-      setConfig(configFromApi(presetCatalogRef.current.astro4_m4, initialConfig));
+      setConfig(configFromApi(presetCatalogRef.current.astro4_m4, astro4Config));
     } else if (preset === "astro3_m4") {
       basePresetRef.current = "astro3_m4";
       setConfig(configFromApi(presetCatalogRef.current.astro3_m4, astro3Config));
@@ -3184,6 +3437,99 @@ export default function Home() {
     }
   };
 
+  const launchBranchExperiment = async () => {
+    if (!branchSourceId) {
+      showToast("Choose a compatible champion or checkpoint first");
+      return;
+    }
+    const templates = [
+      { label: "Balanced search" },
+      {
+        label: "Search-heavy",
+        reanalysis_fraction: 0.025,
+        reanalysis_max_per_game: 3,
+        reanalysis_max_actions: 8,
+        updates_per_iteration: 40,
+      },
+      {
+        label: "Entropy recovery",
+        learning_rate: 0.00007,
+        policy_entropy_weight: 0.04,
+        governor_target_normalized_entropy: 0.65,
+      },
+      {
+        label: "Value-first",
+        policy_value_loss_weight: 0.8,
+        reanalysis_value_loss_weight: 0.9,
+        reanalysis_policy_loss_weight: 0.8,
+      },
+      {
+        label: "Fast exploitation",
+        learning_rate: 0.00012,
+        updates_per_iteration: 48,
+        policy_entropy_weight: 0.012,
+      },
+      {
+        label: "Wide belief search",
+        reanalysis_rollouts_per_action: 4,
+        reanalysis_max_actions: 10,
+        reanalysis_fraction: 0.01,
+      },
+      { label: "Low LR long memory", learning_rate: 0.00005, policy_replay_capacity: 2_000_000 },
+      { label: "Explorer", epsilon_end: 0.08, randomized_prior_scale: 0.4, policy_entropy_weight: 0.035 },
+    ].slice(0, Math.max(1, Math.min(8, branchCount)));
+    setCommandBusy("branch-launch");
+    try {
+      if (!connected) {
+        showToast("Connect to the local backend to create durable branches");
+        return;
+      }
+      const raw = await fetchJson("/branches", {
+        method: "POST",
+        body: JSON.stringify({
+          source_checkpoint_id: branchSourceId,
+          name: branchName,
+          variants: templates,
+          base_overrides: { duration_minutes: branchMinutes },
+          auto_advance: branchAutoAdvance,
+          start: true,
+        }),
+      });
+      const experiment = normalizeBranchExperiment(raw);
+      if (experiment) {
+        setBranchExperiments((current) => [
+          experiment,
+          ...current.filter((item) => item.id !== experiment.id),
+        ]);
+        const first = experiment.members[0];
+        if (first?.run_id) selectRun(first.run_id);
+        showToast(`Started ${experiment.members.length} checkpoint branches`);
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Branch creation failed");
+    } finally {
+      setCommandBusy(null);
+    }
+  };
+
+  const startExistingBranchExperiment = async (experimentId: string) => {
+    setCommandBusy(`branch-${experimentId}`);
+    try {
+      const raw = await fetchJson(`/branches/${encodeURIComponent(experimentId)}/start`, {
+        method: "POST",
+      });
+      const experiment = normalizeBranchExperiment(raw);
+      if (experiment) {
+        setBranchExperiments((current) => current.map((item) => item.id === experiment.id ? experiment : item));
+        showToast("Started the next queued branch");
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not start branch");
+    } finally {
+      setCommandBusy(null);
+    }
+  };
+
   const saveLiveConfig = async (event: FormEvent) => {
     event.preventDefault();
     setCommandBusy("config");
@@ -3199,6 +3545,10 @@ export default function Home() {
       checkpoint_every_games: config.checkpointEveryGames,
       promotion_confidence: config.promotionConfidence,
       promotion_margin: config.promotionMargin,
+      reanalysis_fraction: config.trainingGeneration >= 5 ? config.reanalysisFraction : 0,
+      policy_entropy_weight: config.policyEntropyWeight,
+      canary_pairs: config.canaryPairs,
+      realtime_governor: config.trainingGeneration >= 5 && config.realtimeGovernor,
     };
     try {
       if (connected) {
@@ -3758,7 +4108,7 @@ export default function Home() {
         {activeTab === "train" ? (
           <section className="tab-panel train-panel" aria-labelledby="train-title">
             <header className="section-heading">
-              <div><span className="section-number">02 / TRAIN</span><h1 id="train-title">Shape the training mission.</h1><p>Start from the legal-set Astro4 recipe, or retain Astro3/Astro2 recipes for controlled comparisons.</p></div>
+              <div><span className="section-number">02 / TRAIN</span><h1 id="train-title">Shape the training mission.</h1><p>Start from Astro5 search and long-memory replay, or retain Astro4/Astro3/Astro2 recipes for controlled comparisons.</p></div>
               <div className="section-summary"><span>Projected games</span><strong>{gameCountFormatter.format(latestMetric.gamesPerSecond * config.durationMinutes * 60)}</strong><small>at {latestMetric.gamesPerSecond.toFixed(0)} games/s</small></div>
             </header>
 
@@ -3786,10 +4136,13 @@ export default function Home() {
 
             <div className="train-layout">
               <form className="recipe-form panel" onSubmit={saveConfig}>
-                <div className="recipe-title"><div><span className="panel-kicker">Run recipe</span><h2>Choose a flight plan</h2></div><span className="recommended-label">Astro4 · M4 · 16 GB tuned</span></div>
+                <div className="recipe-title"><div><span className="panel-kicker">Run recipe</span><h2>Choose a flight plan</h2></div><span className="recommended-label">Astro5 · search · live governor</span></div>
                 <div className="preset-grid" role="radiogroup" aria-label="Training preset">
+                  <button type="button" role="radio" aria-checked={config.preset === "astro5_search"} className={config.preset === "astro5_search" ? "is-selected" : ""} onClick={() => choosePreset("astro5_search")}>
+                    <span>Recommended</span><strong>Astro5 search & branching</strong><p>Public-belief action-set reanalysis, long-memory replay, cheap canaries, and a bounded realtime governor.</p><small>1.5m compact decisions · 128-pair canaries · full durable state</small>
+                  </button>
                   <button type="button" role="radio" aria-checked={config.preset === "astro4_m4"} className={config.preset === "astro4_m4" ? "is-selected" : ""} onClick={() => choosePreset("astro4_m4")}>
-                    <span>Recommended</span><strong>Astro4 legal-set policy</strong><p>Actor-critic legal-action learning, paired rollouts, game-balanced replay, and competency gates.</p><small>8 actors · 5 heads · 150k policy decisions</small>
+                    <span>Previous</span><strong>Astro4 legal-set policy</strong><p>Original actor-critic legal-action learning retained for controlled comparisons.</p><small>8 actors · 5 heads · 250k policy decisions</small>
                   </button>
                   <button type="button" role="radio" aria-checked={config.preset === "astro3_m4"} className={config.preset === "astro3_m4" ? "is-selected" : ""} onClick={() => choosePreset("astro3_m4")}>
                     <span>Previous</span><strong>Astro3 adaptive champion</strong><p>Chosen-action outcome learning retained for controlled comparisons.</p><small>8 actors · 5 heads · 900k outcome replay</small>
@@ -3820,7 +4173,7 @@ export default function Home() {
                   <div className="advanced-fields">
                     <div className="field-section"><h3>Policy improvement</h3><div className="field-grid">
                       <label title="Use a distinct seed for each independent training run; reuse one only when reproducing a run."><span><Jargon term="seed">Training seed</Jargon></span><input type="number" min="0" max="9007199254740991" step="1" value={config.seed} onChange={(event) => updateConfig("seed", Number(event.target.value))} /></label>
-                      <label title="This expert field changes the generation/learner contract only. Use the preset cards above to switch the complete recipe."><span><Jargon term="trainingGeneration">Generation contract</Jargon></span><select value={config.trainingGeneration} onChange={(event) => updateConfig("trainingGeneration", Number(event.target.value))}><option value={4}>Astro4 legal-set actor-critic</option><option value={3}>Astro3 chosen-action MC</option><option value={2}>Astro2 encoder · hybrid</option></select></label>
+                      <label title="This expert field changes the generation/learner contract only. Use the preset cards above to switch the complete recipe."><span><Jargon term="trainingGeneration">Generation contract</Jargon></span><select value={config.trainingGeneration} onChange={(event) => updateConfig("trainingGeneration", Number(event.target.value))}><option value={5}>Astro5 search & governor</option><option value={4}>Astro4 legal-set actor-critic</option><option value={3}>Astro3 chosen-action MC</option><option value={2}>Astro2 encoder · hybrid</option></select></label>
                       <label><span><Jargon term="behaviorPolicy">Behavior policy</Jargon></span><select value={config.behaviorPolicy} onChange={(event) => updateConfig("behaviorPolicy", event.target.value)}><option value="learner">Learner</option><option value="champion">Champion</option></select></label>
                       <label title="Scale of fixed random per-head behavior offsets used only to perturb action selection; this is not a fitted prior or an added training loss."><span>Behavior perturbation scale</span><input type="number" min="0" max="5" step="0.05" value={config.randomizedPriorScale} onChange={(event) => updateConfig("randomizedPriorScale", Number(event.target.value))} /></label>
                       <label title="Fraction of current self-play that uses the exact prior-free mean-head policy deployed in arenas and human play. Generation 2 requires zero."><span>Deployment-policy self-play</span><input type="number" min="0" max="1" step="0.05" disabled={config.trainingGeneration < 3} value={config.trainingGeneration >= 3 ? config.deploymentPolicySelfplayFraction : 0} onChange={(event) => updateConfig("deploymentPolicySelfplayFraction", Number(event.target.value))} /></label>
@@ -3829,6 +4182,11 @@ export default function Home() {
                         <label><span>State-value loss weight</span><input type="number" min="0" max="10" step="0.05" value={config.policyValueLossWeight} onChange={(event) => updateConfig("policyValueLossWeight", Number(event.target.value))} /></label>
                         <label><span>Policy entropy weight</span><input type="number" min="0" max="1" step="0.001" value={config.policyEntropyWeight} onChange={(event) => updateConfig("policyEntropyWeight", Number(event.target.value))} /></label>
                         <label><span>Importance-ratio clip</span><input type="number" min="1" max="20" step="0.25" value={config.policyImportanceClip} onChange={(event) => updateConfig("policyImportanceClip", Number(event.target.value))} /></label>
+                        {config.trainingGeneration >= 5 ? <>
+                          <label><span>Search policy weight</span><input type="number" min="0" max="20" step="0.1" value={config.reanalysisPolicyLossWeight} onChange={(event) => updateConfig("reanalysisPolicyLossWeight", Number(event.target.value))} /></label>
+                          <label><span>Search value weight</span><input type="number" min="0" max="20" step="0.1" value={config.reanalysisValueLossWeight} onChange={(event) => updateConfig("reanalysisValueLossWeight", Number(event.target.value))} /></label>
+                          <label className="toggle-label"><input type="checkbox" checked={config.realtimeGovernor} onChange={(event) => updateConfig("realtimeGovernor", event.target.checked)} /><span />Realtime training governor</label>
+                        </> : null}
                       </> : <>
                         <label><span>Resume replay items</span><input type="number" min="0" max="500000" step="1000" value={config.resumeReplayItems} onChange={(event) => updateConfig("resumeReplayItems", Number(event.target.value))} /></label>
                         <label className="toggle-label"><input type="checkbox" checked={config.useBootstrapTargets} onChange={(event) => updateConfig("useBootstrapTargets", event.target.checked)} /><span /><Jargon term="targetMode">Mixed bootstrap targets</Jargon></label>
@@ -3847,7 +4205,7 @@ export default function Home() {
                       <label><span><Jargon term="actors">Games / actor batch</Jargon></span><input type="number" value={config.gamesPerActorBatch} onChange={(event) => updateConfig("gamesPerActorBatch", Number(event.target.value))} /></label>
                     </div></div>
                     <div className="field-section"><h3>Replay & exploration</h3><div className="field-grid">
-                      {config.trainingGeneration >= 4 ? <label><span>Legal-set policy capacity</span><input type="number" min="1000" max="1000000" step="1000" value={config.policyReplayCapacity} onChange={(event) => updateConfig("policyReplayCapacity", Number(event.target.value))} /></label> : <label><span><Jargon term="replayCapacity">Outcome replay capacity</Jargon></span><input type="number" value={config.replayCapacity} onChange={(event) => updateConfig("replayCapacity", Number(event.target.value))} /></label>}
+                      {config.trainingGeneration >= 4 ? <label><span>Legal-set policy capacity</span><input type="number" min="1000" max="2000000" step="1000" value={config.policyReplayCapacity} onChange={(event) => updateConfig("policyReplayCapacity", Number(event.target.value))} /></label> : <label><span><Jargon term="replayCapacity">Outcome replay capacity</Jargon></span><input type="number" value={config.replayCapacity} onChange={(event) => updateConfig("replayCapacity", Number(event.target.value))} /></label>}
                       <label><span><Jargon term="replayWarmup">Replay warmup</Jargon></span><input type="number" value={config.replayWarmup} onChange={(event) => updateConfig("replayWarmup", Number(event.target.value))} /></label>
                       <label><span><Jargon term="epsilon">Epsilon start</Jargon></span><input type="number" step="0.005" value={config.epsilonStart} onChange={(event) => updateConfig("epsilonStart", Number(event.target.value))} /></label>
                       <label><span><Jargon term="epsilon">Epsilon end</Jargon></span><input type="number" step="0.005" value={config.epsilonEnd} onChange={(event) => updateConfig("epsilonEnd", Number(event.target.value))} /></label>
@@ -3857,6 +4215,16 @@ export default function Home() {
                         <label><span>Counterfactual decision fraction</span><input type="number" min="0" max="1" step="0.005" value={config.counterfactualFraction} onChange={(event) => updateConfig("counterfactualFraction", Number(event.target.value))} /></label>
                         <label><span>Counterfactuals / game</span><input type="number" min="0" max="8" step="1" value={config.counterfactualMaxPerGame} onChange={(event) => updateConfig("counterfactualMaxPerGame", Number(event.target.value))} /></label>
                         <label><span>Counterfactual rank weight</span><input type="number" min="0" max="10" step="0.05" value={config.counterfactualLossWeight} onChange={(event) => updateConfig("counterfactualLossWeight", Number(event.target.value))} /></label>
+                        {config.trainingGeneration >= 5 ? <>
+                          <label><span>Search positions fraction</span><input type="number" min="0" max="1" step="0.0025" value={config.reanalysisFraction} onChange={(event) => updateConfig("reanalysisFraction", Number(event.target.value))} /></label>
+                          <label><span>Search positions / game</span><input type="number" min="0" max="32" value={config.reanalysisMaxPerGame} onChange={(event) => updateConfig("reanalysisMaxPerGame", Number(event.target.value))} /></label>
+                          <label><span>Actions / searched state</span><input type="number" min="2" max="64" value={config.reanalysisMaxActions} onChange={(event) => updateConfig("reanalysisMaxActions", Number(event.target.value))} /></label>
+                          <label><span>Rollouts / action</span><input type="number" min="1" max="16" value={config.reanalysisRolloutsPerAction} onChange={(event) => updateConfig("reanalysisRolloutsPerAction", Number(event.target.value))} /></label>
+                          <label><span>Replay decisions / player-game</span><input type="number" min="1" max="128" value={config.policyReplayDecisionsPerPlayerGame} onChange={(event) => updateConfig("policyReplayDecisionsPerPlayerGame", Number(event.target.value))} /></label>
+                          <label className="toggle-label"><input type="checkbox" checked={config.policyReplayFamilyBalanced} onChange={(event) => updateConfig("policyReplayFamilyBalanced", event.target.checked)} /><span />Family-balanced game reservoir</label>
+                          <label><span>Canary cadence</span><input type="number" min={config.checkpointEveryGames} step="1000" value={config.canaryEveryGames} onChange={(event) => updateConfig("canaryEveryGames", Number(event.target.value))} /></label>
+                          <label><span>Canary pairs</span><input type="number" min="8" max="5000" value={config.canaryPairs} onChange={(event) => updateConfig("canaryPairs", Number(event.target.value))} /></label>
+                        </> : null}
                       </> : <>
                         <label><span>Terminal target weight</span><input type="number" min="0" max="1" step="0.05" value={config.terminalTargetWeight} onChange={(event) => updateConfig("terminalTargetWeight", Number(event.target.value))} /></label>
                         <label><span>Tactical loss weight</span><input type="number" min="0" max="10" step="0.05" value={config.preferenceLossWeight} onChange={(event) => updateConfig("preferenceLossWeight", Number(event.target.value))} /></label>
@@ -3905,10 +4273,49 @@ export default function Home() {
           </section>
         ) : null}
 
+        {activeTab === "branches" ? (
+          <section className="tab-panel branch-panel" aria-labelledby="branches-title">
+            <div className="section-heading">
+              <div><span className="section-number">03 / BRANCH LAB</span><h1 id="branches-title">Search several futures from any champion.</h1><p>Each branch gets its own copied weights, optimizer, replay archive, seed stream, schedules, canaries, and governor state. The single Metal learner runs branches sequentially.</p></div>
+              <div className="section-summary"><span>Storage policy</span><strong>Full lineage snapshots</strong><small>No disk-saving constraint · source checkpoints are pinned automatically</small></div>
+            </div>
+            <div className="train-layout">
+              <article className="panel recipe-form">
+                <header className="panel-header"><div><span className="panel-kicker">New experiment</span><h2>Fork checkpoint lineage</h2></div><span className="recommended-label">Astro5 compatible</span></header>
+                <div className="field-grid primary-fields">
+                  <label><span>Source champion / checkpoint</span><select value={branchSourceId} onChange={(event) => setBranchSourceId(event.target.value)}><option value="">Choose a model…</option>{branchSources.map((model) => <option value={model.id} key={model.id}>{model.isChampion ? "★ " : ""}{model.label} · {gameCountFormatter.format(model.games)} games · {model.id}</option>)}</select></label>
+                  <label><span>Experiment name</span><input value={branchName} onChange={(event) => setBranchName(event.target.value)} /></label>
+                  <label><span>Branch variants</span><input type="number" min="1" max="8" value={branchCount} onChange={(event) => setBranchCount(Number(event.target.value))} /></label>
+                  <label><span>Budget per branch</span><div className="input-suffix"><input type="number" min="1" max="10080" value={branchMinutes} onChange={(event) => setBranchMinutes(Number(event.target.value))} /><b>min</b></div></label>
+                  <label className="toggle-label"><input type="checkbox" checked={branchAutoAdvance} onChange={(event) => setBranchAutoAdvance(event.target.checked)} /><span />Run queued branches automatically</label>
+                </div>
+                <div className="branch-variant-preview">
+                  <strong>Generated variants</strong>
+                  <p>Balanced search · search-heavy · entropy recovery · value-first · fast exploitation · wide belief search · low-LR long-memory · explorer</p>
+                  <small>The first {branchCount} recipes are created. Architecture is inherited from the source; only optimization/search properties vary.</small>
+                </div>
+                <div className="form-actions"><div><span className="validation-light" /> Compatible generation-4/5 policy checkpoints only</div><button type="button" className="button button-primary" disabled={!branchSourceId || commandBusy !== null} onClick={launchBranchExperiment}>{commandBusy === "branch-launch" ? "Copying lineage…" : "Create & start branch system"}</button></div>
+              </article>
+              <aside className="train-sidebar">
+                <article className="panel"><header className="panel-header"><div><span className="panel-kicker">Why branch</span><h2>Cross the valley safely</h2></div></header><p>A rejected intermediate is quarantined from deployment but its learner can continue. Short independent canaries reveal which search/entropy/value regime deserves a longer run.</p><dl className="compact-dl"><div><dt>Evaluation</dt><dd>128-pair canaries</dd></div><div><dt>Promotion</dt><dd>5,000 paired seeds</dd></div><div><dt>Rollback</dt><dd>Full lineage only</dd></div></dl></article>
+              </aside>
+            </div>
+            <article className="panel branch-registry">
+              <header className="panel-header"><div><span className="panel-kicker">Experiment queue</span><h2>Branch progress</h2></div><span>{branchExperiments.length} experiment{branchExperiments.length === 1 ? "" : "s"}</span></header>
+              {branchExperiments.map((experiment) => <div className="branch-experiment" key={experiment.id}>
+                <div className="branch-experiment-header"><span><strong>{experiment.name}</strong><small>{experiment.id} · source {experiment.source_checkpoint_id}</small></span><b className={`run-state status-${experiment.status}`}>{titleCase(experiment.status)}</b></div>
+                <div className="branch-member-grid">{experiment.members.map((member) => <button type="button" className={`branch-member status-${member.run_status}`} key={member.run_id} onClick={() => selectRun(member.run_id)}><span><StatusDot status={normalizeStatus(member.run_status, "ready")} /><strong>{member.label}</strong></span><small>{member.run_id}</small><b>{gameCountFormatter.format(member.games)} games</b><em>{member.score === null ? titleCase(member.run_status) : `${formatPercent(member.score)} best score`}</em>{member.last_error ? <i>{member.last_error}</i> : null}</button>)}</div>
+                {experiment.members.some((member) => member.status === "queued") && !experiment.autoAdvance ? <button type="button" className="button" disabled={commandBusy !== null} onClick={() => startExistingBranchExperiment(experiment.id)}>Start next queued branch</button> : null}
+              </div>)}
+              {!branchExperiments.length ? <EmptyState title="No branch experiments yet" detail="Choose any compatible champion above and fork 1–8 independent training futures." /> : null}
+            </article>
+          </section>
+        ) : null}
+
         {activeTab === "models" ? (
           <section className="tab-panel models-panel" aria-labelledby="models-title">
             <header className="section-heading">
-              <div><span className="section-number">03 / MODELS & ARENA</span><h1 id="models-title">Prove strength, don’t infer it.</h1><p>Every result uses <Jargon term="pairedSeeds">paired seeds</Jargon>, reversed seats, and a <Jargon term="confidenceInterval">confidence interval</Jargon>.</p></div>
+              <div><span className="section-number">04 / MODELS & ARENA</span><h1 id="models-title">Prove strength, don’t infer it.</h1><p>Every result uses <Jargon term="pairedSeeds">paired seeds</Jargon>, reversed seats, and a <Jargon term="confidenceInterval">confidence interval</Jargon>.</p></div>
               <div className="section-summary"><span>Current deployment model</span><strong>{snapshot.models.find((model) => model.isChampion)?.label ?? "—"}</strong><small>{snapshot.models.find((model) => model.isChampion)?.evaluated ? <>{formatPercent(snapshot.models.find((model) => model.isChampion)!.score)} <Jargon term="heldOutStrength">held-out score</Jargon> · evaluated champion</> : "Unevaluated anchor · not a promoted champion"}</small></div>
             </header>
 
@@ -3975,7 +4382,7 @@ export default function Home() {
         {activeTab === "play" ? (
           <section className="tab-panel play-panel" aria-labelledby="play-title">
             <header className="section-heading play-heading">
-              <div><span className="section-number">04 / PLAY</span><h1 id="play-title">Enter the arena yourself.</h1><p>Challenge any checkpoint through the same legal-action interface used in self-play.</p></div>
+              <div><span className="section-number">05 / PLAY</span><h1 id="play-title">Enter the arena yourself.</h1><p>Challenge any checkpoint through the same legal-action interface used in self-play.</p></div>
               <div className="game-setup"><label><span>Opponent</span><select value={playModel === "baseline" || availableModels.some((model) => model.id === playModel) ? playModel : "baseline"} onChange={(event) => setPlayModel(event.target.value)}><option value="baseline">Balanced baseline</option>{availableModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</select></label><label className="toggle-label"><input type="checkbox" checked={humanStarts} onChange={(event) => setHumanStarts(event.target.checked)} /><span />You start</label><button type="button" className="button card-visibility-button" onClick={() => setInventoryOpen(true)}>Hands & decks</button><button type="button" className="button button-primary" onClick={newGame} disabled={commandBusy !== null}>{commandBusy === "game-new" ? "Starting…" : "New game"}</button></div>
             </header>
 
@@ -4031,7 +4438,7 @@ export default function Home() {
         {activeTab === "diagnostics" ? (
           <section className="tab-panel diagnostics-panel" aria-labelledby="diagnostics-title">
             <header className="section-heading">
-              <div><span className="section-number">05 / DIAGNOSTICS & SETTINGS</span><h1 id="diagnostics-title">Trust every signal.</h1><p>Hardware health, learning dynamics, decision balance, configuration, and audit history in one place.</p></div>
+              <div><span className="section-number">06 / DIAGNOSTICS & SETTINGS</span><h1 id="diagnostics-title">Trust every signal.</h1><p>Hardware health, learning dynamics, decision balance, configuration, and audit history in one place.</p></div>
               <div className={`diagnostic-status ${connected ? "is-good" : "is-warning"}`}><span>{connected ? "Local service responding" : "Trainer connection offline"}</span><strong>{connected ? remoteRunId ? `${titleCase(snapshot.run.status)} · telemetry ${snapshot.metrics.length ? "available" : "pending"}` : "Ready · no run selected" : "Demo data active"}</strong><small>{connected && lastSync ? `Last sync ${lastSync.toLocaleTimeString()}` : API_BASE}</small></div>
             </header>
 
@@ -4045,6 +4452,19 @@ export default function Home() {
               <article className="panel system-panel"><header className="panel-header"><div><span className="panel-kicker">Local hardware</span><h2>System health</h2></div></header><div className="system-readings"><div><Gauge value={snapshot.hardware.cpuPercent / 100} label="CPU" /><p><strong>{snapshot.hardware.actorProcesses} actors</strong><span>{snapshot.hardware.chip}</span></p></div><div><Gauge value={snapshot.hardware.memoryTotalGb ? snapshot.hardware.memoryUsedGb / snapshot.hardware.memoryTotalGb : 0} label="memory" /><p><strong>{snapshot.hardware.memoryUsedGb.toFixed(1)} / {snapshot.hardware.memoryTotalGb.toFixed(1)} GB</strong><span>Unified memory</span></p></div><div className="metal-reading"><span className="metal-glyph">M</span><p><strong>{snapshot.hardware.backend}</strong><span>{snapshot.hardware.metalAvailable === null ? "Live Metal sample pending" : snapshot.hardware.metalAvailable ? `${snapshot.hardware.learnerDevice} · ${snapshot.hardware.metalActiveGb.toFixed(2)} GB active · ${snapshot.hardware.metalPeakGb.toFixed(2)} GB peak` : "Metal unavailable"}</span></p><b>{snapshot.hardware.metalAvailable === null ? "Pending" : snapshot.hardware.metalAvailable ? "Ready" : "Offline"}</b></div></div></article>
               <article className="panel connection-panel"><header className="panel-header"><div><span className="panel-kicker">Service link</span><h2>Local API</h2></div></header><dl className="connection-details"><div><dt>Endpoint</dt><dd><code>{API_BASE}</code></dd></div><div><dt>State</dt><dd className={connected ? "positive" : "warning-text"}>{connected ? "Connected" : "Offline · retrying each second"}</dd></div><div><dt>Transport</dt><dd>JSON · incremental API polling</dd></div><div><dt>Sample cadence</dt><dd>Trainer-controlled · may vary</dd></div><div><dt>Last sequence</dt><dd>{latestMetric.seq >= 0 ? latestMetric.seq : "Waiting"}</dd></div><div><dt>Exposure</dt><dd>Loopback only</dd></div></dl><button type="button" className="button" onClick={() => window.location.reload()}>Reconnect now</button></article>
             </div>
+
+            {config.trainingGeneration >= 5 ? <article className={`panel governor-panel ${latestMetric.governorBranchRequested ? "has-warning" : ""}`}>
+              <header className="panel-header"><div><span className="panel-kicker">Astro5 realtime evaluator</span><h2>Search & governor telemetry</h2></div><span className={`controller-health ${latestMetric.governorBranchRequested ? "is-warning" : "is-healthy"}`}>{latestMetric.governorBranchRequested ? "New branch recommended" : "Bounded controls active"}</span></header>
+              <dl className="compact-dl">
+                <div><dt>Normalized policy entropy</dt><dd>{latestMetric.normalizedPolicyEntropy === null ? "Pending" : latestMetric.normalizedPolicyEntropy.toFixed(3)}</dd></div>
+                <div><dt>Search-target batches</dt><dd>{latestMetric.searchedFraction === null ? "Pending" : formatPercent(latestMetric.searchedFraction)}</dd></div>
+                <div><dt>Search policy / value loss</dt><dd>{latestMetric.searchPolicyLoss === null || latestMetric.searchValueLoss === null ? "Pending" : `${latestMetric.searchPolicyLoss.toFixed(3)} / ${latestMetric.searchValueLoss.toFixed(3)}`}</dd></div>
+                <div><dt>Gradient clipping</dt><dd>{latestMetric.gradientClipFraction === null ? "Pending" : formatPercent(latestMetric.gradientClipFraction)}</dd></div>
+                <div><dt>Actor / value / search gradients</dt><dd>{latestMetric.actorGradientNorm === null || latestMetric.valueGradientNorm === null || latestMetric.searchGradientNorm === null ? "Probe pending" : `${latestMetric.actorGradientNorm.toFixed(2)} / ${latestMetric.valueGradientNorm.toFixed(2)} / ${latestMetric.searchGradientNorm.toFixed(2)}`}</dd></div>
+                <div><dt>Governor multipliers</dt><dd>{latestMetric.governorLearningRateMultiplier.toFixed(2)}× LR · {latestMetric.governorUpdatesMultiplier.toFixed(2)}× updates · {latestMetric.governorReanalysisMultiplier.toFixed(2)}× search</dd></div>
+              </dl>
+              <p className="panel-note">{latestMetric.governorReasons.length ? latestMetric.governorReasons.join(" · ") : "Waiting for enough natural-state, optimization, and canary evidence."}</p>
+            </article> : null}
 
             <div className="settings-audit-grid">
               <form className="panel live-settings" onSubmit={saveLiveConfig}>

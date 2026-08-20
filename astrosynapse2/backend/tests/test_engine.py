@@ -128,6 +128,27 @@ def test_known_top_cards_are_not_duplicated_in_hidden_multisets():
     assert hidden.get(EXPLORER.card_id, 0) == 0
 
 
+def test_public_belief_resampling_preserves_revealed_hand_and_known_tops():
+    game = Game(config=GameConfig(seed=62))
+    observer = game.players[0]
+    opponent = game.players[1]
+    known_market_card = CARD_BY_NAME["Corvette"]
+    observer.deck.append(EXPLORER)
+    observer.known_top.append(EXPLORER)
+    opponent.hand.append(EXPLORER)
+    opponent.revealed_hand.append(EXPLORER)
+    opponent.deck.append(known_market_card)
+    opponent.known_top.append(known_market_card)
+    before = game.observation(0)
+
+    game.resample_public_belief(0, seed=9_001)
+
+    assert game.observation(0) == before
+    assert EXPLORER in opponent.hand
+    assert opponent.deck[-1] == known_market_card
+    assert observer.deck[-1] == EXPLORER
+
+
 def test_semantic_dedup_keeps_distinct_cards_without_dominance_pruning():
     game = Game(config=GameConfig(seed=3))
     player = game.players[game.active_player]

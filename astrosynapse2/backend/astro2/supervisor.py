@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import shutil
 import threading
 import time
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -164,6 +166,11 @@ class Supervisor:
                 last_error=None,
             )
             self.store.event(run_id, "run_started", "Training started")
+            try:
+                member = self.store.update_branch_member(run_id, status="running")
+                self.store.update_branch_experiment(member["experiment_id"], status="running")
+            except KeyError:
+                pass
             thread.start()
             return self.store.get_run(run_id)
 
@@ -210,6 +217,220 @@ class Supervisor:
                 "Training stopped after an error",
                 {"error": repr(error)},
             )
+        finally:
+            # The current thread owns the single accelerator slot until this
+            # method returns. A short timer advances an experiment only after
+            # the slot is observably free.
+            timer = threading.Timer(0.1, self._advance_branch_queue, args=(run_id,))
+            timer.daemon = True
+            timer.start()
+
+    def _advance_branch_queue(self, completed_run_id: str) -> None:
+        try:
+            member = self.store.branch_member(completed_run_id)
+            experiment = self.store.branch_experiment(member["experiment_id"])
+        except KeyError:
+            if self.active_run_id() is None:
+                queued_experiment = next(
+                    (
+                        item
+                        for item in reversed(self.store.branch_experiments(limit=100))
+                        if bool((item.get("config") or {}).get("auto_advance", True))
+                        and any(member["status"] == "queued" for member in item["members"])
+                    ),
+                    None,
+                )
+                if queued_experiment is not None:
+                    queued = next(
+                        item
+                        for item in queued_experiment["members"]
+                        if item["status"] == "queued"
+                    )
+                    with suppress(InvalidTransition):
+                        self.start(queued["run_id"])
+            return
+        run = self.store.get_run(completed_run_id)
+        terminal = run["status"] if run["status"] in {"complete", "failed", "stopped"} else "complete"
+        score: float | None = None
+        for checkpoint in self.store.checkpoints(completed_run_id):
+            latest_arena = (checkpoint.get("evaluation") or {}).get("latest_arena") or {}
+            if "model_a_score" in latest_arena:
+                value = float(latest_arena["model_a_score"])
+                score = value if score is None else max(score, value)
+        self.store.update_branch_member(completed_run_id, status=terminal, score=score)
+        if terminal == "stopped":
+            self.store.update_branch_experiment(member["experiment_id"], status="paused")
+            return
+        if not bool((experiment.get("config") or {}).get("auto_advance", True)):
+            return
+        queued = [item for item in experiment["members"] if item["status"] == "queued"]
+        if not queued:
+            statuses = {item["run_status"] for item in self.store.branch_experiment(member["experiment_id"])["members"]}
+            final_status = "failed" if statuses == {"failed"} else "complete"
+            self.store.update_branch_experiment(member["experiment_id"], status=final_status)
+            return
+        if self.active_run_id() is not None:
+            return
+        try:
+            self.start(queued[0]["run_id"])
+        except InvalidTransition:
+            return
+
+    @staticmethod
+    def _copy_checkpoint_artifact(source: str | None, destination: Path) -> str | None:
+        if not source:
+            return None
+        source_path = Path(source).expanduser().resolve()
+        if not source_path.is_file():
+            return None
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, destination)
+        return str(destination)
+
+    def create_branch_experiment(
+        self,
+        *,
+        source_checkpoint_id: str,
+        name: str,
+        variants: list[dict[str, Any]],
+        base_overrides: dict[str, Any] | None = None,
+        auto_advance: bool = True,
+        start: bool = False,
+    ) -> dict[str, Any]:
+        """Fork one compatible checkpoint into a sequential GPU experiment."""
+
+        from .model import NumpyActor
+
+        source = self.store.checkpoint(source_checkpoint_id)
+        actor_path = source.get("actor_path")
+        source_model = Path(source["path"])
+        source_sidecar = source_model.with_suffix(source_model.suffix + ".json")
+        if (
+            not actor_path
+            or not Path(actor_path).is_file()
+            or not source_model.is_file()
+            or not source_sidecar.is_file()
+        ):
+            raise ValueError("source checkpoint weights and actor must both be available")
+        actor = NumpyActor.load(actor_path)
+        if actor.spec.encoder_version != 2 or actor.spec.objective_version != 2:
+            raise ValueError("Astro5 branches require a generation-4/5 policy checkpoint")
+        if not variants:
+            variants = [{}]
+        experiment = self.store.create_branch_experiment(
+            name=name,
+            source_checkpoint_id=source_checkpoint_id,
+            config={"auto_advance": auto_advance, "branch_count": len(variants)},
+        )
+        source_artifacts = (source.get("evaluation") or {}).get("artifacts") or {}
+        for ordinal, variant in enumerate(variants):
+            label = str(variant.get("label") or f"Branch {ordinal + 1}")[:80]
+            overrides = {
+                **(base_overrides or {}),
+                **{key: value for key, value in variant.items() if key != "label"},
+            }
+            recipe = RunConfig.astro5_search(name=f"{name} · {label}").model_dump()
+            recipe.update(
+                hidden_size=actor.spec.hidden_size,
+                residual_blocks=actor.spec.residual_blocks,
+                bootstrap_heads=actor.spec.bootstrap_heads,
+                initial_checkpoint_id=source_checkpoint_id,
+                branch_experiment_id=experiment["id"],
+            )
+            recipe.update(overrides)
+            # Give branches independent but reproducible game/RNG streams.
+            experiment_seed = int(experiment["id"][:8], 16)
+            recipe["seed"] = (
+                int(recipe.get("seed", 0))
+                + experiment_seed
+                + ordinal * 10_000_019
+            )
+            config = RunConfig.model_validate(recipe)
+            run = self.store.create_run(config)
+            destination = self.store.path.parent / "checkpoints" / run["id"]
+            model_destination = destination / "branch-root.safetensors"
+            copied_model = self._copy_checkpoint_artifact(source["path"], model_destination)
+            if copied_model is None:
+                raise ValueError("source model disappeared while creating the branch")
+            sidecar_source = str(Path(source["path"]).with_suffix(Path(source["path"]).suffix + ".json"))
+            self._copy_checkpoint_artifact(
+                sidecar_source,
+                model_destination.with_suffix(model_destination.suffix + ".json"),
+            )
+            copied_actor = self._copy_checkpoint_artifact(
+                actor_path, destination / "branch-root.actor.npz"
+            )
+            artifacts: dict[str, Any] = {"schema_version": 2, "replay_items": 0}
+            for artifact_key, filename in (
+                ("optimizer_path", "branch-root.optimizer.npz"),
+                ("replay_path", "branch-root.replay.npz"),
+                ("policy_replay_path", "branch-root.policy-replay.npz"),
+                ("preference_replay_path", "branch-root.preference-replay.npz"),
+            ):
+                copied = self._copy_checkpoint_artifact(
+                    source_artifacts.get(artifact_key), destination / filename
+                )
+                if copied:
+                    artifacts[artifact_key] = copied
+            for key in (
+                "replay_items",
+                "replay_capacity",
+                "replay_format",
+                "policy_replay_items",
+                "policy_replay_format",
+                "preference_replay_items",
+            ):
+                if key in source_artifacts:
+                    artifacts[key] = source_artifacts[key]
+            self.store.add_checkpoint(
+                run_id=run["id"],
+                parent_id=source_checkpoint_id,
+                label=f"Branch root · {source['label']}",
+                path=copied_model,
+                actor_path=copied_actor,
+                games=0,
+                champion=True,
+                evaluation={
+                    "reason": "branch import",
+                    "evaluated": True,
+                    "source_checkpoint_id": source_checkpoint_id,
+                    "source_run_id": source["run_id"],
+                    "source_games": source["games"],
+                    "artifacts": artifacts,
+                    "training_state": {},
+                },
+            )
+            self.store.set_checkpoint_pinned(source_checkpoint_id, True)
+            self.store.add_branch_member(
+                experiment_id=experiment["id"],
+                run_id=run["id"],
+                ordinal=ordinal,
+                label=label,
+                overrides=overrides,
+            )
+            self.store.event(
+                run["id"],
+                "branch_created",
+                f"Forked from {source['label']}",
+                {
+                    "experiment_id": experiment["id"],
+                    "source_checkpoint_id": source_checkpoint_id,
+                    "ordinal": ordinal,
+                },
+            )
+        result = self.store.branch_experiment(experiment["id"])
+        if start and result["members"] and self.active_run_id() is None:
+            self.start(result["members"][0]["run_id"])
+            result = self.store.branch_experiment(experiment["id"])
+        return result
+
+    def start_branch_experiment(self, experiment_id: str) -> dict[str, Any]:
+        experiment = self.store.branch_experiment(experiment_id)
+        queued = [item for item in experiment["members"] if item["status"] == "queued"]
+        if not queued:
+            raise InvalidTransition("branch experiment has no queued members")
+        self.start(queued[0]["run_id"])
+        return self.store.branch_experiment(experiment_id)
 
     def pause(self, run_id: str) -> dict[str, Any]:
         with self._lock:

@@ -160,6 +160,13 @@ def actor_critic_policy_loss(
     value_loss_weight: float = 0.5,
     entropy_weight: float = 0.01,
     importance_clip: float = 2.0,
+    search_policy_targets=None,
+    search_mask=None,
+    search_values=None,
+    search_valid=None,
+    search_policy_loss_weight: float = 0.0,
+    search_value_loss_weight: float = 0.0,
+    behavior_policy_loss_weight: float = 1.0,
 ):
     """Game-balanced off-policy actor-critic loss over complete legal sets."""
 
@@ -190,9 +197,8 @@ def actor_critic_policy_loss(
     target_matrix = mx.broadcast_to(targets[:, None], values.shape)
     advantages = mx.stop_gradient(target_matrix - values)
     behavior = mx.maximum(behavior_probabilities[:, None], mx.array(1e-6))
-    ratios = mx.stop_gradient(
-        mx.minimum(chosen_probabilities / behavior, mx.array(float(importance_clip)))
-    )
+    raw_ratios = chosen_probabilities / behavior
+    ratios = mx.stop_gradient(mx.minimum(raw_ratios, mx.array(float(importance_clip))))
     weights = bootstrap_mask * sample_weights[:, None]
     denominator = mx.maximum(mx.sum(weights), mx.array(1.0))
     policy_loss = -mx.sum(weights * ratios * advantages * chosen_log_probs) / denominator
@@ -200,17 +206,61 @@ def actor_critic_policy_loss(
         value_logits, target_matrix, with_logits=True, reduction="none"
     )
     value_loss = mx.sum(weights * value_losses) / denominator
-    entropy = -mx.sum(probabilities * log_probs, axis=1)
-    entropy = mx.sum(weights * entropy) / denominator
-    loss = policy_loss + float(value_loss_weight) * value_loss - float(entropy_weight) * entropy
+    entropy_by_head = -mx.sum(probabilities * log_probs, axis=1)
+    entropy = mx.sum(weights * entropy_by_head) / denominator
+    legal_counts = mx.maximum(mx.sum(legal_mask, axis=1), mx.array(2.0))
+    normalized_entropy = mx.sum(
+        weights * (entropy_by_head / mx.log(legal_counts)[:, None])
+    ) / denominator
+    search_policy_loss = mx.array(0.0)
+    search_value_loss = mx.array(0.0)
+    searched_fraction = mx.array(0.0)
+    if search_policy_targets is not None and search_valid is not None:
+        resolved_search_mask = legal_mask if search_mask is None else search_mask * legal_mask
+        searched_logits = mx.where(resolved_search_mask[:, :, None] > 0, policy_logits, -1e9)
+        searched_log_probs = searched_logits - mx.logsumexp(
+            searched_logits, axis=1, keepdims=True
+        )
+        target_distribution = search_policy_targets[:, :, None]
+        search_weights = bootstrap_mask * search_valid[:, None] * sample_weights[:, None]
+        search_denominator = mx.maximum(mx.sum(search_weights), mx.array(1.0))
+        cross_entropy = -mx.sum(target_distribution * searched_log_probs, axis=1)
+        search_policy_loss = mx.sum(search_weights * cross_entropy) / search_denominator
+        if search_values is not None:
+            searched_value_targets = mx.broadcast_to(search_values[:, None], value_logits.shape)
+            searched_value_losses = nn.losses.binary_cross_entropy(
+                value_logits,
+                searched_value_targets,
+                with_logits=True,
+                reduction="none",
+            )
+            search_value_loss = (
+                mx.sum(search_weights * searched_value_losses) / search_denominator
+            )
+        searched_fraction = mx.mean(search_valid)
+    loss = (
+        float(behavior_policy_loss_weight) * policy_loss
+        + float(value_loss_weight) * value_loss
+        - float(entropy_weight) * entropy
+        + float(search_policy_loss_weight) * search_policy_loss
+        + float(search_value_loss_weight) * search_value_loss
+    )
     prediction = mx.mean(values, axis=1)
     return loss, {
         "policy_loss": policy_loss,
         "value_loss": value_loss,
         "policy_entropy": entropy,
+        "normalized_policy_entropy": normalized_entropy,
+        "search_policy_loss": search_policy_loss,
+        "search_value_loss": search_value_loss,
+        "searched_fraction": searched_fraction,
         "value_brier": mx.mean(mx.square(prediction - targets)),
         "value_accuracy": mx.mean((prediction >= 0.5) == (targets >= 0.5)),
         "mean_importance_ratio": mx.sum(weights * ratios) / denominator,
+        "importance_clip_fraction": mx.sum(
+            weights * (raw_ratios > float(importance_clip))
+        )
+        / denominator,
         "uncertainty": mx.mean(mx.std(probabilities, axis=2)),
     }
 

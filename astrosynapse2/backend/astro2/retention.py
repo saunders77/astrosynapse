@@ -21,6 +21,8 @@ _MODEL_SUFFIX = ".safetensors"
 _ACTOR_SUFFIX = ".actor.npz"
 _OPTIMIZER_SUFFIX = ".optimizer.npz"
 _REPLAY_SUFFIX = ".replay.npz"
+_POLICY_REPLAY_SUFFIX = ".policy-replay.npz"
+_PREFERENCE_REPLAY_SUFFIX = ".preference-replay.npz"
 _MODEL_METADATA_SUFFIX = ".safetensors.json"
 
 
@@ -60,6 +62,12 @@ def _artifact_references(checkpoint: dict[str, Any]) -> list[_ArtifactReference]
     if isinstance(artifacts, dict):
         append("optimizer", artifacts.get("optimizer_path"), _OPTIMIZER_SUFFIX)
         append("replay", artifacts.get("replay_path"), _REPLAY_SUFFIX)
+        append("policy_replay", artifacts.get("policy_replay_path"), _POLICY_REPLAY_SUFFIX)
+        append(
+            "preference_replay",
+            artifacts.get("preference_replay_path"),
+            _PREFERENCE_REPLAY_SUFFIX,
+        )
     return result
 
 
@@ -81,6 +89,18 @@ def _checkpoint_is_complete(checkpoint: dict[str, Any], config: RunConfig) -> bo
             return False
     if config.resume_replay_items <= 0:
         return True
+    if config.training_generation >= 4:
+        policy_items = artifacts.get("policy_replay_items")
+        if policy_items is None:
+            return int(checkpoint.get("games", 0)) == 0
+        try:
+            policy_items = max(0, int(policy_items))
+        except (TypeError, ValueError):
+            return False
+        if policy_items == 0:
+            return True
+        policy_path = artifacts.get("policy_replay_path")
+        return isinstance(policy_path, str) and Path(policy_path).is_file()
     replay_items = artifacts.get("replay_items")
     if replay_items is None:
         return int(checkpoint.get("games", 0)) == 0

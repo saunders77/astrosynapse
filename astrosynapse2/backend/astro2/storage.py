@@ -12,7 +12,7 @@ from typing import Any
 
 from .config import RunConfig
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class Store:
@@ -97,6 +97,33 @@ class Store:
                     payload_json TEXT NOT NULL DEFAULT '{}'
                 );
                 CREATE INDEX IF NOT EXISTS idx_audit_run_time ON audit_events(run_id, created_at DESC);
+                CREATE TABLE IF NOT EXISTS branch_experiments (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    source_checkpoint_id TEXT NOT NULL REFERENCES checkpoints(id),
+                    config_json TEXT NOT NULL DEFAULT '{}',
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS branch_members (
+                    experiment_id TEXT NOT NULL REFERENCES branch_experiments(id) ON DELETE CASCADE,
+                    run_id TEXT NOT NULL UNIQUE REFERENCES runs(id) ON DELETE CASCADE,
+                    ordinal INTEGER NOT NULL,
+                    label TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    overrides_json TEXT NOT NULL DEFAULT '{}',
+                    score REAL,
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY(experiment_id, ordinal)
+                );
+                CREATE INDEX IF NOT EXISTS idx_branch_members_experiment
+                    ON branch_members(experiment_id, ordinal);
+                CREATE TABLE IF NOT EXISTS run_controller_state (
+                    run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+                    state_json TEXT NOT NULL DEFAULT '{}',
+                    updated_at REAL NOT NULL
+                );
                 """
             )
             db.execute(
@@ -116,6 +143,181 @@ class Store:
             )
         self.event(run_id, "run_created", f"Created {config.name}", config.model_dump())
         return self.get_run(run_id)
+
+    def create_branch_experiment(
+        self,
+        *,
+        name: str,
+        source_checkpoint_id: str,
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Create a durable collection of independently trainable branches."""
+
+        # Resolve first so callers get a useful not-found failure without a
+        # partially created experiment.
+        self.checkpoint(source_checkpoint_id)
+        experiment_id = uuid.uuid4().hex[:12]
+        now = time.time()
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO branch_experiments(
+                    id, name, status, source_checkpoint_id, config_json, created_at, updated_at
+                ) VALUES(?, ?, 'ready', ?, ?, ?, ?)""",
+                (
+                    experiment_id,
+                    name,
+                    source_checkpoint_id,
+                    json.dumps(config or {}, separators=(",", ":")),
+                    now,
+                    now,
+                ),
+            )
+        return self.branch_experiment(experiment_id)
+
+    def add_branch_member(
+        self,
+        *,
+        experiment_id: str,
+        run_id: str,
+        ordinal: int,
+        label: str,
+        overrides: dict[str, Any] | None = None,
+        status: str = "queued",
+    ) -> dict[str, Any]:
+        now = time.time()
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO branch_members(
+                    experiment_id, run_id, ordinal, label, status,
+                    overrides_json, created_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    experiment_id,
+                    run_id,
+                    int(ordinal),
+                    label,
+                    status,
+                    json.dumps(overrides or {}, separators=(",", ":")),
+                    now,
+                ),
+            )
+            db.execute(
+                "UPDATE branch_experiments SET updated_at = ? WHERE id = ?",
+                (now, experiment_id),
+            )
+        return self.branch_member(run_id)
+
+    def branch_member(self, run_id: str) -> dict[str, Any]:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM branch_members WHERE run_id = ?", (run_id,)
+            ).fetchone()
+        if row is None:
+            raise KeyError(run_id)
+        item = dict(row)
+        item["overrides"] = json.loads(item.pop("overrides_json"))
+        return item
+
+    def update_branch_member(
+        self,
+        run_id: str,
+        *,
+        status: str | None = None,
+        score: float | None = None,
+    ) -> dict[str, Any]:
+        fields: dict[str, Any] = {}
+        if status is not None:
+            fields["status"] = status
+        if score is not None:
+            fields["score"] = float(score)
+        if not fields:
+            return self.branch_member(run_id)
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        with self._connect() as db:
+            cursor = db.execute(
+                f"UPDATE branch_members SET {assignments} WHERE run_id = ?",
+                [*fields.values(), run_id],
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(run_id)
+            row = db.execute(
+                "SELECT experiment_id FROM branch_members WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if row:
+                db.execute(
+                    "UPDATE branch_experiments SET updated_at = ? WHERE id = ?",
+                    (time.time(), row["experiment_id"]),
+                )
+        return self.branch_member(run_id)
+
+    def branch_experiment(self, experiment_id: str) -> dict[str, Any]:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM branch_experiments WHERE id = ?", (experiment_id,)
+            ).fetchone()
+            members = db.execute(
+                """SELECT bm.*, r.status AS run_status, r.games, r.updates,
+                          r.champion_id, r.last_error
+                   FROM branch_members bm JOIN runs r ON r.id = bm.run_id
+                   WHERE bm.experiment_id = ? ORDER BY bm.ordinal""",
+                (experiment_id,),
+            ).fetchall()
+        if row is None:
+            raise KeyError(experiment_id)
+        item = dict(row)
+        item["config"] = json.loads(item.pop("config_json"))
+        item["members"] = []
+        for member_row in members:
+            member = dict(member_row)
+            member["overrides"] = json.loads(member.pop("overrides_json"))
+            item["members"].append(member)
+        return item
+
+    def branch_experiments(self, limit: int = 100) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            ids = [
+                row["id"]
+                for row in db.execute(
+                    "SELECT id FROM branch_experiments ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            ]
+        return [self.branch_experiment(experiment_id) for experiment_id in ids]
+
+    def update_branch_experiment(
+        self, experiment_id: str, *, status: str
+    ) -> dict[str, Any]:
+        with self._connect() as db:
+            cursor = db.execute(
+                "UPDATE branch_experiments SET status = ?, updated_at = ? WHERE id = ?",
+                (status, time.time(), experiment_id),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(experiment_id)
+        return self.branch_experiment(experiment_id)
+
+    def controller_state(self, run_id: str) -> dict[str, Any]:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT state_json, updated_at FROM run_controller_state WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return {}
+        return {**json.loads(row["state_json"]), "updated_at": row["updated_at"]}
+
+    def set_controller_state(self, run_id: str, state: dict[str, Any]) -> dict[str, Any]:
+        self.get_run(run_id)
+        now = time.time()
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO run_controller_state(run_id, state_json, updated_at)
+                   VALUES(?, ?, ?)
+                   ON CONFLICT(run_id) DO UPDATE SET
+                       state_json=excluded.state_json, updated_at=excluded.updated_at""",
+                (run_id, json.dumps(state, separators=(",", ":")), now),
+            )
+        return {**state, "updated_at": now}
 
     def get_run(self, run_id: str) -> dict[str, Any]:
         with self._connect() as db:

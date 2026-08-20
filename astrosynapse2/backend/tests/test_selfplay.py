@@ -58,6 +58,10 @@ class RecordingActor:
         self.calls.append(kwargs)
         return 0, np.full(len(actions), 0.5, dtype=np.float32)
 
+    def predict_options(self, _state, actions, _family):
+        values = np.linspace(0.2, 0.8, len(actions), dtype=np.float32)
+        return np.repeat(values[:, None], self.spec.bootstrap_heads, axis=1)
+
 
 def test_deployment_policy_uses_mean_heads_without_epsilon_or_random_prior():
     encoder = Encoder()
@@ -269,3 +273,28 @@ def test_generation_four_collection_keeps_complete_legal_sets_and_counterfactual
     )
     assert all(0 < item.behavior_probability <= 1 for item in collected.policy_samples)
     assert len(collected.preferences) <= 1
+
+
+def test_generation_five_reanalysis_attaches_action_distribution_and_value():
+    encoder = Encoder(version=2)
+    policy = ActorPolicy(RecordingActor(encoder, bootstrap_heads=5), encoder)
+    collected = collect_game(
+        (policy, policy),
+        seed=923,
+        encoder=encoder,
+        bootstrap_heads=5,
+        collect_policy_decisions=True,
+        collect_preferences=False,
+        collect_outcome_decisions=False,
+        reanalysis_fraction=1.0,
+        reanalysis_max_per_game=1,
+        reanalysis_max_actions=2,
+        reanalysis_rollouts_per_action=1,
+        reanalysis_policy_temperature=0.35,
+        max_turns=100,
+    )
+    searched = [item for item in collected.policy_samples if item.search_valid]
+    assert len(searched) == 1
+    assert np.isclose(np.sum(searched[0].search_policy), 1.0)
+    assert np.sum(searched[0].search_mask) == 2
+    assert 0 <= searched[0].search_value <= 1

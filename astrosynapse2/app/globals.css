@@ -3779,3 +3779,90 @@ button.game-card:hover:not(:disabled) {
   .play-panel .market-row { grid-template-columns: 1fr; }
   .play-panel .deck-display { display: grid; }
 }
+/* Astro5 branch laboratory */
+.branch-variant-preview {
+  margin-top: 1.25rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  background: rgba(120, 96, 255, 0.06);
+}
+
+.branch-variant-preview p,
+.branch-variant-preview small {
+  display: block;
+  margin: 0.35rem 0 0;
+  color: var(--muted, #9ca3af);
+}
+
+.branch-registry {
+  margin-top: 1.25rem;
+}
+
+.branch-experiment {
+  padding: 1rem 0;
+  border-top: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+}
+
+.branch-experiment-header,
+.branch-experiment-header span,
+.branch-member span {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.branch-experiment-header {
+  justify-content: space-between;
+  margin-bottom: 0.8rem;
+}
+
+.branch-experiment-header span {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.branch-experiment-header small,
+.branch-member small,
+.branch-member em {
+  color: var(--muted, #9ca3af);
+  font-style: normal;
+}
+
+.branch-member-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
+  gap: 0.7rem;
+  margin-bottom: 0.8rem;
+}
+
+.branch-member {
+  display: grid;
+  gap: 0.35rem;
+  min-height: 125px;
+  padding: 0.9rem;
+  text-align: left;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  color: inherit;
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+}
+
+.branch-member:hover,
+.branch-member.status-running {
+  border-color: var(--accent, #8b7cff);
+  background: rgba(120, 96, 255, 0.09);
+}
+
+.branch-member i {
+  color: #ff978e;
+  font-size: 0.75rem;
+}
+
+.governor-panel {
+  margin: 1rem 0;
+}
+
+.governor-panel.has-warning {
+  border-color: rgba(255, 151, 142, 0.55);
+}

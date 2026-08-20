@@ -334,6 +334,61 @@ def test_policy_replay_samples_player_games_before_decisions():
     assert replay.metrics()["sampling"] == "uniform_player_game_then_turn_phase_then_decision"
 
 
+def test_astro5_policy_reservoir_preserves_search_and_round_trips(tmp_path):
+    replay = GameBalancedPolicyReplayBuffer(
+        capacity=64,
+        state_size=12,
+        action_size=4,
+        bootstrap_heads=3,
+        max_actions=5,
+        max_decisions_per_player_game=3,
+        family_balanced=True,
+        seed=29,
+    )
+    entries = []
+    for step in range(10):
+        searched = step == 7
+        entries.append(
+            PolicyItem(
+                state=np.full(12, step / 50, dtype=np.float32),
+                legal_actions=np.stack(
+                    (np.full(4, step, dtype=np.float32), np.full(4, step + 1, dtype=np.float32))
+                ),
+                selected_index=0,
+                family=DecisionFamily.MAIN if step % 2 else DecisionFamily.DISCARD,
+                target=1.0,
+                behavior_probability=0.5,
+                bootstrap_mask=np.ones(3, dtype=np.uint8),
+                game_id=51,
+                player=0,
+                step=step,
+                search_policy=np.asarray([0.8, 0.2] if searched else [0, 0]),
+                search_mask=np.asarray([1, 1] if searched else [0, 0]),
+                search_value=0.7,
+                search_valid=searched,
+            )
+        )
+    assert replay.extend(entries) == 10
+    assert len(replay) == 3
+    assert replay.metrics()["searched_decisions"] == 1
+
+    path = tmp_path / "policy-replay.npz"
+    assert replay.snapshot(path) == 3
+    restored = GameBalancedPolicyReplayBuffer(
+        capacity=64,
+        state_size=12,
+        action_size=4,
+        bootstrap_heads=3,
+        max_actions=5,
+        max_decisions_per_player_game=3,
+        family_balanced=True,
+        seed=31,
+    )
+    assert restored.restore(path) == 3
+    assert restored.metrics()["searched_decisions"] == 1
+    assert restored.metrics()["player_games"] == 1
+
+
 def test_recent_replay_snapshot_round_trips_across_families(tmp_path):
     replay = StratifiedReplayBuffer(
         capacity=64,

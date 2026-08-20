@@ -139,6 +139,10 @@ class PolicyItem:
     game_id: int | str = 0
     player: int = 0
     step: int = 0
+    search_policy: np.ndarray | None = None
+    search_mask: np.ndarray | None = None
+    search_value: float = 0.5
+    search_valid: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +159,10 @@ class PolicyBatch:
     game_ids: np.ndarray
     players: np.ndarray
     steps: np.ndarray
+    search_policy: np.ndarray
+    search_mask: np.ndarray
+    search_values: np.ndarray
+    search_valid: np.ndarray
 
     def __len__(self) -> int:
         return int(self.targets.shape[0])
@@ -1246,6 +1254,46 @@ class PreferenceReplayBuffer:
     def __len__(self) -> int:
         return self.size
 
+    def clear(self) -> None:
+        self.write_index = 0
+        self.size = 0
+
+    def snapshot(self, path: str | Path, *, max_items: int = 0) -> int:
+        count = self.size if max_items <= 0 else min(self.size, int(max_items))
+        if self.size < self.capacity:
+            ordered = np.arange(self.size, dtype=np.int64)
+        else:
+            ordered = np.concatenate(
+                (np.arange(self.write_index, self.capacity), np.arange(0, self.write_index))
+            )
+        indices = ordered[-count:]
+        np.savez_compressed(
+            Path(path),
+            format_version=np.asarray(1, dtype=np.int32),
+            states=self.states[indices],
+            preferred_actions=self.preferred_actions[indices],
+            disfavored_actions=self.disfavored_actions[indices],
+            families=self.families[indices],
+            bootstrap_masks=self.bootstrap_masks[indices],
+        )
+        return count
+
+    def restore(self, path: str | Path) -> int:
+        with np.load(Path(path), allow_pickle=False) as archive:
+            compact = type(
+                "PreferenceSnapshot",
+                (),
+                {
+                    "states": archive["states"],
+                    "preferred_actions": archive["preferred_actions"],
+                    "disfavored_actions": archive["disfavored_actions"],
+                    "families": archive["families"],
+                    "bootstrap_masks": archive["bootstrap_masks"],
+                },
+            )
+            self.clear()
+            return self.extend_compact(compact)
+
     def extend_compact(self, compact: Any) -> int:
         states = np.asarray(compact.states)
         preferred = np.asarray(compact.preferred_actions)
@@ -1370,6 +1418,8 @@ class GameBalancedPolicyReplayBuffer:
         bootstrap_heads: int,
         *,
         max_actions: int = MAX_POLICY_ACTIONS,
+        max_decisions_per_player_game: int = 0,
+        family_balanced: bool = False,
         seed: int = 0,
     ) -> None:
         if capacity < 1:
@@ -1379,6 +1429,8 @@ class GameBalancedPolicyReplayBuffer:
         self.action_size = int(action_size)
         self.bootstrap_heads = int(bootstrap_heads)
         self.max_actions = int(max_actions)
+        self.max_decisions_per_player_game = max(0, int(max_decisions_per_player_game))
+        self.family_balanced = bool(family_balanced)
         self._episodes: OrderedDict[tuple[int, int], list[PolicyItem]] = OrderedDict()
         self._size = 0
         self._writes = 0
@@ -1394,6 +1446,14 @@ class GameBalancedPolicyReplayBuffer:
         state = np.asarray(item.state, dtype=np.float16)
         actions = np.asarray(item.legal_actions, dtype=np.float16)
         mask = np.asarray(item.bootstrap_mask, dtype=np.uint8)
+        search_policy = np.asarray(
+            item.search_policy if item.search_policy is not None else np.zeros(len(actions)),
+            dtype=np.float16,
+        )
+        search_mask = np.asarray(
+            item.search_mask if item.search_mask is not None else np.zeros(len(actions)),
+            dtype=np.uint8,
+        )
         family = DecisionFamily(int(item.family))
         if state.shape != (self.state_size,):
             raise ValueError("policy state has the wrong shape")
@@ -1418,6 +1478,21 @@ class GameBalancedPolicyReplayBuffer:
             raise ValueError("policy target must be in [0, 1]")
         if not 0 < float(item.behavior_probability) <= 1:
             raise ValueError("behavior probability must be in (0, 1]")
+        if search_policy.shape != (len(actions),) or search_mask.shape != (len(actions),):
+            raise ValueError("search targets must align with the legal action set")
+        if not np.isfinite(search_policy).all() or np.any(search_policy < 0):
+            raise ValueError("search policy targets must be finite and nonnegative")
+        if not np.isin(search_mask, (0, 1)).all():
+            raise ValueError("search mask must be binary")
+        search_valid = bool(item.search_valid)
+        if search_valid:
+            mass = float(np.sum(search_policy))
+            if not np.any(search_mask) or not np.isfinite(mass) or abs(mass - 1.0) > 0.02:
+                raise ValueError("valid search policy targets must sum to one over a nonempty mask")
+            if np.any(search_policy[search_mask == 0] > 1e-3):
+                raise ValueError("search policy assigns mass to an unsearched action")
+            if not 0 <= float(item.search_value) <= 1:
+                raise ValueError("search value must be in [0, 1]")
         return PolicyItem(
             state=state,
             legal_actions=actions,
@@ -1429,7 +1504,38 @@ class GameBalancedPolicyReplayBuffer:
             game_id=item.game_id,
             player=int(item.player),
             step=int(item.step),
+            search_policy=search_policy,
+            search_mask=search_mask,
+            search_value=float(item.search_value),
+            search_valid=search_valid,
         )
+
+    def _compact_episode(self, episode: list[PolicyItem]) -> list[PolicyItem]:
+        limit = self.max_decisions_per_player_game
+        if not limit or len(episode) <= limit:
+            return episode
+        strata: dict[tuple[int, int], list[PolicyItem]] = {}
+        for item in episode:
+            turn = float(item.state[11]) * 50.0 if len(item.state) > 11 else 0.0
+            phase = 0 if turn <= 6 else 1 if turn <= 16 else 2
+            family = int(item.family) if self.family_balanced else 0
+            strata.setdefault((family, phase), []).append(item)
+        # Round-robin strata prevent common main-phase decisions from erasing
+        # rare tactical families. Random selection within each stratum is a
+        # true per-game reservoir rather than a fixed early-turn slice.
+        selected: list[PolicyItem] = [item for item in episode if item.search_valid][:limit]
+        selected_ids = {id(item) for item in selected}
+        pools = [
+            [item for item in rows if id(item) not in selected_ids]
+            for _key, rows in sorted(strata.items())
+        ]
+        while len(selected) < limit and any(pools):
+            for pool in pools:
+                if not pool or len(selected) >= limit:
+                    continue
+                index = int(self._rng.integers(0, len(pool)))
+                selected.append(pool.pop(index))
+        return sorted(selected, key=lambda item: item.step)
 
     def extend(self, items: list[PolicyItem] | tuple[PolicyItem, ...]) -> int:
         validated = [self._validate(item) for item in items]
@@ -1439,6 +1545,7 @@ class GameBalancedPolicyReplayBuffer:
             grouped.setdefault(key, []).append(item)
         with self._lock:
             for key, episode in grouped.items():
+                episode = self._compact_episode(episode)
                 previous = self._episodes.pop(key, None)
                 if previous:
                     self._size -= len(previous)
@@ -1473,6 +1580,16 @@ class GameBalancedPolicyReplayBuffer:
                 game_id=int(compact.game_ids[index]),
                 player=int(compact.players[index]),
                 step=int(compact.steps[index]),
+                search_policy=np.asarray(
+                    compact.search_policy[offsets[index] : offsets[index + 1]],
+                    dtype=np.float32,
+                ),
+                search_mask=np.asarray(
+                    compact.search_mask[offsets[index] : offsets[index + 1]],
+                    dtype=np.uint8,
+                ),
+                search_value=float(compact.search_values[index]),
+                search_valid=bool(compact.search_valid[index]),
             )
             for index in range(count)
         ]
@@ -1499,14 +1616,22 @@ class GameBalancedPolicyReplayBuffer:
                 available_phases = [phase for phase, rows in enumerate(phases) if rows]
                 phase = available_phases[int(self._rng.integers(0, len(available_phases)))]
                 rows = phases[phase]
+                if self.family_balanced:
+                    families = sorted({int(item.family) for item in rows})
+                    family = families[int(self._rng.integers(0, len(families)))]
+                    rows = [item for item in rows if int(item.family) == family]
                 items.append(rows[int(self._rng.integers(0, len(rows)))])
         maximum = self.max_actions
         legal_actions = np.zeros((batch_size, maximum, self.action_size), dtype=np.float32)
         legal_mask = np.zeros((batch_size, maximum), dtype=np.float32)
+        search_policy = np.zeros((batch_size, maximum), dtype=np.float32)
+        search_mask = np.zeros((batch_size, maximum), dtype=np.float32)
         for index, item in enumerate(items):
             count = len(item.legal_actions)
             legal_actions[index, :count] = item.legal_actions
             legal_mask[index, :count] = 1.0
+            search_policy[index, :count] = item.search_policy
+            search_mask[index, :count] = item.search_mask
         return PolicyBatch(
             states=np.stack([item.state for item in items]).astype(np.float32),
             legal_actions=legal_actions,
@@ -1524,6 +1649,10 @@ class GameBalancedPolicyReplayBuffer:
             ),
             players=np.asarray([item.player for item in items], dtype=np.uint8),
             steps=np.asarray([item.step for item in items], dtype=np.uint32),
+            search_policy=search_policy,
+            search_mask=search_mask,
+            search_values=np.asarray([item.search_value for item in items], dtype=np.float32),
+            search_valid=np.asarray([item.search_valid for item in items], dtype=np.float32),
         )
 
     def metrics(self) -> dict[str, Any]:
@@ -1538,4 +1667,118 @@ class GameBalancedPolicyReplayBuffer:
                 "writes": self._writes,
                 "evicted_decisions": self._evicted_decisions,
                 "sampling": "uniform_player_game_then_turn_phase_then_decision",
+                "max_decisions_per_player_game": self.max_decisions_per_player_game,
+                "family_balanced": self.family_balanced,
+                "searched_decisions": sum(
+                    int(item.search_valid)
+                    for episode in self._episodes.values()
+                    for item in episode
+                ),
             }
+
+    def clear(self) -> None:
+        with self._lock:
+            self._episodes.clear()
+            self._size = 0
+
+    def snapshot(self, path: str | Path, *, max_items: int = 0) -> int:
+        """Persist a ragged, whole-episode Astro5 replay archive."""
+
+        with self._lock:
+            episodes = list(self._episodes.items())
+            if max_items > 0:
+                selected: list[tuple[tuple[int, int], list[PolicyItem]]] = []
+                count = 0
+                for key, rows in reversed(episodes):
+                    if selected and count + len(rows) > max_items:
+                        break
+                    selected.append((key, rows))
+                    count += len(rows)
+                episodes = list(reversed(selected))
+            items = [item for _key, rows in episodes for item in rows]
+            episode_lengths = np.asarray([len(rows) for _key, rows in episodes], dtype=np.uint16)
+            if items:
+                counts = np.asarray([len(item.legal_actions) for item in items], dtype=np.uint16)
+                offsets = np.concatenate(
+                    (np.zeros(1, dtype=np.uint64), np.cumsum(counts, dtype=np.uint64))
+                )
+                legal_actions = np.concatenate([item.legal_actions for item in items])
+                search_policy = np.concatenate([item.search_policy for item in items])
+                search_mask = np.concatenate([item.search_mask for item in items])
+            else:
+                offsets = np.zeros(1, dtype=np.uint64)
+                legal_actions = np.empty((0, self.action_size), dtype=np.float16)
+                search_policy = np.empty(0, dtype=np.float16)
+                search_mask = np.empty(0, dtype=np.uint8)
+            # Policy archives are intentionally uncompressed. On the target
+            # Mac, ZIP compression made checkpoint pauses CPU-bound for tens
+            # of seconds; the project explicitly budgets ample local disk.
+            np.savez(
+                Path(path),
+                format_version=np.asarray(1, dtype=np.int32),
+                capacity=np.asarray(self.capacity, dtype=np.int64),
+                state_size=np.asarray(self.state_size, dtype=np.int32),
+                action_size=np.asarray(self.action_size, dtype=np.int32),
+                bootstrap_heads=np.asarray(self.bootstrap_heads, dtype=np.int32),
+                episode_game_ids=np.asarray([key[0] for key, _rows in episodes], dtype=np.uint64),
+                episode_players=np.asarray([key[1] for key, _rows in episodes], dtype=np.uint8),
+                episode_lengths=episode_lengths,
+                states=(
+                    np.stack([item.state for item in items]).astype(np.float16)
+                    if items
+                    else np.empty((0, self.state_size), dtype=np.float16)
+                ),
+                legal_actions=legal_actions.astype(np.float16),
+                action_offsets=offsets,
+                selected_indices=np.asarray([item.selected_index for item in items], dtype=np.uint16),
+                families=np.asarray([int(item.family) for item in items], dtype=np.uint8),
+                targets=np.asarray([item.target for item in items], dtype=np.float16),
+                behavior_probabilities=np.asarray(
+                    [item.behavior_probability for item in items], dtype=np.float16
+                ),
+                bootstrap_masks=(
+                    np.stack([item.bootstrap_mask for item in items]).astype(np.uint8)
+                    if items
+                    else np.empty((0, self.bootstrap_heads), dtype=np.uint8)
+                ),
+                steps=np.asarray([item.step for item in items], dtype=np.uint32),
+                search_policy=search_policy.astype(np.float16),
+                search_mask=search_mask.astype(np.uint8),
+                search_values=np.asarray([item.search_value for item in items], dtype=np.float16),
+                search_valid=np.asarray([item.search_valid for item in items], dtype=np.uint8),
+            )
+            return len(items)
+
+    def restore(self, path: str | Path) -> int:
+        with np.load(Path(path), allow_pickle=False) as archive:
+            if int(archive["state_size"]) != self.state_size or int(archive["action_size"]) != self.action_size:
+                raise ValueError("policy replay snapshot dimensions do not match")
+            offsets = np.asarray(archive["action_offsets"], dtype=np.int64)
+            game_ids = np.asarray(archive["episode_game_ids"], dtype=np.uint64)
+            players = np.asarray(archive["episode_players"], dtype=np.uint8)
+            lengths = np.asarray(archive["episode_lengths"], dtype=np.int64)
+            item_game_ids = np.repeat(game_ids, lengths)
+            item_players = np.repeat(players, lengths)
+            compact = type(
+                "PolicySnapshot",
+                (),
+                {
+                    "states": archive["states"],
+                    "legal_actions": archive["legal_actions"],
+                    "action_offsets": offsets,
+                    "selected_indices": archive["selected_indices"],
+                    "families": archive["families"],
+                    "targets": archive["targets"],
+                    "behavior_probabilities": archive["behavior_probabilities"],
+                    "bootstrap_masks": archive["bootstrap_masks"],
+                    "game_ids": item_game_ids,
+                    "players": item_players,
+                    "steps": archive["steps"],
+                    "search_policy": archive["search_policy"],
+                    "search_mask": archive["search_mask"],
+                    "search_values": archive["search_values"],
+                    "search_valid": archive["search_valid"],
+                },
+            )
+            self.clear()
+            return self.extend_compact(compact)

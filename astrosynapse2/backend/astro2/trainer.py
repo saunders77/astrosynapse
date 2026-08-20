@@ -99,6 +99,7 @@ class _Totals:
     turns: int = 0
     forced_choices: int = 0
     counterfactual_preferences: int = 0
+    reanalysis_positions: int = 0
     rollout_games: dict[str, int] = field(default_factory=dict)
 
 
@@ -150,6 +151,13 @@ def _evaluation_plan(config: RunConfig, games: int) -> _EvaluationPlan:
     """Scale evaluation cost as a run moves from bootstrap to mature play."""
 
     full_automatic = config.evaluation_pairs >= 5_000
+    if config.training_generation >= 5 and config.canary_every_games:
+        return _EvaluationPlan(
+            tier="canary",
+            cadence_games=config.canary_every_games,
+            pairs=config.canary_pairs,
+            automatic_promotion=False,
+        )
     if not config.adaptive_evaluation or not full_automatic:
         return _EvaluationPlan(
             tier="full" if full_automatic else "diagnostic",
@@ -243,6 +251,130 @@ def _plateau_status(store: Store, run_id: str, config: RunConfig) -> dict[str, A
         "exploration_multiplier": multiplier,
         "active": bool(config.adaptive_training and level > 0),
     }
+
+
+def _governor_status(
+    store: Store,
+    run_id: str,
+    config: RunConfig,
+    *,
+    games: int,
+    diagnostics: dict[str, float],
+) -> dict[str, Any]:
+    """Choose bounded live controls from canaries and optimization health."""
+
+    previous = store.controller_state(run_id)
+    if not config.realtime_governor:
+        return {
+            "enabled": False,
+            "learning_rate_multiplier": 1.0,
+            "updates_multiplier": 1.0,
+            "reanalysis_multiplier": 1.0,
+            "entropy_weight": config.policy_entropy_weight,
+            "branch_requested": False,
+        }
+    last_games = int(previous.get("decision_games", -config.governor_interval_games))
+    if games - last_games < config.governor_interval_games:
+        return previous
+
+    canary_scores: list[float] = []
+    for job in _terminal_trainer_evaluations(store, run_id):
+        if (job.get("config") or {}).get("promotion_tier") != "canary":
+            continue
+        result = job.get("result") or {}
+        if "model_a_score" in result and not int(result.get("truncated_games", 0) or 0):
+            canary_scores.append(float(result["model_a_score"]))
+    recent_scores = canary_scores[-6:]
+    consecutive_regressions = 0
+    for score in reversed(recent_scores):
+        if score >= 0.5:
+            break
+        consecutive_regressions += 1
+
+    if not diagnostics and not recent_scores:
+        state = {
+            "enabled": True,
+            "decision_games": int(games),
+            "learning_rate_multiplier": 1.0,
+            "updates_multiplier": 1.0,
+            "reanalysis_multiplier": 1.0,
+            "entropy_weight": config.policy_entropy_weight,
+            "target_normalized_entropy": config.governor_target_normalized_entropy,
+            "observed_normalized_entropy": None,
+            "gradient_clip_fraction": 0.0,
+            "consecutive_canary_regressions": 0,
+            "recent_canary_scores": [],
+            "branch_requested": False,
+            "reasons": ["waiting for the first learner and canary evidence"],
+        }
+        store.set_controller_state(run_id, state)
+        return state
+
+    entropy = float(diagnostics.get("normalized_policy_entropy", 1.0))
+    clip_fraction = float(diagnostics.get("gradient_clip_fraction", 0.0))
+    searched_fraction = float(diagnostics.get("searched_fraction", 0.0))
+    lr_multiplier = 1.0
+    updates_multiplier = 1.0
+    reanalysis_multiplier = 1.0
+    entropy_weight = config.policy_entropy_weight
+    reasons: list[str] = []
+    if clip_fraction > 0.50:
+        lr_multiplier *= 0.50
+        updates_multiplier *= 0.75
+        reasons.append("gradient clipping is dominating updates")
+    if entropy < config.governor_target_normalized_entropy * 0.80:
+        lr_multiplier *= 0.75
+        entropy_weight *= 1.6
+        reanalysis_multiplier *= 1.5
+        reasons.append("policy entropy is below target")
+    elif entropy > min(0.98, config.governor_target_normalized_entropy * 1.35):
+        entropy_weight *= 0.7
+        updates_multiplier *= 1.15
+        reasons.append("policy remains too diffuse")
+    if consecutive_regressions >= 2:
+        lr_multiplier *= 0.75
+        entropy_weight *= 1.25
+        reanalysis_multiplier *= 1.5
+        reasons.append("successive canaries regressed")
+    elif len(recent_scores) >= 2 and recent_scores[-1] > recent_scores[-2] + 0.02:
+        updates_multiplier *= 1.2
+        reasons.append("canary trend supports a short exploitation push")
+    if searched_fraction < 0.02 and len(recent_scores) >= 1:
+        reanalysis_multiplier *= 1.25
+        reasons.append("too few learner batches contain search targets")
+
+    lr_multiplier = min(
+        config.governor_max_learning_rate_multiplier,
+        max(config.governor_min_learning_rate_multiplier, lr_multiplier),
+    )
+    updates_multiplier = min(
+        config.governor_max_updates_multiplier, max(0.5, updates_multiplier)
+    )
+    reanalysis_multiplier = min(4.0, max(0.5, reanalysis_multiplier))
+    branch_requested = consecutive_regressions >= config.governor_branch_after_failures
+    state = {
+        "enabled": True,
+        "decision_games": int(games),
+        "learning_rate_multiplier": lr_multiplier,
+        "updates_multiplier": updates_multiplier,
+        "reanalysis_multiplier": reanalysis_multiplier,
+        "entropy_weight": min(1.0, max(0.0, entropy_weight)),
+        "target_normalized_entropy": config.governor_target_normalized_entropy,
+        "observed_normalized_entropy": entropy,
+        "gradient_clip_fraction": clip_fraction,
+        "consecutive_canary_regressions": consecutive_regressions,
+        "recent_canary_scores": recent_scores,
+        "branch_requested": branch_requested,
+        "reasons": reasons,
+    }
+    store.set_controller_state(run_id, state)
+    store.event(
+        run_id,
+        "governor_adjusted",
+        "Realtime governor updated bounded training controls",
+        state,
+    )
+    return state
 
 
 def _pending_trainer_evaluation_job(store: Store, run_id: str) -> dict[str, Any] | None:
@@ -443,13 +575,55 @@ def _checkpoint_has_required_artifacts(
     """Check the durable artifacts required by this run's resume contract."""
 
     artifacts = (checkpoint.get("evaluation") or {}).get("artifacts") or {}
-    if config.persist_optimizer_state and not _readable_npz(
-        artifacts.get("optimizer_path"),
-        required={"__paths_json__"},
+    if (
+        config.persist_optimizer_state
+        and not _readable_npz(
+            artifacts.get("optimizer_path"),
+            required={"__paths_json__"},
+        )
+        and (checkpoint.get("evaluation") or {}).get("reason") != "branch import"
     ):
         return False
     if config.resume_replay_items <= 0:
         return True
+
+    if config.training_generation >= 4:
+        policy_items = artifacts.get("policy_replay_items")
+        if policy_items is None:
+            # Gen4 checkpoints predate durable policy replay. They remain safe
+            # weight-only branch roots, but not exact mature-run resumes.
+            return int(checkpoint.get("games", 0)) == 0
+        try:
+            policy_items = max(0, int(policy_items))
+        except (TypeError, ValueError):
+            return False
+        if policy_items == 0:
+            return True
+        return _readable_npz(
+            artifacts.get("policy_replay_path"),
+            required={
+                "format_version",
+                "state_size",
+                "action_size",
+                "bootstrap_heads",
+                "episode_game_ids",
+                "episode_players",
+                "episode_lengths",
+                "states",
+                "legal_actions",
+                "action_offsets",
+                "selected_indices",
+                "families",
+                "targets",
+                "behavior_probabilities",
+                "bootstrap_masks",
+                "steps",
+                "search_policy",
+                "search_mask",
+                "search_values",
+                "search_valid",
+            },
+        )
 
     replay_items = artifacts.get("replay_items")
     if replay_items is None:
@@ -762,6 +936,8 @@ def _save_checkpoint(
     reason: str,
     optimizer: Any | None = None,
     replay: ReplayBuffer | None = None,
+    policy_replay: GameBalancedPolicyReplayBuffer | None = None,
+    preference_replay: PreferenceReplayBuffer | None = None,
     resume_replay_items: int = 0,
     full_replay: bool = False,
     training_state: dict[str, Any] | None = None,
@@ -775,7 +951,7 @@ def _save_checkpoint(
     actor_path = checkpoint_dir / f"{stem}.actor.npz"
     save_model(model, spec, model_path)
     export_actor(model, spec, actor_path)
-    artifacts: dict[str, Any] = {"schema_version": 1}
+    artifacts: dict[str, Any] = {"schema_version": 2}
     if optimizer is not None:
         optimizer_path = checkpoint_dir / f"{stem}.optimizer.npz"
         save_optimizer_state(optimizer, optimizer_path)
@@ -792,6 +968,29 @@ def _save_checkpoint(
         artifacts["replay_format"] = "full_v2" if full_replay else "recent_v1"
         if replay_items:
             artifacts["replay_path"] = str(replay_path)
+    if policy_replay is not None and resume_replay_items > 0:
+        policy_replay_path = checkpoint_dir / f"{stem}.policy-replay.npz"
+        policy_items = policy_replay.snapshot(
+            policy_replay_path,
+            max_items=0 if full_replay else resume_replay_items,
+        )
+        artifacts.update(
+            policy_replay_items=int(policy_items),
+            policy_replay_capacity=int(policy_replay.capacity),
+            policy_replay_format="game_reservoir_v1_uncompressed",
+        )
+        if policy_items:
+            artifacts["policy_replay_path"] = str(policy_replay_path)
+    if preference_replay is not None and resume_replay_items > 0 and len(preference_replay):
+        preference_path = checkpoint_dir / f"{stem}.preference-replay.npz"
+        preference_items = preference_replay.snapshot(
+            preference_path,
+            max_items=0 if full_replay else min(resume_replay_items, preference_replay.capacity),
+        )
+        artifacts.update(
+            preference_replay_items=int(preference_items),
+            preference_replay_path=str(preference_path),
+        )
     checkpoint = store.add_checkpoint(
         run_id=run_id,
         parent_id=parent_id,
@@ -1003,6 +1202,7 @@ def _next_evaluation_candidate(
     checkpoint: dict[str, Any] | None = None,
     *,
     ignore_retry_backoff: bool = False,
+    force_full: bool = False,
 ) -> tuple[dict[str, Any], _EvaluationPlan] | None:
     """Return the newest due checkpoint when no trainer arena is active.
 
@@ -1030,13 +1230,47 @@ def _next_evaluation_candidate(
         # Do not emit the same blocked-evaluation event on every trainer loop.
         return None
     checkpoint_games = int(checkpoint["games"])
-    plan = _evaluation_plan(config, checkpoint_games)
-    last_evaluation_games = _last_scheduled_evaluation_games(
-        store,
-        run_id,
-        tier=plan.tier,
-    )
-    if checkpoint_games - last_evaluation_games < plan.cadence_games:
+    if force_full:
+        plans = [
+            _EvaluationPlan(
+                tier="full",
+                cadence_games=config.evaluate_every_games,
+                pairs=config.evaluation_pairs,
+                automatic_promotion=config.evaluation_pairs >= MINIMUM_PROMOTION_PAIRS,
+            )
+        ]
+    elif config.training_generation >= 5 and config.canary_every_games:
+        plans = [
+            _EvaluationPlan(
+                tier="full",
+                cadence_games=config.evaluate_every_games,
+                pairs=config.evaluation_pairs,
+                automatic_promotion=config.evaluation_pairs >= MINIMUM_PROMOTION_PAIRS,
+            ),
+            _EvaluationPlan(
+                tier="canary",
+                cadence_games=config.canary_every_games,
+                pairs=config.canary_pairs,
+                automatic_promotion=False,
+            ),
+        ]
+    else:
+        plans = [_evaluation_plan(config, checkpoint_games)]
+    plan: _EvaluationPlan | None = None
+    for candidate_plan in plans:
+        last_evaluation_games = _last_scheduled_evaluation_games(
+            store,
+            run_id,
+            tier=candidate_plan.tier,
+        )
+        if force_full:
+            if last_evaluation_games < checkpoint_games:
+                plan = candidate_plan
+                break
+        elif checkpoint_games - last_evaluation_games >= candidate_plan.cadence_games:
+            plan = candidate_plan
+            break
+    if plan is None:
         return None
     retry = _evaluation_retry_state(store, run_id, checkpoint["id"], plan.tier)
     if not ignore_retry_backoff and not bool(retry["ready"]):
@@ -1138,6 +1372,7 @@ def _restore_totals(
         ),
         forced_choices=max(0, int(latest.get("forced_choices", 0))),
         counterfactual_preferences=max(0, int(latest.get("counterfactual_preferences", 0))),
+        reanalysis_positions=max(0, int(latest.get("reanalysis_positions", 0))),
         rollout_games={
             str(key): max(0, int(value))
             for key, value in (latest.get("rollout_games") or {}).items()
@@ -1150,6 +1385,7 @@ def _training_state(
     *,
     seed_cursor: int,
     optimizer_updates_at_start: int,
+    schedule_games_origin: int = 0,
     active_elapsed_seconds: float | None = None,
     rollout_rng_state: dict[str, Any] | None = None,
     replay_rng_state: dict[str, Any] | None = None,
@@ -1169,9 +1405,11 @@ def _training_state(
         "mean_turns": totals.turns / max(1, totals.games),
         "forced_choices": totals.forced_choices,
         "counterfactual_preferences": totals.counterfactual_preferences,
+        "reanalysis_positions": totals.reanalysis_positions,
         "rollout_games": dict(totals.rollout_games),
         "seed_cursor": int(seed_cursor),
         "optimizer_updates_at_start": max(0, int(optimizer_updates_at_start)),
+        "schedule_games_origin": max(0, int(schedule_games_origin)),
     }
     if active_elapsed_seconds is not None:
         state["active_elapsed_seconds"] = max(0.0, float(active_elapsed_seconds))
@@ -1416,16 +1654,21 @@ def _checkpoint_quality_gate(
         return existing
     from .diagnostics import checkpoint_diagnostics
 
+    champion_id = store.get_run(run_id).get("champion_id")
+    reference_actor_path: str | None = None
+    if champion_id and champion_id != checkpoint["id"]:
+        reference_actor_path = store.checkpoint(champion_id).get("actor_path")
     diagnostics = checkpoint_diagnostics(
         checkpoint["actor_path"],
         seed=config.seed,
         games=config.checkpoint_diagnostic_games,
         baseline_pairs=config.checkpoint_baseline_pairs,
+        natural_positions=config.natural_diagnostic_positions,
+        reference_actor_path=reference_actor_path,
     )
     ensemble = diagnostics.get("ensemble") or {}
     heldout = diagnostics["heldout"]
     baselines = diagnostics["baselines"]
-    champion_id = store.get_run(run_id).get("champion_id")
     champion_score: float | None = None
     champion_brier: float | None = None
     if champion_id and champion_id != checkpoint["id"]:
@@ -1462,6 +1705,13 @@ def _checkpoint_quality_gate(
         reasons.append("held-out Brier score regressed beyond the configured tolerance")
     if float(heldout.get("game_grouped_brier", 1.0)) > config.maximum_heldout_brier:
         reasons.append("held-out value calibration exceeded the absolute Brier limit")
+    policy_kl = ensemble.get("reference_policy_kl")
+    if (
+        policy_kl is not None
+        and config.checkpoint_kl_limit > 0
+        and float(policy_kl) > config.checkpoint_kl_limit
+    ):
+        reasons.append("candidate policy moved beyond the checkpoint KL safety limit")
     gate = {
         "passed": not reasons,
         "reasons": reasons,
@@ -1475,6 +1725,7 @@ def _checkpoint_quality_gate(
         "heldout_brier_regression_detected": heldout_regression,
         "maximum_heldout_brier": config.maximum_heldout_brier,
         "minimum_head_disagreement_rate": config.minimum_head_disagreement_rate,
+        "checkpoint_kl_limit": config.checkpoint_kl_limit,
         "diagnostics": diagnostics,
     }
     store.update_checkpoint_evaluation(checkpoint["id"], {"quality_gate": gate})
@@ -1622,6 +1873,20 @@ def _submit_rollout(
         counterfactual_max_per_game=(
             config.counterfactual_max_per_game if config.training_generation >= 4 else 0
         ),
+        reanalysis_fraction=(
+            config.reanalysis_fraction if config.training_generation >= 5 else 0.0
+        ),
+        reanalysis_max_per_game=(
+            config.reanalysis_max_per_game if config.training_generation >= 5 else 0
+        ),
+        reanalysis_max_actions=config.reanalysis_max_actions,
+        reanalysis_rollouts_per_action=config.reanalysis_rollouts_per_action,
+        reanalysis_policy_temperature=config.reanalysis_policy_temperature,
+        policy_replay_decisions_per_player_game=(
+            config.policy_replay_decisions_per_player_game
+            if config.training_generation >= 5
+            else 0
+        ),
         encoder_version=2 if config.training_generation >= 3 else 1,
     )
 
@@ -1638,6 +1903,7 @@ def _train_updates(
     totals: _Totals,
     optimizer_updates_at_start: int,
     control: Any,
+    learning_rate_multiplier: float = 1.0,
 ) -> dict[str, float]:
     active_replay_size = len(policy_replay) if config.training_generation >= 4 else len(replay)
     if count <= 0 or active_replay_size < config.replay_warmup:
@@ -1659,6 +1925,10 @@ def _train_updates(
             behavior_probabilities,
             masks,
             weights,
+            search_policy,
+            search_mask,
+            search_values,
+            search_valid,
             preference_states,
             preferred_actions,
             disfavored_actions,
@@ -1680,6 +1950,12 @@ def _train_updates(
                 value_loss_weight=config.policy_value_loss_weight,
                 entropy_weight=config.policy_entropy_weight,
                 importance_clip=config.policy_importance_clip,
+                search_policy_targets=search_policy,
+                search_mask=search_mask,
+                search_values=search_values,
+                search_valid=search_valid,
+                search_policy_loss_weight=config.reanalysis_policy_loss_weight,
+                search_value_loss_weight=config.reanalysis_value_loss_weight,
             )[0]
             counterfactual = preference_ranking_loss(
                 model,
@@ -1697,6 +1973,7 @@ def _train_updates(
         last_preference_arrays: tuple[Any, ...] | None = None
         loss_value = gradient_norm = learning_rate = 0.0
         completed = 0
+        clipped_updates = 0
         for _ in range(count):
             if control.should_stop() or control.pause_requested.is_set():
                 break
@@ -1711,6 +1988,10 @@ def _train_updates(
                 mx.array(batch.behavior_probabilities),
                 mx.array(batch.bootstrap_mask),
                 mx.array(batch.sample_weights),
+                mx.array(batch.search_policy),
+                mx.array(batch.search_mask),
+                mx.array(batch.search_values),
+                mx.array(batch.search_valid),
             )
             if len(preference_replay):
                 preference_batch = preference_replay.sample(config.preference_batch_size)
@@ -1731,8 +2012,18 @@ def _train_updates(
                     arrays[7][:1],
                     mx.array(0.0),
                 )
+            relative_updates = totals.updates - optimizer_updates_at_start
             learning_rate = _learning_rate(
-                config, totals.updates, totals.updates - optimizer_updates_at_start
+                config,
+                relative_updates if config.training_generation >= 5 else totals.updates,
+                relative_updates,
+            )
+            learning_rate = min(
+                config.learning_rate * config.governor_max_learning_rate_multiplier,
+                max(
+                    config.min_learning_rate * config.governor_min_learning_rate_multiplier,
+                    learning_rate * learning_rate_multiplier,
+                ),
             )
             optimizer.learning_rate = learning_rate
             loss, gradients = loss_and_grad(*arrays, *preference_arrays)
@@ -1741,6 +2032,7 @@ def _train_updates(
             mx.eval(model.parameters(), optimizer.state, loss, norm)
             loss_value = float(loss.item())
             gradient_norm = float(norm.item())
+            clipped_updates += int(gradient_norm > config.gradient_clip)
             totals.updates += 1
             completed += 1
             last_policy_arrays = arrays
@@ -1750,14 +2042,22 @@ def _train_updates(
             "gradient_norm": gradient_norm,
             "learning_rate": learning_rate,
             "learner_updates": float(completed),
+            "gradient_clip_fraction": clipped_updates / max(1, completed),
+            "learning_rate_multiplier": float(learning_rate_multiplier),
         }
         if last_policy_arrays is not None:
             diagnostic_loss, diagnostics = actor_critic_policy_loss(
                 model,
-                *last_policy_arrays,
+                *last_policy_arrays[:9],
                 value_loss_weight=config.policy_value_loss_weight,
                 entropy_weight=config.policy_entropy_weight,
                 importance_clip=config.policy_importance_clip,
+                search_policy_targets=last_policy_arrays[9],
+                search_mask=last_policy_arrays[10],
+                search_values=last_policy_arrays[11],
+                search_valid=last_policy_arrays[12],
+                search_policy_loss_weight=config.reanalysis_policy_loss_weight,
+                search_value_loss_weight=config.reanalysis_value_loss_weight,
             )
             mx.eval(diagnostic_loss, *diagnostics.values())
             metrics.update(
@@ -1792,6 +2092,67 @@ def _train_updates(
                         },
                     }
                 )
+            # Objective-specific norms are expensive enough to sample rather
+            # than compute every update. They expose which loss is consuming
+            # the shared trunk when the aggregate gradient is clipped.
+            crossed_gradient_probe = (
+                completed > 0
+                and totals.updates // 1_024
+                != max(0, totals.updates - completed) // 1_024
+            )
+            if crossed_gradient_probe:
+                def component_norm(kind: str) -> float:
+                    def component_loss(
+                        states,
+                        legal_actions,
+                        legal_mask,
+                        selected_indices,
+                        families,
+                        targets,
+                        behavior_probabilities,
+                        masks,
+                        weights,
+                        search_policy,
+                        search_mask,
+                        search_values,
+                        search_valid,
+                    ):
+                        return actor_critic_policy_loss(
+                            model,
+                            states,
+                            legal_actions,
+                            legal_mask,
+                            selected_indices,
+                            families,
+                            targets,
+                            behavior_probabilities,
+                            masks,
+                            weights,
+                            value_loss_weight=1.0 if kind == "value" else 0.0,
+                            entropy_weight=0.0,
+                            importance_clip=config.policy_importance_clip,
+                            search_policy_targets=search_policy,
+                            search_mask=search_mask,
+                            search_values=search_values,
+                            search_valid=search_valid,
+                            search_policy_loss_weight=1.0 if kind == "search" else 0.0,
+                            search_value_loss_weight=1.0 if kind == "search" else 0.0,
+                            behavior_policy_loss_weight=1.0 if kind == "actor" else 0.0,
+                        )[0]
+
+                    _value, gradients = nn.value_and_grad(model, component_loss)(
+                        *last_policy_arrays
+                    )
+                    _unchanged, norm = optim.clip_grad_norm(gradients, 1e30)
+                    mx.eval(norm)
+                    return float(norm.item())
+
+                metrics.update(
+                    objective_actor_gradient_norm=component_norm("actor"),
+                    objective_value_gradient_norm=component_norm("value"),
+                    objective_search_gradient_norm=component_norm("search"),
+                    objective_gradient_probe_update=float(totals.updates),
+                )
         return metrics
 
     def loss_function(
@@ -1823,6 +2184,7 @@ def _train_updates(
     last_preference_arrays: tuple[Any, ...] | None = None
     loss_value = gradient_norm = learning_rate = 0.0
     completed = 0
+    clipped_updates = 0
     for _ in range(count):
         if control.should_stop() or control.pause_requested.is_set():
             break
@@ -1863,10 +2225,18 @@ def _train_updates(
                 arrays[2][:1],
                 mx.array(0.0),
             )
+        relative_updates = totals.updates - optimizer_updates_at_start
         learning_rate = _learning_rate(
             config,
-            totals.updates,
-            totals.updates - optimizer_updates_at_start,
+            relative_updates if config.training_generation >= 5 else totals.updates,
+            relative_updates,
+        )
+        learning_rate = min(
+            config.learning_rate * config.governor_max_learning_rate_multiplier,
+            max(
+                config.min_learning_rate * config.governor_min_learning_rate_multiplier,
+                learning_rate * learning_rate_multiplier,
+            ),
         )
         optimizer.learning_rate = learning_rate
         loss, gradients = loss_and_grad(*arrays, *preference_arrays)
@@ -1875,6 +2245,7 @@ def _train_updates(
         mx.eval(model.parameters(), optimizer.state, loss, norm)
         loss_value = float(loss.item())
         gradient_norm = float(norm.item())
+        clipped_updates += int(gradient_norm > config.gradient_clip)
         totals.updates += 1
         completed += 1
         last_arrays = arrays
@@ -1885,6 +2256,8 @@ def _train_updates(
         "gradient_norm": gradient_norm,
         "learning_rate": learning_rate,
         "learner_updates": float(completed),
+        "gradient_clip_fraction": clipped_updates / max(1, completed),
+        "learning_rate_multiplier": float(learning_rate_multiplier),
     }
     if last_arrays is not None:
         diagnostic_loss, diagnostics = bootstrap_bce_loss(model, *last_arrays)
@@ -2028,13 +2401,26 @@ def run_training(
         state_size=encoder.state_size,
         action_size=encoder.action_size,
         bootstrap_heads=config.bootstrap_heads,
+        max_decisions_per_player_game=config.policy_replay_decisions_per_player_game,
+        family_balanced=config.policy_replay_family_balanced,
         seed=config.seed + 47,
     )
     totals = _restore_totals(store, run, latest)
     restored_training_state = _checkpoint_training_state(latest)
+    schedule_games_origin = max(
+        0, int(restored_training_state.get("schedule_games_origin", 0))
+    )
     artifacts = ((latest or {}).get("evaluation") or {}).get("artifacts") or {}
     try:
-        replay_items_persisted = max(0, int(artifacts.get("replay_items", 0)))
+        replay_items_persisted = max(
+            0,
+            int(
+                artifacts.get(
+                    "policy_replay_items" if config.training_generation >= 4 else "replay_items",
+                    0,
+                )
+            ),
+        )
     except (TypeError, ValueError):
         replay_items_persisted = 0
     artifacts_complete = bool(
@@ -2047,6 +2433,8 @@ def run_training(
     durable_resume: dict[str, Any] = {
         "optimizer_restored": False,
         "replay_items_restored": 0,
+        "policy_replay_items_restored": 0,
+        "preference_replay_items_restored": 0,
         "replay_rng_restored": False,
         "rollout_rng_restored": False,
         "league_opponents_restored": 0,
@@ -2068,10 +2456,24 @@ def run_training(
     }
     if latest is not None and artifacts_complete:
         try:
-            if config.resume_replay_items and artifacts.get("replay_path"):
+            if (
+                config.training_generation >= 4
+                and config.resume_replay_items
+                and artifacts.get("policy_replay_path")
+            ):
+                durable_resume["policy_replay_items_restored"] = policy_replay.restore(
+                    artifacts["policy_replay_path"]
+                )
+            elif config.resume_replay_items and artifacts.get("replay_path"):
                 durable_resume["replay_items_restored"] = replay.restore(artifacts["replay_path"])
+            if config.resume_replay_items and artifacts.get("preference_replay_path"):
+                durable_resume["preference_replay_items_restored"] = preference_replay.restore(
+                    artifacts["preference_replay_path"]
+                )
         except (OSError, ValueError, KeyError) as error:
             replay.clear()
+            policy_replay.clear()
+            preference_replay.clear()
             artifacts_complete = False
             durable_resume["checkpoint_artifacts_complete"] = False
             durable_resume["degraded_reasons"].append(
@@ -2117,11 +2519,14 @@ def run_training(
             reason="initial random model",
             optimizer=optimizer if config.persist_optimizer_state else None,
             replay=replay,
+            policy_replay=policy_replay if config.training_generation >= 4 else None,
+            preference_replay=preference_replay,
             resume_replay_items=config.resume_replay_items,
             training_state=_training_state(
                 totals,
                 seed_cursor=config.seed,
                 optimizer_updates_at_start=optimizer_updates_at_start,
+                schedule_games_origin=schedule_games_origin,
                 active_elapsed_seconds=0.0,
             ),
         )
@@ -2177,6 +2582,15 @@ def run_training(
         if bool((job.get("result") or {}).get("_trainer_disposition_processed"))
     }
     plateau = _plateau_status(store, run_id, config)
+    governor: dict[str, Any] = {
+        "enabled": bool(config.realtime_governor),
+        "learning_rate_multiplier": 1.0,
+        "updates_multiplier": 1.0,
+        "reanalysis_multiplier": 1.0,
+        "entropy_weight": config.policy_entropy_weight,
+        "branch_requested": False,
+        "reasons": [],
+    }
     final_reason = "duration complete"
 
     def restore_champion(
@@ -2187,7 +2601,11 @@ def run_training(
         detail: dict[str, Any] | None = None,
     ) -> bool:
         nonlocal model, optimizer, optimizer_updates_at_start, parent_checkpoint_id
-        if not config.rollback_rejected_candidates:
+        nonlocal schedule_games_origin
+        restore_enabled = config.rollback_rejected_candidates or (
+            config.rejected_candidate_action == "restore_lineage"
+        )
+        if not restore_enabled:
             return False
         champion = store.checkpoint(champion_id)
         restored_model, restored_spec = load_model(champion["path"])
@@ -2202,12 +2620,37 @@ def run_training(
             weight_decay=config.weight_decay,
             bias_correction=True,
         )
+        if config.persist_optimizer_state:
+            optimizer.init(model.trainable_parameters())
+            mx.eval(optimizer.state)
+        champion_artifacts = (champion.get("evaluation") or {}).get("artifacts") or {}
+        optimizer_restored = False
+        if champion_artifacts.get("optimizer_path"):
+            optimizer_restored = load_optimizer_state(
+                optimizer, champion_artifacts["optimizer_path"]
+            )
+        # Replay is part of model lineage. Mixing post-rejection trajectories
+        # into restored weights recreates the rejected policy through the next
+        # few thousand updates, so restore the champion snapshot or clear it.
+        replay.clear()
+        policy_replay.clear()
+        preference_replay.clear()
+        if champion_artifacts.get("replay_path") and config.training_generation < 4:
+            replay.restore(champion_artifacts["replay_path"])
+        if champion_artifacts.get("policy_replay_path") and config.training_generation >= 4:
+            policy_replay.restore(champion_artifacts["policy_replay_path"])
+        if champion_artifacts.get("preference_replay_path"):
+            preference_replay.restore(champion_artifacts["preference_replay_path"])
         optimizer_updates_at_start = totals.updates
+        schedule_games_origin = totals.games
         parent_checkpoint_id = champion["id"]
         payload = {
             "source": source,
             "rejected_checkpoint_id": rejected_checkpoint_id,
             "champion_id": champion["id"],
+            "optimizer_restored": optimizer_restored,
+            "policy_replay_items": len(policy_replay),
+            "schedule_games_origin": schedule_games_origin,
             **(detail or {}),
         }
         store.event(
@@ -2239,8 +2682,27 @@ def run_training(
                 _mark_evaluation_disposition(store, job, "promoted")
                 processed_evaluation_jobs.add(job["id"])
                 continue
-            if not config.rollback_rejected_candidates:
-                _mark_evaluation_disposition(store, job, "rollback_disabled")
+            restore_enabled = config.rollback_rejected_candidates or (
+                config.rejected_candidate_action == "restore_lineage"
+            )
+            if not restore_enabled:
+                disposition = (
+                    "branch_requested"
+                    if config.rejected_candidate_action == "queue_branch"
+                    else "quarantined_continuing"
+                )
+                _mark_evaluation_disposition(store, job, disposition)
+                state = store.controller_state(run_id)
+                store.set_controller_state(
+                    run_id,
+                    {
+                        **state,
+                        "last_rejected_checkpoint_id": job["model_a"],
+                        "last_rejected_at_games": totals.games,
+                        "branch_requested": config.rejected_candidate_action == "queue_branch",
+                        "deployment_quarantined": True,
+                    },
+                )
                 processed_evaluation_jobs.add(job["id"])
                 continue
             current_run = store.get_run(run_id)
@@ -2264,6 +2726,7 @@ def run_training(
         checkpoint: dict[str, Any] | None = None,
         *,
         ignore_retry_backoff: bool = False,
+        force_full: bool = False,
     ) -> dict[str, Any] | None:
         nonlocal evaluation_manager
         due = _next_evaluation_candidate(
@@ -2272,6 +2735,7 @@ def run_training(
             config,
             checkpoint,
             ignore_retry_backoff=ignore_retry_backoff,
+            force_full=force_full,
         )
         if due is None:
             return None
@@ -2286,6 +2750,42 @@ def run_training(
             config=config,
         )
         if not quality_gate["passed"]:
+            if config.training_generation >= 5:
+                # A safety gate may quarantine deployment, but it must not
+                # erase measurement. Run the same paired workload without
+                # promotion authority so final and canary curves stay complete.
+                store.event(
+                    run_id,
+                    "automatic_evaluation_quarantined",
+                    f"Measuring gated checkpoint {checkpoint['label']} without promotion",
+                    {
+                        "checkpoint_id": checkpoint["id"],
+                        "reasons": quality_gate["reasons"],
+                        "tier": plan.tier,
+                    },
+                )
+                if evaluation_manager is None:
+                    from .arena import ArenaManager
+
+                    evaluation_manager = ArenaManager(
+                        store, maximum_concurrent_jobs=1, recover=False
+                    )
+                return _schedule_evaluation(
+                    manager=evaluation_manager,
+                    store=store,
+                    run_id=run_id,
+                    checkpoint=checkpoint,
+                    config=config,
+                    plan=_EvaluationPlan(
+                        tier=plan.tier,
+                        cadence_games=plan.cadence_games,
+                        pairs=plan.pairs,
+                        automatic_promotion=False,
+                    ),
+                    cancellation_hook=lambda: (
+                        control.should_stop() or control.pause_requested.is_set()
+                    ),
+                )
             store.event(
                 run_id,
                 "automatic_evaluation_blocked",
@@ -2422,10 +2922,13 @@ def run_training(
             "progress": min(1.0, active_elapsed / max(1.0, duration_seconds)),
             "epsilon": _epsilon(
                 config,
-                totals.games,
+                max(0, totals.games - schedule_games_origin),
                 float(plateau["exploration_multiplier"]),
             ),
-            "epsilon_scheduled": _epsilon(config, totals.games),
+            "epsilon_scheduled": _epsilon(
+                config, max(0, totals.games - schedule_games_origin)
+            ),
+            "schedule_games_origin": schedule_games_origin,
             "training_generation": config.training_generation,
             "behavior_policy": config.behavior_policy,
             "deployment_policy_selfplay_fraction": (config.deployment_policy_selfplay_fraction),
@@ -2440,6 +2943,7 @@ def run_training(
                 else "monte_carlo"
             ),
             "plateau": dict(plateau),
+            "governor": dict(governor),
             "exploration_health": {
                 "uncertainty": uncertainty,
                 "collapse_warning": bool(
@@ -2465,6 +2969,7 @@ def run_training(
             "mean_turns": totals.turns / max(1, totals.games),
             "forced_choices": totals.forced_choices,
             "counterfactual_preferences": totals.counterfactual_preferences,
+            "reanalysis_positions": totals.reanalysis_positions,
             "replay": replay_metrics,
             "system": snapshot,
             "metal": metal,
@@ -2507,12 +3012,15 @@ def run_training(
             reason=reason,
             optimizer=optimizer if config.persist_optimizer_state else None,
             replay=replay,
+            policy_replay=policy_replay if config.training_generation >= 4 else None,
+            preference_replay=preference_replay,
             resume_replay_items=config.resume_replay_items,
             full_replay=reason in {"pause", "final"} and config.training_generation >= 3,
             training_state=_training_state(
                 totals,
                 seed_cursor=seed_cursor,
                 optimizer_updates_at_start=optimizer_updates_at_start,
+                schedule_games_origin=schedule_games_origin,
                 active_elapsed_seconds=current_active_elapsed(),
                 rollout_rng_state=rng.bit_generator.state,
                 replay_rng_state=replay.rng_state(),
@@ -2527,13 +3035,27 @@ def run_training(
                 "optimizer_persisted": bool(checkpoint_artifacts.get("optimizer_path")),
                 "replay_items_persisted": max(
                     0,
-                    int(checkpoint_artifacts.get("replay_items", 0)),
+                    int(
+                        checkpoint_artifacts.get(
+                            "policy_replay_items"
+                            if config.training_generation >= 4
+                            else "replay_items",
+                            0,
+                        )
+                    ),
                 ),
                 "replay_capacity_at_snapshot": max(
                     0,
                     int(checkpoint_artifacts.get("replay_capacity", replay.capacity)),
                 ),
-                "replay_snapshot_mode": str(checkpoint_artifacts.get("replay_format") or "none"),
+                "replay_snapshot_mode": str(
+                    checkpoint_artifacts.get(
+                        "policy_replay_format"
+                        if config.training_generation >= 4
+                        else "replay_format"
+                    )
+                    or "none"
+                ),
                 "checkpoint_artifacts_complete": True,
                 "latest_checkpoint_id": checkpoint["id"],
                 "latest_checkpoint_games": int(checkpoint["games"]),
@@ -2621,6 +3143,25 @@ def run_training(
             if evaluation_boundary_checkpoint_id is not None:
                 apply_artifact_retention(evaluation_boundary_checkpoint_id)
             plateau = _plateau_status(store, run_id, config)
+            governor = _governor_status(
+                store,
+                run_id,
+                config,
+                games=totals.games,
+                diagnostics=last_diagnostics,
+            )
+            effective_config = config.model_copy(
+                update={
+                    "policy_entropy_weight": float(
+                        governor.get("entropy_weight", config.policy_entropy_weight)
+                    ),
+                    "reanalysis_fraction": min(
+                        1.0,
+                        config.reanalysis_fraction
+                        * float(governor.get("reanalysis_multiplier", 1.0)),
+                    ),
+                }
+            )
             active_elapsed = current_active_elapsed()
             duration_seconds = config.duration_minutes * 60.0
             if active_elapsed >= duration_seconds:
@@ -2640,8 +3181,8 @@ def run_training(
                 if rollout_actor == str(runtime_actor) and not runtime_actor.is_file():
                     _atomic_actor_export(model, spec, runtime_actor)
             epsilon = _epsilon(
-                config,
-                totals.games,
+                effective_config,
+                max(0, totals.games - schedule_games_origin),
                 float(plateau["exploration_multiplier"]),
             )
             futures: dict[Future[WorkerResult], _RolloutPlan] = {}
@@ -2653,10 +3194,12 @@ def run_training(
                     config.training_generation < 4 and active_replay_size < config.replay_warmup
                 )
                 if needs_labeled_warmup or totals.updates < config.heuristic_bootstrap_updates:
-                    plan = _make_bootstrap_plan(config=config, rng=rng, seed=seed_cursor)
+                    plan = _make_bootstrap_plan(
+                        config=effective_config, rng=rng, seed=seed_cursor
+                    )
                 else:
                     plan = _make_plan(
-                        config=config,
+                        config=effective_config,
                         rng=rng,
                         league=league,
                         current_actor=rollout_actor,
@@ -2664,7 +3207,7 @@ def run_training(
                         seed=seed_cursor,
                     )
                 seed_cursor += plan.games + 1_009
-                futures[_submit_rollout(executor, plan, config)] = plan
+                futures[_submit_rollout(executor, plan, effective_config)] = plan
 
             store.update_run(run_id, phase="self_play+learning")
             last_diagnostics = _train_updates(
@@ -2673,11 +3216,22 @@ def run_training(
                 replay=replay,
                 policy_replay=policy_replay,
                 preference_replay=preference_replay,
-                config=config,
-                count=config.updates_per_iteration,
+                config=effective_config,
+                count=max(
+                    1,
+                    int(
+                        round(
+                            config.updates_per_iteration
+                            * float(governor.get("updates_multiplier", 1.0))
+                        )
+                    ),
+                ),
                 totals=totals,
                 optimizer_updates_at_start=optimizer_updates_at_start,
                 control=control,
+                learning_rate_multiplier=float(
+                    governor.get("learning_rate_multiplier", 1.0)
+                ),
             )
             emit(
                 phase=(
@@ -2716,6 +3270,7 @@ def run_training(
                     totals.turns += result.turns
                     totals.forced_choices += result.forced_choices
                     totals.counterfactual_preferences += result.counterfactual_preferences
+                    totals.reanalysis_positions += result.reanalysis_positions
                     totals.rollout_games[plan.kind] = (
                         totals.rollout_games.get(plan.kind, 0) + result.games
                     )
@@ -2769,12 +3324,15 @@ def run_training(
                 reason="final",
                 optimizer=optimizer if config.persist_optimizer_state else None,
                 replay=replay,
+                policy_replay=policy_replay if config.training_generation >= 4 else None,
+                preference_replay=preference_replay,
                 resume_replay_items=config.resume_replay_items,
                 full_replay=control.should_stop() and config.training_generation >= 3,
                 training_state=_training_state(
                     totals,
                     seed_cursor=seed_cursor,
                     optimizer_updates_at_start=optimizer_updates_at_start,
+                    schedule_games_origin=schedule_games_origin,
                     active_elapsed_seconds=current_active_elapsed(),
                     rollout_rng_state=rng.bit_generator.state,
                     replay_rng_state=replay.rng_state(),
@@ -2826,7 +3384,10 @@ def run_training(
                 schedule_latest=lambda: (
                     None
                     if control.should_stop() or control.pause_requested.is_set()
-                    else maybe_schedule_evaluation(ignore_retry_backoff=True)
+                    else maybe_schedule_evaluation(
+                        ignore_retry_backoff=True,
+                        force_full=True,
+                    )
                 ),
                 process_completed=lambda: process_completed_evaluations(),
                 interrupt_reason=lambda: (

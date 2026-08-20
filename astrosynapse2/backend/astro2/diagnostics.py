@@ -23,7 +23,9 @@ from .engine import (
     model_action_indices,
 )
 from .model import NumpyActor
-from .selfplay import collect_game
+from .replay import PolicyItem
+from .selfplay import ActorPolicy, collect_game
+
 
 def _actor_encoder(actor: Any) -> Encoder:
     version = int(getattr(getattr(actor, "spec", None), "encoder_version", 1))
@@ -272,52 +274,124 @@ def heldout_outcome_metrics(
     seed: int,
     games: int,
 ) -> dict[str, Any]:
+    items = _natural_policy_items(actor, seed=seed, positions=max(64, games * 80))
+    if not items:
+        return {"games": 0, "samples": 0}
+    states = np.stack([item.state for item in items])
+    families = np.asarray([int(item.family) for item in items])
+    targets = np.asarray([item.target for item in items], dtype=np.float32)
+    logits = actor.predict_values(states, families)
+    predictions = (1.0 / (1.0 + np.exp(-np.clip(logits, -40.0, 40.0)))).mean(axis=1)
+    clipped = np.clip(predictions, 1e-6, 1.0 - 1e-6)
+    bce = -np.mean(targets * np.log(clipped) + (1.0 - targets) * np.log(1.0 - clipped))
+    game_briers: list[float] = []
+    for game_id in sorted({int(item.game_id) for item in items}):
+        indices = np.asarray(
+            [index for index, item in enumerate(items) if int(item.game_id) == game_id]
+        )
+        game_briers.append(float(np.mean(np.square(predictions[indices] - targets[indices]))))
+    return {
+        "games": len(game_briers),
+        "samples": int(len(targets)),
+        "source": "candidate_policy_vs_fixed_opponents",
+        "bce": float(bce),
+        "brier": float(np.mean(np.square(predictions - targets))),
+        "game_grouped_brier": float(np.mean(game_briers)),
+        "accuracy": float(np.mean((predictions >= 0.5) == (targets >= 0.5))),
+    }
+
+
+def _natural_policy_items(
+    actor: NumpyActor,
+    *,
+    seed: int,
+    positions: int,
+) -> list[PolicyItem]:
+    """Collect decisions induced by the candidate, never baseline-only states."""
+
     encoder = _actor_encoder(actor)
     styles = ("balanced", "economy", "aggressive")
-    all_predictions: list[np.ndarray] = []
-    all_targets: list[np.ndarray] = []
-    per_game_brier: list[float] = []
-    for game_index in range(games):
+    policy = ActorPolicy(actor, encoder)
+    items: list[PolicyItem] = []
+    game_index = 0
+    maximum_games = max(8, min(500, int(math.ceil(positions / 8))))
+    while len(items) < positions and game_index < maximum_games:
+        actor_player = game_index % 2
+        baseline = make_baseline(styles[game_index % 3], seed + game_index * 17 + 1)
+        policies: list[Any] = [baseline, baseline]
+        policies[actor_player] = policy
+        collect_players = [False, False]
+        collect_players[actor_player] = True
         collected = collect_game(
-            (
-                make_baseline(styles[game_index % 3], seed + game_index * 2),
-                make_baseline(styles[(game_index + 1) % 3], seed + game_index * 2 + 1),
-            ),
+            (policies[0], policies[1]),
             seed=seed + game_index,
             encoder=encoder,
             bootstrap_heads=actor.spec.bootstrap_heads,
-            collect_players=(True, True),
+            collect_players=(collect_players[0], collect_players[1]),
+            deployment_policy=(actor_player == 0, actor_player == 1),
+            collect_preferences=False,
+            collect_policy_decisions=True,
+            collect_outcome_decisions=False,
             max_turns=180,
             max_actions_per_turn=160,
         )
-        if not collected.samples:
-            continue
-        states = np.stack([sample.state for sample in collected.samples])
-        actions = np.stack([sample.action for sample in collected.samples])
-        families = np.asarray([int(sample.family) for sample in collected.samples])
-        targets = np.asarray([sample.target for sample in collected.samples], dtype=np.float32)
-        logits = (
-            actor.predict_values(states, families)
-            if getattr(actor.spec, "objective_version", 1) >= 2
-            else actor.predict(states, actions, families)
+        items.extend(collected.policy_samples)
+        game_index += 1
+    return items[:positions]
+
+
+def natural_policy_metrics(
+    actor: NumpyActor,
+    *,
+    seed: int,
+    positions: int,
+    reference_actor: NumpyActor | None = None,
+) -> dict[str, Any]:
+    items = _natural_policy_items(actor, seed=seed, positions=positions)
+    disagreements = 0
+    entropy_values: list[float] = []
+    probability_stds: list[float] = []
+    kl_values: list[float] = []
+    family_positions = {family.value: 0 for family in DecisionFamily}
+    for item in items:
+        logits = actor.predict_options(item.state, item.legal_actions, int(item.family))
+        shifted = logits - logits.max(axis=0, keepdims=True)
+        probabilities = np.exp(np.clip(shifted, -40.0, 0.0))
+        probabilities /= probabilities.sum(axis=0, keepdims=True)
+        disagreements += int(len(np.unique(np.argmax(probabilities, axis=0))) > 1)
+        probability_stds.extend(np.std(probabilities, axis=1).tolist())
+        deployed = probabilities.mean(axis=1)
+        entropy_values.append(
+            float(-np.sum(deployed * np.log(np.clip(deployed, 1e-9, 1.0))))
+            / max(1e-9, math.log(len(deployed)))
         )
-        predictions = (1.0 / (1.0 + np.exp(-np.clip(logits, -40.0, 40.0)))).mean(axis=1)
-        all_predictions.append(predictions)
-        all_targets.append(targets)
-        per_game_brier.append(float(np.mean(np.square(predictions - targets))))
-    if not all_predictions:
-        return {"games": 0, "samples": 0}
-    predictions = np.concatenate(all_predictions)
-    targets = np.concatenate(all_targets)
-    clipped = np.clip(predictions, 1e-6, 1.0 - 1e-6)
-    bce = -np.mean(targets * np.log(clipped) + (1.0 - targets) * np.log(1.0 - clipped))
+        family_positions[DecisionFamily(int(item.family)).value] += 1
+        if reference_actor is not None:
+            reference_logits = reference_actor.predict_options(
+                item.state, item.legal_actions, int(item.family)
+            ).mean(axis=1)
+            reference_probabilities = np.exp(reference_logits - np.max(reference_logits))
+            reference_probabilities /= np.sum(reference_probabilities)
+            kl_values.append(
+                float(
+                    np.sum(
+                        deployed
+                        * (
+                            np.log(np.clip(deployed, 1e-9, 1.0))
+                            - np.log(np.clip(reference_probabilities, 1e-9, 1.0))
+                        )
+                    )
+                )
+            )
     return {
-        "games": len(per_game_brier),
-        "samples": int(len(targets)),
-        "bce": float(bce),
-        "brier": float(np.mean(np.square(predictions - targets))),
-        "game_grouped_brier": float(np.mean(per_game_brier)),
-        "accuracy": float(np.mean((predictions >= 0.5) == (targets >= 0.5))),
+        "positions": len(items),
+        "family_positions": family_positions,
+        "families": sum(value > 0 for value in family_positions.values()),
+        "head_argmax_disagreements": disagreements,
+        "head_argmax_disagreement_rate": disagreements / max(1, len(items)),
+        "mean_probability_std": float(np.mean(probability_stds)) if probability_stds else 0.0,
+        "mean_normalized_entropy": float(np.mean(entropy_values)) if entropy_values else 0.0,
+        "reference_policy_kl": float(np.mean(kl_values)) if kl_values else None,
     }
 
 
@@ -380,12 +454,32 @@ def checkpoint_diagnostics(
     seed: int,
     games: int,
     baseline_pairs: int,
+    natural_positions: int = 2_000,
+    reference_actor_path: str | Path | None = None,
 ) -> dict[str, Any]:
     actor = NumpyActor.load(actor_path)
-    ensemble = ensemble_metrics(
+    synthetic_ensemble = ensemble_metrics(
         actor,
         all_family_decision_suite(seed=seed + 720_000),
     )
+    reference_actor = (
+        NumpyActor.load(reference_actor_path)
+        if reference_actor_path and Path(reference_actor_path).is_file()
+        else None
+    )
+    try:
+        ensemble = natural_policy_metrics(
+            actor,
+            seed=seed + 740_000,
+            positions=natural_positions,
+            reference_actor=reference_actor,
+        )
+    except (AttributeError, ValueError):
+        # Lightweight diagnostic doubles and legacy actors may not satisfy the
+        # current self-play contract. Keep the all-family suite useful without
+        # weakening real checkpoint diagnostics.
+        ensemble = dict(synthetic_ensemble)
+    ensemble["synthetic_suite"] = synthetic_ensemble
     heldout = heldout_outcome_metrics(actor, seed=seed + 800_000, games=games)
     baselines = baseline_metrics(actor_path, seed=seed + 900_000, pairs=baseline_pairs)
     values = (ensemble, heldout, baselines)

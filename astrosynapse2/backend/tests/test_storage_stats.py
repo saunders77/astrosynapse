@@ -1,7 +1,13 @@
+import json
+
+import numpy as np
 from astro2.config import RunConfig
+from astro2.encoding import Encoder
 from astro2.hardware import RateMeter
+from astro2.model import ModelSpec
 from astro2.stats import elo_delta, wilson_interval
 from astro2.storage import Store
+from astro2.supervisor import Supervisor
 
 
 def test_wilson_interval_behaves_at_small_sample_sizes():
@@ -60,3 +66,98 @@ def test_store_round_trip(tmp_path):
     )
     assert checkpoint["is_pinned"] is False
     assert store.set_checkpoint_pinned(checkpoint["id"], True)["is_pinned"] is True
+
+
+def test_branch_experiment_and_controller_state_round_trip(tmp_path):
+    store = Store(tmp_path / "astro2.sqlite3")
+    source_run = store.create_run(RunConfig.astro4_m4())
+    source = store.add_checkpoint(
+        run_id=source_run["id"],
+        label="Source champion",
+        path=str(tmp_path / "source.safetensors"),
+        actor_path=str(tmp_path / "source.actor.npz"),
+        games=500_000,
+        champion=True,
+    )
+    experiment = store.create_branch_experiment(
+        name="Search fork",
+        source_checkpoint_id=source["id"],
+        config={"auto_advance": True},
+    )
+    branch_config = RunConfig.astro5_search().model_copy(
+        update={
+            "initial_checkpoint_id": source["id"],
+            "branch_experiment_id": experiment["id"],
+        }
+    )
+    branch_run = store.create_run(branch_config)
+    member = store.add_branch_member(
+        experiment_id=experiment["id"],
+        run_id=branch_run["id"],
+        ordinal=0,
+        label="Balanced",
+        overrides={"reanalysis_fraction": 0.02},
+    )
+    assert member["status"] == "queued"
+    loaded = store.branch_experiment(experiment["id"])
+    assert loaded["members"][0]["run_id"] == branch_run["id"]
+    assert loaded["members"][0]["overrides"]["reanalysis_fraction"] == 0.02
+    assert store.update_branch_member(branch_run["id"], status="running")["status"] == "running"
+
+    state = store.set_controller_state(
+        branch_run["id"],
+        {"learning_rate_multiplier": 0.5, "branch_requested": False},
+    )
+    assert state["learning_rate_multiplier"] == 0.5
+    assert store.controller_state(branch_run["id"])["branch_requested"] is False
+
+
+def test_supervisor_copies_compatible_branch_root_artifacts(tmp_path):
+    store = Store(tmp_path / "astro2.sqlite3")
+    source_run = store.create_run(RunConfig.astro4_m4())
+    encoder = Encoder(version=2)
+    spec = ModelSpec(
+        state_size=encoder.state_size,
+        action_size=encoder.action_size,
+        families=8,
+        hidden_size=192,
+        action_hidden_size=96,
+        residual_blocks=3,
+        bootstrap_heads=5,
+        encoder_version=2,
+        objective_version=2,
+    )
+    model_path = tmp_path / "source.safetensors"
+    model_path.write_bytes(b"test model placeholder")
+    model_path.with_suffix(".safetensors.json").write_text(json.dumps(spec.as_dict()))
+    actor_path = tmp_path / "source.actor.npz"
+    np.savez(
+        actor_path,
+        __spec_json__=np.frombuffer(json.dumps(spec.as_dict()).encode(), dtype=np.uint8),
+    )
+    source = store.add_checkpoint(
+        run_id=source_run["id"],
+        label="Source champion",
+        path=str(model_path),
+        actor_path=str(actor_path),
+        games=500_000,
+        champion=True,
+    )
+    supervisor = Supervisor(store, tmp_path)
+    experiment = supervisor.create_branch_experiment(
+        source_checkpoint_id=source["id"],
+        name="Copied fork",
+        variants=[{"label": "Balanced"}, {"label": "Search", "reanalysis_fraction": 0.02}],
+        base_overrides={"duration_minutes": 5},
+        start=False,
+    )
+    assert len(experiment["members"]) == 2
+    for member in experiment["members"]:
+        branch_run = store.get_run(member["run_id"])
+        assert branch_run["config"]["initial_checkpoint_id"] == source["id"]
+        root = store.checkpoints(member["run_id"])[0]
+        assert root["parent_id"] == source["id"]
+        assert root["games"] == 0
+        assert root["is_champion"] is True
+        assert (tmp_path / "checkpoints" / member["run_id"] / "branch-root.actor.npz").is_file()
+    assert store.checkpoint(source["id"])["is_pinned"] is True

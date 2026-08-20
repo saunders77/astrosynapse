@@ -1,16 +1,18 @@
-# Astrosynapse 2 / Astro4 training generation
+# Astrosynapse 2 / Astro5 search generation
 
-This repository is a from-scratch Star Realms self-play system built for a 16 GB Apple M4 Mac mini. Astro4 replaces chosen-action outcome fitting with normalized legal-set policy learning, a separate value baseline, game-balanced replay, paired counterfactual rollouts, and competency gates. Retained Astro3 and Astro2 checkpoint actors remain playable. It includes:
+This repository is a from-scratch Star Realms self-play system built for a 16 GB Apple M4 Mac mini. Astro5 extends legal-set actor-critic training with public-belief action-set search, direct search-policy/value targets, compact long-horizon replay, cheap checkpoint canaries, complete lineage restoration, sequential checkpoint branches, and a bounded realtime training governor. Astro4, Astro3, and Astro2 checkpoint actors remain playable. It includes:
 
 - a deterministic, typed base-set game engine;
 - parallel CPU self-play with a compact NumPy actor;
 - an MLX/Metal bootstrapped legal-set actor-critic learner;
 - versioned flat and relational information-state encoders;
-- game- and turn-phase-balanced legal-set replay;
+- game-, turn-phase-, and decision-family-balanced legal-set replay with per-game reservoirs;
 - rules-level dominance masks without the unsafe global `END_TURN` preference objective;
 - learner, accepted champion-history, and corrected heuristic opponents;
 - independent head adapters and bootstrapped exploration;
-- paired-seed, seat-swapped arena evaluation with confidence intervals;
+- public-information-set reanalysis with common-random-number action comparisons;
+- paired-seed, seat-swapped canary and promotion evaluation with confidence intervals;
+- durable multi-branch experiments from any compatible champion/checkpoint;
 - a persistent local training dashboard and model registry;
 - a browser game for playing against any retained checkpoint actor.
 
@@ -51,20 +53,30 @@ Press Control-C in that Terminal to request a safe stop and final checkpoint. Du
 1. Open **Train**.
 2. Select **Quick validation** and click **Launch run**. Let this run for about five minutes to verify Metal, workers, replay, checkpoints, and live charts.
 3. Check **Diagnostics / Settings** for `MLX / Metal`, actor throughput, memory pressure, truncations, replay family balance, and non-finite/error warnings.
-4. If the quick run is healthy, create the **Astro4 legal-set policy** preset and launch it.
+4. If the quick run is healthy, create the **Astro5 search & branching** preset and launch it.
 5. When the 24-hour budget ends, wait for the visible **Finalizing evaluation** phase. Natural completion resolves any older trainer-owned job and then the newest due trainer comparison before reporting complete; then inspect the champion and final candidate in **Models & Arena**.
 
-The Astro4 preset is the recommended M4/16 GB starting point: 8 CPU actors, a 192-wide three-block model, 5 head-specific policy adapters, 250,000 game-balanced legal-set decisions, a separate state-value objective, bootstrap-masked bounded paired counterfactual rollouts, rejected-branch rollback, and conservative promotion evaluations. Ensemble diversity, truncation safety, held-out calibration, and paired arena strength are release gates. Astro3 remains available for controlled chosen-action Monte Carlo comparisons, and **Astro2 compatibility** preserves generation-2 learner settings and checkpoint decoding.
+The Astro5 preset is the recommended M4/16 GB starting point: 8 CPU actors, a 192-wide three-block model, 5 policy heads, a 1.5-million-decision replay budget compacted to 12 phase/family-balanced decisions per player-game, selective public-belief searches, 128-pair canaries every 25,000 games, and 5,000-pair promotion tests every 200,000 games. Rejected candidates remain quarantined from deployment but continue learning, which lets them cross temporary performance valleys. Natural-policy diagnostics, policy KL, objective-specific gradient probes, entropy, clipping, and canary trends feed a bounded governor. Astro4 remains available as the previous legal-set control.
 
 ## Dashboard guide
 
 - **Overview** — run phase, elapsed time and ETA, games/s, decisions/s, replay fill, learning quality, hardware, and recent persisted events.
-- **Train** — create a run, select Astro4, Astro3, quick validation, or the Astro2 compatibility preset, expose advanced settings, and start, durably pause, resume, stop, or checkpoint at safe boundaries.
+- **Train** — create a run, select Astro5, Astro4, Astro3, quick validation, or Astro2 compatibility, expose search/governor settings, and start, durably pause, resume, stop, or checkpoint at safe boundaries.
+- **Branch Lab** — choose a compatible generation-4/5 checkpoint from any run, create 1–8 optimization/search variants, and optionally run the queue automatically. Source checkpoints are pinned and every branch receives copied immutable artifacts plus an independent seed stream.
 - **Models & Arena** — inspect checkpoint lineage, pin models, download `.actor.npz` exports, compare checkpoints or baselines with exact seed-paired seat swaps, and select any retained candidate for a one-click 1,000-game Scrap Elo or Acquire Elo card-choice probe. Use 5,000 manual pairs before treating a head-to-head comparison as release-strength evidence.
 - **Play** — select a checkpoint, choose the starting seat, and play through legal semantic actions. Astro4 shows normalized legal-action policy shares; legacy checkpoints show independent outcome estimates. Baseline games do not invent model scores.
-- **Diagnostics / Settings** — outcome losses, calibration and ensemble diagnostics, replay write/sample ratios and effective weights, effective exploration, population mix, plateau response, CPU/RAM/Metal telemetry, audit events, and settings that are safe to apply between batches.
+- **Diagnostics / Settings** — outcome/search losses, natural-state calibration and ensemble diagnostics, objective gradient norms, clipping, normalized entropy, governor multipliers/reasons, replay health, CPU/RAM/Metal telemetry, and audit events.
 
 The first random checkpoint is only a lineage root and initial deployment anchor, not a trained opponent. After that root, “champion” means the latest model to pass its persisted automatic paired-evaluation contract; adaptive early tiers use fewer pairs than the mature 5,000-pair gate. It is not an absolute Elo claim.
+
+### Branch Lab workflow
+
+1. Open **Branch Lab** and choose any listed generation-4/5 champion or candidate. The selector spans all runs, not only the run currently shown elsewhere in the dashboard.
+2. Choose 1–8 variants and a time budget per branch. The built-in sequence tests balanced search, heavier search, entropy recovery, value emphasis, faster exploitation, broader belief search, low-LR long memory, and higher exploration.
+3. Leave **Run queued branches automatically** enabled to use the single Metal device sequentially. If another ordinary run is active, the experiment remains queued and starts after that trainer releases the device.
+4. Click **Create & start branch system**. The source is pinned; each branch gets a private copy of every available artifact and a deterministic independent seed.
+5. Click any branch card to make it the selected run. Use **Overview** and **Diagnostics / Settings** to watch canary scores, normalized entropy, search-target coverage, clipping, objective gradient norms, and governor changes.
+6. Treat 128-pair canaries as direction/slope signals only. Promotion still requires the configured full paired evaluation. A failed canary or promotion quarantines deployment; it does not destroy the learner branch.
 
 ## Files and recovery
 
@@ -76,7 +88,7 @@ data/checkpoints/<run-id>/       safetensors and NumPy actor snapshots
 data/analysis/                   completed card-choice Elo text and JSON reports
 ```
 
-Training survives browser disconnects. If the backend or Mac exits unexpectedly, the run is marked `interrupted` at restart and can resume from its latest compatible model checkpoint. Paired arena jobs retain completed pairs and recover after a clean backend restart. Astro4 checkpoints preserve compatible weights, optimizer state, counters, elapsed time, rollout RNG state, and league statistics; legal-set replay is deliberately repopulated after restart before learning resumes. Astro3 retains its configured recent replay journal. Legacy Astro2 checkpoints remain weight-only.
+Training survives browser disconnects. If the backend or Mac exits unexpectedly, the run is marked `interrupted` at restart and can resume from its latest compatible model checkpoint. Paired arena jobs retain completed pairs and recover after a clean backend restart. Astro5 checkpoints preserve weights, actor export, optimizer, compact policy replay, auxiliary replay, counters, elapsed time, branch-relative schedule origins, rollout RNG state, league state, and controller state. Pause/final boundaries write the full configured replay archive; scheduled boundaries write the configured recent horizon. Astro4 and older checkpoints retain their original compatibility contracts.
 
 ## Command line
 
@@ -86,6 +98,7 @@ Training survives browser disconnects. If the backend or Mac exits unexpectedly,
 
 # Run without the browser
 ./.venv/bin/astro2 train --preset quick
+./.venv/bin/astro2 train --preset astro5_search --name "Astro5 search run" --seed 20260819
 ./.venv/bin/astro2 train --preset astro4_m4 --name "Astro4 seed 1" --seed 20260813
 ./.venv/bin/astro2 train --preset astro4_m4 --name "Astro4 seed 2" --seed 20260814
 ./.venv/bin/astro2 train --preset astro4_m4 --name "Astro4 seed 3" --seed 20260815
@@ -113,6 +126,7 @@ MLX initializes Metal when imported. A headless or restricted shell may report t
 
 ## Documentation
 
+- [Astro5 search, governor, and branching](docs/ASTRO5_SEARCH_AND_BRANCHING.md)
 - [System and algorithm design](docs/DESIGN.md)
 - [Training, metrics, and evaluation](docs/TRAINING.md)
 - [Forensic plateau analysis and Astro3 roadmap](docs/PLATEAU_ANALYSIS_AND_ASTROSYNAPSE3.md)

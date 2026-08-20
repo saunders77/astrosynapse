@@ -21,8 +21,10 @@ class RunConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(default="M4 24-hour run", min_length=1, max_length=80)
-    preset: Literal["astro4_m4", "astro3_m4", "m4_24h", "quick", "custom"] = "m4_24h"
-    training_generation: Literal[2, 3, 4] = 2
+    preset: Literal[
+        "astro5_search", "astro4_m4", "astro3_m4", "m4_24h", "quick", "custom"
+    ] = "m4_24h"
+    training_generation: Literal[2, 3, 4, 5] = 2
     # Keep seeds exactly representable by the JavaScript dashboard as well as
     # Python, so API/UI round-trips cannot silently change an experiment.
     seed: int = Field(default=20260807, ge=0, le=MAX_REPRODUCIBILITY_SEED)
@@ -61,13 +63,30 @@ class RunConfig(BaseModel):
     preference_loss_weight: float = Field(default=0.15, ge=0, le=10)
     preference_margin: float = Field(default=1.0, ge=0, le=10)
     tactical_preference_training: bool = True
-    policy_replay_capacity: int = Field(default=150_000, ge=1_000, le=1_000_000)
+    policy_replay_capacity: int = Field(default=150_000, ge=1_000, le=2_000_000)
     policy_value_loss_weight: float = Field(default=0.5, ge=0, le=10)
     policy_entropy_weight: float = Field(default=0.01, ge=0, le=1)
     policy_importance_clip: float = Field(default=2.0, ge=1, le=20)
     counterfactual_fraction: float = Field(default=0.0, ge=0, le=1)
     counterfactual_max_per_game: int = Field(default=0, ge=0, le=8)
     counterfactual_loss_weight: float = Field(default=0.0, ge=0, le=10)
+
+    # Astro5 learns from complete action-set searches.  A small fraction of
+    # naturally encountered states is cloned and rolled forward from several
+    # legal actions; the resulting distribution supervises every searched
+    # action rather than only reinforcing the behavior action.
+    reanalysis_fraction: float = Field(default=0.0, ge=0, le=1)
+    reanalysis_max_per_game: int = Field(default=0, ge=0, le=32)
+    reanalysis_max_actions: int = Field(default=6, ge=2, le=64)
+    reanalysis_rollouts_per_action: int = Field(default=2, ge=1, le=16)
+    reanalysis_policy_temperature: float = Field(default=0.35, gt=0, le=5)
+    reanalysis_policy_loss_weight: float = Field(default=0.0, ge=0, le=20)
+    reanalysis_value_loss_weight: float = Field(default=0.0, ge=0, le=20)
+    # Keeping only a phase/family reservoir from each player-game makes a
+    # fixed decision budget remember tens of thousands of games instead of a
+    # few thousand long trajectories.
+    policy_replay_decisions_per_player_game: int = Field(default=0, ge=0, le=128)
+    policy_replay_family_balanced: bool = False
 
     epsilon_start: float = Field(default=0.20, ge=0, le=1)
     epsilon_end: float = Field(default=0.025, ge=0, le=1)
@@ -88,6 +107,9 @@ class RunConfig(BaseModel):
     baseline_fraction: float = Field(default=0.15, ge=0, le=1)
     behavior_policy: Literal["champion", "learner"] = "champion"
     rollback_rejected_candidates: bool = True
+    rejected_candidate_action: Literal["continue", "restore_lineage", "queue_branch"] = (
+        "restore_lineage"
+    )
     checkpoint_diagnostic_games: int = Field(default=6, ge=2, le=100)
     checkpoint_baseline_pairs: int = Field(default=2, ge=1, le=50)
     baseline_regression_tolerance: float = Field(default=0.20, ge=0, le=1)
@@ -105,6 +127,8 @@ class RunConfig(BaseModel):
 
     checkpoint_every_games: int = Field(default=100_000, ge=100)
     evaluate_every_games: int = Field(default=500_000, ge=100)
+    canary_every_games: int = Field(default=0, ge=0)
+    canary_pairs: int = Field(default=128, ge=8, le=5_000)
     evaluation_pairs: int = Field(default=5_000, ge=8, le=20_000)
     adaptive_evaluation: bool = True
     promotion_confidence: float = Field(default=0.95, ge=0.80, le=0.999)
@@ -113,6 +137,23 @@ class RunConfig(BaseModel):
     evaluation_early_rejection_min_pairs: int = Field(default=512, ge=32, le=20_000)
     evaluation_early_rejection_confidence: float = Field(default=0.995, ge=0.90, le=0.9999)
     keep_checkpoints: int = Field(default=12, ge=2, le=100)
+
+    # The controller changes only bounded multipliers and records every
+    # decision.  It cannot weaken promotion confidence or mutate architecture.
+    realtime_governor: bool = False
+    governor_interval_games: int = Field(default=25_000, ge=100)
+    governor_max_learning_rate_multiplier: float = Field(default=1.5, ge=1, le=4)
+    governor_min_learning_rate_multiplier: float = Field(default=0.25, gt=0, le=1)
+    governor_target_normalized_entropy: float = Field(default=0.55, ge=0.05, le=0.95)
+    governor_max_updates_multiplier: float = Field(default=2.0, ge=1, le=4)
+    governor_branch_after_failures: int = Field(default=3, ge=1, le=20)
+    natural_diagnostic_positions: int = Field(default=2_000, ge=16, le=50_000)
+    checkpoint_kl_limit: float = Field(default=0.35, ge=0, le=10)
+
+    # Optional immutable branch origin.  New branch runs import all available
+    # optimizer/replay artifacts from this checkpoint before training starts.
+    initial_checkpoint_id: str | None = Field(default=None, min_length=1, max_length=128)
+    branch_experiment_id: str | None = Field(default=None, min_length=1, max_length=128)
 
     # Astro3 can persist enough state to resume the same optimization process.
     # Zero keeps legacy checkpoints small and weight-only.
@@ -152,6 +193,18 @@ class RunConfig(BaseModel):
             self.counterfactual_fraction or self.counterfactual_max_per_game
         ):
             raise ValueError("counterfactual rollout training requires training_generation=4")
+        if self.training_generation < 5 and (
+            self.reanalysis_fraction
+            or self.reanalysis_max_per_game
+            or self.reanalysis_policy_loss_weight
+            or self.reanalysis_value_loss_weight
+            or self.realtime_governor
+        ):
+            raise ValueError("search reanalysis and the realtime governor require generation 5")
+        if self.reanalysis_fraction and not self.reanalysis_max_per_game:
+            raise ValueError("reanalysis_max_per_game must be positive when reanalysis is enabled")
+        if self.canary_every_games and self.canary_every_games < self.checkpoint_every_games:
+            raise ValueError("canary_every_games must be zero or at least checkpoint_every_games")
         return self
 
     @classmethod
@@ -320,6 +373,62 @@ class RunConfig(BaseModel):
         )
         return cls.model_validate(base)
 
+    @classmethod
+    def astro5_search(cls, name: str = "Astro5 search & branching") -> RunConfig:
+        """Long-memory action-set learning with live progress control.
+
+        The defaults fit an M4/16 GB learner while deliberately spending disk
+        on complete replay/optimizer snapshots.  Promotion remains conservative;
+        failed candidates continue as quarantined research branches so a useful
+        valley is not destroyed before the next canary can measure it.
+        """
+
+        base = cls.astro4_m4(name=name).model_dump()
+        base.update(
+            preset="astro5_search",
+            training_generation=5,
+            seed=20260819,
+            # A compact 12-decision reservoir/player-game gives this budget a
+            # horizon near 125k player-games instead of ~2.5k full trajectories.
+            policy_replay_capacity=1_500_000,
+            policy_replay_decisions_per_player_game=12,
+            policy_replay_family_balanced=True,
+            replay_warmup=12_000,
+            batch_size=384,
+            reanalysis_fraction=0.0125,
+            reanalysis_max_per_game=2,
+            reanalysis_max_actions=6,
+            reanalysis_rollouts_per_action=2,
+            reanalysis_policy_temperature=0.35,
+            reanalysis_policy_loss_weight=1.0,
+            reanalysis_value_loss_weight=0.5,
+            # Disable the stale pairwise auxiliary; search targets are attached
+            # to the exact state/action set that produced them.
+            counterfactual_fraction=0.0,
+            counterfactual_max_per_game=0,
+            counterfactual_loss_weight=0.0,
+            policy_entropy_weight=0.02,
+            rejected_candidate_action="continue",
+            rollback_rejected_candidates=False,
+            checkpoint_every_games=25_000,
+            canary_every_games=25_000,
+            canary_pairs=128,
+            evaluate_every_games=200_000,
+            persist_optimizer_state=True,
+            resume_replay_items=500_000,
+            realtime_governor=True,
+            adaptive_training=False,
+            governor_interval_games=25_000,
+            governor_target_normalized_entropy=0.55,
+            governor_branch_after_failures=3,
+            natural_diagnostic_positions=2_000,
+            minimum_head_disagreement_rate=0.0,
+            gate_heldout_brier_regression=False,
+            maximum_heldout_brier=1.0,
+            keep_checkpoints=100,
+        )
+        return cls.model_validate(base)
+
 
 SAFE_LIVE_FIELDS = {
     "duration_minutes",
@@ -336,10 +445,16 @@ SAFE_LIVE_FIELDS = {
     "promotion_confidence",
     "promotion_margin",
     "metrics_interval_seconds",
+    "reanalysis_fraction",
+    "policy_entropy_weight",
+    "canary_pairs",
+    "realtime_governor",
 }
 
 
 def preset_config(preset: str) -> RunConfig:
+    if preset == "astro5_search":
+        return RunConfig.astro5_search()
     if preset == "astro4_m4":
         return RunConfig.astro4_m4()
     if preset == "astro3_m4":
