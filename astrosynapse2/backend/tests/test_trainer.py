@@ -283,7 +283,7 @@ def test_astro4_recipe_uses_legal_set_training_and_m4_safe_batches():
     assert config.gate_heldout_brier_regression is True
     assert config.checkpoint_every_games == 50_000
     assert config.evaluate_every_games == 250_000
-    assert config.evaluation_pairs == 5_000
+    assert config.evaluation_pairs == 2_000
     assert config.adaptive_evaluation is True
     assert config.resume_replay_items == 0
 
@@ -1088,7 +1088,7 @@ def test_adaptive_evaluation_grows_from_provisional_to_full():
     assert (full.tier, full.cadence_games, full.pairs) == (
         "full",
         500_000,
-        5_000,
+        2_000,
     )
 
 
@@ -1157,7 +1157,7 @@ def test_full_evaluation_uses_conservative_automatic_gate(tmp_path):
     kind, model_a, model_b, options = manager.calls[0]
     assert kind == "automatic"
     assert (model_a, model_b) == (candidate["id"], champion["id"])
-    assert options["pairs"] == 5_000
+    assert options["pairs"] == 2_000
 
     persisted = store.create_arena_job(
         model_a=candidate["id"],

@@ -37,8 +37,8 @@ from .model import NumpyActor
 from .stats import elo_delta, wilson_interval
 from .storage import Store
 
-RECOMMENDED_PAIRS = 5_000
-MAX_PAIRS = 20_000
+RECOMMENDED_PAIRS = 2_000
+MAX_PAIRS = 2_000
 
 
 class ModelResolutionError(ValueError):

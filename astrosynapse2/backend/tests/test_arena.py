@@ -81,7 +81,7 @@ def test_arena_summary_separates_true_draws_from_truncations():
     assert clean["truncated_games"] == 0
     assert truncated["draws"] == 1
     assert truncated["truncated_games"] == 1
-    assert truncated["promotion"]["eligible"] is False  # Below the 5,000-pair minimum.
+    assert truncated["promotion"]["eligible"] is False  # Below the 2,000-pair minimum.
     assert truncated["truncation_adjustment"]["model_a_score"] == 0.25
     assert "scored as candidate losses" in truncated["promotion"]["recommendation"]
 
@@ -124,8 +124,8 @@ def test_early_rejection_hoeffding_bound_stays_wide_for_zero_variance():
 
 
 def test_final_paired_interval_is_valid_for_constant_samples():
-    losing = arena_module._paired_interval([0.0] * 5_000, 0.95)
-    winning = arena_module._paired_interval([1.0] * 5_000, 0.95)
+    losing = arena_module._paired_interval([0.0] * 2_000, 0.95)
+    winning = arena_module._paired_interval([1.0] * 2_000, 0.95)
 
     assert losing["estimate"] == 0.0
     assert 0.0 < losing["high"] < 0.1
@@ -151,7 +151,7 @@ def test_automatic_arena_early_rejects_only_at_adjusted_safe_look(
         label="champion",
         path=str(tmp_path / "champion.safetensors"),
         actor_path=str(champion_actor),
-        games=5_000,
+        games=2_000,
         champion=True,
     )
     weak = store.add_checkpoint(
@@ -166,7 +166,7 @@ def test_automatic_arena_early_rejects_only_at_adjusted_safe_look(
         label="strong",
         path=str(tmp_path / "strong.safetensors"),
         actor_path=str(strong_actor),
-        games=15_000,
+        games=12_000,
     )
     candidate_loses = {"value": True}
 
@@ -241,15 +241,15 @@ def test_automatic_arena_early_rejects_only_at_adjusted_safe_look(
     assert weak_evaluation["early_stopped"] is True
 
     # A strong candidate can promote at a separately planned, more stringent
-    # acceptance look without waiting for all 5,000 requested pairs.
+    # acceptance look without waiting for all 2,000 requested pairs.
     candidate_loses["value"] = False
     strong_job = manager.create_automatic(
         strong["id"],
         champion["id"],
         **{
             **options,
-            "pairs": 5_000,
-            "minimum_promotion_pairs": 5_000,
+            "pairs": 2_000,
+            "minimum_promotion_pairs": 2_000,
             "early_acceptance": True,
             "early_acceptance_min_pairs": 1_000,
             "early_acceptance_confidence": 0.995,
@@ -473,7 +473,7 @@ def test_automatic_finalization_never_promotes_manual_or_tiny_jobs_but_promotes_
         label="champion",
         path=str(tmp_path / "champion.safetensors"),
         actor_path=str(tmp_path / "champion.npz"),
-        games=5_000,
+        games=2_000,
         champion=True,
     )
     model_a = ResolvedModel(
@@ -490,16 +490,16 @@ def test_automatic_finalization_never_promotes_manual_or_tiny_jobs_but_promotes_
     )
 
     manual_result = {
-        "pairs_completed": 5_000,
+        "pairs_completed": 2_000,
         "games_completed": 10_000,
         "model_a_score": 0.55,
-        "paired_interval": {"estimate": 0.55, "low": 0.52, "high": 0.58, "samples": 5_000},
+        "paired_interval": {"estimate": 0.55, "low": 0.52, "high": 0.58, "samples": 2_000},
         "promotion": {},
     }
     assert not finalize_automatic_evaluation(
         store,
         job_id="manual",
-        config=ArenaConfig(pairs=5_000, automatic_promotion=False),
+        config=ArenaConfig(pairs=2_000, automatic_promotion=False),
         model_a=model_a,
         model_b=model_b,
         result=manual_result,
@@ -507,7 +507,7 @@ def test_automatic_finalization_never_promotes_manual_or_tiny_jobs_but_promotes_
     assert store.get_run(run["id"])["champion_id"] == champion["id"]
     assert "latest_arena" not in store.checkpoint(candidate["id"])["evaluation"]
 
-    automatic = ArenaConfig(pairs=5_000, automatic_promotion=True)
+    automatic = ArenaConfig(pairs=2_000, automatic_promotion=True)
     tiny_result = {
         "pairs_completed": 8,
         "games_completed": 16,
@@ -528,14 +528,14 @@ def test_automatic_finalization_never_promotes_manual_or_tiny_jobs_but_promotes_
     assert store.get_run(run["id"])["champion_id"] == champion["id"]
 
     marginal_truncated = {
-        "pairs_completed": 5_000,
+        "pairs_completed": 2_000,
         "games_completed": 10_000,
         "model_a_score": 0.5272,
         "paired_interval": {
             "estimate": 0.5272,
             "low": 0.508,
             "high": 0.5464,
-            "samples": 5_000,
+            "samples": 2_000,
         },
         "truncated_games": 200,
         "promotion": {},
@@ -557,14 +557,14 @@ def test_automatic_finalization_never_promotes_manual_or_tiny_jobs_but_promotes_
     assert store.get_run(run["id"])["champion_id"] == champion["id"]
 
     truncated_result = {
-        "pairs_completed": 5_000,
+        "pairs_completed": 2_000,
         "games_completed": 10_000,
         "model_a_score": 0.55,
         "paired_interval": {
             "estimate": 0.55,
             "low": 0.52,
             "high": 0.58,
-            "samples": 5_000,
+            "samples": 2_000,
         },
         "truncated_games": 1,
         "promotion": {},
@@ -616,11 +616,11 @@ def test_automatic_finalization_never_promotes_manual_or_tiny_jobs_but_promotes_
     assert latest["promotion_tier"] == "provisional"
 
     qualifying = {
-        "pairs_completed": 5_000,
+        "pairs_completed": 2_000,
         "games_completed": 10_000,
         "model_a_score": 0.54,
         "wilson_interval": {"estimate": 0.54, "low": 0.53, "high": 0.55, "samples": 10_000},
-        "paired_interval": {"estimate": 0.54, "low": 0.51, "high": 0.57, "samples": 5_000},
+        "paired_interval": {"estimate": 0.54, "low": 0.51, "high": 0.57, "samples": 2_000},
         "completed_at": time.time(),
         "promotion": {},
     }
@@ -650,7 +650,7 @@ def test_stale_automatic_evaluation_cannot_replace_a_newer_champion(tmp_path):
         label="old champion",
         path=str(tmp_path / "old.safetensors"),
         actor_path=str(tmp_path / "old.npz"),
-        games=5_000,
+        games=2_000,
         champion=True,
     )
     stale_candidate = store.add_checkpoint(
@@ -665,7 +665,7 @@ def test_stale_automatic_evaluation_cannot_replace_a_newer_champion(tmp_path):
         label="newer champion",
         path=str(tmp_path / "new.safetensors"),
         actor_path=str(tmp_path / "new.npz"),
-        games=15_000,
+        games=12_000,
         champion=True,
     )
     model_a = ResolvedModel(

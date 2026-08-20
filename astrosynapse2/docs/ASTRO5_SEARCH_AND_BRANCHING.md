@@ -38,10 +38,10 @@ older run contracts; selecting Astro4, Astro3, or Astro2 still creates those exa
    policy, and search value losses; importance clipping; aggregate clipping frequency; and sampled
    actor/value/search gradient norms every 1,024 updates.
 9. **Evaluate cheaply and often.** Every 5,000-game checkpoint gets a 64-pair, seat-reversed
-   canary. Every 50,000 games starts a 5,000-pair promotion test. Fixed geometric looks from 1,000
+   canary. Every 50,000 games starts a 2,000-pair promotion test. Fixed geometric looks from 1,000
    pairs can accept a clearly superior candidate using a Bonferroni-corrected one-sided Hoeffding
    lower bound; truncations are scored as candidate losses. Ambiguous evidence runs the full
-   5,000 pairs, and the independent early-rejection boundary remains available. Natural completion
+   2,000 pairs, and the independent early-rejection boundary remains available. Natural completion
    forces a full evaluation of the newest checkpoint even when it falls between normal cadences.
 10. **Adapt and branch.** A persisted realtime governor adjusts bounded learning-rate, update,
     entropy, and reanalysis multipliers from canary trend, entropy, gradient clipping, and search

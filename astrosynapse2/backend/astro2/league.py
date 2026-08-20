@@ -165,7 +165,7 @@ def decide_promotion(
     *,
     confidence: float = 0.95,
     margin: float = 0.0,
-    minimum_pairs: int = 5_000,
+    minimum_pairs: int = 2_000,
     bootstrap_samples: int = 10_000,
 ) -> PromotionDecision:
     first = np.asarray(first_seat_results, dtype=np.float64)

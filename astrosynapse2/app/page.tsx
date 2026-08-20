@@ -88,7 +88,7 @@ const jargon = {
   baseline: "A fixed hand-written opponent used as a stable reference and to provide useful early training games.",
   promotionConfidence: "How certain the evaluation must be before a challenger may become champion. Higher confidence requires stronger or more plentiful evidence.",
   promotionMargin: "The extra win-rate advantage above 50% a challenger must prove before it can become champion.",
-  evaluationPairs: "The mature evaluation size (and the maximum when adaptive evaluation is enabled). Every pair plays two games with seats swapped, so 5,000 pairs means 10,000 games.",
+  evaluationPairs: "The mature evaluation size (and the maximum when adaptive evaluation is enabled). Every pair plays two games with seats swapped, so 2,000 pairs means 4,000 games.",
   adaptiveEvaluation: "Uses smaller confidence-gated promotion rounds early, then increases evaluation size and spacing until the full configured gate is used.",
   stratifiedReplay: "Stored examples are separated by decision type. Capacity and sampling follow the observed distribution while retaining minimum rare-family coverage.",
   decisionFamilies: "Groups of choices with the same meaning. The main phase receives most learner work; rare tactical families retain explicit minimum coverage.",
@@ -626,7 +626,7 @@ const initialConfig: TrainerConfig = {
   currentSelfplayFraction: 0.6,
   leagueFraction: 0.3,
   baselineFraction: 0.1,
-  evaluationPairs: 5_000,
+  evaluationPairs: 2_000,
   adaptiveEvaluation: true,
   evaluateEveryGames: 50_000,
   checkpointEveryGames: 5_000,
@@ -895,8 +895,8 @@ const demoArenaResult: ArenaResultView = {
   id: "demo-arena-042",
   status: "complete",
   progress: 100,
-  pairsCompleted: 5_000,
-  pairsRequested: 5_000,
+  pairsCompleted: 2_000,
+  pairsRequested: 2_000,
   modelALabel: "Champion 042",
   modelBLabel: "Champion 038",
   score: 0.618,
@@ -1119,7 +1119,7 @@ const demoSnapshot: DashboardSnapshot = {
       at: "18 min",
       kind: "success",
       title: "Champion 042 promoted",
-      detail: "61.8% · 95% CI 58.6–64.9 · 5,000 paired games",
+      detail: "61.8% · 95% CI 56.8–66.6 · 2,000 paired games",
     },
     {
       id: "evt-2",
@@ -2813,7 +2813,7 @@ export default function Home() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [arenaA, setArenaA] = useState("champion-042");
   const [arenaB, setArenaB] = useState("champion-038");
-  const [arenaPairs, setArenaPairs] = useState(5_000);
+  const [arenaPairs, setArenaPairs] = useState(2_000);
   const [arenaRunning, setArenaRunning] = useState(false);
   const [arenaProgress, setArenaProgress] = useState(0);
   const [arenaJobId, setArenaJobId] = useState<string | null>(null);
@@ -3694,7 +3694,7 @@ export default function Home() {
       canaryEveryGames: 5_000,
       canaryPairs: 64,
       evaluateEveryGames: 50_000,
-      evaluationPairs: 5_000,
+      evaluationPairs: 2_000,
       realtimeGovernor: true,
       governorIntervalGames: 500,
       evaluationEarlyAcceptance: true,
@@ -4182,7 +4182,7 @@ export default function Home() {
                   <span>{arenaResult ? `${arenaResult.modelALabel} vs ${arenaResult.modelBLabel}` : latestEvaluatedModel ? latestEvaluatedModel.label : "paired arena required"}</span>
                   <small>{arenaHasSamples || hasPersistedEvaluation ? `${formatPercent(heldOutLow)} – ${formatPercent(heldOutHigh)}` : "No confidence interval yet"}</small>
                 </div>
-                {evaluatedMetricPoints.length > 1 ? <MetricCanvas points={evaluatedMetricPoints} mode="quality" height={178} /> : <EmptyState title="Awaiting paired evidence" detail="Run a 5,000-pair arena to estimate strength through game variance." />}
+                {evaluatedMetricPoints.length > 1 ? <MetricCanvas points={evaluatedMetricPoints} mode="quality" height={178} /> : <EmptyState title="Awaiting paired evidence" detail="Run a 2,000-pair arena to estimate strength through game variance." />}
                 <div className="quality-footer">
                   <span><i className="diamond" /> {(arenaResult?.modelALabel ?? snapshot.run.championId.replaceAll("-", " ")) || "No champion yet"}</span>
                   <span>{arenaHasSamples ? <><Jargon term="elo">Elo equivalent</Jargon> {arenaResult!.elo >= 0 ? "+" : ""}{arenaResult!.elo.toFixed(0)}</> : "Not evaluated"}</span>
@@ -4300,7 +4300,7 @@ export default function Home() {
                   <label><span>Run name</span><input value={config.name} onChange={(event) => updateConfig("name", event.target.value)} /></label>
                   <label><span>Time budget</span><div className="input-suffix"><input type="number" min="1" value={config.durationMinutes} onChange={(event) => updateConfig("durationMinutes", Number(event.target.value))} /><b>min</b></div></label>
                   <label><span><Jargon term="actors">Actor processes</Jargon></span><input type="number" min="1" max="16" value={config.actorProcesses} onChange={(event) => updateConfig("actorProcesses", Number(event.target.value))} /></label>
-                  <label><span><Jargon term="evaluationPairs">Evaluation pairs</Jargon></span><input type="number" min="8" max="20000" value={config.evaluationPairs} onChange={(event) => updateConfig("evaluationPairs", Number(event.target.value))} /></label>
+                  <label><span><Jargon term="evaluationPairs">Evaluation pairs</Jargon></span><input type="number" min="8" max="2000" value={config.evaluationPairs} onChange={(event) => updateConfig("evaluationPairs", Number(event.target.value))} /></label>
                 </div>
 
                 <button type="button" className="advanced-toggle" onClick={() => setAdvancedOpen((open) => !open)} aria-expanded={advancedOpen}>
@@ -4363,10 +4363,10 @@ export default function Home() {
                           <label><span>Replay decisions / player-game</span><input type="number" min="1" max="128" value={config.policyReplayDecisionsPerPlayerGame} onChange={(event) => updateConfig("policyReplayDecisionsPerPlayerGame", Number(event.target.value))} /></label>
                           <label className="toggle-label"><input type="checkbox" checked={config.policyReplayFamilyBalanced} onChange={(event) => updateConfig("policyReplayFamilyBalanced", event.target.checked)} /><span />Family-balanced game reservoir</label>
                           <label><span>Canary cadence</span><input type="number" min={config.checkpointEveryGames} step="1000" value={config.canaryEveryGames} onChange={(event) => updateConfig("canaryEveryGames", Number(event.target.value))} /></label>
-                          <label><span>Canary pairs</span><input type="number" min="8" max="5000" value={config.canaryPairs} onChange={(event) => updateConfig("canaryPairs", Number(event.target.value))} /></label>
+                          <label><span>Canary pairs</span><input type="number" min="8" max="2000" value={config.canaryPairs} onChange={(event) => updateConfig("canaryPairs", Number(event.target.value))} /></label>
                           <label><span>Optimization governor cadence</span><input type="number" min="100" step="100" value={config.governorIntervalGames} onChange={(event) => updateConfig("governorIntervalGames", Number(event.target.value))} /></label>
                           <label className="toggle-label"><input type="checkbox" checked={config.evaluationEarlyAcceptance} onChange={(event) => updateConfig("evaluationEarlyAcceptance", event.target.checked)} /><span />Confidence-safe early promotion</label>
-                          <label><span>First early-promotion look</span><input type="number" min="1000" max="20000" step="100" value={config.evaluationEarlyAcceptanceMinPairs} onChange={(event) => updateConfig("evaluationEarlyAcceptanceMinPairs", Number(event.target.value))} /></label>
+                          <label><span>First early-promotion look</span><input type="number" min="1000" max="2000" step="100" value={config.evaluationEarlyAcceptanceMinPairs} onChange={(event) => updateConfig("evaluationEarlyAcceptanceMinPairs", Number(event.target.value))} /></label>
                           <label><span>Early-promotion confidence</span><input type="number" min="0.9" max="0.9999" step="0.0005" value={config.evaluationEarlyAcceptanceConfidence} onChange={(event) => updateConfig("evaluationEarlyAcceptanceConfidence", Number(event.target.value))} /></label>
                         </> : null}
                       </> : <>
@@ -4376,7 +4376,7 @@ export default function Home() {
                       <label><span><Jargon term="checkpoint">{config.trainingGeneration >= 4 ? "Checkpoint / provisional cadence" : "Checkpoint games"}</Jargon></span><input type="number" value={config.checkpointEveryGames} onChange={(event) => updateConfig("checkpointEveryGames", Number(event.target.value))} /></label>
                       <label><span>{config.trainingGeneration >= 4 ? "Full promotion cadence" : "Evaluation games"}</span><input type="number" value={config.evaluateEveryGames} onChange={(event) => updateConfig("evaluateEveryGames", Number(event.target.value))} /></label>
                       <label className="toggle-label"><input type="checkbox" checked={config.adaptiveEvaluation} onChange={(event) => updateConfig("adaptiveEvaluation", event.target.checked)} /><span /><Jargon term="adaptiveEvaluation">Adaptive early evaluation</Jargon></label>
-                    </div>{config.trainingGeneration >= 4 && config.adaptiveEvaluation && config.evaluationPairs >= 5_000 ? <p className="panel-note">Adaptive schedule: {numberFormatter.format(provisionalEvaluationPairs)} pairs every {gameCountFormatter.format(config.checkpointEveryGames)} games before {gameCountFormatter.format(config.evaluateEveryGames)}; {numberFormatter.format(developmentEvaluationPairs)} pairs every {gameCountFormatter.format(developmentEvaluationCadence)} through {gameCountFormatter.format(config.evaluateEveryGames * 2)}; then {numberFormatter.format(config.evaluationPairs)} pairs every {gameCountFormatter.format(config.evaluateEveryGames)}.</p> : null}</div>
+                    </div>{config.trainingGeneration >= 4 && config.adaptiveEvaluation && config.evaluationPairs >= 2_000 ? <p className="panel-note">Adaptive schedule: {numberFormatter.format(provisionalEvaluationPairs)} pairs every {gameCountFormatter.format(config.checkpointEveryGames)} games before {gameCountFormatter.format(config.evaluateEveryGames)}; {numberFormatter.format(developmentEvaluationPairs)} pairs every {gameCountFormatter.format(developmentEvaluationCadence)} through {gameCountFormatter.format(config.evaluateEveryGames * 2)}; then {numberFormatter.format(config.evaluationPairs)} pairs every {gameCountFormatter.format(config.evaluateEveryGames)}.</p> : null}</div>
                     <div className="field-section"><h3>Curriculum, league & promotion</h3><div className="field-grid">
                       <label><span><Jargon term="bootstrapUpdates">Bootstrap updates</Jargon></span><input type="number" min="0" value={config.heuristicBootstrapUpdates} onChange={(event) => updateConfig("heuristicBootstrapUpdates", Number(event.target.value))} /></label>
                       <label><span><Jargon term="selfPlay">{config.behaviorPolicy === "learner" ? "Learner" : "Champion"} self-play</Jargon></span><input type="number" min="0" max="1" step="0.01" value={config.currentSelfplayFraction} onChange={(event) => updateConfig("currentSelfplayFraction", Number(event.target.value))} /></label>
@@ -4453,7 +4453,7 @@ export default function Home() {
                   </div>
                   {trainerActiveRun && trainerActiveRun.id !== remoteRunId ? <button type="button" className="text-button" onClick={() => selectRun(trainerActiveRun.id)}>View active branch →</button> : null}
                 </article>
-                <article className="panel"><header className="panel-header"><div><span className="panel-kicker">Why branch</span><h2>Cross the valley safely</h2></div></header><p>A rejected intermediate is quarantined from deployment but its learner can continue. Short independent canaries reveal which search/entropy/value regime deserves a longer run.</p><dl className="compact-dl"><div><dt>Evaluation</dt><dd>64-pair canaries every 5k games</dd></div><div><dt>Promotion</dt><dd>5,000-pair cap · safe looks from 1,000</dd></div><div><dt>Rollback</dt><dd>Full lineage only</dd></div></dl></article>
+                <article className="panel"><header className="panel-header"><div><span className="panel-kicker">Why branch</span><h2>Cross the valley safely</h2></div></header><p>A rejected intermediate is quarantined from deployment but its learner can continue. Short independent canaries reveal which search/entropy/value regime deserves a longer run.</p><dl className="compact-dl"><div><dt>Evaluation</dt><dd>64-pair canaries every 5k games</dd></div><div><dt>Promotion</dt><dd>2,000-pair cap · safe looks from 1,000</dd></div><div><dt>Rollback</dt><dd>Full lineage only</dd></div></dl></article>
               </aside>
             </div>
             <article className="panel branch-registry">
@@ -4483,7 +4483,7 @@ export default function Home() {
                   <div className="versus-mark"><span>VS</span><i /></div>
                   <label><span>Model B</span><select value={availableModels.some((model) => model.id === arenaB) || arenaBaselines.some((model) => model.id === arenaB) ? arenaB : "baseline:balanced"} onChange={(event) => setArenaB(event.target.value)}>{availableModels.length ? <optgroup label="Available checkpoints">{availableModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup> : null}<optgroup label="Reference baselines">{arenaBaselines.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup></select><small>champion / baseline</small></label>
                 </div>
-                <div className="arena-settings"><label><span><Jargon term="pairedSeeds">Seed pairs</Jargon></span><input type="number" min="1" max="20000" value={arenaPairs} onChange={(event) => setArenaPairs(Math.min(20_000, Math.max(1, Number(event.target.value) || 1)))} /></label><div><span>Games</span><strong>{numberFormatter.format(arenaPairs * 2)}</strong></div><div><span><Jargon term="confidenceInterval">Interval confidence</Jargon></span><strong>95%</strong></div><button type="button" className="button button-primary" onClick={runArena} disabled={arenaRunning || availableModels.length < 1 || arenaA === arenaB}>{arenaRunning ? "Evaluating…" : availableModels.length < 1 ? "Need an available checkpoint" : arenaA === arenaB ? "Choose two rivals" : "Run arena"}</button></div>
+                <div className="arena-settings"><label><span><Jargon term="pairedSeeds">Seed pairs</Jargon></span><input type="number" min="1" max="2000" value={arenaPairs} onChange={(event) => setArenaPairs(Math.min(2_000, Math.max(1, Number(event.target.value) || 1)))} /></label><div><span>Games</span><strong>{numberFormatter.format(arenaPairs * 2)}</strong></div><div><span><Jargon term="confidenceInterval">Interval confidence</Jargon></span><strong>95%</strong></div><button type="button" className="button button-primary" onClick={runArena} disabled={arenaRunning || availableModels.length < 1 || arenaA === arenaB}>{arenaRunning ? "Evaluating…" : availableModels.length < 1 ? "Need an available checkpoint" : arenaA === arenaB ? "Choose two rivals" : "Run arena"}</button></div>
                 {arenaRunning || arenaProgress > 0 ? <div className="arena-progress" aria-live="polite"><div><span>Evaluation progress</span><strong>{Math.round(arenaProgress)}%</strong></div><i><b style={{ width: `${arenaProgress}%` }} /></i><p>{arenaRunning ? `${numberFormatter.format((arenaResult?.pairsCompleted ?? Math.round(arenaPairs * arenaProgress / 100)) * 2)} of ${numberFormatter.format((arenaResult?.pairsRequested ?? arenaPairs) * 2)} games · exact seats reversed` : "Complete · paired result persisted with both checkpoints"}</p></div> : null}
                 {arenaResult ? <div className="arena-result">
                   <div className="result-score"><small>{arenaResult.status === "complete" ? "Latest result" : titleCase(arenaResult.status)}</small><strong>{arenaResult.pairsCompleted ? formatPercent(arenaResult.score) : "Pending"}</strong><span>{arenaResult.modelALabel}</span></div>
@@ -4627,7 +4627,7 @@ export default function Home() {
                 <header className="panel-header"><div><span className="panel-kicker">Safe live settings</span><h2>Next boundary update</h2></div><span className="boundary-chip">Applies between batches</span></header>
                 <div className="field-grid">
                   <label><span>Time budget (minutes)</span><input type="number" value={config.durationMinutes} onChange={(event) => updateConfig("durationMinutes", Number(event.target.value))} /></label>
-                  <label><span><Jargon term="evaluationPairs">Evaluation pairs</Jargon></span><input type="number" min="8" max="20000" value={config.evaluationPairs} onChange={(event) => updateConfig("evaluationPairs", Number(event.target.value))} /></label>
+                  <label><span><Jargon term="evaluationPairs">Evaluation pairs</Jargon></span><input type="number" min="8" max="2000" value={config.evaluationPairs} onChange={(event) => updateConfig("evaluationPairs", Number(event.target.value))} /></label>
                   <label><span>{config.trainingGeneration >= 4 ? "Full promotion every games" : "Evaluate every games"}</span><input type="number" value={config.evaluateEveryGames} onChange={(event) => updateConfig("evaluateEveryGames", Number(event.target.value))} /></label>
                   <label className="toggle-label"><input type="checkbox" checked={config.adaptiveEvaluation} onChange={(event) => updateConfig("adaptiveEvaluation", event.target.checked)} /><span /><Jargon term="adaptiveEvaluation">Adaptive early evaluation</Jargon></label>
                   <label><span><Jargon term="checkpoint">{config.trainingGeneration >= 4 ? "Provisional opportunity every games" : "Checkpoint every games"}</Jargon></span><input type="number" value={config.checkpointEveryGames} onChange={(event) => updateConfig("checkpointEveryGames", Number(event.target.value))} /></label>
@@ -4645,10 +4645,10 @@ export default function Home() {
                     <label><span>Rollouts / action</span><input type="number" min="1" max="16" value={config.reanalysisRolloutsPerAction} onChange={(event) => updateConfig("reanalysisRolloutsPerAction", Number(event.target.value))} /></label>
                     <label><span>Search horizon turns</span><input type="number" min="2" max="20" value={config.reanalysisHorizonTurns} onChange={(event) => updateConfig("reanalysisHorizonTurns", Number(event.target.value))} /></label>
                     <label><span>Canary cadence</span><input type="number" min={config.checkpointEveryGames} step="1000" value={config.canaryEveryGames} onChange={(event) => updateConfig("canaryEveryGames", Number(event.target.value))} /></label>
-                    <label><span>Canary pairs</span><input type="number" min="8" max="5000" value={config.canaryPairs} onChange={(event) => updateConfig("canaryPairs", Number(event.target.value))} /></label>
+                    <label><span>Canary pairs</span><input type="number" min="8" max="2000" value={config.canaryPairs} onChange={(event) => updateConfig("canaryPairs", Number(event.target.value))} /></label>
                     <label><span>Governor cadence</span><input type="number" min="100" step="100" value={config.governorIntervalGames} onChange={(event) => updateConfig("governorIntervalGames", Number(event.target.value))} /></label>
                     <label className="toggle-label"><input type="checkbox" checked={config.evaluationEarlyAcceptance} onChange={(event) => updateConfig("evaluationEarlyAcceptance", event.target.checked)} /><span />Confidence-safe early promotion</label>
-                    <label><span>First early-promotion look</span><input type="number" min="1000" max="20000" value={config.evaluationEarlyAcceptanceMinPairs} onChange={(event) => updateConfig("evaluationEarlyAcceptanceMinPairs", Number(event.target.value))} /></label>
+                    <label><span>First early-promotion look</span><input type="number" min="1000" max="2000" value={config.evaluationEarlyAcceptanceMinPairs} onChange={(event) => updateConfig("evaluationEarlyAcceptanceMinPairs", Number(event.target.value))} /></label>
                   </> : null}
                 </div>
                 <div className="mix-check"><span>Opponent mix</span><i><b style={{ width: `${config.currentSelfplayFraction * 100}%` }} /><b style={{ width: `${config.leagueFraction * 100}%` }} /><b style={{ width: `${config.baselineFraction * 100}%` }} /></i><strong>{Math.round((config.currentSelfplayFraction + config.leagueFraction + config.baselineFraction) * 100)}%</strong></div>

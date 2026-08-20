@@ -150,7 +150,7 @@ class _ActiveElapsedClock:
 def _evaluation_plan(config: RunConfig, games: int) -> _EvaluationPlan:
     """Scale evaluation cost as a run moves from bootstrap to mature play."""
 
-    full_automatic = config.evaluation_pairs >= 5_000
+    full_automatic = config.evaluation_pairs >= 2_000
     if config.training_generation >= 5 and config.canary_every_games:
         return _EvaluationPlan(
             tier="canary",

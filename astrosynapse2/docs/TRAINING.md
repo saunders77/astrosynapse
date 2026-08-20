@@ -28,7 +28,7 @@ Generation-4 heads have independent residual adapters and output banks plus fixe
 
 Generation-4 replay is intentionally not restored from Astro3 snapshots: those rows do not contain legal sets or behavior probabilities. Resume preserves compatible generation-4 weights and optimizer state but repopulates policy replay before updates continue.
 
-The M4 Astro4 preset checkpoints every 50,000 games and uses adaptive promotion evaluation: 1,000 pairs every 50,000 games before 250,000, 1,000 pairs every 125,000 games through 500,000, then the full 5,000-pair gate every 250,000 games. Every promotion evaluation therefore runs at least 2,000 seat-swapped games. Pair counts remain conservative; only the game-count cadence is shortened for Astro4's slower, richer collection pipeline.
+The M4 Astro4 preset checkpoints every 50,000 games and uses adaptive promotion evaluation: 1,000 pairs every 50,000 games before 250,000, 1,000 pairs every 125,000 games through 500,000, then the full 2,000-pair gate every 250,000 games. Every promotion evaluation therefore runs at least 2,000 seat-swapped games. Pair counts remain conservative; only the game-count cadence is shortened for Astro4's slower, richer collection pipeline.
 
 The compatibility mode preserves the legacy generation-2 learner configuration and checkpoint decoding, but it is not a bit-for-bit historical simulator: corrected shared engine, heuristic-baseline, evaluator, retention, and control-lifecycle behavior still applies. It is not the recommended route out of the measured plateau. See the [forensic analysis](PLATEAU_ANALYSIS_AND_ASTROSYNAPSE3.md) for evidence and the staged research plan.
 
@@ -145,7 +145,7 @@ Safety-truncated trajectories and their preference pairs never enter replay. The
 | Direct deployment-policy data | 20% of current self-play (12% of scheduled games) |
 | Checkpoint interval | 100,000 games |
 | Mature evaluation interval | 500,000 games |
-| Promotion evaluation | Adaptive, up to 5,000 paired seeds |
+| Promotion evaluation | Adaptive, up to 2,000 paired seeds |
 | Resume replay journal | Newest 100,000 decisions |
 
 Cosine restart progress follows persisted update counts rather than wall time. Plateau response can temporarily multiply epsilon up to its configured ceiling after repeated clean automatic non-promotions. Invalid or stale evaluations do not count. The status payload always exposes both scheduled epsilon and the applied value.

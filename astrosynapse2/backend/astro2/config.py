@@ -135,17 +135,17 @@ class RunConfig(BaseModel):
     checkpoint_every_games: int = Field(default=100_000, ge=100)
     evaluate_every_games: int = Field(default=500_000, ge=100)
     canary_every_games: int = Field(default=0, ge=0)
-    canary_pairs: int = Field(default=128, ge=8, le=5_000)
-    evaluation_pairs: int = Field(default=5_000, ge=8, le=20_000)
+    canary_pairs: int = Field(default=128, ge=8, le=2_000)
+    evaluation_pairs: int = Field(default=2_000, ge=8, le=2_000)
     adaptive_evaluation: bool = True
     promotion_confidence: float = Field(default=0.95, ge=0.80, le=0.999)
     promotion_margin: float = Field(default=0.0, ge=0, le=0.25)
     evaluation_early_rejection: bool = False
-    evaluation_early_rejection_min_pairs: int = Field(default=512, ge=32, le=20_000)
+    evaluation_early_rejection_min_pairs: int = Field(default=512, ge=32, le=2_000)
     evaluation_early_rejection_confidence: float = Field(default=0.995, ge=0.90, le=0.9999)
     evaluation_early_acceptance: bool = False
     evaluation_early_acceptance_min_pairs: int = Field(
-        default=MINIMUM_PROMOTION_PAIRS, ge=MINIMUM_PROMOTION_PAIRS, le=20_000
+        default=MINIMUM_PROMOTION_PAIRS, ge=MINIMUM_PROMOTION_PAIRS, le=2_000
     )
     evaluation_early_acceptance_confidence: float = Field(
         default=0.995, ge=0.90, le=0.9999
