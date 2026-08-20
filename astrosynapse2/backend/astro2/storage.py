@@ -6,7 +6,8 @@ import json
 import sqlite3
 import time
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,7 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
-    def _connect(self) -> sqlite3.Connection:
+    def _open_connection(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30.0)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA journal_mode=WAL")
@@ -29,6 +30,22 @@ class Store:
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA busy_timeout=30000")
         return connection
+
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """Open one transactional connection and always release its file handles.
+
+        ``sqlite3.Connection`` commits or rolls back when used as a context
+        manager, but it does not close itself. Store calls are frequent during
+        training, so every transaction must explicitly close its connection.
+        """
+
+        connection = self._open_connection()
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _initialize(self) -> None:
         with self._connect() as db:

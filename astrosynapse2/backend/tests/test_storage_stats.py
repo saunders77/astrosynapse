@@ -1,6 +1,8 @@
 import json
+import sqlite3
 
 import numpy as np
+import pytest
 from astro2.config import RunConfig
 from astro2.encoding import Encoder
 from astro2.hardware import RateMeter
@@ -66,6 +68,27 @@ def test_store_round_trip(tmp_path):
     )
     assert checkpoint["is_pinned"] is False
     assert store.set_checkpoint_pinned(checkpoint["id"], True)["is_pinned"] is True
+
+
+def test_store_closes_every_transaction_connection(tmp_path, monkeypatch):
+    store = Store(tmp_path / "astro2.sqlite3")
+    opened: list[sqlite3.Connection] = []
+    connect = store._open_connection
+
+    def tracked_connect() -> sqlite3.Connection:
+        connection = connect()
+        opened.append(connection)
+        return connection
+
+    monkeypatch.setattr(store, "_open_connection", tracked_connect)
+    run = store.create_run(RunConfig.quick())
+    store.append_metric(run["id"], 1, {"games": 16})
+    store.get_run(run["id"])
+
+    assert opened
+    for connection in opened:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            connection.execute("SELECT 1")
 
 
 def test_branch_experiment_and_controller_state_round_trip(tmp_path):
