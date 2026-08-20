@@ -22,7 +22,7 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         assert astro5["reanalysis_rollouts_per_action"] == 1
         assert astro5["reanalysis_horizon_turns"] == 2
         assert astro5["checkpoint_every_games"] == 5_000
-        assert astro5["canary_every_games"] == 5_000
+        assert astro5["canary_every_games"] == 10_000
         assert astro5["canary_pairs"] == 64
         assert astro5["evaluate_every_games"] == 50_000
         assert astro5["governor_interval_games"] == 500

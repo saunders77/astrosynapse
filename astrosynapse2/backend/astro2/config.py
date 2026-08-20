@@ -441,7 +441,7 @@ class RunConfig(BaseModel):
             rejected_candidate_action="continue",
             rollback_rejected_candidates=False,
             checkpoint_every_games=5_000,
-            canary_every_games=5_000,
+            canary_every_games=10_000,
             canary_pairs=64,
             evaluate_every_games=50_000,
             evaluation_early_acceptance=True,
