@@ -250,6 +250,7 @@ type HardwareView = {
 
 type ModelCheckpoint = {
   id: string;
+  runId?: string;
   label: string;
   parentId?: string;
   games: number;
@@ -1565,6 +1566,7 @@ function normalizeMetric(raw: unknown, fallback: MetricPoint): MetricPoint {
 
 const emptyModel: ModelCheckpoint = {
   id: "",
+  runId: "",
   label: "Unnamed checkpoint",
   games: 0,
   created: "—",
@@ -1640,6 +1642,7 @@ function normalizeModel(raw: unknown, fallback: ModelCheckpoint = emptyModel): M
       : fallback.sizeMb;
   return {
     id: asString(item.id, fallback.id),
+    runId: asString(item.run_id, fallback.runId ?? ""),
     label: displayLabel,
     parentId: typeof item.parent_id === "string" && item.parent_id ? item.parent_id : undefined,
     games: asNumber(item.games, fallback.games),
@@ -2830,6 +2833,7 @@ export default function Home() {
   const [remoteRunId, setRemoteRunId] = useState<string | null>(null);
   const [trainerActiveRunId, setTrainerActiveRunId] = useState<string | null>(null);
   const [runChoices, setRunChoices] = useState<RunChoice[]>([]);
+  const [arenaModels, setArenaModels] = useState<ModelCheckpoint[]>(demoModels);
   const [remoteGame, setRemoteGame] = useState<RemoteGameSession | null>(null);
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [branchExperiments, setBranchExperiments] = useState<BranchExperiment[]>([]);
@@ -2871,6 +2875,25 @@ export default function Home() {
     () => snapshot.models.filter((model) => model.actorAvailable),
     [snapshot.models],
   );
+  const availableArenaModels = useMemo(
+    () => arenaModels.filter((model) => model.actorAvailable),
+    [arenaModels],
+  );
+  const arenaModelGroups = useMemo(() => {
+    const runNames = new Map(runChoices.map((run) => [run.id, run.name]));
+    const groups = new Map<string, { runId: string; runName: string; models: ModelCheckpoint[] }>();
+    for (const model of availableArenaModels) {
+      const runId = model.runId || "unknown";
+      const group = groups.get(runId) ?? {
+        runId,
+        runName: runNames.get(runId) ?? (runId === "unknown" ? "Other checkpoints" : runId),
+        models: [],
+      };
+      group.models.push(model);
+      groups.set(runId, group);
+    }
+    return [...groups.values()].sort((left, right) => left.runName.localeCompare(right.runName));
+  }, [availableArenaModels, runChoices]);
   useEffect(() => {
     if (branchSourceId && branchSources.some((model) => model.id === branchSourceId)) return;
     const preferred = branchSources.find((model) => model.isChampion && model.evaluated)
@@ -3100,10 +3123,12 @@ export default function Home() {
           );
         }
         if (Array.isArray(branchModelsRaw)) {
+          const allModels = branchModelsRaw
+            .filter(isRecord)
+            .map((model) => normalizeModel(model));
+          setArenaModels(allModels);
           setBranchSources(
-            branchModelsRaw
-              .filter(isRecord)
-              .map((model) => normalizeModel(model))
+            allModels
               .filter((model) => model.branchCompatible),
           );
         }
@@ -3353,13 +3378,16 @@ export default function Home() {
   useEffect(() => {
     if (!snapshot.models.length) return;
     const champion = availableModels.find((model) => model.isChampion) ?? availableModels[0];
-    const challenger = availableModels.find((model) => model.id !== champion?.id);
     if (playModel !== "baseline" && !availableModels.some((model) => model.id === playModel)) setPlayModel(champion?.id ?? "baseline");
-    if (!availableModels.some((model) => model.id === arenaA) && !arenaBaselines.some((model) => model.id === arenaA)) setArenaA(champion?.id ?? "baseline:balanced");
-    if (!availableModels.some((model) => model.id === arenaB) && !arenaBaselines.some((model) => model.id === arenaB)) setArenaB(challenger?.id ?? "baseline:balanced");
-    if (arenaA === arenaB) setArenaB(challenger?.id ?? "baseline:balanced");
+    const arenaChampion = availableArenaModels.find((model) => model.id === champion?.id)
+      ?? availableArenaModels.find((model) => model.isChampion)
+      ?? availableArenaModels[0];
+    const arenaChallenger = availableArenaModels.find((model) => model.id !== arenaChampion?.id);
+    if (!availableArenaModels.some((model) => model.id === arenaA) && !arenaBaselines.some((model) => model.id === arenaA)) setArenaA(arenaChampion?.id ?? "baseline:balanced");
+    if (!availableArenaModels.some((model) => model.id === arenaB) && !arenaBaselines.some((model) => model.id === arenaB)) setArenaB(arenaChallenger?.id ?? "baseline:balanced");
+    if (arenaA === arenaB) setArenaB(arenaChallenger?.id ?? "baseline:balanced");
     if (!availableModels.some((model) => model.id === analysisModel)) setAnalysisModel(champion?.id ?? "");
-  }, [snapshot.models, availableModels, playModel, arenaA, arenaB, analysisModel]);
+  }, [snapshot.models, availableModels, availableArenaModels, playModel, arenaA, arenaB, analysisModel]);
 
   useEffect(() => {
     if (!connected || !remoteGame?.id || remoteGame.status !== "model_thinking") return;
@@ -4489,17 +4517,17 @@ export default function Home() {
               <article className="panel arena-console">
                 <header className="panel-header"><div><span className="panel-kicker">Head-to-head laboratory</span><h2>Arena match</h2></div><span className="paired-chip"><Jargon term="pairedSeeds">Paired randomness</Jargon></span></header>
                 <div className="versus-row">
-                  <label><span>Model A</span><select value={availableModels.some((model) => model.id === arenaA) || arenaBaselines.some((model) => model.id === arenaA) ? arenaA : "baseline:balanced"} onChange={(event) => setArenaA(event.target.value)}>{availableModels.length ? <optgroup label="Available checkpoints">{availableModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup> : null}<optgroup label="Reference baselines">{arenaBaselines.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup></select><small>candidate / challenger</small></label>
+                  <label><span>Model A</span><select aria-label="Arena model A from any run" value={availableArenaModels.some((model) => model.id === arenaA) || arenaBaselines.some((model) => model.id === arenaA) ? arenaA : "baseline:balanced"} onChange={(event) => setArenaA(event.target.value)}>{arenaModelGroups.map((group) => <optgroup key={group.runId} label={`Run · ${group.runName}`}>{group.models.map((model) => <option key={model.id} value={model.id}>{model.label} · {gameCountFormatter.format(model.games)} games{model.isChampion ? " · champion" : ""}</option>)}</optgroup>)}<optgroup label="Reference baselines">{arenaBaselines.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup></select><small>checkpoint from any run</small></label>
                   <div className="versus-mark"><span>VS</span><i /></div>
-                  <label><span>Model B</span><select value={availableModels.some((model) => model.id === arenaB) || arenaBaselines.some((model) => model.id === arenaB) ? arenaB : "baseline:balanced"} onChange={(event) => setArenaB(event.target.value)}>{availableModels.length ? <optgroup label="Available checkpoints">{availableModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup> : null}<optgroup label="Reference baselines">{arenaBaselines.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup></select><small>champion / baseline</small></label>
+                  <label><span>Model B</span><select aria-label="Arena model B from any run" value={availableArenaModels.some((model) => model.id === arenaB) || arenaBaselines.some((model) => model.id === arenaB) ? arenaB : "baseline:balanced"} onChange={(event) => setArenaB(event.target.value)}>{arenaModelGroups.map((group) => <optgroup key={group.runId} label={`Run · ${group.runName}`}>{group.models.map((model) => <option key={model.id} value={model.id}>{model.label} · {gameCountFormatter.format(model.games)} games{model.isChampion ? " · champion" : ""}</option>)}</optgroup>)}<optgroup label="Reference baselines">{arenaBaselines.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup></select><small>checkpoint from any run</small></label>
                 </div>
-                <div className="arena-settings"><label><span><Jargon term="pairedSeeds">Seed pairs</Jargon></span><input type="number" min="1" max="2000" value={arenaPairs} onChange={(event) => setArenaPairs(Math.min(2_000, Math.max(1, Number(event.target.value) || 1)))} /></label><div><span>Games</span><strong>{numberFormatter.format(arenaPairs * 2)}</strong></div><div><span><Jargon term="confidenceInterval">Interval confidence</Jargon></span><strong>95%</strong></div><button type="button" className="button button-primary" onClick={runArena} disabled={arenaRunning || availableModels.length < 1 || arenaA === arenaB}>{arenaRunning ? "Evaluating…" : availableModels.length < 1 ? "Need an available checkpoint" : arenaA === arenaB ? "Choose two rivals" : "Run arena"}</button></div>
+                <div className="arena-settings"><label><span><Jargon term="pairedSeeds">Seed pairs</Jargon></span><input type="number" min="1" max="2000" value={arenaPairs} onChange={(event) => setArenaPairs(Math.min(2_000, Math.max(1, Number(event.target.value) || 1)))} /></label><div><span>Games</span><strong>{numberFormatter.format(arenaPairs * 2)}</strong></div><div><span><Jargon term="confidenceInterval">Interval confidence</Jargon></span><strong>95%</strong></div><button type="button" className="button button-primary" onClick={runArena} disabled={arenaRunning || availableArenaModels.length < 1 || arenaA === arenaB}>{arenaRunning ? "Evaluating…" : availableArenaModels.length < 1 ? "Need an available checkpoint" : arenaA === arenaB ? "Choose two rivals" : "Run arena"}</button></div>
                 {arenaRunning || arenaProgress > 0 ? <div className="arena-progress" aria-live="polite"><div><span>Evaluation progress</span><strong>{Math.round(arenaProgress)}%</strong></div><i><b style={{ width: `${arenaProgress}%` }} /></i><p>{arenaRunning ? `${numberFormatter.format((arenaResult?.pairsCompleted ?? Math.round(arenaPairs * arenaProgress / 100)) * 2)} of ${numberFormatter.format((arenaResult?.pairsRequested ?? arenaPairs) * 2)} games · exact seats reversed` : "Complete · paired result persisted with both checkpoints"}</p></div> : null}
                 {arenaResult ? <div className="arena-result">
                   <div className="result-score"><small>{arenaResult.status === "complete" ? "Latest result" : titleCase(arenaResult.status)}</small><strong>{arenaResult.pairsCompleted ? formatPercent(arenaResult.score) : "Pending"}</strong><span>{arenaResult.modelALabel}</span></div>
                   {arenaResult.pairsCompleted ? <><div className="interval-track"><i className="threshold" /><span style={{ left: `${arenaResult.ciLow * 100}%`, width: `${Math.max(0, arenaResult.ciHigh - arenaResult.ciLow) * 100}%` }} /><b style={{ left: `${arenaResult.score * 100}%` }} /></div><div className="interval-labels"><span>50% tie</span><strong><Jargon term="confidenceInterval">95% CI</Jargon> {formatPercent(arenaResult.ciLow)}–{formatPercent(arenaResult.ciHigh)}</strong><span>{arenaResult.elo >= 0 ? "+" : ""}{arenaResult.elo.toFixed(0)} <Jargon term="elo">Elo</Jargon></span></div></> : <div className="arena-pending">Waiting for the first paired games…</div>}
                   <p className="arena-recommendation">{arenaResult.recommendation} · {numberFormatter.format(arenaResult.pairsCompleted)} / {numberFormatter.format(arenaResult.pairsRequested)} pairs · {numberFormatter.format(arenaResult.gamesCompleted)} games · seat A {formatPercent(arenaResult.firstSeatScore)} / seat B {formatPercent(arenaResult.secondSeatScore)} · {numberFormatter.format(arenaResult.truncatedGames)} truncations · {titleCase(arenaResult.intervalMethod)}</p>
-                </div> : <EmptyState title={availableModels.length < 1 ? "Arena needs an available actor" : "No arena evidence yet"} detail={availableModels.length < 1 ? "Launch training or retain an actor snapshot; pruned history remains visible in the registry." : "Compare a checkpoint with another model or baseline using paired seeds."} />}
+                </div> : <EmptyState title={availableArenaModels.length < 1 ? "Arena needs an available actor" : "No arena evidence yet"} detail={availableArenaModels.length < 1 ? "Launch training or retain an actor snapshot; pruned history remains visible in the registry." : "Compare checkpoints from any two runs, or use a reference baseline, with paired seeds."} />}
               </article>
 
               <article className="panel lineage-panel">

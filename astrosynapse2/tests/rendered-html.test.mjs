@@ -108,6 +108,11 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /artifact_state/);
   assert.match(page, /actorAvailable/);
   assert.match(page, /availableModels/);
+  assert.match(page, /availableArenaModels/);
+  assert.match(page, /arenaModelGroups/);
+  assert.match(page, /Run · \$\{group\.runName\}/);
+  assert.match(page, /Arena model A from any run/);
+  assert.match(page, /checkpoint from any run/);
   assert.match(page, /artifacts pruned · history retained/);
   assert.match(page, /ModelDiagnosticStrip/);
   assert.match(styles, /\.checkpoint-diagnostics/);
