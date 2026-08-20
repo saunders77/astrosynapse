@@ -532,7 +532,7 @@ def prune_checkpoint_artifacts(
     if keep_checkpoints < 1:
         raise ValueError("keep_checkpoints must be positive")
     run = store.get_run(run_id)
-    config = RunConfig.model_validate(run["config"])
+    config = RunConfig.model_validate_persisted(run["config"])
     checkpoint_parent = store.path.parent / "checkpoints"
     root = checkpoint_parent / run_id
     root = root.absolute()

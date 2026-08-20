@@ -967,6 +967,34 @@ def test_paused_run_can_hydrate_after_backend_restart(tmp_path, monkeypatch):
     assert started.wait(1.0)
 
 
+def test_start_repairs_legacy_evaluation_pairs_before_trainer_thread(tmp_path, monkeypatch):
+    store = Store(tmp_path / "state.sqlite3")
+    run = store.create_run(RunConfig.astro5_search())
+    legacy = run["config"] | {"evaluation_pairs": 5_000}
+    store.update_run(run["id"], config_json=json.dumps(legacy))
+    supervisor = Supervisor(store, tmp_path)
+    observed: dict[str, int] = {}
+
+    def hydrated(run_id, _control):
+        persisted = store.get_run(run_id)["config"]
+        observed["evaluation_pairs"] = RunConfig.model_validate(persisted).evaluation_pairs
+
+    monkeypatch.setattr(supervisor, "_run_thread", hydrated)
+    supervisor.start(run["id"])
+    supervisor._handles[run["id"]].thread.join(timeout=1.0)
+
+    assert observed == {"evaluation_pairs": 2_000}
+    repaired = store.get_run(run["id"])
+    assert repaired["config"]["evaluation_pairs"] == 2_000
+    events = store.events(run["id"], limit=20)
+    assert any(event["kind"] == "persisted_config_repaired" for event in events)
+
+
+def test_new_evaluation_pairs_above_limit_remain_invalid():
+    with pytest.raises(ValueError, match="less than or equal to 2000"):
+        RunConfig.model_validate({"evaluation_pairs": 5_000})
+
+
 def test_paused_control_services_durable_requests_before_announcing_paused():
     control = RunControl()
     log: list[str] = []

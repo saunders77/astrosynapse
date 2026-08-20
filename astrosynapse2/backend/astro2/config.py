@@ -177,6 +177,28 @@ class RunConfig(BaseModel):
     device: Literal["auto", "gpu", "cpu"] = "auto"
     metrics_interval_seconds: float = Field(default=1.0, ge=0.25, le=30)
 
+    @classmethod
+    def model_validate_persisted(cls, value: object) -> RunConfig:
+        """Validate a stored recipe while repairing obsolete schema limits.
+
+        Older builds allowed promotion evaluations above the dashboard/API's
+        current 2,000-pair safety cap.  Runs are durable across upgrades, so a
+        value that was valid when written must not make the trainer crash when
+        it is resumed.  New input continues to use ``model_validate`` and is
+        therefore rejected rather than silently changed.
+        """
+
+        if isinstance(value, dict):
+            value = dict(value)
+            evaluation_pairs = value.get("evaluation_pairs")
+            if (
+                isinstance(evaluation_pairs, (int, float))
+                and not isinstance(evaluation_pairs, bool)
+                and evaluation_pairs > 2_000
+            ):
+                value["evaluation_pairs"] = 2_000
+        return cls.model_validate(value)
+
     @model_validator(mode="after")
     def validate_mix_and_schedule(self) -> RunConfig:
         # Old generation-2 configs did not persist these fields and retain the

@@ -2371,7 +2371,7 @@ def run_training(
     os.environ.setdefault("OMP_NUM_THREADS", "1")
 
     run = store.get_run(run_id)
-    config = RunConfig.model_validate(run["config"])
+    config = RunConfig.model_validate_persisted(run["config"])
     hardware = _configure_mlx(config.device)
     store.event(
         run_id,
@@ -3190,7 +3190,7 @@ def run_training(
                 break
 
             run = store.get_run(run_id)
-            config = RunConfig.model_validate(run["config"])
+            config = RunConfig.model_validate_persisted(run["config"])
 
             # A rejected learner never becomes the behavior policy. Invalid
             # arenas receive retryable dispositions rather than looking like

@@ -147,6 +147,23 @@ class Supervisor:
                 "complete",
             }:
                 raise InvalidTransition(f"cannot start a run in state {run['status']}")
+            config = RunConfig.model_validate_persisted(run["config"])
+            repaired_config = config.model_dump()
+            if repaired_config != run["config"]:
+                old_evaluation_pairs = run["config"].get("evaluation_pairs")
+                self.store.update_run(run_id, config_json=config.model_dump_json())
+                self.store.event(
+                    run_id,
+                    "persisted_config_repaired",
+                    "Updated stored configuration to current validation limits",
+                    {
+                        "evaluation_pairs": {
+                            "old": old_evaluation_pairs,
+                            "new": config.evaluation_pairs,
+                        }
+                    },
+                )
+                run = self.store.get_run(run_id)
             control = RunControl()
             thread = threading.Thread(
                 target=self._run_thread,
