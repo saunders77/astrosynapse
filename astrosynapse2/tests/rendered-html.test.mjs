@@ -90,6 +90,9 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /Select run to view and control/);
   assert.match(page, /\?\? activeId\s*\?\? liveId/);
   assert.match(page, /selectedRunOverrideRef/);
+  assert.match(page, /safetyBusy\.pause \|\| safetyBusy\.stop/);
+  assert.match(page, /\|\| safetyBusy\.stop\}>■ Stop/);
+  assert.doesNotMatch(page, /invokeControl\("(?:pause|stop)"\)[\s\S]{0,180}commandBusy !== null/);
   assert.match(page, /baseline:balanced/);
   assert.match(page, /explorersRemaining/);
   assert.match(page, /latest_arena/);
