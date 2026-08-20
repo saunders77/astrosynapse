@@ -3794,6 +3794,29 @@ button.game-card:hover:not(:disabled) {
   color: var(--muted, #9ca3af);
 }
 
+.branch-variant-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin: 12px 0;
+}
+
+.branch-variant-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.branch-variant-option input {
+  accent-color: var(--mint);
+}
+
+@media (max-width: 640px) {
+  .branch-variant-options { grid-template-columns: 1fr; }
+}
+
 .branch-registry {
   margin-top: 1.25rem;
 }

@@ -10,6 +10,7 @@ from astro2.model import ModelSpec
 from astro2.stats import elo_delta, wilson_interval
 from astro2.storage import Store
 from astro2.supervisor import Supervisor
+from astro2.trainer import _training_budget_reached
 
 
 def test_wilson_interval_behaves_at_small_sample_sizes():
@@ -40,6 +41,55 @@ def test_rate_meter_includes_idle_time_between_batched_results(monkeypatch):
     assert idle["games_per_second"] == 0.0
     assert measured["games_per_second"] == 10.0
     assert measured["decisions_per_second"] == 200.0
+
+
+@pytest.mark.parametrize(
+    ("config", "elapsed", "games", "evaluations", "expected", "reason"),
+    [
+        (
+            RunConfig.quick().model_copy(update={"duration_minutes": 5}),
+            300,
+            0,
+            0,
+            True,
+            "duration complete",
+        ),
+        (
+            RunConfig.quick().model_copy(update={"budget_type": "games", "budget_games": 1_000}),
+            999_999,
+            1_000,
+            0,
+            True,
+            "game budget complete",
+        ),
+        (
+            RunConfig.quick().model_copy(
+                update={"budget_type": "full_evaluations", "budget_full_evaluations": 2}
+            ),
+            999_999,
+            999_999,
+            1,
+            False,
+            "full-evaluation budget complete",
+        ),
+    ],
+)
+def test_training_budget_modes(config, elapsed, games, evaluations, expected, reason):
+    reached, actual_reason = _training_budget_reached(
+        config,
+        active_elapsed=elapsed,
+        games=games,
+        full_evaluations=evaluations,
+    )
+    assert reached is expected
+    assert actual_reason == reason
+
+
+def test_budget_mode_requires_matching_value():
+    with pytest.raises(ValueError, match="budget_games"):
+        RunConfig.model_validate(
+            {**RunConfig.quick().model_dump(), "budget_type": "games", "budget_games": None}
+        )
 
 
 def test_store_round_trip(tmp_path):

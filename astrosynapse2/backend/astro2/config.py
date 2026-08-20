@@ -29,6 +29,9 @@ class RunConfig(BaseModel):
     # Python, so API/UI round-trips cannot silently change an experiment.
     seed: int = Field(default=20260807, ge=0, le=MAX_REPRODUCIBILITY_SEED)
     duration_minutes: int = Field(default=24 * 60, ge=1, le=7 * 24 * 60)
+    budget_type: Literal["minutes", "games", "full_evaluations"] = "minutes"
+    budget_games: int | None = Field(default=None, ge=100, le=2_000_000_000)
+    budget_full_evaluations: int | None = Field(default=None, ge=1, le=1_000)
 
     actor_processes: int = Field(
         default_factory=lambda: max(2, min(8, (os.cpu_count() or 4) - 2)), ge=1, le=16
@@ -223,6 +226,12 @@ class RunConfig(BaseModel):
             )
         if self.canary_every_games and self.canary_every_games < self.checkpoint_every_games:
             raise ValueError("canary_every_games must be zero or at least checkpoint_every_games")
+        if self.budget_type == "games" and self.budget_games is None:
+            raise ValueError("budget_games is required when budget_type is games")
+        if self.budget_type == "full_evaluations" and self.budget_full_evaluations is None:
+            raise ValueError(
+                "budget_full_evaluations is required when budget_type is full_evaluations"
+            )
         return self
 
     @classmethod

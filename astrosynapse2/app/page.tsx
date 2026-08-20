@@ -531,6 +531,62 @@ const arenaBaselines = [
   { id: "baseline:random", label: "Random baseline" },
 ];
 
+const branchVariantTemplates = [
+  { id: "balanced", label: "Balanced search" },
+  {
+    id: "search-heavy",
+    label: "Search-heavy",
+    reanalysis_fraction: 0.005,
+    reanalysis_max_per_game: 1,
+    reanalysis_max_actions: 6,
+    reanalysis_rollouts_per_action: 1,
+    updates_per_iteration: 40,
+  },
+  {
+    id: "entropy-recovery",
+    label: "Entropy recovery",
+    learning_rate: 0.00007,
+    policy_entropy_weight: 0.04,
+    governor_target_normalized_entropy: 0.65,
+  },
+  {
+    id: "value-first",
+    label: "Value-first",
+    policy_value_loss_weight: 0.8,
+    reanalysis_value_loss_weight: 0.9,
+    reanalysis_policy_loss_weight: 0.8,
+  },
+  {
+    id: "fast-exploitation",
+    label: "Fast exploitation",
+    learning_rate: 0.00012,
+    updates_per_iteration: 48,
+    policy_entropy_weight: 0.012,
+  },
+  {
+    id: "wide-belief-search",
+    label: "Wide belief search",
+    reanalysis_horizon_turns: 4,
+    reanalysis_max_actions: 4,
+    reanalysis_fraction: 0.0035,
+  },
+  {
+    id: "low-lr-long-memory",
+    label: "Low LR long memory",
+    learning_rate: 0.00005,
+    policy_replay_capacity: 2_000_000,
+  },
+  {
+    id: "explorer",
+    label: "Explorer",
+    epsilon_end: 0.08,
+    randomized_prior_scale: 0.4,
+    policy_entropy_weight: 0.035,
+  },
+] as const;
+
+type BranchBudgetType = "minutes" | "games" | "full_evaluations";
+
 const tabs: Array<{ id: TabId; label: string; short: string }> = [
   { id: "overview", label: "Overview", short: "01" },
   { id: "train", label: "Train", short: "02" },
@@ -2779,8 +2835,11 @@ export default function Home() {
   const [branchSources, setBranchSources] = useState<ModelCheckpoint[]>([]);
   const [branchSourceId, setBranchSourceId] = useState("");
   const [branchName, setBranchName] = useState("Champion branch lab");
-  const [branchCount, setBranchCount] = useState(3);
+  const [branchVariantIds, setBranchVariantIds] = useState<string[]>(["balanced", "search-heavy", "entropy-recovery"]);
+  const [branchBudgetType, setBranchBudgetType] = useState<BranchBudgetType>("minutes");
   const [branchMinutes, setBranchMinutes] = useState(360);
+  const [branchGames, setBranchGames] = useState(50_000);
+  const [branchFullEvaluations, setBranchFullEvaluations] = useState(1);
   const [branchAutoAdvance, setBranchAutoAdvance] = useState(true);
   const pollInFlight = useRef(false);
   const hasConnectedRef = useRef(false);
@@ -3490,43 +3549,16 @@ export default function Home() {
       showToast("Choose a compatible champion or checkpoint first");
       return;
     }
-    const templates = [
-      { label: "Balanced search" },
-      {
-        label: "Search-heavy",
-        reanalysis_fraction: 0.005,
-        reanalysis_max_per_game: 1,
-        reanalysis_max_actions: 6,
-        reanalysis_rollouts_per_action: 1,
-        updates_per_iteration: 40,
-      },
-      {
-        label: "Entropy recovery",
-        learning_rate: 0.00007,
-        policy_entropy_weight: 0.04,
-        governor_target_normalized_entropy: 0.65,
-      },
-      {
-        label: "Value-first",
-        policy_value_loss_weight: 0.8,
-        reanalysis_value_loss_weight: 0.9,
-        reanalysis_policy_loss_weight: 0.8,
-      },
-      {
-        label: "Fast exploitation",
-        learning_rate: 0.00012,
-        updates_per_iteration: 48,
-        policy_entropy_weight: 0.012,
-      },
-      {
-        label: "Wide belief search",
-        reanalysis_horizon_turns: 4,
-        reanalysis_max_actions: 4,
-        reanalysis_fraction: 0.0035,
-      },
-      { label: "Low LR long memory", learning_rate: 0.00005, policy_replay_capacity: 2_000_000 },
-      { label: "Explorer", epsilon_end: 0.08, randomized_prior_scale: 0.4, policy_entropy_weight: 0.035 },
-    ].slice(0, Math.max(1, Math.min(8, branchCount)));
+    const templates = branchVariantTemplates
+      .filter((template) => branchVariantIds.includes(template.id))
+      .map(({ id, ...template }) => {
+        void id;
+        return template;
+      });
+    if (!templates.length) {
+      showToast("Select at least one branch variant");
+      return;
+    }
     setCommandBusy("branch-launch");
     try {
       if (!connected) {
@@ -3541,6 +3573,9 @@ export default function Home() {
           variants: templates,
           base_overrides: {
             duration_minutes: branchMinutes,
+            budget_type: branchBudgetType,
+            ...(branchBudgetType === "games" ? { budget_games: branchGames } : {}),
+            ...(branchBudgetType === "full_evaluations" ? { budget_full_evaluations: branchFullEvaluations } : {}),
             games_per_actor_batch: 4,
             rollout_tasks_per_actor: 4,
             reanalysis_fraction: 0.0025,
@@ -4394,16 +4429,18 @@ export default function Home() {
                 <div className="field-grid primary-fields">
                   <label><span>Source champion / checkpoint</span><select value={branchSourceId} onChange={(event) => setBranchSourceId(event.target.value)}><option value="">Choose a model…</option>{branchSources.map((model) => <option value={model.id} key={model.id}>{model.isChampion ? "★ " : ""}{model.label} · {gameCountFormatter.format(model.games)} games · {model.id}</option>)}</select></label>
                   <label><span>Experiment name</span><input value={branchName} onChange={(event) => setBranchName(event.target.value)} /></label>
-                  <label><span>Branch variants</span><input type="number" min="1" max="8" value={branchCount} onChange={(event) => setBranchCount(Number(event.target.value))} /></label>
-                  <label><span>Budget per branch</span><div className="input-suffix"><input type="number" min="1" max="10080" value={branchMinutes} onChange={(event) => setBranchMinutes(Number(event.target.value))} /><b>min</b></div></label>
+                  <label><span>Budget type</span><select value={branchBudgetType} onChange={(event) => setBranchBudgetType(event.target.value as BranchBudgetType)}><option value="minutes">Minutes per branch</option><option value="full_evaluations">Full evaluations per branch</option><option value="games">Training games per branch</option></select></label>
+                  {branchBudgetType === "minutes" ? <label><span>Budget per branch</span><div className="input-suffix"><input type="number" min="1" max="10080" value={branchMinutes} onChange={(event) => setBranchMinutes(Number(event.target.value))} /><b>min</b></div></label> : null}
+                  {branchBudgetType === "games" ? <label><span>Budget per branch</span><div className="input-suffix"><input type="number" min="100" max="2000000000" step="1000" value={branchGames} onChange={(event) => setBranchGames(Number(event.target.value))} /><b>games</b></div></label> : null}
+                  {branchBudgetType === "full_evaluations" ? <label><span>Budget per branch</span><div className="input-suffix"><input type="number" min="1" max="1000" value={branchFullEvaluations} onChange={(event) => setBranchFullEvaluations(Number(event.target.value))} /><b>full evals</b></div></label> : null}
                   <label className="toggle-label"><input type="checkbox" checked={branchAutoAdvance} onChange={(event) => setBranchAutoAdvance(event.target.checked)} /><span />Run queued branches automatically</label>
                 </div>
                 <div className="branch-variant-preview">
-                  <strong>Generated variants</strong>
-                  <p>Balanced search · search-heavy · entropy recovery · value-first · fast exploitation · wide belief search · low-LR long-memory · explorer</p>
-                  <small>The first {branchCount} recipes are created. Architecture is inherited from the source; only optimization/search properties vary.</small>
+                  <strong>Branch variants</strong>
+                  <div className="branch-variant-options">{branchVariantTemplates.map((template) => <label className="branch-variant-option" key={template.id}><input type="checkbox" checked={branchVariantIds.includes(template.id)} onChange={(event) => setBranchVariantIds((current) => event.target.checked ? [...current, template.id] : current.filter((id) => id !== template.id))} /><span>{template.label}</span></label>)}</div>
+                  <small>{branchVariantIds.length} selected. Every selected recipe starts independently from the source checkpoint; architecture is inherited and only optimization/search properties vary.</small>
                 </div>
-                <div className="form-actions"><div><span className="validation-light" /> Compatible generation-4/5 policy checkpoints only</div><button type="button" className="button button-primary" disabled={!branchSourceId || commandBusy !== null} onClick={launchBranchExperiment}>{commandBusy === "branch-launch" ? "Copying lineage…" : "Create & start branch system"}</button></div>
+                <div className="form-actions"><div><span className="validation-light" /> Compatible generation-4/5 policy checkpoints only</div><button type="button" className="button button-primary" disabled={!branchSourceId || !branchVariantIds.length || commandBusy !== null} onClick={launchBranchExperiment}>{commandBusy === "branch-launch" ? "Copying lineage…" : "Create & start branch system"}</button></div>
               </article>
               <aside className="train-sidebar">
                 <article className="panel">

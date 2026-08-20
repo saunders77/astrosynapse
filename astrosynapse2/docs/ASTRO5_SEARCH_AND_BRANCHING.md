@@ -54,7 +54,8 @@ older run contracts; selecting Astro4, Astro3, or Astro2 still creates those exa
 ## Branch execution model
 
 An experiment pins its source and creates one run per variant. Each run receives private copied
-artifacts and an independent deterministic seed. Only one learner runs at a time. With auto-advance
+artifacts and an independent deterministic seed. All variants fork the selected source directly;
+no queued variant inherits the preceding variant's final checkpoint or champion. Only one learner runs at a time. With auto-advance
 enabled, queued branches start after the current branch—or an already-active ordinary run—releases
 the trainer. Stopping a branch pauses its experiment instead of unexpectedly starting the next one.
 The GUI's Branch runner controls resolve the backend's active run ID, so pause/stop remain enabled
@@ -62,7 +63,10 @@ and target the correct process even while the user is viewing a queued branch.
 
 The built-in GUI variants are balanced search, search-heavy, entropy recovery, value-first, fast
 exploitation, wide belief search, low-learning-rate long memory, and explorer. They inherit model
-architecture from the source checkpoint so the imported weights always remain compatible.
+architecture from the source checkpoint so the imported weights always remain compatible. The GUI
+allows any subset of these recipes and can stop each branch by elapsed minutes, generated training
+games, or the number of valid completed full promotion evaluations. Game budgets finish at a safe
+actor-batch boundary and may therefore exceed the requested count by the final batch.
 
 ## Reading the result
 

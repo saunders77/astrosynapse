@@ -863,6 +863,33 @@ def _completed_trainer_evaluations(store: Store, run_id: str) -> list[dict[str, 
     ]
 
 
+def _completed_full_evaluation_count(store: Store, run_id: str) -> int:
+    """Count valid, terminal full promotion evaluations for a run."""
+
+    return sum(
+        1
+        for job in _completed_trainer_evaluations(store, run_id)
+        if (job.get("config") or {}).get("promotion_tier", "full") == "full"
+    )
+
+
+def _training_budget_reached(
+    config: RunConfig,
+    *,
+    active_elapsed: float,
+    games: int,
+    full_evaluations: int,
+) -> tuple[bool, str]:
+    if config.budget_type == "games":
+        reached = games >= int(config.budget_games or 0)
+        return reached, "game budget complete"
+    if config.budget_type == "full_evaluations":
+        reached = full_evaluations >= int(config.budget_full_evaluations or 0)
+        return reached, "full-evaluation budget complete"
+    reached = active_elapsed >= config.duration_minutes * 60.0
+    return reached, "duration complete"
+
+
 def _is_trainer_evaluation(job: dict[str, Any]) -> bool:
     config = job.get("config") or {}
     # Older automatic jobs predate the explicit trainer_scheduled marker. No
@@ -3138,8 +3165,13 @@ def run_training(
     # A run may resume just after a checkpoint was written but before its
     # evaluation was scheduled (for example after upgrading the backend).
     # Reconsider the latest immutable candidate without duplicating an
-    # already-persisted trainer job.
-    maybe_schedule_evaluation()
+    # already-persisted trainer job, unless its evaluation budget is complete.
+    if not (
+        config.budget_type == "full_evaluations"
+        and _completed_full_evaluation_count(store, run_id)
+        >= int(config.budget_full_evaluations or 0)
+    ):
+        maybe_schedule_evaluation()
 
     # macOS uses spawn, avoiding unsafe post-Metal forks. Actors never import
     # MLX, so each process remains a small engine/NumPy worker.
@@ -3164,6 +3196,16 @@ def run_training(
             # arenas receive retryable dispositions rather than looking like
             # genuine skill regressions.
             evaluation_boundary_checkpoint_id = process_completed_evaluations()
+            active_elapsed = current_active_elapsed()
+            budget_reached, budget_reason = _training_budget_reached(
+                config,
+                active_elapsed=active_elapsed,
+                games=totals.games,
+                full_evaluations=_completed_full_evaluation_count(store, run_id),
+            )
+            if budget_reached:
+                final_reason = budget_reason
+                break
             # The arena deliberately has no stale-job queue. Rechecking once
             # per iteration releases the newest due checkpoint after either an
             # automatic promotion job or a diagnostic trainer job finishes.
@@ -3190,11 +3232,6 @@ def run_training(
                     ),
                 }
             )
-            active_elapsed = current_active_elapsed()
-            duration_seconds = config.duration_minutes * 60.0
-            if active_elapsed >= duration_seconds:
-                break
-
             _sync_league(
                 league,
                 store,
@@ -3414,7 +3451,13 @@ def run_training(
                 manager_getter=current_evaluation_manager,
                 schedule_latest=lambda: (
                     None
-                    if control.should_stop() or control.pause_requested.is_set()
+                    if control.should_stop()
+                    or control.pause_requested.is_set()
+                    or (
+                        config.budget_type == "full_evaluations"
+                        and _completed_full_evaluation_count(store, run_id)
+                        >= int(config.budget_full_evaluations or 0)
+                    )
                     else maybe_schedule_evaluation(
                         ignore_retry_backoff=True,
                         force_full=True,
