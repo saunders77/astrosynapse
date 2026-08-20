@@ -47,6 +47,7 @@ import {
 
 const API_BASE = "http://127.0.0.1:8765/api";
 const POLL_INTERVAL_MS = 1_000;
+const GUI_SAMPLE_BUCKET_SECONDS = 30;
 
 const jargon = {
   seed: "A number used to control randomness. Reusing it recreates the same shuffled cards and game conditions, which makes tests fair and repeatable.",
@@ -2454,8 +2455,8 @@ function MetricCanvas({
       const chartHeight = height - padding.top - padding.bottom;
       const buckets = new Map<number, MetricPoint[]>();
       points.forEach((point, index) => {
-        const timestamp = point.createdAt > 0 ? point.createdAt : index * 5;
-        const bucket = Math.floor(timestamp / 5) * 5;
+        const timestamp = point.createdAt > 0 ? point.createdAt : index * GUI_SAMPLE_BUCKET_SECONDS;
+        const bucket = Math.floor(timestamp / GUI_SAMPLE_BUCKET_SECONDS) * GUI_SAMPLE_BUCKET_SECONDS;
         buckets.set(bucket, [...(buckets.get(bucket) ?? []), point]);
       });
       const visible = [...buckets.entries()].slice(-72).map(([timestamp, samples]) => {
@@ -2463,8 +2464,8 @@ function MetricCanvas({
           samples.reduce((sum, point) => sum + pick(point), 0) / samples.length;
         return {
           timestamp,
-          games: average((point) => point.gamesPerSecond) * 5,
-          decisions: average((point) => point.decisionsPerSecond) * 5,
+          games: average((point) => point.gamesPerSecond) * GUI_SAMPLE_BUCKET_SECONDS,
+          decisions: average((point) => point.decisionsPerSecond) * GUI_SAMPLE_BUCKET_SECONDS,
           winRate: average((point) => point.winRate),
           ciLow: average((point) => point.ciLow),
           ciHigh: average((point) => point.ciHigh),
@@ -2485,9 +2486,9 @@ function MetricCanvas({
       }
 
       const firstTimestamp = visible[0].timestamp;
-      const lastTimestamp = visible.at(-1)?.timestamp ?? firstTimestamp + 5;
+      const lastTimestamp = visible.at(-1)?.timestamp ?? firstTimestamp + GUI_SAMPLE_BUCKET_SECONDS;
       const xAt = (index: number) => padding.left
-        + ((visible[index].timestamp - firstTimestamp) / Math.max(5, lastTimestamp - firstTimestamp)) * chartWidth;
+        + ((visible[index].timestamp - firstTimestamp) / Math.max(GUI_SAMPLE_BUCKET_SECONDS, lastTimestamp - firstTimestamp)) * chartWidth;
       const series =
         mode === "throughput"
           ? [
@@ -2856,6 +2857,18 @@ export default function Home() {
   const presetCatalogRef = useRef<Record<string, unknown>>({});
 
   const latestMetric = snapshot.metrics.at(-1) ?? (connected ? emptyMetric : buildDemoMetrics(1)[0]);
+  const displayRate = useMemo(() => {
+    const timestamped = snapshot.metrics.filter((point) => point.createdAt > 0);
+    const latestTimestamp = timestamped.at(-1)?.createdAt;
+    const samples = latestTimestamp === undefined
+      ? snapshot.metrics.slice(-GUI_SAMPLE_BUCKET_SECONDS)
+      : timestamped.filter((point) => point.createdAt > latestTimestamp - GUI_SAMPLE_BUCKET_SECONDS);
+    const divisor = Math.max(1, samples.length);
+    return {
+      gamesPerSecond: samples.reduce((sum, point) => sum + point.gamesPerSecond, 0) / divisor,
+      decisionsPerSecond: samples.reduce((sum, point) => sum + point.decisionsPerSecond, 0) / divisor,
+    };
+  }, [snapshot.metrics]);
   const activeReplayCapacity = config.trainingGeneration >= 4
     ? config.policyReplayCapacity
     : config.replayCapacity;
@@ -3037,11 +3050,11 @@ export default function Home() {
   const gamesUntilPromotionGate = config.evaluateEveryGames > 0
     ? config.evaluateEveryGames - (snapshot.run.games % config.evaluateEveryGames)
     : 0;
-  const canaryEtaSeconds = latestMetric.gamesPerSecond > 0
-    ? gamesUntilCanary / latestMetric.gamesPerSecond
+  const canaryEtaSeconds = displayRate.gamesPerSecond > 0
+    ? gamesUntilCanary / displayRate.gamesPerSecond
     : 0;
-  const promotionEtaSeconds = latestMetric.gamesPerSecond > 0
-    ? gamesUntilPromotionGate / latestMetric.gamesPerSecond
+  const promotionEtaSeconds = displayRate.gamesPerSecond > 0
+    ? gamesUntilPromotionGate / displayRate.gamesPerSecond
     : 0;
 
   const showToast = (message: string) => {
@@ -4200,11 +4213,11 @@ export default function Home() {
               <article className="panel performance-panel">
                 <header className="panel-header">
                   <div><span className="panel-kicker">Velocity</span><h2><Jargon term="selfPlay">Self-play</Jargon> throughput</h2></div>
-                  <div className="chart-legend"><span className="legend-mint">Games / 5 sec (left)</span><span className="legend-blue">Decisions / 5 sec (right)</span></div>
+                  <div className="chart-legend"><span className="legend-mint">Games / 30 sec (left)</span><span className="legend-blue">Decisions / 30 sec (right)</span></div>
                 </header>
                 <div className="metric-headline">
-                  <div><strong>{(latestMetric.gamesPerSecond * 5).toFixed(0)}</strong><span>games / 5 sec</span></div>
-                  <div><strong>{compactFormatter.format(latestMetric.decisionsPerSecond * 5)}</strong><span>decisions / 5 sec</span></div>
+                  <div><strong>{(displayRate.gamesPerSecond * GUI_SAMPLE_BUCKET_SECONDS).toFixed(0)}</strong><span>games / 30 sec</span></div>
+                  <div><strong>{compactFormatter.format(displayRate.decisionsPerSecond * GUI_SAMPLE_BUCKET_SECONDS)}</strong><span>decisions / 30 sec</span></div>
                   <div><strong>{gameCountFormatter.format(snapshot.run.games)}</strong><span>games total</span></div>
                 </div>
                 <MetricCanvas points={snapshot.metrics} mode="throughput" />

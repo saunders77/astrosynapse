@@ -87,6 +87,9 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /Provisional opportunity every games/);
   assert.match(page, /Adaptive schedule:/);
   assert.match(page, /maximumSignificantDigits:\s*4/);
+  assert.match(page, /GUI_SAMPLE_BUCKET_SECONDS = 30/);
+  assert.match(page, /Games \/ 30 sec/);
+  assert.match(page, /gamesUntilCanary \/ displayRate\.gamesPerSecond/);
   assert.match(page, /Select run to view and control/);
   assert.match(page, /\?\? activeId\s*\?\? liveId/);
   assert.match(page, /selectedRunOverrideRef/);
