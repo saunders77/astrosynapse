@@ -10,10 +10,14 @@ from __future__ import annotations
 
 import hashlib
 import math
+import multiprocessing as mp
+import os
 import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 from statistics import NormalDist
 from typing import Any
@@ -174,6 +178,100 @@ class _LoadedModel:
             return make_baseline(self.resolved.ref.removeprefix("baseline:"), seed=seed)
         assert self.actor is not None and self.encoder is not None
         return _ActorChooser(self.actor, self.encoder, seed)
+
+
+@lru_cache(maxsize=16)
+def _cached_loaded_model(resolved: ResolvedModel) -> _LoadedModel:
+    """Load each frozen actor only once in an arena worker process."""
+
+    return _LoadedModel(resolved)
+
+
+_WORKER_CANCEL_EVENT: Any | None = None
+
+
+def _initialize_arena_worker(cancel_event: Any) -> None:
+    global _WORKER_CANCEL_EVENT
+    _WORKER_CANCEL_EVENT = cancel_event
+
+
+def _arena_worker_cancelled() -> bool:
+    return bool(_WORKER_CANCEL_EVENT is not None and _WORKER_CANCEL_EVENT.is_set())
+
+
+def _play_pair(
+    resolved_a: ResolvedModel,
+    resolved_b: ResolvedModel,
+    config: ArenaConfig,
+    pair_index: int,
+    cancel_hook: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    """Play one deterministic seat-swapped pair in the calling process."""
+
+    model_a = _cached_loaded_model(resolved_a)
+    model_b = _cached_loaded_model(resolved_b)
+    game_seed = _derived_seed(config.seed, pair_index, "game")
+    policy_a_seed = _derived_seed(config.seed, pair_index, "model_a")
+    policy_b_seed = _derived_seed(config.seed, pair_index, "model_b")
+    cancelled = cancel_hook or _arena_worker_cancelled
+    common = dict(
+        config=GameConfig(
+            seed=game_seed,
+            seating=Seating.FIXED,
+            starting_player=0,
+            max_turns=config.max_turns,
+            max_actions_per_turn=config.max_actions_per_turn,
+        ),
+        cancel_hook=cancelled,
+    )
+    first = Game(
+        player_names=(resolved_a.label, resolved_b.label),
+        choosers=(model_a.chooser(policy_a_seed), model_b.chooser(policy_b_seed)),
+        **common,
+    ).run()
+    if cancelled():
+        raise _ArenaCancelled()
+    second = Game(
+        player_names=(resolved_b.label, resolved_a.label),
+        choosers=(model_b.chooser(policy_b_seed), model_a.chooser(policy_a_seed)),
+        **common,
+    ).run()
+    if cancelled():
+        raise _ArenaCancelled()
+    first_score = _score(first, 0)
+    second_score = _score(second, 1)
+    return {
+        "pair_index": pair_index,
+        "first_score": first_score,
+        "second_score": second_score,
+        "turns": first.turns + second.turns,
+        "decisions": first.decisions + second.decisions,
+        "truncated_games": int(first.truncated) + int(second.truncated),
+        "record": {
+            "pair": pair_index + 1,
+            "seed": game_seed,
+            "first_game_seed": game_seed,
+            "second_game_seed": game_seed,
+            "model_a_first_seat_score": first_score,
+            "model_a_second_seat_score": second_score,
+            "first_game_starting_player": first.starting_player,
+            "second_game_starting_player": second.starting_player,
+            "first_game_truncated": first.truncated,
+            "second_game_truncated": second.truncated,
+            "first_game_truncation_reason": first.truncation_reason,
+            "second_game_truncation_reason": second.truncation_reason,
+        },
+    }
+
+
+def _default_worker_processes() -> int:
+    configured = os.environ.get("ASTRO2_ARENA_WORKERS")
+    if configured is not None:
+        try:
+            return max(1, min(16, int(configured)))
+        except ValueError as exc:
+            raise ValueError("ASTRO2_ARENA_WORKERS must be an integer") from exc
+    return max(1, min(8, (os.cpu_count() or 4) - 2))
 
 
 def resolve_model(store: Store, reference: str) -> ResolvedModel:
@@ -753,8 +851,20 @@ class _ArenaCancelled(RuntimeError):
 class ArenaManager:
     """Owns daemon evaluator threads; SQLite remains the source of truth."""
 
-    def __init__(self, store: Store, *, maximum_concurrent_jobs: int = 1, recover: bool = True):
+    def __init__(
+        self,
+        store: Store,
+        *,
+        maximum_concurrent_jobs: int = 1,
+        worker_processes: int | None = None,
+        recover: bool = True,
+    ):
         self.store = store
+        self.worker_processes = (
+            _default_worker_processes()
+            if worker_processes is None
+            else max(1, min(16, int(worker_processes)))
+        )
         self._slots = threading.Semaphore(maximum_concurrent_jobs)
         self._stop = threading.Event()
         self._lock = threading.RLock()
@@ -928,8 +1038,6 @@ class ArenaManager:
         config = ArenaConfig(**job["config"])
         resolved_a = resolve_model(self.store, job["model_a"])
         resolved_b = resolve_model(self.store, job["model_b"])
-        model_a = _LoadedModel(resolved_a)
-        model_b = _LoadedModel(resolved_b)
         previous = job["result"]
         first_scores = [float(value) for value in previous.get("_first_seat_scores", [])]
         second_scores = [float(value) for value in previous.get("_second_seat_scores", [])]
@@ -952,139 +1060,149 @@ class ArenaManager:
         self.store.update_arena_job(job_id, status="running", error=None)
         last_update = 0.0
 
-        for pair_index in range(len(first_scores), config.pairs):
-            if early_stopped:
-                break
-            if cancelled():
-                raise _ArenaCancelled()
-            game_seed = _derived_seed(config.seed, pair_index, "game")
-            policy_a_seed = _derived_seed(config.seed, pair_index, "model_a")
-            policy_b_seed = _derived_seed(config.seed, pair_index, "model_b")
-            common = dict(
-                config=GameConfig(
-                    seed=game_seed,
-                    seating=Seating.FIXED,
-                    starting_player=0,
-                    max_turns=config.max_turns,
-                    max_actions_per_turn=config.max_actions_per_turn,
-                ),
-                cancel_hook=cancelled,
+        def record_pair(pair: dict[str, Any]) -> None:
+            nonlocal total_turns, total_decisions, truncated_games
+            first_scores.append(float(pair["first_score"]))
+            second_scores.append(float(pair["second_score"]))
+            total_turns += int(pair["turns"])
+            total_decisions += int(pair["decisions"])
+            truncated_games += int(pair["truncated_games"])
+            pair_records.append(pair["record"])
+
+        statistical_looks = sorted(early_looks | acceptance_looks | {config.pairs})
+        executor: ProcessPoolExecutor | None = None
+        worker_cancel_event: Any | None = None
+        if self.worker_processes > 1:
+            context = mp.get_context("spawn")
+            worker_cancel_event = context.Event()
+            executor = ProcessPoolExecutor(
+                max_workers=self.worker_processes,
+                mp_context=context,
+                initializer=_initialize_arena_worker,
+                initargs=(worker_cancel_event,),
             )
-            first = Game(
-                player_names=(resolved_a.label, resolved_b.label),
-                choosers=(
-                    model_a.chooser(policy_a_seed),
-                    model_b.chooser(policy_b_seed),
-                ),
-                **common,
-            ).run()
-            if cancelled():
-                raise _ArenaCancelled()
-            second = Game(
-                player_names=(resolved_b.label, resolved_a.label),
-                choosers=(
-                    model_b.chooser(policy_b_seed),
-                    model_a.chooser(policy_a_seed),
-                ),
-                **common,
-            ).run()
-            if cancelled():
-                raise _ArenaCancelled()
-            first_score = _score(first, 0)
-            second_score = _score(second, 1)
-            first_scores.append(first_score)
-            second_scores.append(second_score)
-            total_turns += first.turns + second.turns
-            total_decisions += first.decisions + second.decisions
-            truncated_games += int(first.truncated) + int(second.truncated)
-            pair_records.append(
-                {
-                    "pair": pair_index + 1,
-                    "seed": game_seed,
-                    "first_game_seed": game_seed,
-                    "second_game_seed": game_seed,
-                    "model_a_first_seat_score": first_score,
-                    "model_a_second_seat_score": second_score,
-                    "first_game_starting_player": first.starting_player,
-                    "second_game_starting_player": second.starting_player,
-                    "first_game_truncated": first.truncated,
-                    "second_game_truncated": second.truncated,
-                    "first_game_truncation_reason": first.truncation_reason,
-                    "second_game_truncation_reason": second.truncation_reason,
-                }
-            )
-            pairs_completed = len(first_scores)
-            if pairs_completed in early_looks:
-                pair_scores = [
-                    (first_score + second_score) * 0.5
-                    for first_score, second_score in zip(first_scores, second_scores, strict=True)
-                ]
-                latest_early_look = _early_rejection_look(
-                    pair_scores,
-                    config=config,
-                    look_pairs=pairs_completed,
-                )
-                if bool(latest_early_look["reject"]):
-                    early_stopped = True
-                    early_stop_outcome = "rejected"
-                    early_stop_reason = (
-                        f"not promoted: early rejection at {pairs_completed:,} pairs; "
-                        f"adjusted one-sided upper bound "
-                        f"{float(latest_early_look['upper_bound']):.3f} is not above "
-                        f"{float(latest_early_look['promotion_threshold']):.3f}"
+
+        try:
+            while len(first_scores) < config.pairs and not early_stopped:
+                if cancelled():
+                    raise _ArenaCancelled()
+                pair_start = len(first_scores)
+                next_look = next(look for look in statistical_looks if look > pair_start)
+                wave_end = min(next_look, pair_start + self.worker_processes)
+                if executor is None:
+                    wave = [
+                        _play_pair(
+                            resolved_a,
+                            resolved_b,
+                            config,
+                            pair_index,
+                            cancel_hook=cancelled,
+                        )
+                        for pair_index in range(pair_start, wave_end)
+                    ]
+                else:
+                    futures: set[Future[dict[str, Any]]] = {
+                        executor.submit(
+                            _play_pair,
+                            resolved_a,
+                            resolved_b,
+                            config,
+                            pair_index,
+                        )
+                        for pair_index in range(pair_start, wave_end)
+                    }
+                    wave = []
+                    while futures:
+                        if cancelled():
+                            assert worker_cancel_event is not None
+                            worker_cancel_event.set()
+                            raise _ArenaCancelled()
+                        done, futures = wait(futures, timeout=0.1, return_when=FIRST_COMPLETED)
+                        wave.extend(future.result() for future in done)
+                for pair in sorted(wave, key=lambda item: int(item["pair_index"])):
+                    record_pair(pair)
+
+                pairs_completed = len(first_scores)
+                if pairs_completed in early_looks:
+                    pair_scores = [
+                        (first_score + second_score) * 0.5
+                        for first_score, second_score in zip(
+                            first_scores, second_scores, strict=True
+                        )
+                    ]
+                    latest_early_look = _early_rejection_look(
+                        pair_scores,
+                        config=config,
+                        look_pairs=pairs_completed,
                     )
-            if not early_stopped and pairs_completed in acceptance_looks:
-                latest_acceptance_look = _early_acceptance_look(
-                    _conservative_pair_scores(
-                        first_scores,
-                        second_scores,
+                    if bool(latest_early_look["reject"]):
+                        early_stopped = True
+                        early_stop_outcome = "rejected"
+                        early_stop_reason = (
+                            f"not promoted: early rejection at {pairs_completed:,} pairs; "
+                            f"adjusted one-sided upper bound "
+                            f"{float(latest_early_look['upper_bound']):.3f} is not above "
+                            f"{float(latest_early_look['promotion_threshold']):.3f}"
+                        )
+                if not early_stopped and pairs_completed in acceptance_looks:
+                    latest_acceptance_look = _early_acceptance_look(
+                        _conservative_pair_scores(
+                            first_scores,
+                            second_scores,
+                            truncated_games=truncated_games,
+                        ),
+                        config=config,
+                        look_pairs=pairs_completed,
+                    )
+                    if bool(latest_acceptance_look["accept"]):
+                        early_stopped = True
+                        early_stop_outcome = "accepted"
+                        early_stop_reason = (
+                            f"promote early at {pairs_completed:,} pairs; adjusted one-sided "
+                            f"lower bound {float(latest_acceptance_look['lower_bound']):.3f} "
+                            f"exceeds "
+                            f"{float(latest_acceptance_look['promotion_threshold']):.3f}"
+                        )
+                now = time.monotonic()
+                if (
+                    now - last_update >= 0.25
+                    or len(first_scores) == config.pairs
+                    or early_stopped
+                ):
+                    elapsed = elapsed_before + now - segment_start
+                    result = _summary(
+                        config=config,
+                        model_a=resolved_a,
+                        model_b=resolved_b,
+                        first_scores=first_scores,
+                        second_scores=second_scores,
+                        pair_records=pair_records,
+                        elapsed_seconds=elapsed,
+                        total_turns=total_turns,
+                        total_decisions=total_decisions,
                         truncated_games=truncated_games,
-                    ),
-                    config=config,
-                    look_pairs=pairs_completed,
-                )
-                if bool(latest_acceptance_look["accept"]):
-                    early_stopped = True
-                    early_stop_outcome = "accepted"
-                    early_stop_reason = (
-                        f"promote early at {pairs_completed:,} pairs; adjusted one-sided "
-                        f"lower bound {float(latest_acceptance_look['lower_bound']):.3f} "
-                        f"exceeds "
-                        f"{float(latest_acceptance_look['promotion_threshold']):.3f}"
+                        started_at=started_at,
                     )
-            now = time.monotonic()
-            if now - last_update >= 0.25 or len(first_scores) == config.pairs or early_stopped:
-                elapsed = elapsed_before + now - segment_start
-                result = _summary(
-                    config=config,
-                    model_a=resolved_a,
-                    model_b=resolved_b,
-                    first_scores=first_scores,
-                    second_scores=second_scores,
-                    pair_records=pair_records,
-                    elapsed_seconds=elapsed,
-                    total_turns=total_turns,
-                    total_decisions=total_decisions,
-                    truncated_games=truncated_games,
-                    started_at=started_at,
-                )
-                result["early_stopped"] = early_stopped
-                result["early_stop_outcome"] = early_stop_outcome
-                result["early_stop_reason"] = early_stop_reason
-                result["early_rejection"] = _early_rejection_metadata(
-                    config,
-                    pairs_completed=len(first_scores),
-                    latest_look=latest_early_look,
-                )
-                result["early_acceptance"] = _early_acceptance_metadata(
-                    config,
-                    pairs_completed=len(first_scores),
-                    latest_look=latest_acceptance_look,
-                )
-                self.store.update_arena_job(job_id, status="running", result=result)
-                last_update = now
-            if early_stopped:
-                break
+                    result["early_stopped"] = early_stopped
+                    result["early_stop_outcome"] = early_stop_outcome
+                    result["early_stop_reason"] = early_stop_reason
+                    result["early_rejection"] = _early_rejection_metadata(
+                        config,
+                        pairs_completed=len(first_scores),
+                        latest_look=latest_early_look,
+                    )
+                    result["early_acceptance"] = _early_acceptance_metadata(
+                        config,
+                        pairs_completed=len(first_scores),
+                        latest_look=latest_acceptance_look,
+                    )
+                    self.store.update_arena_job(job_id, status="running", result=result)
+                    last_update = now
+        finally:
+            if executor is not None:
+                if cancelled() and worker_cancel_event is not None:
+                    worker_cancel_event.set()
+                executor.shutdown(wait=True, cancel_futures=True)
 
         if cancelled():
             raise _ArenaCancelled()

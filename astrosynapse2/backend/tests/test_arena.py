@@ -199,7 +199,7 @@ def test_automatic_arena_early_rejects_only_at_adjusted_safe_look(
 
     monkeypatch.setattr(arena_module, "_LoadedModel", FakeLoadedModel)
     monkeypatch.setattr(arena_module, "Game", FakeGame)
-    manager = ArenaManager(store, recover=False)
+    manager = ArenaManager(store, worker_processes=1, recover=False)
     options = {
         "pairs": 1_000,
         "minimum_promotion_pairs": 1_000,
@@ -322,7 +322,7 @@ def test_cancelling_running_or_queued_automatic_arena_prevents_promotion(tmp_pat
 
     monkeypatch.setattr(arena_module, "_LoadedModel", FakeLoadedModel)
     monkeypatch.setattr(arena_module, "Game", BlockingGame)
-    manager = ArenaManager(store, recover=False)
+    manager = ArenaManager(store, worker_processes=1, recover=False)
     job = manager.create_automatic(
         candidate["id"],
         champion["id"],
@@ -361,7 +361,7 @@ def test_model_refs_accept_named_baselines_and_reject_unknown_refs(tmp_path):
 def test_paired_arena_job_is_persistent_live_and_exactly_seat_swapped(tmp_path):
     path = tmp_path / "arena.sqlite3"
     store = Store(path)
-    manager = ArenaManager(store, recover=False)
+    manager = ArenaManager(store, worker_processes=1, recover=False)
     created = manager.create(
         "baseline:balanced",
         "baseline:aggressive",
@@ -417,6 +417,7 @@ def test_arena_store_crud_round_trip(tmp_path):
 
 def test_arena_api_create_list_detail_and_reconnect(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    monkeypatch.setenv("ASTRO2_ARENA_WORKERS", "1")
     with TestClient(server.app) as client:
         response = client.post(
             "/api/arena",
