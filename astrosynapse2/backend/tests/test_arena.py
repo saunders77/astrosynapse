@@ -240,15 +240,28 @@ def test_automatic_arena_early_rejects_only_at_adjusted_safe_look(
     weak_evaluation = store.checkpoint(weak["id"])["evaluation"]["latest_arena"]
     assert weak_evaluation["early_stopped"] is True
 
-    # A strong candidate is never promoted at an interim look. It runs all
-    # requested pairs and only the ordinary final promotion gate can accept it.
+    # A strong candidate can promote at a separately planned, more stringent
+    # acceptance look without waiting for all 5,000 requested pairs.
     candidate_loses["value"] = False
-    strong_job = manager.create_automatic(strong["id"], champion["id"], **options)
+    strong_job = manager.create_automatic(
+        strong["id"],
+        champion["id"],
+        **{
+            **options,
+            "pairs": 5_000,
+            "minimum_promotion_pairs": 5_000,
+            "early_acceptance": True,
+            "early_acceptance_min_pairs": 1_000,
+            "early_acceptance_confidence": 0.995,
+        },
+    )
     strong_complete = _wait_for_job(manager, strong_job["id"])
     manager.shutdown()
     strong_result = strong_complete["result"]
     assert strong_result["pairs_completed"] == 1_000
-    assert strong_result["early_stopped"] is False
+    assert strong_result["early_stopped"] is True
+    assert strong_result["early_stop_outcome"] == "accepted"
+    assert strong_result["early_acceptance"]["latest_look"]["accept"] is True
     assert strong_result["early_rejection"]["looks_completed"] == 7
     assert strong_result["early_rejection"]["latest_look"]["reject"] is False
     assert strong_result["promotion"]["promoted"] is True

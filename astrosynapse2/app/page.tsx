@@ -372,6 +372,7 @@ type TrainerConfig = {
   durationMinutes: number;
   actorProcesses: number;
   gamesPerActorBatch: number;
+  rolloutTasksPerActor: number;
   hiddenSize: number;
   residualBlocks: number;
   bootstrapHeads: number;
@@ -410,6 +411,7 @@ type TrainerConfig = {
   reanalysisMaxPerGame: number;
   reanalysisMaxActions: number;
   reanalysisRolloutsPerAction: number;
+  reanalysisHorizonTurns: number;
   reanalysisPolicyTemperature: number;
   reanalysisPolicyLossWeight: number;
   reanalysisValueLossWeight: number;
@@ -418,7 +420,11 @@ type TrainerConfig = {
   canaryEveryGames: number;
   canaryPairs: number;
   realtimeGovernor: boolean;
+  governorIntervalGames: number;
   governorTargetNormalizedEntropy: number;
+  evaluationEarlyAcceptance: boolean;
+  evaluationEarlyAcceptanceMinPairs: number;
+  evaluationEarlyAcceptanceConfidence: number;
   naturalDiagnosticPositions: number;
   checkpointKlLimit: number;
 };
@@ -550,7 +556,8 @@ const initialConfig: TrainerConfig = {
   resumeReplayItems: 500_000,
   durationMinutes: 1_440,
   actorProcesses: 8,
-  gamesPerActorBatch: 16,
+  gamesPerActorBatch: 4,
+  rolloutTasksPerActor: 4,
   hiddenSize: 192,
   residualBlocks: 3,
   bootstrapHeads: 5,
@@ -565,8 +572,8 @@ const initialConfig: TrainerConfig = {
   baselineFraction: 0.1,
   evaluationPairs: 5_000,
   adaptiveEvaluation: true,
-  evaluateEveryGames: 200_000,
-  checkpointEveryGames: 25_000,
+  evaluateEveryGames: 50_000,
+  checkpointEveryGames: 5_000,
   promotionConfidence: 0.95,
   promotionMargin: 0,
   epsilonStart: 0.15,
@@ -585,19 +592,24 @@ const initialConfig: TrainerConfig = {
   minimumHeadDisagreementRate: 0,
   maximumHeldoutBrier: 1,
   gateHeldoutBrierRegression: false,
-  reanalysisFraction: 0.0125,
-  reanalysisMaxPerGame: 2,
-  reanalysisMaxActions: 6,
-  reanalysisRolloutsPerAction: 2,
+  reanalysisFraction: 0.0025,
+  reanalysisMaxPerGame: 1,
+  reanalysisMaxActions: 4,
+  reanalysisRolloutsPerAction: 1,
+  reanalysisHorizonTurns: 2,
   reanalysisPolicyTemperature: 0.35,
   reanalysisPolicyLossWeight: 1,
   reanalysisValueLossWeight: 0.5,
   policyReplayDecisionsPerPlayerGame: 12,
   policyReplayFamilyBalanced: true,
-  canaryEveryGames: 25_000,
-  canaryPairs: 128,
+  canaryEveryGames: 5_000,
+  canaryPairs: 64,
   realtimeGovernor: true,
+  governorIntervalGames: 500,
   governorTargetNormalizedEntropy: 0.55,
+  evaluationEarlyAcceptance: true,
+  evaluationEarlyAcceptanceMinPairs: 1_000,
+  evaluationEarlyAcceptanceConfidence: 0.995,
   naturalDiagnosticPositions: 2_000,
   checkpointKlLimit: 0.35,
 };
@@ -627,6 +639,7 @@ const astro4Config: TrainerConfig = {
   policyReplayFamilyBalanced: false,
   canaryEveryGames: 0,
   realtimeGovernor: false,
+  evaluationEarlyAcceptance: false,
   naturalDiagnosticPositions: 2_000,
   minimumHeadDisagreementRate: 0.05,
   maximumHeldoutBrier: 0.24,
@@ -2080,6 +2093,7 @@ function configToApi(config: TrainerConfig): Record<string, string | number | bo
     duration_minutes: config.durationMinutes,
     actor_processes: config.actorProcesses,
     games_per_actor_batch: config.gamesPerActorBatch,
+    rollout_tasks_per_actor: config.rolloutTasksPerActor,
     hidden_size: config.hiddenSize,
     residual_blocks: config.residualBlocks,
     bootstrap_heads: config.bootstrapHeads,
@@ -2118,6 +2132,7 @@ function configToApi(config: TrainerConfig): Record<string, string | number | bo
     reanalysis_max_per_game: config.trainingGeneration >= 5 ? config.reanalysisMaxPerGame : 0,
     reanalysis_max_actions: config.reanalysisMaxActions,
     reanalysis_rollouts_per_action: config.reanalysisRolloutsPerAction,
+    reanalysis_horizon_turns: config.reanalysisHorizonTurns,
     reanalysis_policy_temperature: config.reanalysisPolicyTemperature,
     reanalysis_policy_loss_weight: config.trainingGeneration >= 5 ? config.reanalysisPolicyLossWeight : 0,
     reanalysis_value_loss_weight: config.trainingGeneration >= 5 ? config.reanalysisValueLossWeight : 0,
@@ -2126,7 +2141,11 @@ function configToApi(config: TrainerConfig): Record<string, string | number | bo
     canary_every_games: config.trainingGeneration >= 5 ? config.canaryEveryGames : 0,
     canary_pairs: config.canaryPairs,
     realtime_governor: config.trainingGeneration >= 5 && config.realtimeGovernor,
+    governor_interval_games: config.governorIntervalGames,
     governor_target_normalized_entropy: config.governorTargetNormalizedEntropy,
+    evaluation_early_acceptance: config.trainingGeneration >= 5 && config.evaluationEarlyAcceptance,
+    evaluation_early_acceptance_min_pairs: config.evaluationEarlyAcceptanceMinPairs,
+    evaluation_early_acceptance_confidence: config.evaluationEarlyAcceptanceConfidence,
     natural_diagnostic_positions: config.naturalDiagnosticPositions,
     checkpoint_kl_limit: config.checkpointKlLimit,
   };
@@ -2181,6 +2200,7 @@ function configFromApi(raw: unknown, prior: TrainerConfig): TrainerConfig {
     durationMinutes: asNumber(item.duration_minutes, previous.durationMinutes),
     actorProcesses: asNumber(item.actor_processes, previous.actorProcesses),
     gamesPerActorBatch: asNumber(item.games_per_actor_batch, previous.gamesPerActorBatch),
+    rolloutTasksPerActor: asNumber(item.rollout_tasks_per_actor, previous.rolloutTasksPerActor),
     hiddenSize: asNumber(item.hidden_size, previous.hiddenSize),
     residualBlocks: asNumber(item.residual_blocks, previous.residualBlocks),
     bootstrapHeads: asNumber(item.bootstrap_heads, previous.bootstrapHeads),
@@ -2264,6 +2284,7 @@ function configFromApi(raw: unknown, prior: TrainerConfig): TrainerConfig {
     reanalysisMaxPerGame: asNumber(item.reanalysis_max_per_game, previous.reanalysisMaxPerGame),
     reanalysisMaxActions: asNumber(item.reanalysis_max_actions, previous.reanalysisMaxActions),
     reanalysisRolloutsPerAction: asNumber(item.reanalysis_rollouts_per_action, previous.reanalysisRolloutsPerAction),
+    reanalysisHorizonTurns: asNumber(item.reanalysis_horizon_turns, previous.reanalysisHorizonTurns),
     reanalysisPolicyTemperature: asNumber(item.reanalysis_policy_temperature, previous.reanalysisPolicyTemperature),
     reanalysisPolicyLossWeight: asNumber(item.reanalysis_policy_loss_weight, previous.reanalysisPolicyLossWeight),
     reanalysisValueLossWeight: asNumber(item.reanalysis_value_loss_weight, previous.reanalysisValueLossWeight),
@@ -2272,7 +2293,11 @@ function configFromApi(raw: unknown, prior: TrainerConfig): TrainerConfig {
     canaryEveryGames: asNumber(item.canary_every_games, previous.canaryEveryGames),
     canaryPairs: asNumber(item.canary_pairs, previous.canaryPairs),
     realtimeGovernor: asBoolean(item.realtime_governor, previous.realtimeGovernor),
+    governorIntervalGames: asNumber(item.governor_interval_games, previous.governorIntervalGames),
     governorTargetNormalizedEntropy: asNumber(item.governor_target_normalized_entropy, previous.governorTargetNormalizedEntropy),
+    evaluationEarlyAcceptance: asBoolean(item.evaluation_early_acceptance, previous.evaluationEarlyAcceptance),
+    evaluationEarlyAcceptanceMinPairs: asNumber(item.evaluation_early_acceptance_min_pairs, previous.evaluationEarlyAcceptanceMinPairs),
+    evaluationEarlyAcceptanceConfidence: asNumber(item.evaluation_early_acceptance_confidence, previous.evaluationEarlyAcceptanceConfidence),
     naturalDiagnosticPositions: asNumber(item.natural_diagnostic_positions, previous.naturalDiagnosticPositions),
     checkpointKlLimit: asNumber(item.checkpoint_kl_limit, previous.checkpointKlLimit),
   };
@@ -2746,6 +2771,7 @@ export default function Home() {
   const [playModel, setPlayModel] = useState("champion-042");
   const [humanStarts, setHumanStarts] = useState(false);
   const [remoteRunId, setRemoteRunId] = useState<string | null>(null);
+  const [trainerActiveRunId, setTrainerActiveRunId] = useState<string | null>(null);
   const [runChoices, setRunChoices] = useState<RunChoice[]>([]);
   const [remoteGame, setRemoteGame] = useState<RemoteGameSession | null>(null);
   const [inventoryOpen, setInventoryOpen] = useState(false);
@@ -2754,7 +2780,7 @@ export default function Home() {
   const [branchSourceId, setBranchSourceId] = useState("");
   const [branchName, setBranchName] = useState("Champion branch lab");
   const [branchCount, setBranchCount] = useState(3);
-  const [branchMinutes, setBranchMinutes] = useState(120);
+  const [branchMinutes, setBranchMinutes] = useState(360);
   const [branchAutoAdvance, setBranchAutoAdvance] = useState(true);
   const pollInFlight = useRef(false);
   const hasConnectedRef = useRef(false);
@@ -2793,6 +2819,8 @@ export default function Home() {
     if (preferred) setBranchSourceId(preferred.id);
   }, [branchSourceId, branchSources]);
   const selectedRunChoice = runChoices.find((run) => run.id === remoteRunId) ?? null;
+  const trainerActiveRun = runChoices.find((run) => run.id === trainerActiveRunId) ?? null;
+  const trainerControlStatus = trainerActiveRun?.status ?? (!connected ? snapshot.run.status : null);
   const evaluatedModels = snapshot.models
     .filter((model) => model.evaluated)
     .sort((left, right) => left.games - right.games);
@@ -2920,6 +2948,18 @@ export default function Home() {
     ? Math.min(1, snapshot.run.elapsedSeconds / snapshot.run.durationSeconds)
     : 0;
   const remaining = Math.max(0, snapshot.run.durationSeconds - snapshot.run.elapsedSeconds);
+  const gamesUntilCanary = config.canaryEveryGames > 0
+    ? config.canaryEveryGames - (snapshot.run.games % config.canaryEveryGames)
+    : 0;
+  const gamesUntilPromotionGate = config.evaluateEveryGames > 0
+    ? config.evaluateEveryGames - (snapshot.run.games % config.evaluateEveryGames)
+    : 0;
+  const canaryEtaSeconds = latestMetric.gamesPerSecond > 0
+    ? gamesUntilCanary / latestMetric.gamesPerSecond
+    : 0;
+  const promotionEtaSeconds = latestMetric.gamesPerSecond > 0
+    ? gamesUntilPromotionGate / latestMetric.gamesPerSecond
+    : 0;
 
   const showToast = (message: string) => {
     setToast(message);
@@ -3032,6 +3072,7 @@ export default function Home() {
         }).filter((run) => run.id);
         setRunChoices(normalizedRuns);
         const activeId = typeof health.active_run_id === "string" ? health.active_run_id : null;
+        setTrainerActiveRunId(activeId);
         const liveId = normalizedRuns.find((run) =>
           (["running", "pausing", "paused", "stopping"] as RunStatus[]).includes(run.status)
         )?.id ?? null;
@@ -3335,13 +3376,20 @@ export default function Home() {
       if (connected) {
         if (action === "start" && !remoteRunId) {
           await createConfiguredRun(true);
-        } else if (remoteRunId) {
-          const result = await fetchJson(`/runs/${encodeURIComponent(remoteRunId)}/${action}`, {
+        } else {
+          const targetsTrainer = action === "pause" || action === "stop" || action === "checkpoint";
+          const targetRunId = targetsTrainer
+            ? trainerActiveRunId ?? remoteRunId
+            : action === "resume" && trainerControlStatus === "paused"
+              ? trainerActiveRunId ?? remoteRunId
+              : remoteRunId;
+          if (!targetRunId) throw new Error("Create or select a run first");
+          const result = await fetchJson(`/runs/${encodeURIComponent(targetRunId)}/${action}`, {
             method: "POST",
           });
-          setSnapshot((current) => normalizeSnapshot({ run: result }, current));
-        } else {
-          throw new Error("Create or select a run first");
+          if (targetRunId === remoteRunId) {
+            setSnapshot((current) => normalizeSnapshot({ run: result }, current));
+          }
         }
       } else {
         setSnapshot((current) => {
@@ -3446,9 +3494,10 @@ export default function Home() {
       { label: "Balanced search" },
       {
         label: "Search-heavy",
-        reanalysis_fraction: 0.025,
-        reanalysis_max_per_game: 3,
-        reanalysis_max_actions: 8,
+        reanalysis_fraction: 0.005,
+        reanalysis_max_per_game: 1,
+        reanalysis_max_actions: 6,
+        reanalysis_rollouts_per_action: 1,
         updates_per_iteration: 40,
       },
       {
@@ -3471,9 +3520,9 @@ export default function Home() {
       },
       {
         label: "Wide belief search",
-        reanalysis_rollouts_per_action: 4,
-        reanalysis_max_actions: 10,
-        reanalysis_fraction: 0.01,
+        reanalysis_horizon_turns: 4,
+        reanalysis_max_actions: 4,
+        reanalysis_fraction: 0.0035,
       },
       { label: "Low LR long memory", learning_rate: 0.00005, policy_replay_capacity: 2_000_000 },
       { label: "Explorer", epsilon_end: 0.08, randomized_prior_scale: 0.4, policy_entropy_weight: 0.035 },
@@ -3490,7 +3539,24 @@ export default function Home() {
           source_checkpoint_id: branchSourceId,
           name: branchName,
           variants: templates,
-          base_overrides: { duration_minutes: branchMinutes },
+          base_overrides: {
+            duration_minutes: branchMinutes,
+            games_per_actor_batch: 4,
+            rollout_tasks_per_actor: 4,
+            reanalysis_fraction: 0.0025,
+            reanalysis_max_per_game: 1,
+            reanalysis_max_actions: 4,
+            reanalysis_rollouts_per_action: 1,
+            reanalysis_horizon_turns: 2,
+            checkpoint_every_games: 5_000,
+            canary_every_games: 5_000,
+            canary_pairs: 64,
+            evaluate_every_games: 50_000,
+            governor_interval_games: 500,
+            evaluation_early_acceptance: true,
+            evaluation_early_acceptance_min_pairs: 1_000,
+            evaluation_early_acceptance_confidence: 0.995,
+          },
           auto_advance: branchAutoAdvance,
           start: true,
         }),
@@ -3545,10 +3611,21 @@ export default function Home() {
       checkpoint_every_games: config.checkpointEveryGames,
       promotion_confidence: config.promotionConfidence,
       promotion_margin: config.promotionMargin,
+      games_per_actor_batch: config.gamesPerActorBatch,
+      rollout_tasks_per_actor: config.rolloutTasksPerActor,
       reanalysis_fraction: config.trainingGeneration >= 5 ? config.reanalysisFraction : 0,
+      reanalysis_max_per_game: config.trainingGeneration >= 5 ? config.reanalysisMaxPerGame : 0,
+      reanalysis_max_actions: config.reanalysisMaxActions,
+      reanalysis_rollouts_per_action: config.reanalysisRolloutsPerAction,
+      reanalysis_horizon_turns: config.reanalysisHorizonTurns,
       policy_entropy_weight: config.policyEntropyWeight,
+      canary_every_games: config.canaryEveryGames,
       canary_pairs: config.canaryPairs,
       realtime_governor: config.trainingGeneration >= 5 && config.realtimeGovernor,
+      governor_interval_games: config.governorIntervalGames,
+      evaluation_early_acceptance: config.trainingGeneration >= 5 && config.evaluationEarlyAcceptance,
+      evaluation_early_acceptance_min_pairs: config.evaluationEarlyAcceptanceMinPairs,
+      evaluation_early_acceptance_confidence: config.evaluationEarlyAcceptanceConfidence,
     };
     try {
       if (connected) {
@@ -3565,6 +3642,31 @@ export default function Home() {
     } finally {
       setCommandBusy(null);
     }
+  };
+
+  const loadFastAstro5LiveProfile = () => {
+    setConfig((current) => ({
+      ...current,
+      preset: "custom",
+      gamesPerActorBatch: 4,
+      rolloutTasksPerActor: 4,
+      reanalysisFraction: 0.0025,
+      reanalysisMaxPerGame: 1,
+      reanalysisMaxActions: 4,
+      reanalysisRolloutsPerAction: 1,
+      reanalysisHorizonTurns: 2,
+      checkpointEveryGames: 5_000,
+      canaryEveryGames: 5_000,
+      canaryPairs: 64,
+      evaluateEveryGames: 50_000,
+      evaluationPairs: 5_000,
+      realtimeGovernor: true,
+      governorIntervalGames: 500,
+      evaluationEarlyAcceptance: true,
+      evaluationEarlyAcceptanceMinPairs: 1_000,
+      evaluationEarlyAcceptanceConfidence: 0.995,
+    }));
+    showToast("Loaded the fast M4 live profile · review it, then queue the update");
   };
 
   const launchConfiguredRun = async () => {
@@ -3923,7 +4025,7 @@ export default function Home() {
                     type="button"
                     className="button"
                     onClick={() => invokeControl("pause")}
-                    disabled={snapshot.run.status !== "running" || commandBusy !== null}
+                    disabled={trainerControlStatus !== "running" || commandBusy !== null}
                   >
                     <span className="button-symbol" aria-hidden="true">Ⅱ</span> Pause & save
                   </button>
@@ -3931,7 +4033,7 @@ export default function Home() {
                     type="button"
                     className="button"
                     onClick={() => invokeControl("resume")}
-                    disabled={snapshot.run.status !== "paused" || commandBusy !== null}
+                    disabled={(trainerControlStatus !== "paused" && snapshot.run.status !== "paused") || commandBusy !== null}
                   >
                     <span className="button-symbol" aria-hidden="true">↗</span> Resume
                   </button>
@@ -3939,7 +4041,7 @@ export default function Home() {
                     type="button"
                     className="button button-danger"
                     onClick={() => invokeControl("stop")}
-                    disabled={!(["running", "pausing", "paused"] as RunStatus[]).includes(snapshot.run.status) || commandBusy !== null}
+                    disabled={!trainerControlStatus || !(["running", "pausing", "paused", "stopping"] as RunStatus[]).includes(trainerControlStatus) || commandBusy !== null}
                   >
                     <span className="button-symbol" aria-hidden="true">■</span> Stop
                   </button>
@@ -3947,7 +4049,7 @@ export default function Home() {
                     type="button"
                     className="button button-quiet"
                     onClick={() => invokeControl("checkpoint")}
-                    disabled={!(["running", "paused"] as RunStatus[]).includes(snapshot.run.status) || commandBusy !== null}
+                    disabled={!trainerControlStatus || !(["running", "paused"] as RunStatus[]).includes(trainerControlStatus) || commandBusy !== null}
                   >
                     <span className="button-symbol" aria-hidden="true">◇</span> Checkpoint
                   </button>
@@ -3995,6 +4097,7 @@ export default function Home() {
                 </div>
                 <div className="mission-progress"><i style={{ width: `${progress * 100}%` }} /></div>
                 <p>At current throughput, approximately <b>{gameCountFormatter.format(latestMetric.gamesPerSecond * remaining)}</b> more games.</p>
+                {config.trainingGeneration >= 5 ? <p><b>{gameCountFormatter.format(gamesUntilCanary)}</b> games to the next {config.canaryPairs}-pair canary ({formatDuration(canaryEtaSeconds, true)}); <b>{gameCountFormatter.format(gamesUntilPromotionGate)}</b> to the next full promotion gate ({formatDuration(promotionEtaSeconds, true)}), with the first safe acceptance look at {numberFormatter.format(config.evaluationEarlyAcceptanceMinPairs)} pairs.</p> : null}
               </aside>
 
               <div className="hardware-rail">
@@ -4139,7 +4242,7 @@ export default function Home() {
                 <div className="recipe-title"><div><span className="panel-kicker">Run recipe</span><h2>Choose a flight plan</h2></div><span className="recommended-label">Astro5 · search · live governor</span></div>
                 <div className="preset-grid" role="radiogroup" aria-label="Training preset">
                   <button type="button" role="radio" aria-checked={config.preset === "astro5_search"} className={config.preset === "astro5_search" ? "is-selected" : ""} onClick={() => choosePreset("astro5_search")}>
-                    <span>Recommended</span><strong>Astro5 search & branching</strong><p>Public-belief action-set reanalysis, long-memory replay, cheap canaries, and a bounded realtime governor.</p><small>1.5m compact decisions · 128-pair canaries · full durable state</small>
+                    <span>Recommended</span><strong>Astro5 search & branching</strong><p>Depth-limited public-belief reanalysis, work-stealing actors, cheap canaries, and a bounded realtime governor.</p><small>1.5m compact decisions · 64-pair canaries · full durable state</small>
                   </button>
                   <button type="button" role="radio" aria-checked={config.preset === "astro4_m4"} className={config.preset === "astro4_m4" ? "is-selected" : ""} onClick={() => choosePreset("astro4_m4")}>
                     <span>Previous</span><strong>Astro4 legal-set policy</strong><p>Original actor-critic legal-action learning retained for controlled comparisons.</p><small>8 actors · 5 heads · 250k policy decisions</small>
@@ -4203,6 +4306,7 @@ export default function Home() {
                       <label><span><Jargon term="learningRate">Learning rate</Jargon></span><input type="number" step="0.00001" value={config.learningRate} onChange={(event) => updateConfig("learningRate", Number(event.target.value))} /></label>
                       <label><span>LR decay updates</span><input type="number" min="1000" value={config.learningRateDecayUpdates} onChange={(event) => updateConfig("learningRateDecayUpdates", Number(event.target.value))} /></label>
                       <label><span><Jargon term="actors">Games / actor batch</Jargon></span><input type="number" value={config.gamesPerActorBatch} onChange={(event) => updateConfig("gamesPerActorBatch", Number(event.target.value))} /></label>
+                      <label title="Small tasks let idle actor processes take work from slower workers."><span>Tasks / actor process</span><input type="number" min="1" max="16" value={config.rolloutTasksPerActor} onChange={(event) => updateConfig("rolloutTasksPerActor", Number(event.target.value))} /></label>
                     </div></div>
                     <div className="field-section"><h3>Replay & exploration</h3><div className="field-grid">
                       {config.trainingGeneration >= 4 ? <label><span>Legal-set policy capacity</span><input type="number" min="1000" max="2000000" step="1000" value={config.policyReplayCapacity} onChange={(event) => updateConfig("policyReplayCapacity", Number(event.target.value))} /></label> : <label><span><Jargon term="replayCapacity">Outcome replay capacity</Jargon></span><input type="number" value={config.replayCapacity} onChange={(event) => updateConfig("replayCapacity", Number(event.target.value))} /></label>}
@@ -4220,10 +4324,15 @@ export default function Home() {
                           <label><span>Search positions / game</span><input type="number" min="0" max="32" value={config.reanalysisMaxPerGame} onChange={(event) => updateConfig("reanalysisMaxPerGame", Number(event.target.value))} /></label>
                           <label><span>Actions / searched state</span><input type="number" min="2" max="64" value={config.reanalysisMaxActions} onChange={(event) => updateConfig("reanalysisMaxActions", Number(event.target.value))} /></label>
                           <label><span>Rollouts / action</span><input type="number" min="1" max="16" value={config.reanalysisRolloutsPerAction} onChange={(event) => updateConfig("reanalysisRolloutsPerAction", Number(event.target.value))} /></label>
+                          <label title="After this many turns, search uses the network state value instead of simulating to game end."><span>Search horizon turns</span><input type="number" min="2" max="20" value={config.reanalysisHorizonTurns} onChange={(event) => updateConfig("reanalysisHorizonTurns", Number(event.target.value))} /></label>
                           <label><span>Replay decisions / player-game</span><input type="number" min="1" max="128" value={config.policyReplayDecisionsPerPlayerGame} onChange={(event) => updateConfig("policyReplayDecisionsPerPlayerGame", Number(event.target.value))} /></label>
                           <label className="toggle-label"><input type="checkbox" checked={config.policyReplayFamilyBalanced} onChange={(event) => updateConfig("policyReplayFamilyBalanced", event.target.checked)} /><span />Family-balanced game reservoir</label>
                           <label><span>Canary cadence</span><input type="number" min={config.checkpointEveryGames} step="1000" value={config.canaryEveryGames} onChange={(event) => updateConfig("canaryEveryGames", Number(event.target.value))} /></label>
                           <label><span>Canary pairs</span><input type="number" min="8" max="5000" value={config.canaryPairs} onChange={(event) => updateConfig("canaryPairs", Number(event.target.value))} /></label>
+                          <label><span>Optimization governor cadence</span><input type="number" min="100" step="100" value={config.governorIntervalGames} onChange={(event) => updateConfig("governorIntervalGames", Number(event.target.value))} /></label>
+                          <label className="toggle-label"><input type="checkbox" checked={config.evaluationEarlyAcceptance} onChange={(event) => updateConfig("evaluationEarlyAcceptance", event.target.checked)} /><span />Confidence-safe early promotion</label>
+                          <label><span>First early-promotion look</span><input type="number" min="1000" max="20000" step="100" value={config.evaluationEarlyAcceptanceMinPairs} onChange={(event) => updateConfig("evaluationEarlyAcceptanceMinPairs", Number(event.target.value))} /></label>
+                          <label><span>Early-promotion confidence</span><input type="number" min="0.9" max="0.9999" step="0.0005" value={config.evaluationEarlyAcceptanceConfidence} onChange={(event) => updateConfig("evaluationEarlyAcceptanceConfidence", Number(event.target.value))} /></label>
                         </> : null}
                       </> : <>
                         <label><span>Terminal target weight</span><input type="number" min="0" max="1" step="0.05" value={config.terminalTargetWeight} onChange={(event) => updateConfig("terminalTargetWeight", Number(event.target.value))} /></label>
@@ -4297,7 +4406,17 @@ export default function Home() {
                 <div className="form-actions"><div><span className="validation-light" /> Compatible generation-4/5 policy checkpoints only</div><button type="button" className="button button-primary" disabled={!branchSourceId || commandBusy !== null} onClick={launchBranchExperiment}>{commandBusy === "branch-launch" ? "Copying lineage…" : "Create & start branch system"}</button></div>
               </article>
               <aside className="train-sidebar">
-                <article className="panel"><header className="panel-header"><div><span className="panel-kicker">Why branch</span><h2>Cross the valley safely</h2></div></header><p>A rejected intermediate is quarantined from deployment but its learner can continue. Short independent canaries reveal which search/entropy/value regime deserves a longer run.</p><dl className="compact-dl"><div><dt>Evaluation</dt><dd>128-pair canaries</dd></div><div><dt>Promotion</dt><dd>5,000 paired seeds</dd></div><div><dt>Rollback</dt><dd>Full lineage only</dd></div></dl></article>
+                <article className="panel">
+                  <header className="panel-header"><div><span className="panel-kicker">Branch runner controls</span><h2>{trainerActiveRun?.name ?? "No active trainer"}</h2></div>{trainerControlStatus ? <span className={`run-state status-${trainerControlStatus}`}><StatusDot status={trainerControlStatus} /> {titleCase(trainerControlStatus)}</span> : null}</header>
+                  <p>These controls always target the process currently using the trainer, even while you inspect a different queued branch.</p>
+                  <div className="control-strip">
+                    <button type="button" className="button" onClick={() => invokeControl("pause")} disabled={trainerControlStatus !== "running" || commandBusy !== null}>Ⅱ Pause & save</button>
+                    <button type="button" className="button" onClick={() => invokeControl("resume")} disabled={trainerControlStatus !== "paused" || commandBusy !== null}>↗ Resume</button>
+                    <button type="button" className="button button-danger" onClick={() => invokeControl("stop")} disabled={!trainerControlStatus || !(["running", "pausing", "paused", "stopping"] as RunStatus[]).includes(trainerControlStatus) || commandBusy !== null}>■ Stop</button>
+                  </div>
+                  {trainerActiveRun && trainerActiveRun.id !== remoteRunId ? <button type="button" className="text-button" onClick={() => selectRun(trainerActiveRun.id)}>View active branch →</button> : null}
+                </article>
+                <article className="panel"><header className="panel-header"><div><span className="panel-kicker">Why branch</span><h2>Cross the valley safely</h2></div></header><p>A rejected intermediate is quarantined from deployment but its learner can continue. Short independent canaries reveal which search/entropy/value regime deserves a longer run.</p><dl className="compact-dl"><div><dt>Evaluation</dt><dd>64-pair canaries every 5k games</dd></div><div><dt>Promotion</dt><dd>5,000-pair cap · safe looks from 1,000</dd></div><div><dt>Rollback</dt><dd>Full lineage only</dd></div></dl></article>
               </aside>
             </div>
             <article className="panel branch-registry">
@@ -4480,9 +4599,23 @@ export default function Home() {
                   <label><span><Jargon term="baseline">Baseline anchors</Jargon></span><input type="number" step="0.01" value={config.baselineFraction} onChange={(event) => updateConfig("baselineFraction", Number(event.target.value))} /></label>
                   <label><span><Jargon term="promotionConfidence">Promotion confidence</Jargon></span><input type="number" min="0.8" max="0.999" step="0.01" value={config.promotionConfidence} onChange={(event) => updateConfig("promotionConfidence", Number(event.target.value))} /></label>
                   <label><span><Jargon term="promotionMargin">Promotion margin</Jargon></span><input type="number" min="0" max="0.25" step="0.005" value={config.promotionMargin} onChange={(event) => updateConfig("promotionMargin", Number(event.target.value))} /></label>
+                  {config.trainingGeneration >= 5 ? <>
+                    <label><span>Games / actor task</span><input type="number" min="1" max="128" value={config.gamesPerActorBatch} onChange={(event) => updateConfig("gamesPerActorBatch", Number(event.target.value))} /></label>
+                    <label><span>Tasks / actor process</span><input type="number" min="1" max="16" value={config.rolloutTasksPerActor} onChange={(event) => updateConfig("rolloutTasksPerActor", Number(event.target.value))} /></label>
+                    <label><span>Search positions fraction</span><input type="number" min="0" max="1" step="0.0005" value={config.reanalysisFraction} onChange={(event) => updateConfig("reanalysisFraction", Number(event.target.value))} /></label>
+                    <label><span>Searches / game</span><input type="number" min="0" max="32" value={config.reanalysisMaxPerGame} onChange={(event) => updateConfig("reanalysisMaxPerGame", Number(event.target.value))} /></label>
+                    <label><span>Actions / search</span><input type="number" min="2" max="64" value={config.reanalysisMaxActions} onChange={(event) => updateConfig("reanalysisMaxActions", Number(event.target.value))} /></label>
+                    <label><span>Rollouts / action</span><input type="number" min="1" max="16" value={config.reanalysisRolloutsPerAction} onChange={(event) => updateConfig("reanalysisRolloutsPerAction", Number(event.target.value))} /></label>
+                    <label><span>Search horizon turns</span><input type="number" min="2" max="20" value={config.reanalysisHorizonTurns} onChange={(event) => updateConfig("reanalysisHorizonTurns", Number(event.target.value))} /></label>
+                    <label><span>Canary cadence</span><input type="number" min={config.checkpointEveryGames} step="1000" value={config.canaryEveryGames} onChange={(event) => updateConfig("canaryEveryGames", Number(event.target.value))} /></label>
+                    <label><span>Canary pairs</span><input type="number" min="8" max="5000" value={config.canaryPairs} onChange={(event) => updateConfig("canaryPairs", Number(event.target.value))} /></label>
+                    <label><span>Governor cadence</span><input type="number" min="100" step="100" value={config.governorIntervalGames} onChange={(event) => updateConfig("governorIntervalGames", Number(event.target.value))} /></label>
+                    <label className="toggle-label"><input type="checkbox" checked={config.evaluationEarlyAcceptance} onChange={(event) => updateConfig("evaluationEarlyAcceptance", event.target.checked)} /><span />Confidence-safe early promotion</label>
+                    <label><span>First early-promotion look</span><input type="number" min="1000" max="20000" value={config.evaluationEarlyAcceptanceMinPairs} onChange={(event) => updateConfig("evaluationEarlyAcceptanceMinPairs", Number(event.target.value))} /></label>
+                  </> : null}
                 </div>
                 <div className="mix-check"><span>Opponent mix</span><i><b style={{ width: `${config.currentSelfplayFraction * 100}%` }} /><b style={{ width: `${config.leagueFraction * 100}%` }} /><b style={{ width: `${config.baselineFraction * 100}%` }} /></i><strong>{Math.round((config.currentSelfplayFraction + config.leagueFraction + config.baselineFraction) * 100)}%</strong></div>
-                <div className="form-actions"><p>Unsafe architecture changes require a new run.</p><button type="submit" className="button button-primary" disabled={commandBusy !== null}>Queue update</button></div>
+                <div className="form-actions"><p>Unsafe architecture changes require a new run.</p>{config.trainingGeneration >= 5 ? <button type="button" className="button" onClick={loadFastAstro5LiveProfile} disabled={commandBusy !== null}>Load fast M4 profile</button> : null}<button type="submit" className="button button-primary" disabled={commandBusy !== null}>Queue update</button></div>
               </form>
 
               <article className="panel audit-panel"><header className="panel-header"><div><span className="panel-kicker">Immutable record</span><h2>Audit trail</h2></div><button type="button" className="text-button" onClick={exportAudit} disabled={!snapshot.events.length}>Export JSON →</button></header><div className="audit-list">{snapshot.events.map((event) => <div key={event.id}><time>{event.at}</time><i className={`event-${event.kind}`} /><span><strong>{event.title}</strong><small>{event.detail}</small></span></div>)}{!snapshot.events.length ? <EmptyState title="No persisted events yet" detail="Training commands and checkpoint events will be recorded here." /> : null}</div></article>

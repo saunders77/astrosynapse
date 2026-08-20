@@ -284,17 +284,30 @@ def _governor_status(
         result = job.get("result") or {}
         if "model_a_score" in result and not int(result.get("truncated_games", 0) or 0):
             canary_scores.append(float(result["model_a_score"]))
-    recent_scores = canary_scores[-6:]
-    consecutive_regressions = 0
-    for score in reversed(recent_scores):
-        if score >= 0.5:
-            break
-        consecutive_regressions += 1
+    canary_count = len(canary_scores)
+    previous_canary_count = int(previous.get("canary_count", -1))
+    canary_evidence_changed = canary_count != previous_canary_count
+    if canary_evidence_changed:
+        recent_scores = canary_scores[-6:]
+        consecutive_regressions = next(
+            (
+                index
+                for index, score in enumerate(reversed(recent_scores))
+                if score >= 0.5
+            ),
+            len(recent_scores),
+        )
+    else:
+        recent_scores = [float(value) for value in previous.get("recent_canary_scores", [])]
+        consecutive_regressions = int(previous.get("consecutive_canary_regressions", 0))
 
     if not diagnostics and not recent_scores:
         state = {
             "enabled": True,
             "decision_games": int(games),
+            "optimization_decision_games": int(games),
+            "canary_decision_games": previous.get("canary_decision_games"),
+            "canary_count": canary_count,
             "learning_rate_multiplier": 1.0,
             "updates_multiplier": 1.0,
             "reanalysis_multiplier": 1.0,
@@ -339,7 +352,8 @@ def _governor_status(
     elif len(recent_scores) >= 2 and recent_scores[-1] > recent_scores[-2] + 0.02:
         updates_multiplier *= 1.2
         reasons.append("canary trend supports a short exploitation push")
-    if searched_fraction < 0.02 and len(recent_scores) >= 1:
+    search_target = max(0.001, config.reanalysis_fraction * 0.8)
+    if config.reanalysis_fraction > 0 and searched_fraction < search_target and recent_scores:
         reanalysis_multiplier *= 1.25
         reasons.append("too few learner batches contain search targets")
 
@@ -355,6 +369,12 @@ def _governor_status(
     state = {
         "enabled": True,
         "decision_games": int(games),
+        "optimization_decision_games": int(games),
+        "canary_decision_games": (
+            int(games) if canary_evidence_changed else previous.get("canary_decision_games")
+        ),
+        "canary_count": canary_count,
+        "canary_evidence_changed": canary_evidence_changed,
         "learning_rate_multiplier": lr_multiplier,
         "updates_multiplier": updates_multiplier,
         "reanalysis_multiplier": reanalysis_multiplier,
@@ -1468,6 +1488,10 @@ def _schedule_evaluation(
             config.evaluation_early_rejection
             and config.evaluation_early_rejection_min_pairs < plan.pairs
         )
+        early_acceptance = bool(
+            config.evaluation_early_acceptance
+            and config.evaluation_early_acceptance_min_pairs < plan.pairs
+        )
         job = manager.create_automatic(
             checkpoint["id"],
             champion_id,
@@ -1482,6 +1506,9 @@ def _schedule_evaluation(
             early_rejection=early_rejection,
             early_rejection_min_pairs=config.evaluation_early_rejection_min_pairs,
             early_rejection_confidence=config.evaluation_early_rejection_confidence,
+            early_acceptance=early_acceptance,
+            early_acceptance_min_pairs=config.evaluation_early_acceptance_min_pairs,
+            early_acceptance_confidence=config.evaluation_early_acceptance_confidence,
             cancellation_hook=cancellation_hook,
         )
     else:
@@ -1881,6 +1908,7 @@ def _submit_rollout(
         ),
         reanalysis_max_actions=config.reanalysis_max_actions,
         reanalysis_rollouts_per_action=config.reanalysis_rollouts_per_action,
+        reanalysis_horizon_turns=config.reanalysis_horizon_turns,
         reanalysis_policy_temperature=config.reanalysis_policy_temperature,
         policy_replay_decisions_per_player_game=(
             config.policy_replay_decisions_per_player_game
@@ -3186,7 +3214,10 @@ def run_training(
                 float(plateau["exploration_multiplier"]),
             )
             futures: dict[Future[WorkerResult], _RolloutPlan] = {}
-            for _ in range(config.actor_processes):
+            # More tasks than workers turns the process pool into a small
+            # work-stealing queue. Long games/searches no longer strand CPU
+            # cores while the learner waits for one oversized actor batch.
+            for _ in range(config.actor_processes * config.rollout_tasks_per_actor):
                 active_replay_size = (
                     len(policy_replay) if config.training_generation >= 4 else len(replay)
                 )

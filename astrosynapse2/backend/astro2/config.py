@@ -34,6 +34,9 @@ class RunConfig(BaseModel):
         default_factory=lambda: max(2, min(8, (os.cpu_count() or 4) - 2)), ge=1, le=16
     )
     games_per_actor_batch: int = Field(default=16, ge=1, le=128)
+    # Multiple small tasks per worker let the executor work-steal around
+    # unusually long games and searched positions.
+    rollout_tasks_per_actor: int = Field(default=1, ge=1, le=16)
     max_turns: int = Field(default=180, ge=40, le=500)
     max_actions_per_turn: int = Field(default=160, ge=40, le=500)
 
@@ -79,6 +82,7 @@ class RunConfig(BaseModel):
     reanalysis_max_per_game: int = Field(default=0, ge=0, le=32)
     reanalysis_max_actions: int = Field(default=6, ge=2, le=64)
     reanalysis_rollouts_per_action: int = Field(default=2, ge=1, le=16)
+    reanalysis_horizon_turns: int = Field(default=2, ge=2, le=20)
     reanalysis_policy_temperature: float = Field(default=0.35, gt=0, le=5)
     reanalysis_policy_loss_weight: float = Field(default=0.0, ge=0, le=20)
     reanalysis_value_loss_weight: float = Field(default=0.0, ge=0, le=20)
@@ -136,6 +140,13 @@ class RunConfig(BaseModel):
     evaluation_early_rejection: bool = False
     evaluation_early_rejection_min_pairs: int = Field(default=512, ge=32, le=20_000)
     evaluation_early_rejection_confidence: float = Field(default=0.995, ge=0.90, le=0.9999)
+    evaluation_early_acceptance: bool = False
+    evaluation_early_acceptance_min_pairs: int = Field(
+        default=MINIMUM_PROMOTION_PAIRS, ge=MINIMUM_PROMOTION_PAIRS, le=20_000
+    )
+    evaluation_early_acceptance_confidence: float = Field(
+        default=0.995, ge=0.90, le=0.9999
+    )
     keep_checkpoints: int = Field(default=12, ge=2, le=100)
 
     # The controller changes only bounded multipliers and records every
@@ -203,6 +214,13 @@ class RunConfig(BaseModel):
             raise ValueError("search reanalysis and the realtime governor require generation 5")
         if self.reanalysis_fraction and not self.reanalysis_max_per_game:
             raise ValueError("reanalysis_max_per_game must be positive when reanalysis is enabled")
+        if (
+            self.evaluation_early_acceptance
+            and self.evaluation_early_acceptance_min_pairs >= self.evaluation_pairs
+        ):
+            raise ValueError(
+                "evaluation_early_acceptance_min_pairs must be smaller than evaluation_pairs"
+            )
         if self.canary_every_games and self.canary_every_games < self.checkpoint_every_games:
             raise ValueError("canary_every_games must be zero or at least checkpoint_every_games")
         return self
@@ -388,6 +406,8 @@ class RunConfig(BaseModel):
             preset="astro5_search",
             training_generation=5,
             seed=20260819,
+            games_per_actor_batch=4,
+            rollout_tasks_per_actor=4,
             # A compact 12-decision reservoir/player-game gives this budget a
             # horizon near 125k player-games instead of ~2.5k full trajectories.
             policy_replay_capacity=1_500_000,
@@ -395,10 +415,11 @@ class RunConfig(BaseModel):
             policy_replay_family_balanced=True,
             replay_warmup=12_000,
             batch_size=384,
-            reanalysis_fraction=0.0125,
-            reanalysis_max_per_game=2,
-            reanalysis_max_actions=6,
-            reanalysis_rollouts_per_action=2,
+            reanalysis_fraction=0.0025,
+            reanalysis_max_per_game=1,
+            reanalysis_max_actions=4,
+            reanalysis_rollouts_per_action=1,
+            reanalysis_horizon_turns=2,
             reanalysis_policy_temperature=0.35,
             reanalysis_policy_loss_weight=1.0,
             reanalysis_value_loss_weight=0.5,
@@ -410,15 +431,18 @@ class RunConfig(BaseModel):
             policy_entropy_weight=0.02,
             rejected_candidate_action="continue",
             rollback_rejected_candidates=False,
-            checkpoint_every_games=25_000,
-            canary_every_games=25_000,
-            canary_pairs=128,
-            evaluate_every_games=200_000,
+            checkpoint_every_games=5_000,
+            canary_every_games=5_000,
+            canary_pairs=64,
+            evaluate_every_games=50_000,
+            evaluation_early_acceptance=True,
+            evaluation_early_acceptance_min_pairs=MINIMUM_PROMOTION_PAIRS,
+            evaluation_early_acceptance_confidence=0.995,
             persist_optimizer_state=True,
             resume_replay_items=500_000,
             realtime_governor=True,
             adaptive_training=False,
-            governor_interval_games=25_000,
+            governor_interval_games=500,
             governor_target_normalized_entropy=0.55,
             governor_branch_after_failures=3,
             natural_diagnostic_positions=2_000,
@@ -445,10 +469,21 @@ SAFE_LIVE_FIELDS = {
     "promotion_confidence",
     "promotion_margin",
     "metrics_interval_seconds",
+    "games_per_actor_batch",
+    "rollout_tasks_per_actor",
     "reanalysis_fraction",
+    "reanalysis_max_per_game",
+    "reanalysis_max_actions",
+    "reanalysis_rollouts_per_action",
+    "reanalysis_horizon_turns",
     "policy_entropy_weight",
+    "canary_every_games",
     "canary_pairs",
     "realtime_governor",
+    "governor_interval_games",
+    "evaluation_early_acceptance",
+    "evaluation_early_acceptance_min_pairs",
+    "evaluation_early_acceptance_confidence",
 }
 
 

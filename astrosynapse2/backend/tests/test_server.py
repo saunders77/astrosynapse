@@ -13,6 +13,21 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         assert health.json()["ok"] is True
 
         presets = client.get("/api/presets").json()
+        astro5 = presets["astro5_search"]
+        assert astro5["games_per_actor_batch"] == 4
+        assert astro5["rollout_tasks_per_actor"] == 4
+        assert astro5["reanalysis_fraction"] == 0.0025
+        assert astro5["reanalysis_max_per_game"] == 1
+        assert astro5["reanalysis_max_actions"] == 4
+        assert astro5["reanalysis_rollouts_per_action"] == 1
+        assert astro5["reanalysis_horizon_turns"] == 2
+        assert astro5["checkpoint_every_games"] == 5_000
+        assert astro5["canary_every_games"] == 5_000
+        assert astro5["canary_pairs"] == 64
+        assert astro5["evaluate_every_games"] == 50_000
+        assert astro5["governor_interval_games"] == 500
+        assert astro5["evaluation_early_acceptance"] is True
+        assert astro5["evaluation_early_acceptance_min_pairs"] == 1_000
         assert presets["astro4_m4"]["training_generation"] == 4
         assert presets["astro4_m4"]["seed"] == 20260813
         assert presets["astro4_m4"]["batch_size"] == 256

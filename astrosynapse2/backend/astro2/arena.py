@@ -60,6 +60,9 @@ class ArenaConfig:
     early_rejection: bool = False
     early_rejection_min_pairs: int = 512
     early_rejection_confidence: float = 0.995
+    early_acceptance: bool = False
+    early_acceptance_min_pairs: int = MINIMUM_PROMOTION_PAIRS
+    early_acceptance_confidence: float = 0.995
 
     def __post_init__(self) -> None:
         if not 1 <= self.pairs <= MAX_PAIRS:
@@ -74,11 +77,14 @@ class ArenaConfig:
             raise ValueError("promotion_margin must be between 0.0 and 0.25")
         if self.promotion_tier not in {
             "diagnostic",
+            "canary",
             "provisional",
             "development",
             "full",
         }:
-            raise ValueError("promotion_tier must be diagnostic, provisional, development, or full")
+            raise ValueError(
+                "promotion_tier must be diagnostic, canary, provisional, development, or full"
+            )
         if not 8 <= self.minimum_promotion_pairs <= MAX_PAIRS:
             raise ValueError(f"minimum_promotion_pairs must be between 8 and {MAX_PAIRS:,}")
         if self.automatic_promotion and self.pairs < self.minimum_promotion_pairs:
@@ -95,6 +101,17 @@ class ArenaConfig:
             raise ValueError("early rejection is available only for automatic promotion jobs")
         if self.early_rejection and self.early_rejection_min_pairs >= self.pairs:
             raise ValueError("early_rejection_min_pairs must be smaller than requested pairs")
+        if not MINIMUM_PROMOTION_PAIRS <= self.early_acceptance_min_pairs <= MAX_PAIRS:
+            raise ValueError(
+                "early_acceptance_min_pairs must be between "
+                f"{MINIMUM_PROMOTION_PAIRS:,} and {MAX_PAIRS:,}"
+            )
+        if not 0.80 <= self.early_acceptance_confidence < 1.0:
+            raise ValueError("early_acceptance_confidence must be between 0.80 and 1.0")
+        if self.early_acceptance and not self.automatic_promotion:
+            raise ValueError("early acceptance is available only for automatic promotion jobs")
+        if self.early_acceptance and self.early_acceptance_min_pairs >= self.pairs:
+            raise ValueError("early_acceptance_min_pairs must be smaller than requested pairs")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -350,6 +367,97 @@ def _early_rejection_metadata(
     }
 
 
+def _early_acceptance_looks(config: ArenaConfig) -> tuple[int, ...]:
+    """Return fixed geometric acceptance looks before the full evaluation."""
+
+    if not config.automatic_promotion or not config.early_acceptance:
+        return ()
+    looks: list[int] = []
+    pairs = config.early_acceptance_min_pairs
+    while pairs < config.pairs:
+        looks.append(pairs)
+        pairs *= 2
+    return tuple(looks)
+
+
+def _early_acceptance_look(
+    conservative_pair_scores: list[float] | np.ndarray,
+    *,
+    config: ArenaConfig,
+    look_pairs: int,
+) -> dict[str, Any]:
+    """Compute a multiplicity-corrected lower bound for safe early promotion."""
+
+    values = np.asarray(conservative_pair_scores, dtype=np.float64)
+    looks = _early_acceptance_looks(config)
+    if look_pairs not in looks or len(values) != look_pairs:
+        raise ValueError("early-acceptance evidence must match a planned look")
+    if not np.all(np.isfinite(values)) or np.any((values < 0.0) | (values > 1.0)):
+        raise ValueError("early-acceptance pair scores must be finite and in [0, 1]")
+    look_alpha = (1.0 - config.early_acceptance_confidence) / len(looks)
+    estimate = float(values.mean())
+    confidence_radius = math.sqrt(math.log(1.0 / look_alpha) / (2.0 * len(values)))
+    lower = max(0.0, estimate - confidence_radius)
+    threshold = 0.5 + config.promotion_margin
+    return {
+        "look_index": looks.index(look_pairs) + 1,
+        "look_pairs": look_pairs,
+        "planned_looks": len(looks),
+        "estimate": estimate,
+        "lower_bound": lower,
+        "confidence_radius": confidence_radius,
+        "promotion_threshold": threshold,
+        "configured_confidence": config.early_acceptance_confidence,
+        "bonferroni_look_alpha": look_alpha,
+        "adjusted_one_sided_confidence": 1.0 - look_alpha,
+        "method": "bonferroni_one_sided_hoeffding",
+        "accept": lower > threshold,
+        "truncations_scored_as_losses": True,
+    }
+
+
+def _conservative_pair_scores(
+    first_scores: list[float],
+    second_scores: list[float],
+    *,
+    truncated_games: int,
+) -> list[float]:
+    """Return pair scores after replacing every truncated game draw with a loss."""
+
+    values = [
+        (first + second) * 0.5
+        for first, second in zip(first_scores, second_scores, strict=True)
+    ]
+    # A truncated game is recorded as a 0.5 draw. Within a two-game pair it
+    # contributes 0.25, so remove that mass. The bound depends only on the
+    # mean; this also remains resumable when old per-pair records were pruned.
+    remaining = min(float(sum(values)), max(0, truncated_games) * 0.25)
+    for index, value in enumerate(values):
+        reduction = min(value, remaining)
+        values[index] = value - reduction
+        remaining -= reduction
+        if remaining <= 0.0:
+            break
+    return values
+
+
+def _early_acceptance_metadata(
+    config: ArenaConfig,
+    *,
+    pairs_completed: int,
+    latest_look: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    looks = _early_acceptance_looks(config)
+    return {
+        "enabled": bool(config.automatic_promotion and config.early_acceptance),
+        "minimum_pairs": config.early_acceptance_min_pairs,
+        "configured_confidence": config.early_acceptance_confidence,
+        "planned_look_pairs": list(looks),
+        "looks_completed": sum(look <= pairs_completed for look in looks),
+        "latest_look": latest_look,
+    }
+
+
 def _recommendation(
     config: ArenaConfig,
     *,
@@ -472,8 +580,13 @@ def _summary(
         "started_at": started_at,
         "completed_at": completed_at,
         "early_stopped": False,
+        "early_stop_outcome": None,
         "early_stop_reason": None,
         "early_rejection": _early_rejection_metadata(
+            config,
+            pairs_completed=pairs_completed,
+        ),
+        "early_acceptance": _early_acceptance_metadata(
             config,
             pairs_completed=pairs_completed,
         ),
@@ -532,6 +645,8 @@ def finalize_automatic_evaluation(
     pairs_completed = int(result.get("pairs_completed", 0))
     paired = result.get("paired_interval") or {}
     early_stopped = bool(result.get("early_stopped", False))
+    early_stop_outcome = result.get("early_stop_outcome")
+    early_accepted = early_stopped and early_stop_outcome == "accepted"
     truncated_games = max(0, int(result.get("truncated_games", 0)))
     conservative = _truncations_as_losses(result, confidence=config.confidence)
     promotion["truncation_adjustment"] = conservative
@@ -545,18 +660,23 @@ def finalize_automatic_evaluation(
     opponent_still_champion = current_champion_id == model_b.checkpoint_id
     candidate_already_champion = current_champion_id == model_a.checkpoint_id
     comparison_is_current = opponent_still_champion or candidate_already_champion
+    acceptance_look = (result.get("early_acceptance") or {}).get("latest_look") or {}
+    acceptance_lower = float(acceptance_look.get("lower_bound", 0.0))
+    acceptance_proven = early_accepted and acceptance_lower > threshold
     promote = (
-        not early_stopped
-        and full
-        and enough
-        and paired_low > threshold
+        ((not early_stopped and full and enough and paired_low > threshold) or acceptance_proven)
         and comparison_is_current
     )
-    promotion["eligible"] = not early_stopped and full and enough
+    promotion["eligible"] = (not early_stopped and full and enough) or acceptance_proven
     promotion["promoted"] = promote
     promotion["opponent_still_champion"] = opponent_still_champion
     promotion["stale_opponent"] = not comparison_is_current
-    if early_stopped:
+    if early_accepted and promote:
+        promotion["recommendation"] = (
+            f"promoted early: multiplicity-adjusted lower bound "
+            f"{acceptance_lower:.3f} exceeds {threshold:.3f}"
+        )
+    elif early_stopped:
         promotion["recommendation"] = str(
             result.get("early_stop_reason")
             or "not promoted: early rejection upper bound did not clear the threshold"
@@ -609,8 +729,10 @@ def finalize_automatic_evaluation(
         "promotion_tier": config.promotion_tier,
         "promoted": promote,
         "early_stopped": early_stopped,
+        "early_stop_outcome": early_stop_outcome,
         "early_stop_reason": result.get("early_stop_reason"),
         "early_rejection": result.get("early_rejection"),
+        "early_acceptance": result.get("early_acceptance"),
         "truncated_games": truncated_games,
         "truncation_adjustment": conservative,
         "opponent_still_champion": opponent_still_champion,
@@ -697,6 +819,9 @@ class ArenaManager:
         early_rejection: bool = False,
         early_rejection_min_pairs: int = 512,
         early_rejection_confidence: float = 0.995,
+        early_acceptance: bool = False,
+        early_acceptance_min_pairs: int = MINIMUM_PROMOTION_PAIRS,
+        early_acceptance_confidence: float = 0.995,
         cancellation_hook: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         """Trainer-only entry point for a promotion-eligible paired job."""
@@ -718,6 +843,9 @@ class ArenaManager:
                 early_rejection=early_rejection,
                 early_rejection_min_pairs=early_rejection_min_pairs,
                 early_rejection_confidence=early_rejection_confidence,
+                early_acceptance=early_acceptance,
+                early_acceptance_min_pairs=early_acceptance_min_pairs,
+                early_acceptance_confidence=early_acceptance_confidence,
             ),
             cancellation_hook=cancellation_hook,
         )
@@ -813,9 +941,13 @@ class ArenaManager:
         started_at = float(previous.get("started_at") or time.time())
         previous_early = previous.get("early_rejection") or {}
         latest_early_look = previous_early.get("latest_look")
+        previous_acceptance = previous.get("early_acceptance") or {}
+        latest_acceptance_look = previous_acceptance.get("latest_look")
         early_stopped = bool(previous.get("early_stopped", False))
+        early_stop_outcome = previous.get("early_stop_outcome")
         early_stop_reason = previous.get("early_stop_reason")
         early_looks = frozenset(_early_rejection_looks(config))
+        acceptance_looks = frozenset(_early_acceptance_looks(config))
         segment_start = time.monotonic()
         self.store.update_arena_job(job_id, status="running", error=None)
         last_update = 0.0
@@ -894,11 +1026,31 @@ class ArenaManager:
                 )
                 if bool(latest_early_look["reject"]):
                     early_stopped = True
+                    early_stop_outcome = "rejected"
                     early_stop_reason = (
                         f"not promoted: early rejection at {pairs_completed:,} pairs; "
                         f"adjusted one-sided upper bound "
                         f"{float(latest_early_look['upper_bound']):.3f} is not above "
                         f"{float(latest_early_look['promotion_threshold']):.3f}"
+                    )
+            if not early_stopped and pairs_completed in acceptance_looks:
+                latest_acceptance_look = _early_acceptance_look(
+                    _conservative_pair_scores(
+                        first_scores,
+                        second_scores,
+                        truncated_games=truncated_games,
+                    ),
+                    config=config,
+                    look_pairs=pairs_completed,
+                )
+                if bool(latest_acceptance_look["accept"]):
+                    early_stopped = True
+                    early_stop_outcome = "accepted"
+                    early_stop_reason = (
+                        f"promote early at {pairs_completed:,} pairs; adjusted one-sided "
+                        f"lower bound {float(latest_acceptance_look['lower_bound']):.3f} "
+                        f"exceeds "
+                        f"{float(latest_acceptance_look['promotion_threshold']):.3f}"
                     )
             now = time.monotonic()
             if now - last_update >= 0.25 or len(first_scores) == config.pairs or early_stopped:
@@ -917,11 +1069,17 @@ class ArenaManager:
                     started_at=started_at,
                 )
                 result["early_stopped"] = early_stopped
+                result["early_stop_outcome"] = early_stop_outcome
                 result["early_stop_reason"] = early_stop_reason
                 result["early_rejection"] = _early_rejection_metadata(
                     config,
                     pairs_completed=len(first_scores),
                     latest_look=latest_early_look,
+                )
+                result["early_acceptance"] = _early_acceptance_metadata(
+                    config,
+                    pairs_completed=len(first_scores),
+                    latest_look=latest_acceptance_look,
                 )
                 self.store.update_arena_job(job_id, status="running", result=result)
                 last_update = now
@@ -947,11 +1105,17 @@ class ArenaManager:
             completed_at=completed_at,
         )
         final["early_stopped"] = early_stopped
+        final["early_stop_outcome"] = early_stop_outcome
         final["early_stop_reason"] = early_stop_reason
         final["early_rejection"] = _early_rejection_metadata(
             config,
             pairs_completed=len(first_scores),
             latest_look=latest_early_look,
+        )
+        final["early_acceptance"] = _early_acceptance_metadata(
+            config,
+            pairs_completed=len(first_scores),
+            latest_look=latest_acceptance_look,
         )
         if early_stopped:
             final["eta_seconds"] = 0.0

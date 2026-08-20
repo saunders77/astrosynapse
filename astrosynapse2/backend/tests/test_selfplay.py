@@ -53,6 +53,7 @@ class RecordingActor:
             bootstrap_heads=bootstrap_heads,
         )
         self.calls = []
+        self.value_calls = 0
 
     def choose(self, _state, actions, _family, **kwargs):
         self.calls.append(kwargs)
@@ -61,6 +62,11 @@ class RecordingActor:
     def predict_options(self, _state, actions, _family):
         values = np.linspace(0.2, 0.8, len(actions), dtype=np.float32)
         return np.repeat(values[:, None], self.spec.bootstrap_heads, axis=1)
+
+    def predict_values(self, states, _families):
+        self.value_calls += 1
+        count = 1 if np.asarray(states).ndim == 1 else len(states)
+        return np.zeros((count, self.spec.bootstrap_heads), dtype=np.float32)
 
 
 def test_deployment_policy_uses_mean_heads_without_epsilon_or_random_prior():
@@ -277,7 +283,8 @@ def test_generation_four_collection_keeps_complete_legal_sets_and_counterfactual
 
 def test_generation_five_reanalysis_attaches_action_distribution_and_value():
     encoder = Encoder(version=2)
-    policy = ActorPolicy(RecordingActor(encoder, bootstrap_heads=5), encoder)
+    actor = RecordingActor(encoder, bootstrap_heads=5)
+    policy = ActorPolicy(actor, encoder)
     collected = collect_game(
         (policy, policy),
         seed=923,
@@ -290,6 +297,7 @@ def test_generation_five_reanalysis_attaches_action_distribution_and_value():
         reanalysis_max_per_game=1,
         reanalysis_max_actions=2,
         reanalysis_rollouts_per_action=1,
+        reanalysis_horizon_turns=2,
         reanalysis_policy_temperature=0.35,
         max_turns=100,
     )
@@ -298,3 +306,4 @@ def test_generation_five_reanalysis_attaches_action_distribution_and_value():
     assert np.isclose(np.sum(searched[0].search_policy), 1.0)
     assert np.sum(searched[0].search_mask) == 2
     assert 0 <= searched[0].search_value <= 1
+    assert actor.value_calls > 0

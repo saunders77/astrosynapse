@@ -32,6 +32,14 @@ class EnginePolicy(Protocol):
     def __call__(self, player_id: int, decision: Decision) -> int | Action: ...
 
 
+class _SearchLeaf(RuntimeError):
+    """Internal control flow used to stop a cloned game at a search horizon."""
+
+    def __init__(self, observation: object):
+        super().__init__("search horizon reached")
+        self.observation = observation
+
+
 @dataclass(frozen=True, slots=True)
 class PlayerExploration:
     """Behavior and bootstrap metadata held fixed for an entire player-game.
@@ -496,6 +504,7 @@ def collect_game(
     reanalysis_max_per_game: int = 0,
     reanalysis_max_actions: int = 6,
     reanalysis_rollouts_per_action: int = 2,
+    reanalysis_horizon_turns: int = 2,
     reanalysis_policy_temperature: float = 0.35,
     collect_players: Sequence[bool] = (True, True),
     game_id: int | None = None,
@@ -519,7 +528,11 @@ def collect_game(
         raise ValueError("reanalysis_fraction must be in [0, 1]")
     if reanalysis_max_per_game < 0 or reanalysis_max_actions < 2:
         raise ValueError("invalid reanalysis limits")
-    if reanalysis_rollouts_per_action < 1 or reanalysis_policy_temperature <= 0:
+    if (
+        reanalysis_rollouts_per_action < 1
+        or reanalysis_horizon_turns < 2
+        or reanalysis_policy_temperature <= 0
+    ):
         raise ValueError("invalid reanalysis rollout settings")
     encoder = encoder or Encoder()
     requested_epsilon_pair = _coerce_pair(epsilons, "epsilons")
@@ -584,13 +597,26 @@ def collect_game(
     reanalysis_count = 0
     game_ref: list[Game] = []
 
-    def continuation_chooser(player: int, branch_seed: int):
+    def continuation_chooser(
+        player: int,
+        branch_seed: int,
+        *,
+        leaf_player: int | None = None,
+        leaf_turn: int | None = None,
+    ):
         policy = policies[player]
         branch_rng = np.random.default_rng(
             np.random.SeedSequence([normalized_seed, 0xC0FA, branch_seed, player])
         )
 
         def choose(player_id: int, decision: Decision) -> Action:
+            if (
+                leaf_player == player_id
+                and leaf_turn is not None
+                and decision.family == EngineDecisionFamily.MAIN
+                and decision.observation.turn >= leaf_turn
+            ):
+                raise _SearchLeaf(decision.observation)
             if isinstance(policy, ActorPolicy):
                 exploration = PlayerExploration(
                     head=head_pair[player],
@@ -609,17 +635,37 @@ def collect_game(
         action: Action,
         branch_seed: int,
         belief_seed: int | None = None,
+        horizon_turns: int | None = None,
     ) -> float | None:
         branch = copy.deepcopy(game)
         branch.cancel_hook = None
         branch.decision_hook = None
         if belief_seed is not None:
             branch.resample_public_belief(player, belief_seed)
+        leaf_turn = game.turns + horizon_turns if horizon_turns is not None else None
         branch.choosers = {
-            0: continuation_chooser(0, branch_seed),
-            1: continuation_chooser(1, branch_seed),
+            0: continuation_chooser(
+                0, branch_seed, leaf_player=player, leaf_turn=leaf_turn
+            ),
+            1: continuation_chooser(
+                1, branch_seed, leaf_player=player, leaf_turn=leaf_turn
+            ),
         }
-        result = branch.continue_from_main_action(action)
+        try:
+            result = branch.continue_from_main_action(action)
+        except _SearchLeaf as leaf:
+            policy = policies[player]
+            if isinstance(policy, ActorPolicy) and hasattr(policy.actor, "predict_values"):
+                state = policy.encoder.encode_state(leaf.observation)
+                logits = policy.actor.predict_values(
+                    state,
+                    np.asarray([int(DecisionFamily.MAIN)], dtype=np.int64),
+                )
+                probabilities = 1.0 / (1.0 + np.exp(-np.asarray(logits, dtype=np.float64)))
+                return float(np.mean(probabilities))
+            own = branch.players[player].authority
+            opponent = branch.players[1 - player].authority
+            return float(1.0 / (1.0 + np.exp(-(own - opponent) / 10.0)))
         if result.truncated:
             return None
         if result.winner is not None:
@@ -676,6 +722,7 @@ def collect_game(
                     decision.actions[int(eligible[local_index])],
                     branch_seed + rollout,
                     belief_seed,
+                    reanalysis_horizon_turns,
                 )
                 if score is not None:
                     action_scores.append(score)
@@ -969,6 +1016,7 @@ def collect_worker_batch(
     reanalysis_max_per_game: int = 0,
     reanalysis_max_actions: int = 6,
     reanalysis_rollouts_per_action: int = 2,
+    reanalysis_horizon_turns: int = 2,
     reanalysis_policy_temperature: float = 0.35,
     policy_replay_decisions_per_player_game: int = 0,
     encoder_version: int = 1,
@@ -1027,6 +1075,7 @@ def collect_worker_batch(
             reanalysis_max_per_game=reanalysis_max_per_game,
             reanalysis_max_actions=reanalysis_max_actions,
             reanalysis_rollouts_per_action=reanalysis_rollouts_per_action,
+            reanalysis_horizon_turns=reanalysis_horizon_turns,
             reanalysis_policy_temperature=reanalysis_policy_temperature,
         )
         all_items.extend(collected.samples)

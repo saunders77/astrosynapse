@@ -22,7 +22,7 @@ All routes below are rooted at `/api`.
 - `GET /runs/{id}/events?limit={n}` — persisted audit trail.
 - `GET /events?run_id={id}&after={sequence}` — Server-Sent Events metric stream with one-second keepalives. The dashboard currently uses incremental one-second polling so status, models, audit events, and metrics arrive together.
 
-Configuration patches are validated against the full recipe. Architecture, training generation, encoder, replay allocation, process count, and batch shape require a new run. Duration, update ratio, exploration floor, opponent mix, checkpoint/evaluation intervals, pair budget, and telemetry cadence can change safely between batches.
+Configuration patches are validated against the full recipe. Architecture, training generation, encoder, replay allocation, process count, and learner batch shape require a new run. Duration, actor microtask shape, search fraction/width/rollouts/horizon, governor cadence, opponent mix, checkpoint/canary/evaluation intervals, pair budgets, and early-acceptance settings can change safely between batches.
 
 ## Models
 
@@ -40,7 +40,7 @@ Safetensor paths are intentionally not exposed as arbitrary file-download endpoi
 
 Model references are checkpoint IDs or baseline names such as `baseline:balanced`, `baseline:economy`, and `baseline:aggressive`. Pair count defaults to 5,000 and is bounded at 20,000.
 
-Every public/manual arena job is hard-coded to `automatic_promotion=false`, even if a client invents another field. Only the internal trainer can create an automatic job. The arena layer independently rechecks that job's immutable tier/pair contract, completion state, distribution-free paired Hoeffding lower bound, truncation eligibility, and current champion before atomically changing champion state. Mature Astro3 evaluations request 5,000 pairs; smaller development tiers cannot masquerade as a full evaluation.
+Every public/manual arena job is hard-coded to `automatic_promotion=false`, even if a client invents another field. Only the internal trainer can create an automatic job. The arena layer independently rechecks that job's immutable tier/pair contract, completion state, distribution-free paired Hoeffding bounds, truncation eligibility, and current champion before atomically changing champion state. Astro5 can use fixed geometric early-acceptance looks beginning at 1,000 pairs; the one-sided bound is Bonferroni-corrected across every planned look and scores truncations as candidate losses. If that stricter proof does not clear the threshold, the job continues to the ordinary 5,000-pair gate.
 
 Trainer cadence and plateau state count only complete, current evidence. A truncated arena can promote only after every truncated game is conservatively rescored as a candidate loss and the adjusted paired confidence interval still clears the promotion threshold; otherwise it remains retryable and does not create a false plateau. Natural training completion enters `finalizing_evaluation`, waits for that run's trainer job rather than globally draining every arena, and checks the newest due checkpoint before reporting complete. A trainer job can queue behind an occupied evaluator slot. Pause or stop cancels that one automatic arena at the next game boundary, or immediately before it starts if still queued, without cancelling the unrelated job.
 
