@@ -134,6 +134,106 @@ def test_final_paired_interval_is_valid_for_constant_samples():
     assert losing["confidence_radius"] == pytest.approx(winning["confidence_radius"])
 
 
+def test_only_trainer_owned_automatic_arenas_may_use_the_4000_pair_cap():
+    with pytest.raises(ValueError):
+        ArenaConfig(pairs=4_000)
+    with pytest.raises(ValueError):
+        ArenaConfig(pairs=4_000, automatic_promotion=True)
+
+    config = ArenaConfig(
+        pairs=4_000,
+        automatic_promotion=True,
+        trainer_scheduled=True,
+    )
+    assert config.pairs == 4_000
+
+
+@pytest.mark.parametrize(
+    ("estimate", "lower_bound", "expected"),
+    [
+        (0.51, 0.48, True),
+        (0.51, 0.50, True),
+        (0.50, 0.49, False),
+        (0.51, 0.479, False),
+        (0.51, 0.501, False),
+    ],
+)
+def test_promotion_extension_uses_the_requested_mean_and_interval_window(
+    estimate,
+    lower_bound,
+    expected,
+):
+    config = ArenaConfig(automatic_promotion=True, trainer_scheduled=True)
+    assert (
+        arena_module._should_extend_promotion_evaluation(
+            config=config,
+            pairs_completed=2_000,
+            estimate=estimate,
+            lower_bound=lower_bound,
+        )
+        is expected
+    )
+
+
+def test_marginal_positive_full_evaluation_runs_one_more_2000_pair_block(
+    tmp_path,
+    monkeypatch,
+):
+    store = Store(tmp_path / "arena.sqlite3")
+    run = store.create_run(RunConfig.quick())
+    champion_actor = tmp_path / "champion.npz"
+    candidate_actor = tmp_path / "candidate.npz"
+    champion_actor.touch()
+    candidate_actor.touch()
+    champion = store.add_checkpoint(
+        run_id=run["id"],
+        label="champion",
+        path=str(tmp_path / "champion.safetensors"),
+        actor_path=str(champion_actor),
+        games=2_000,
+        champion=True,
+    )
+    candidate = store.add_checkpoint(
+        run_id=run["id"],
+        label="candidate",
+        path=str(tmp_path / "candidate.safetensors"),
+        actor_path=str(candidate_actor),
+        games=10_000,
+    )
+
+    def fake_pair(_model_a, _model_b, _config, pair_index, **_kwargs):
+        score = 1.0 if pair_index % 100 < 52 else 0.0
+        return {
+            "pair_index": pair_index,
+            "first_score": score,
+            "second_score": score,
+            "turns": 2,
+            "decisions": 2,
+            "truncated_games": 0,
+            "record": {"pair_index": pair_index},
+        }
+
+    monkeypatch.setattr(arena_module, "_play_pair", fake_pair)
+    manager = ArenaManager(store, worker_processes=1, recover=False)
+    created = manager.create_automatic(candidate["id"], champion["id"])
+    complete = _wait_for_job(manager, created["id"])
+    manager.shutdown()
+
+    assert complete["status"] == "complete", complete.get("error")
+    result = complete["result"]
+    assert result["pairs_completed"] == 4_000
+    assert result["pairs_requested"] == 4_000
+    assert result["adaptive_extension"] == {
+        "active": True,
+        "initial_pairs": 2_000,
+        "additional_pairs": 2_000,
+        "maximum_pairs": 4_000,
+    }
+    assert result["paired_interval"]["estimate"] == pytest.approx(0.52)
+    assert 0.48 <= result["paired_interval"]["low"] <= 0.50
+    assert result["promotion"]["promoted"] is False
+
+
 def test_automatic_arena_early_rejects_only_at_adjusted_safe_look(
     tmp_path,
     monkeypatch,

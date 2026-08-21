@@ -16,7 +16,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from statistics import NormalDist
@@ -43,6 +43,10 @@ from .storage import Store
 
 RECOMMENDED_PAIRS = 2_000
 MAX_PAIRS = 2_000
+MAX_AUTOMATIC_PAIRS = 4_000
+PROMOTION_EXTENSION_PAIRS = 2_000
+PROMOTION_EXTENSION_LOWER_MIN = 0.48
+PROMOTION_EXTENSION_LOWER_MAX = 0.50
 
 
 class ModelResolutionError(ValueError):
@@ -69,8 +73,13 @@ class ArenaConfig:
     early_acceptance_confidence: float = 0.995
 
     def __post_init__(self) -> None:
-        if not 1 <= self.pairs <= MAX_PAIRS:
-            raise ValueError(f"pairs must be between 1 and {MAX_PAIRS:,}")
+        pair_limit = (
+            MAX_AUTOMATIC_PAIRS
+            if self.automatic_promotion and self.trainer_scheduled
+            else MAX_PAIRS
+        )
+        if not 1 <= self.pairs <= pair_limit:
+            raise ValueError(f"pairs must be between 1 and {pair_limit:,}")
         if not 20 <= self.max_turns <= 500:
             raise ValueError("max_turns must be between 20 and 500")
         if not 20 <= self.max_actions_per_turn <= 500:
@@ -586,6 +595,25 @@ def _recommendation(
     return f"inconclusive: paired interval crosses {threshold:.1%} threshold"
 
 
+def _should_extend_promotion_evaluation(
+    *,
+    config: ArenaConfig,
+    pairs_completed: int,
+    estimate: float,
+    lower_bound: float,
+) -> bool:
+    """Return whether a completed full gate qualifies for one more 2,000-pair block."""
+
+    return (
+        config.automatic_promotion
+        and config.trainer_scheduled
+        and config.pairs == RECOMMENDED_PAIRS
+        and pairs_completed == RECOMMENDED_PAIRS
+        and estimate > 0.5
+        and PROMOTION_EXTENSION_LOWER_MIN <= lower_bound <= PROMOTION_EXTENSION_LOWER_MAX
+    )
+
+
 def _summary(
     *,
     config: ArenaConfig,
@@ -1054,6 +1082,14 @@ class ArenaManager:
         early_stopped = bool(previous.get("early_stopped", False))
         early_stop_outcome = previous.get("early_stop_outcome")
         early_stop_reason = previous.get("early_stop_reason")
+        adaptive_extension_active = bool(previous.get("_adaptive_extension_active", False))
+        base_config = config
+        target_pairs = (
+            RECOMMENDED_PAIRS + PROMOTION_EXTENSION_PAIRS
+            if adaptive_extension_active
+            else config.pairs
+        )
+        summary_config = replace(config, pairs=target_pairs) if adaptive_extension_active else config
         early_looks = frozenset(_early_rejection_looks(config))
         acceptance_looks = frozenset(_early_acceptance_looks(config))
         segment_start = time.monotonic()
@@ -1069,7 +1105,7 @@ class ArenaManager:
             truncated_games += int(pair["truncated_games"])
             pair_records.append(pair["record"])
 
-        statistical_looks = sorted(early_looks | acceptance_looks | {config.pairs})
+        statistical_looks = sorted(early_looks | acceptance_looks | {target_pairs})
         executor: ProcessPoolExecutor | None = None
         worker_cancel_event: Any | None = None
         if self.worker_processes > 1:
@@ -1083,7 +1119,7 @@ class ArenaManager:
             )
 
         try:
-            while len(first_scores) < config.pairs and not early_stopped:
+            while len(first_scores) < target_pairs and not early_stopped:
                 if cancelled():
                     raise _ArenaCancelled()
                 pair_start = len(first_scores)
@@ -1163,15 +1199,40 @@ class ArenaManager:
                             f"exceeds "
                             f"{float(latest_acceptance_look['promotion_threshold']):.3f}"
                         )
+                if (
+                    not early_stopped
+                    and not adaptive_extension_active
+                    and pairs_completed == base_config.pairs
+                ):
+                    extension_interval = _paired_interval(
+                        _conservative_pair_scores(
+                            first_scores,
+                            second_scores,
+                            truncated_games=truncated_games,
+                        ),
+                        base_config.confidence,
+                    )
+                    if _should_extend_promotion_evaluation(
+                        config=base_config,
+                        pairs_completed=pairs_completed,
+                        estimate=float(extension_interval["estimate"]),
+                        lower_bound=float(extension_interval["low"]),
+                    ):
+                        adaptive_extension_active = True
+                        target_pairs = RECOMMENDED_PAIRS + PROMOTION_EXTENSION_PAIRS
+                        summary_config = replace(base_config, pairs=target_pairs)
+                        statistical_looks = sorted(
+                            early_looks | acceptance_looks | {target_pairs}
+                        )
                 now = time.monotonic()
                 if (
                     now - last_update >= 0.25
-                    or len(first_scores) == config.pairs
+                    or len(first_scores) == target_pairs
                     or early_stopped
                 ):
                     elapsed = elapsed_before + now - segment_start
                     result = _summary(
-                        config=config,
+                        config=summary_config,
                         model_a=resolved_a,
                         model_b=resolved_b,
                         first_scores=first_scores,
@@ -1196,6 +1257,15 @@ class ArenaManager:
                         pairs_completed=len(first_scores),
                         latest_look=latest_acceptance_look,
                     )
+                    result["adaptive_extension"] = {
+                        "active": adaptive_extension_active,
+                        "initial_pairs": base_config.pairs,
+                        "additional_pairs": (
+                            PROMOTION_EXTENSION_PAIRS if adaptive_extension_active else 0
+                        ),
+                        "maximum_pairs": MAX_AUTOMATIC_PAIRS,
+                    }
+                    result["_adaptive_extension_active"] = adaptive_extension_active
                     self.store.update_arena_job(job_id, status="running", result=result)
                     last_update = now
         finally:
@@ -1209,7 +1279,7 @@ class ArenaManager:
         completed_at = time.time()
         elapsed = elapsed_before + time.monotonic() - segment_start
         final = _summary(
-            config=config,
+            config=summary_config,
             model_a=resolved_a,
             model_b=resolved_b,
             first_scores=first_scores,
@@ -1235,6 +1305,13 @@ class ArenaManager:
             pairs_completed=len(first_scores),
             latest_look=latest_acceptance_look,
         )
+        final["adaptive_extension"] = {
+            "active": adaptive_extension_active,
+            "initial_pairs": base_config.pairs,
+            "additional_pairs": PROMOTION_EXTENSION_PAIRS if adaptive_extension_active else 0,
+            "maximum_pairs": MAX_AUTOMATIC_PAIRS,
+        }
+        final["_adaptive_extension_active"] = adaptive_extension_active
         if early_stopped:
             final["eta_seconds"] = 0.0
         paired_interval = _paired_interval(
@@ -1247,7 +1324,7 @@ class ArenaManager:
         final["paired_interval"] = paired_interval
         final["paired_interval_method"] = "two_sided_hoeffding"
         final["promotion"]["recommendation"] = _recommendation(
-            config,
+            summary_config,
             pairs_completed=len(first_scores),
             paired_low=float(paired_interval["low"]),
             paired_high=float(paired_interval["high"]),
@@ -1258,7 +1335,7 @@ class ArenaManager:
         finalize_automatic_evaluation(
             self.store,
             job_id=job_id,
-            config=config,
+            config=summary_config,
             model_a=resolved_a,
             model_b=resolved_b,
             result=final,
