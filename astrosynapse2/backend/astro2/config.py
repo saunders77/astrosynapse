@@ -462,7 +462,7 @@ class RunConfig(BaseModel):
             policy_entropy_weight=0.02,
             rejected_candidate_action="continue",
             rollback_rejected_candidates=False,
-            checkpoint_every_games=5_000,
+            checkpoint_every_games=10_000,
             canary_every_games=10_000,
             canary_pairs=64,
             evaluate_every_games=50_000,
