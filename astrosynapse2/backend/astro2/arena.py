@@ -761,7 +761,11 @@ def finalize_automatic_evaluation(
             "promoted": False,
         }
     )
-    if not config.automatic_promotion:
+    # Manual arena jobs are intentionally kept out of checkpoint metadata, but
+    # trainer-scheduled diagnostics (notably Astro5 canaries) still belong to
+    # the immutable candidate's evaluation history and must be visible in the
+    # model registry. Promotion authority is handled separately below.
+    if not config.automatic_promotion and not config.trainer_scheduled:
         return False
     if model_a.kind != "checkpoint" or model_b.kind != "checkpoint":
         raise ModelResolutionError("automatic arena jobs require two checkpoint IDs")
@@ -789,7 +793,7 @@ def finalize_automatic_evaluation(
     acceptance_look = (result.get("early_acceptance") or {}).get("latest_look") or {}
     acceptance_lower = float(acceptance_look.get("lower_bound", 0.0))
     acceptance_proven = early_accepted and acceptance_lower > threshold
-    promote = (
+    promote = config.automatic_promotion and (
         ((not early_stopped and full and enough and paired_low > threshold) or acceptance_proven)
         and comparison_is_current
     )
@@ -817,6 +821,11 @@ def finalize_automatic_evaluation(
     elif not comparison_is_current:
         promotion["recommendation"] = (
             "not promoted: evaluation opponent is no longer the current champion"
+        )
+    elif not config.automatic_promotion:
+        promotion["recommendation"] = (
+            f"{config.promotion_tier} diagnostic complete: "
+            f"paired score {float(result.get('model_a_score', 0.5)):.3f}"
         )
     elif promote:
         prefix = (
@@ -851,7 +860,8 @@ def finalize_automatic_evaluation(
         "paired_interval": paired,
         "confidence": config.confidence,
         "completed_at": result.get("completed_at"),
-        "automatic": True,
+        "automatic": config.automatic_promotion,
+        "trainer_scheduled": config.trainer_scheduled,
         "promotion_tier": config.promotion_tier,
         "promoted": promote,
         "early_stopped": early_stopped,

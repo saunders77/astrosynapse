@@ -2915,7 +2915,12 @@ export default function Home() {
     if (preferred) setBranchSourceId(preferred.id);
   }, [branchSourceId, branchSources]);
   const selectedRunChoice = runChoices.find((run) => run.id === remoteRunId) ?? null;
-  const trainerActiveRun = runChoices.find((run) => run.id === trainerActiveRunId) ?? null;
+  const trainerActiveRun = runChoices.find((run) => run.id === trainerActiveRunId)
+    ?? runChoices.find((run) =>
+      (["running", "pausing", "paused", "stopping"] as RunStatus[]).includes(run.status)
+    )
+    ?? selectedRunChoice;
+  const trainerControlRunId = trainerActiveRun?.id ?? remoteRunId;
   const trainerControlStatus = trainerActiveRun?.status ?? (!connected ? snapshot.run.status : null);
   const evaluatedModels = snapshot.models
     .filter((model) => model.evaluated)
@@ -3485,9 +3490,9 @@ export default function Home() {
         } else {
           const targetsTrainer = action === "pause" || action === "stop" || action === "checkpoint";
           const targetRunId = targetsTrainer
-            ? trainerActiveRunId ?? remoteRunId
+            ? trainerControlRunId
             : action === "resume" && trainerControlStatus === "paused"
-              ? trainerActiveRunId ?? remoteRunId
+              ? trainerControlRunId
               : remoteRunId;
           if (!targetRunId) throw new Error("Create or select a run first");
           const result = await fetchJson(`/runs/${encodeURIComponent(targetRunId)}/${action}`, {
@@ -4111,7 +4116,7 @@ export default function Home() {
                     type="button"
                     className="button"
                     onClick={() => invokeControl("pause")}
-                    disabled={trainerControlStatus !== "running" || safetyBusy.pause || safetyBusy.stop}
+                    disabled={!trainerControlRunId || safetyBusy.pause || safetyBusy.stop}
                   >
                     <span className="button-symbol" aria-hidden="true">Ⅱ</span> Pause & save
                   </button>
@@ -4127,7 +4132,7 @@ export default function Home() {
                     type="button"
                     className="button button-danger"
                     onClick={() => invokeControl("stop")}
-                    disabled={!trainerControlStatus || !(["running", "pausing", "paused", "stopping"] as RunStatus[]).includes(trainerControlStatus) || safetyBusy.stop}
+                    disabled={!trainerControlRunId || safetyBusy.stop}
                   >
                     <span className="button-symbol" aria-hidden="true">■</span> Stop
                   </button>
@@ -4498,9 +4503,9 @@ export default function Home() {
                   <header className="panel-header"><div><span className="panel-kicker">Branch runner controls</span><h2>{trainerActiveRun?.name ?? "No active trainer"}</h2></div>{trainerControlStatus ? <span className={`run-state status-${trainerControlStatus}`}><StatusDot status={trainerControlStatus} /> {titleCase(trainerControlStatus)}</span> : null}</header>
                   <p>These controls always target the process currently using the trainer, even while you inspect a different queued branch.</p>
                   <div className="control-strip">
-                    <button type="button" className="button" onClick={() => invokeControl("pause")} disabled={trainerControlStatus !== "running" || safetyBusy.pause || safetyBusy.stop}>Ⅱ Pause & save</button>
+                    <button type="button" className="button" onClick={() => invokeControl("pause")} disabled={!trainerControlRunId || safetyBusy.pause || safetyBusy.stop}>Ⅱ Pause & save</button>
                     <button type="button" className="button" onClick={() => invokeControl("resume")} disabled={trainerControlStatus !== "paused" || commandBusy !== null}>↗ Resume</button>
-                    <button type="button" className="button button-danger" onClick={() => invokeControl("stop")} disabled={!trainerControlStatus || !(["running", "pausing", "paused", "stopping"] as RunStatus[]).includes(trainerControlStatus) || safetyBusy.stop}>■ Stop</button>
+                    <button type="button" className="button button-danger" onClick={() => invokeControl("stop")} disabled={!trainerControlRunId || safetyBusy.stop}>■ Stop</button>
                   </div>
                   {trainerActiveRun && trainerActiveRun.id !== remoteRunId ? <button type="button" className="text-button" onClick={() => selectRun(trainerActiveRun.id)}>View active branch →</button> : null}
                 </article>

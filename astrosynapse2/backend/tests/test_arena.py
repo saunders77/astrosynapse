@@ -608,6 +608,43 @@ def test_automatic_finalization_never_promotes_manual_or_tiny_jobs_but_promotes_
     assert store.get_run(run["id"])["champion_id"] == champion["id"]
     assert "latest_arena" not in store.checkpoint(candidate["id"])["evaluation"]
 
+    canary_result = {
+        "pairs_completed": 64,
+        "games_completed": 128,
+        "model_a_score": 0.625,
+        "paired_interval": {
+            "estimate": 0.625,
+            "low": 0.50,
+            "high": 0.75,
+            "samples": 64,
+        },
+        "promotion": {},
+    }
+    canary = ArenaConfig(
+        pairs=64,
+        minimum_promotion_pairs=64,
+        promotion_tier="canary",
+        automatic_promotion=False,
+        trainer_scheduled=True,
+    )
+    assert not finalize_automatic_evaluation(
+        store,
+        job_id="canary",
+        config=canary,
+        model_a=model_a,
+        model_b=model_b,
+        result=canary_result,
+    )
+    assert store.get_run(run["id"])["champion_id"] == champion["id"]
+    latest_canary = store.checkpoint(candidate["id"])["evaluation"]["latest_arena"]
+    assert latest_canary["job_id"] == "canary"
+    assert latest_canary["promotion_tier"] == "canary"
+    assert latest_canary["promoted"] is False
+    assert latest_canary["automatic"] is False
+    assert latest_canary["trainer_scheduled"] is True
+    assert canary_result["promotion"]["eligible"] is True
+    assert canary_result["promotion"]["promoted"] is False
+
     automatic = ArenaConfig(pairs=2_000, automatic_promotion=True)
     tiny_result = {
         "pairs_completed": 8,
