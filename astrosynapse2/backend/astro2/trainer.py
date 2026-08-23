@@ -398,17 +398,14 @@ def _governor_status(
 
 
 def _pending_trainer_evaluation_job(store: Store, run_id: str) -> dict[str, Any] | None:
-    checkpoint_ids = {checkpoint["id"] for checkpoint in store.checkpoints(run_id)}
-    return next(
-        (
-            job
-            for job in store.arena_jobs(limit=20_000, include_internal=True)
-            if job["status"] in {"queued", "running"}
-            and job["model_a"] in checkpoint_ids
-            and bool((job.get("config") or {}).get("trainer_scheduled"))
-        ),
-        None,
+    jobs = store.arena_jobs(
+        limit=1,
+        include_internal=True,
+        run_id=run_id,
+        statuses=("queued", "running"),
+        trainer_scheduled=True,
     )
+    return jobs[0] if jobs else None
 
 
 def _pending_trainer_evaluation(store: Store, run_id: str) -> bool:
@@ -433,6 +430,25 @@ def _readable_npz(path: str | Path | None, *, required: set[str]) -> bool:
         with np.load(target, allow_pickle=False) as archive:
             return required.issubset(archive.files)
     except (OSError, ValueError, KeyError):
+        return False
+
+
+def _readable_policy_replay(path: str | Path | None, *, required: set[str]) -> bool:
+    if not path:
+        return False
+    target = Path(path)
+    if target.suffix.lower() != ".json":
+        return _readable_npz(target, required=required)
+    try:
+        manifest = json.loads(target.read_text(encoding="utf-8"))
+        segments = manifest.get("segments")
+        return (
+            manifest.get("format") == "game_reservoir_incremental_v2"
+            and isinstance(segments, list)
+            and bool(segments)
+            and all(_readable_npz(segment, required=required) for segment in segments)
+        )
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return False
 
 
@@ -619,7 +635,7 @@ def _checkpoint_has_required_artifacts(
             return False
         if policy_items == 0:
             return True
-        return _readable_npz(
+        return _readable_policy_replay(
             artifacts.get("policy_replay_path"),
             required={
                 "format_version",
@@ -944,14 +960,17 @@ def _trainer_evaluation_outcome(job: dict[str, Any]) -> str:
 
 
 def _terminal_trainer_evaluations(store: Store, run_id: str) -> list[dict[str, Any]]:
-    checkpoint_ids = {checkpoint["id"] for checkpoint in store.checkpoints(run_id)}
     return sorted(
         (
             job
-            for job in store.arena_jobs(limit=20_000, include_internal=True)
-            if job["status"] in {"complete", "failed", "cancelled"}
-            and job["model_a"] in checkpoint_ids
-            and _is_trainer_evaluation(job)
+            for job in store.arena_jobs(
+                limit=20_000,
+                include_internal=True,
+                run_id=run_id,
+                statuses=("complete", "failed", "cancelled"),
+                trainer_scheduled=True,
+            )
+            if _is_trainer_evaluation(job)
         ),
         key=lambda job: float(job["created_at"]),
     )
@@ -1016,15 +1035,25 @@ def _save_checkpoint(
         if replay_items:
             artifacts["replay_path"] = str(replay_path)
     if policy_replay is not None and resume_replay_items > 0:
-        policy_replay_path = checkpoint_dir / f"{stem}.policy-replay.npz"
-        policy_items = policy_replay.snapshot(
-            policy_replay_path,
-            max_items=0 if full_replay else resume_replay_items,
-        )
+        if policy_replay.incremental_snapshots_enabled:
+            policy_replay_path = checkpoint_dir / f"{stem}.policy-replay.json"
+            policy_items = policy_replay.snapshot_incremental(
+                policy_replay_path,
+                max_items=0 if full_replay else resume_replay_items,
+                force_compact=full_replay,
+            )
+            policy_replay_format = "game_reservoir_incremental_v2"
+        else:
+            policy_replay_path = checkpoint_dir / f"{stem}.policy-replay.npz"
+            policy_items = policy_replay.snapshot(
+                policy_replay_path,
+                max_items=0 if full_replay else resume_replay_items,
+            )
+            policy_replay_format = "game_reservoir_v1_uncompressed"
         artifacts.update(
             policy_replay_items=int(policy_items),
             policy_replay_capacity=int(policy_replay.capacity),
-            policy_replay_format="game_reservoir_v1_uncompressed",
+            policy_replay_format=policy_replay_format,
         )
         if policy_items:
             artifacts["policy_replay_path"] = str(policy_replay_path)
@@ -1055,6 +1084,8 @@ def _save_checkpoint(
     )
     if champion:
         store.update_run(run_id, champion_id=checkpoint["id"])
+    if policy_replay is not None and policy_replay.incremental_snapshots_enabled:
+        policy_replay.commit_incremental_snapshot()
     store.event(
         run_id,
         "checkpoint_saved",
@@ -1185,7 +1216,13 @@ def _last_scheduled_evaluation_games(store: Store, run_id: str, *, tier: str | N
     return max(
         (
             checkpoint_games.get(job["model_a"], 0)
-            for job in store.arena_jobs(limit=20_000, include_internal=True)
+            for job in store.arena_jobs(
+                limit=20_000,
+                include_internal=True,
+                run_id=run_id,
+                promotion_tier=tier,
+                trainer_scheduled=True,
+            )
             if job["model_a"] in checkpoint_games
             and _is_trainer_evaluation(job)
             and _trainer_evaluation_outcome(job)
@@ -1219,7 +1256,13 @@ def _evaluation_retry_state(
     if checkpoint_id not in checkpoint_ids:
         return {"ready": False, "attempts": 0, "reason": "unknown_checkpoint"}
     invalid: list[tuple[dict[str, Any], str]] = []
-    for job in store.arena_jobs(limit=20_000, include_internal=True):
+    for job in store.arena_jobs(
+        limit=20_000,
+        include_internal=True,
+        run_id=run_id,
+        promotion_tier=tier,
+        trainer_scheduled=True,
+    ):
         config = job.get("config") or {}
         job_tier = config.get(
             "promotion_tier",
@@ -2403,6 +2446,11 @@ def run_training(
     # the CLI's --data-dir remain self-contained.
     checkpoint_root = store.path.parent / "checkpoints" / run_id
     runtime_actor = checkpoint_root / "runtime" / "current.actor.npz"
+    policy_replay_journal = (
+        checkpoint_root
+        / "runtime"
+        / f"policy-replay-journal-{time.time_ns()}-{uuid.uuid4().hex[:8]}"
+    )
     latest = _learner_resume_checkpoint(store, run_id, config)
     _repair_anomalous_deployment_anchor(store, run_id)
     if latest is not None:
@@ -2602,6 +2650,21 @@ def run_training(
         )
         parent_checkpoint_id = latest["id"]
 
+    if config.training_generation >= 4 and config.resume_replay_items > 0:
+        restored_policy_path = artifacts.get("policy_replay_path")
+        source_manifest = (
+            restored_policy_path
+            if artifacts_complete
+            and restored_policy_path
+            and Path(restored_policy_path).suffix.lower() == ".json"
+            else None
+        )
+        policy_replay.enable_incremental_snapshots(
+            policy_replay_journal,
+            max_items=config.resume_replay_items,
+            source_manifest=source_manifest,
+        )
+
     if durable_resume["degraded_reasons"]:
         store.event(
             run_id,
@@ -2711,6 +2774,12 @@ def run_training(
             policy_replay.restore(champion_artifacts["policy_replay_path"])
         if champion_artifacts.get("preference_replay_path"):
             preference_replay.restore(champion_artifacts["preference_replay_path"])
+        if policy_replay.incremental_snapshots_enabled:
+            policy_replay.enable_incremental_snapshots(
+                policy_replay_journal,
+                max_items=config.resume_replay_items,
+                reset=True,
+            )
         optimizer_updates_at_start = totals.updates
         schedule_games_origin = totals.games
         parent_checkpoint_id = champion["id"]

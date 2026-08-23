@@ -138,6 +138,26 @@ def test_numpy_actor_matches_mlx(tmp_path):
     np.testing.assert_allclose(option_actual, repeated_expected, rtol=2e-4, atol=2e-4)
     assert batch_expected.shape == option_actual.shape
 
+    actor = NumpyActor.load(actor_path)
+    for head in range(spec.bootstrap_heads):
+        np.testing.assert_allclose(
+            actor.predict_option_head(states[0], actions, 2, head),
+            option_actual[:, head],
+            rtol=2e-4,
+            atol=2e-4,
+        )
+    batched = actor.predict_option_value_batches(
+        (states[0], states[1], states[2]),
+        (actions[:2], actions[:5], actions[:3]),
+        (2, 1, 3),
+        (0, None, 2),
+    )
+    np.testing.assert_allclose(batched[0], actor.predict_options(states[0], actions[:2], 2)[:, 0])
+    np.testing.assert_allclose(
+        batched[1], actor.predict_options(states[1], actions[:5], 1).mean(axis=1)
+    )
+    np.testing.assert_allclose(batched[2], actor.predict_options(states[2], actions[:3], 3)[:, 2])
+
 
 def test_actor_exports_support_fast_uncompressed_runtime_archives(tmp_path):
     import mlx.core as mx

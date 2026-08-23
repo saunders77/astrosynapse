@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import threading
 from collections import OrderedDict
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -1432,15 +1434,40 @@ class GameBalancedPolicyReplayBuffer:
         self.max_decisions_per_player_game = max(0, int(max_decisions_per_player_game))
         self.family_balanced = bool(family_balanced)
         self._episodes: OrderedDict[tuple[int, int], list[PolicyItem]] = OrderedDict()
+        # OrderedDict supplies FIFO eviction, while this dense side index makes
+        # uniform episode sampling O(1). Rebuilding list(self._episodes) for
+        # every learner update was an O(all player-games) hot-path operation.
+        self._episode_keys: list[tuple[int, int]] = []
+        self._episode_key_indices: dict[tuple[int, int], int] = {}
         self._size = 0
         self._writes = 0
         self._evicted_decisions = 0
+        self._searched_decisions = 0
+        self._incremental_directory: Path | None = None
+        self._incremental_segments: list[Path] = []
+        self._incremental_persisted_decisions = 0
+        self._incremental_dirty_keys: OrderedDict[tuple[int, int], None] = OrderedDict()
+        self._incremental_obsolete: list[Path] = []
+        self._incremental_generation = 0
         self._rng = np.random.default_rng(seed)
         self._lock = threading.RLock()
 
     def __len__(self) -> int:
         with self._lock:
             return self._size
+
+    def _add_episode_key(self, key: tuple[int, int]) -> None:
+        self._episode_key_indices[key] = len(self._episode_keys)
+        self._episode_keys.append(key)
+
+    def _remove_episode_key(self, key: tuple[int, int]) -> None:
+        """Swap-remove a key without making FIFO eviction itself O(n)."""
+
+        index = self._episode_key_indices.pop(key)
+        last = self._episode_keys.pop()
+        if index < len(self._episode_keys):
+            self._episode_keys[index] = last
+            self._episode_key_indices[last] = index
 
     def _validate(self, item: PolicyItem) -> PolicyItem:
         state = np.asarray(item.state, dtype=np.float16)
@@ -1547,15 +1574,26 @@ class GameBalancedPolicyReplayBuffer:
             for key, episode in grouped.items():
                 episode = self._compact_episode(episode)
                 previous = self._episodes.pop(key, None)
-                if previous:
+                if previous is not None:
                     self._size -= len(previous)
+                    self._searched_decisions -= sum(int(item.search_valid) for item in previous)
+                else:
+                    self._add_episode_key(key)
                 self._episodes[key] = episode
                 self._size += len(episode)
+                self._searched_decisions += sum(int(item.search_valid) for item in episode)
             self._writes += len(validated)
             while self._size > self.capacity and self._episodes:
-                _key, removed = self._episodes.popitem(last=False)
+                removed_key, removed = self._episodes.popitem(last=False)
+                self._remove_episode_key(removed_key)
                 self._size -= len(removed)
+                self._searched_decisions -= sum(int(item.search_valid) for item in removed)
                 self._evicted_decisions += len(removed)
+            if self._incremental_directory is not None:
+                for key in grouped:
+                    self._incremental_dirty_keys.pop(key, None)
+                    if key in self._episodes:
+                        self._incremental_dirty_keys[key] = None
         return len(validated)
 
     def extend_compact(self, compact: Any) -> int:
@@ -1601,13 +1639,14 @@ class GameBalancedPolicyReplayBuffer:
         with self._lock:
             if not self._episodes:
                 raise ValueError("cannot sample empty policy replay")
-            keys = list(self._episodes)
             chosen_keys = self._rng.choice(
-                len(keys), size=batch_size, replace=batch_size > len(keys)
+                len(self._episode_keys),
+                size=batch_size,
+                replace=batch_size > len(self._episode_keys),
             )
             items: list[PolicyItem] = []
             for key_index in chosen_keys:
-                episode = self._episodes[keys[int(key_index)]]
+                episode = self._episodes[self._episode_keys[int(key_index)]]
                 phases = ([], [], [])
                 for item in episode:
                     turn = float(item.state[11]) * 50.0 if len(item.state) > 11 else 0.0
@@ -1660,35 +1699,49 @@ class GameBalancedPolicyReplayBuffer:
 
     def metrics(self) -> dict[str, Any]:
         with self._lock:
-            lengths = [len(items) for items in self._episodes.values()]
+            player_games = len(self._episodes)
             return {
                 "size": self._size,
                 "capacity": self.capacity,
                 "utilization": self._size / self.capacity,
-                "player_games": len(lengths),
-                "mean_decisions_per_player_game": float(np.mean(lengths)) if lengths else 0.0,
+                "player_games": player_games,
+                "mean_decisions_per_player_game": self._size / player_games if player_games else 0.0,
                 "writes": self._writes,
                 "evicted_decisions": self._evicted_decisions,
                 "sampling": "uniform_player_game_then_turn_phase_then_decision",
                 "max_decisions_per_player_game": self.max_decisions_per_player_game,
                 "family_balanced": self.family_balanced,
-                "searched_decisions": sum(
-                    int(item.search_valid)
-                    for episode in self._episodes.values()
-                    for item in episode
-                ),
+                "searched_decisions": self._searched_decisions,
             }
 
     def clear(self) -> None:
         with self._lock:
             self._episodes.clear()
+            self._episode_keys.clear()
+            self._episode_key_indices.clear()
             self._size = 0
+            self._searched_decisions = 0
+            self._incremental_dirty_keys.clear()
 
-    def snapshot(self, path: str | Path, *, max_items: int = 0) -> int:
+    def snapshot(
+        self,
+        path: str | Path,
+        *,
+        max_items: int = 0,
+        _episode_keys: tuple[tuple[int, int], ...] | None = None,
+    ) -> int:
         """Persist a ragged, whole-episode Astro5 replay archive."""
 
         with self._lock:
-            episodes = list(self._episodes.items())
+            episodes = (
+                [
+                    (key, self._episodes[key])
+                    for key in _episode_keys
+                    if key in self._episodes
+                ]
+                if _episode_keys is not None
+                else list(self._episodes.items())
+            )
             if max_items > 0:
                 selected: list[tuple[tuple[int, int], list[PolicyItem]]] = []
                 count = 0
@@ -1752,8 +1805,161 @@ class GameBalancedPolicyReplayBuffer:
             )
             return len(items)
 
+    @property
+    def incremental_snapshots_enabled(self) -> bool:
+        return self._incremental_directory is not None
+
+    def _next_incremental_path(self, prefix: str) -> Path:
+        assert self._incremental_directory is not None
+        path = self._incremental_directory / f"{prefix}-{self._incremental_generation:06d}.npz"
+        self._incremental_generation += 1
+        return path
+
+    def enable_incremental_snapshots(
+        self,
+        directory: str | Path,
+        *,
+        max_items: int = 0,
+        source_manifest: str | Path | None = None,
+        reset: bool = False,
+    ) -> None:
+        """Start a base+delta replay journal for cheap future checkpoints."""
+
+        target = Path(directory).expanduser().resolve()
+        target.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            if self._incremental_directory is not None and not reset:
+                return
+            if reset:
+                self._incremental_obsolete.extend(self._incremental_segments)
+            self._incremental_directory = target
+            self._incremental_segments = []
+            self._incremental_persisted_decisions = 0
+            self._incremental_dirty_keys.clear()
+            if source_manifest is not None and not reset:
+                manifest = json.loads(Path(source_manifest).read_text(encoding="utf-8"))
+                if manifest.get("format") != "game_reservoir_incremental_v2":
+                    raise ValueError("unsupported incremental replay source manifest")
+                segments = manifest.get("segments")
+                if not isinstance(segments, list) or not all(
+                    isinstance(item, str) and Path(item).is_file() for item in segments
+                ):
+                    raise ValueError("incremental replay source segments are unavailable")
+                self._incremental_segments = [Path(item) for item in segments]
+                self._incremental_persisted_decisions = max(
+                    int(manifest.get("items", 0)),
+                    int(manifest.get("persisted_decisions", 0)),
+                )
+            elif self._episodes:
+                base = self._next_incremental_path("base")
+                count = self.snapshot(base, max_items=max_items)
+                self._incremental_segments.append(base)
+                self._incremental_persisted_decisions = count
+
+    def snapshot_incremental(
+        self,
+        path: str | Path,
+        *,
+        max_items: int = 0,
+        force_compact: bool = False,
+    ) -> int:
+        """Persist only episodes changed since the preceding checkpoint.
+
+        Once the journal has replayed roughly twice the resumable window, it
+        compacts to one new base. This bounds restore time/disk while replacing
+        six repeated multi-gigabyte snapshots with one base plus deltas.
+        """
+
+        manifest_path = Path(path)
+        with self._lock:
+            if self._incremental_directory is None:
+                raise RuntimeError("incremental replay snapshots are not enabled")
+            retained_limit = self.capacity if max_items <= 0 else min(self.capacity, max_items)
+            compact = bool(self._incremental_segments) and (
+                force_compact
+                or self._incremental_persisted_decisions >= 2 * retained_limit
+            )
+            if compact:
+                base = self._next_incremental_path("base")
+                count = self.snapshot(base, max_items=max_items)
+                self._incremental_obsolete.extend(self._incremental_segments)
+                self._incremental_segments = [base]
+                self._incremental_persisted_decisions = count
+                self._incremental_dirty_keys.clear()
+            elif self._incremental_dirty_keys:
+                delta = self._next_incremental_path("delta")
+                count = self.snapshot(
+                    delta,
+                    _episode_keys=tuple(self._incremental_dirty_keys),
+                )
+                if count:
+                    self._incremental_segments.append(delta)
+                    self._incremental_persisted_decisions += count
+                self._incremental_dirty_keys.clear()
+            elif not self._incremental_segments:
+                base = self._next_incremental_path("base")
+                count = self.snapshot(base, max_items=max_items)
+                if count:
+                    self._incremental_segments.append(base)
+                    self._incremental_persisted_decisions = count
+
+            if self._size <= retained_limit:
+                item_count = self._size
+            else:
+                item_count = 0
+                for rows in reversed(self._episodes.values()):
+                    if item_count and item_count + len(rows) > retained_limit:
+                        break
+                    item_count += len(rows)
+            payload = {
+                "format": "game_reservoir_incremental_v2",
+                "segments": [str(segment) for segment in self._incremental_segments],
+                "max_items": retained_limit,
+                "items": item_count,
+                "persisted_decisions": self._incremental_persisted_decisions,
+            }
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = manifest_path.with_name(f"{manifest_path.name}.partial")
+            temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+            temporary.replace(manifest_path)
+            return item_count
+
+    def commit_incremental_snapshot(self) -> None:
+        """Remove journal generations superseded by a durable manifest."""
+
+        with self._lock:
+            obsolete, self._incremental_obsolete = self._incremental_obsolete, []
+        for path in obsolete:
+            with suppress(OSError):
+                path.unlink(missing_ok=True)
+
     def restore(self, path: str | Path) -> int:
-        with np.load(Path(path), allow_pickle=False) as archive:
+        target = Path(path)
+        if target.suffix.lower() == ".json":
+            manifest = json.loads(target.read_text(encoding="utf-8"))
+            if manifest.get("format") != "game_reservoir_incremental_v2":
+                raise ValueError("unsupported policy replay manifest")
+            segments = manifest.get("segments")
+            if not isinstance(segments, list) or not all(isinstance(item, str) for item in segments):
+                raise ValueError("invalid policy replay segment manifest")
+            self.clear()
+            for segment in segments:
+                self._restore_npz(Path(segment), clear=False)
+            limit = max(0, int(manifest.get("max_items", 0)))
+            if limit:
+                with self._lock:
+                    while self._size > limit and self._episodes:
+                        removed_key, removed = self._episodes.popitem(last=False)
+                        self._remove_episode_key(removed_key)
+                        self._size -= len(removed)
+                        self._searched_decisions -= sum(
+                            int(item.search_valid) for item in removed
+                        )
+            return len(self)
+        return self._restore_npz(target, clear=True)
+
+    def _restore_npz(self, path: Path, *, clear: bool) -> int:
+        with np.load(path, allow_pickle=False) as archive:
             if int(archive["state_size"]) != self.state_size or int(archive["action_size"]) != self.action_size:
                 raise ValueError("policy replay snapshot dimensions do not match")
             offsets = np.asarray(archive["action_offsets"], dtype=np.int64)
@@ -1783,5 +1989,6 @@ class GameBalancedPolicyReplayBuffer:
                     "search_valid": archive["search_valid"],
                 },
             )
-            self.clear()
+            if clear:
+                self.clear()
             return self.extend_compact(compact)

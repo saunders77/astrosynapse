@@ -329,6 +329,18 @@ def test_safeguards_are_truncated_draws_not_fabricated_winners():
     assert (cancelled.winner, cancelled.truncation_reason) == (None, "cancelled")
 
 
+def test_search_fork_is_independent_and_rng_exact():
+    game = Game(config=GameConfig(seed=21, max_turns=12))
+    forked = game.fork()
+
+    assert forked.observation(0) == game.observation(0)
+    assert forked.players is not game.players
+    assert forked.players[0].hand is not game.players[0].hand
+    assert forked.rng_streams.market is not game.rng_streams.market
+    assert forked.run() == game.run()
+    assert forked.observation(0) == game.observation(0)
+
+
 def test_scrap_heap_and_card_conservation_cover_all_physical_cards():
     game = Game(config=GameConfig(seed=23))
     expected = game.card_conservation()

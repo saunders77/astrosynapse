@@ -434,6 +434,79 @@ class Game:
             raise ValueError("provide one chooser per player")
         return {0: choosers[0], 1: choosers[1]}
 
+    def fork(self) -> Game:
+        """Clone a live game for counterfactual search without generic deepcopy.
+
+        Card definitions and configuration are immutable and are deliberately
+        shared. Only mutable zones, in-play flags, counters, and the four RNG
+        streams are copied. Search creates several forks from the same decision;
+        teaching ``deepcopy`` the whole object graph about this distinction was
+        a substantial and avoidable allocator/GC cost.
+        """
+
+        def clone_random(source: random.Random) -> random.Random:
+            cloned = random.Random()
+            cloned.setstate(source.getstate())
+            return cloned
+
+        forked = object.__new__(Game)
+        forked.config = self.config
+        forked.rng_streams = RNGStreams(
+            seating=clone_random(self.rng_streams.seating),
+            market=clone_random(self.rng_streams.market),
+            player_0=clone_random(self.rng_streams.player_0),
+            player_1=clone_random(self.rng_streams.player_1),
+        )
+        forked.cancel_hook = self.cancel_hook
+        forked.decision_hook = self.decision_hook
+        forked.choosers = dict(self.choosers)
+        player_rngs = (forked.rng_streams.player_0, forked.rng_streams.player_1)
+        forked.players = []
+        for player, player_rng in zip(self.players, player_rngs, strict=True):
+            forked.players.append(
+                _Player(
+                    player_id=player.player_id,
+                    name=player.name,
+                    rng=player_rng,
+                    authority=player.authority,
+                    deck=list(player.deck),
+                    hand=list(player.hand),
+                    discard=list(player.discard),
+                    in_play=[
+                        _InPlay(
+                            uid=item.uid,
+                            card=item.card,
+                            original_card=item.original_card,
+                            activated=item.activated,
+                            ally_triggered=item.ally_triggered,
+                        )
+                        for item in player.in_play
+                    ],
+                    must_discard=player.must_discard,
+                    known_top=list(player.known_top),
+                    revealed_hand=list(player.revealed_hand),
+                    combat=player.combat,
+                    trade=player.trade,
+                    next_ship_top=player.next_ship_top,
+                    blob_cards_played=player.blob_cards_played,
+                )
+            )
+        forked.scrap_heap = list(self.scrap_heap)
+        forked.trade_deck = list(self.trade_deck)
+        forked.trade_row = list(self.trade_row)
+        forked.explorers_remaining = self.explorers_remaining
+        forked.turns = self.turns
+        forked.decisions = self.decisions
+        forked.forced_choices = self.forced_choices
+        forked._turn_actions = self._turn_actions
+        forked._uid = self._uid
+        forked._winner = self._winner
+        forked._truncation_reason = self._truncation_reason
+        forked.result = self.result
+        forked.starting_player = self.starting_player
+        forked.active_player = self.active_player
+        return forked
+
     def run(self) -> GameResult:
         if self.result is not None:
             return self.result

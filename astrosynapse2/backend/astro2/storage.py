@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 import uuid
 from collections.abc import Iterable, Iterator
@@ -13,12 +14,13 @@ from typing import Any
 
 from .config import RunConfig
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class Store:
     def __init__(self, path: str | Path):
         self.path = Path(path).expanduser().resolve()
+        self._metric_condition = threading.Condition()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
@@ -99,6 +101,9 @@ class Store:
                     status TEXT NOT NULL,
                     model_a TEXT NOT NULL,
                     model_b TEXT NOT NULL,
+                    run_id TEXT,
+                    promotion_tier TEXT,
+                    trainer_scheduled INTEGER NOT NULL DEFAULT 0,
                     config_json TEXT NOT NULL,
                     result_json TEXT NOT NULL DEFAULT '{}',
                     created_at REAL NOT NULL,
@@ -142,6 +147,50 @@ class Store:
                     updated_at REAL NOT NULL
                 );
                 """
+            )
+            # Version 3 materializes the trainer's arena predicates. Before
+            # this, every ~128-game loop loaded and JSON-decoded the complete
+            # arena history several times. ALTERs are intentionally discovered
+            # from table_info so databases created by older releases migrate
+            # safely without a separate bootstrap path.
+            arena_columns = {
+                str(row["name"])
+                for row in db.execute("PRAGMA table_info(arena_jobs)").fetchall()
+            }
+            if "run_id" not in arena_columns:
+                db.execute("ALTER TABLE arena_jobs ADD COLUMN run_id TEXT")
+            if "promotion_tier" not in arena_columns:
+                db.execute("ALTER TABLE arena_jobs ADD COLUMN promotion_tier TEXT")
+            if "trainer_scheduled" not in arena_columns:
+                db.execute(
+                    "ALTER TABLE arena_jobs ADD COLUMN trainer_scheduled INTEGER NOT NULL DEFAULT 0"
+                )
+            db.execute(
+                """UPDATE arena_jobs
+                   SET run_id = (
+                       SELECT run_id FROM checkpoints WHERE checkpoints.id = arena_jobs.model_a
+                   )
+                   WHERE run_id IS NULL"""
+            )
+            db.execute(
+                """UPDATE arena_jobs
+                   SET promotion_tier = COALESCE(
+                       json_extract(config_json, '$.promotion_tier'),
+                       CASE WHEN json_extract(config_json, '$.automatic_promotion') THEN 'full'
+                            ELSE 'diagnostic' END
+                   )
+                   WHERE promotion_tier IS NULL"""
+            )
+            db.execute(
+                """UPDATE arena_jobs
+                   SET trainer_scheduled = 1
+                   WHERE trainer_scheduled = 0
+                     AND (json_extract(config_json, '$.trainer_scheduled') = 1
+                          OR json_extract(config_json, '$.automatic_promotion') = 1)"""
+            )
+            db.execute(
+                """CREATE INDEX IF NOT EXISTS idx_arena_trainer_run_status_tier
+                   ON arena_jobs(run_id, trainer_scheduled, status, promotion_tier, created_at DESC)"""
             )
             db.execute(
                 "INSERT OR REPLACE INTO metadata(key, value) VALUES('schema_version', ?)",
@@ -390,6 +439,8 @@ class Store:
                 "INSERT OR REPLACE INTO metrics(run_id, seq, created_at, payload_json) VALUES(?, ?, ?, ?)",
                 (run_id, seq, time.time(), json.dumps(payload, separators=(",", ":"))),
             )
+        with self._metric_condition:
+            self._metric_condition.notify_all()
 
     def metrics(self, run_id: str, after: int = -1, limit: int = 2_000) -> list[dict[str, Any]]:
         with self._connect() as db:
@@ -409,6 +460,22 @@ class Store:
             {"seq": row["seq"], "created_at": row["created_at"], **json.loads(row["payload_json"])}
             for row in rows
         ]
+
+    def wait_for_metrics(
+        self,
+        run_id: str,
+        after: int,
+        timeout: float = 15.0,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Block until telemetry advances, with a cross-process fallback poll."""
+
+        with self._metric_condition:
+            rows = self.metrics(run_id, after=after, limit=limit)
+            if rows:
+                return rows
+            self._metric_condition.wait(timeout=max(0.0, float(timeout)))
+        return self.metrics(run_id, after=after, limit=limit)
 
     def add_checkpoint(
         self,
@@ -586,15 +653,32 @@ class Store:
         job_id = uuid.uuid4().hex[:16]
         now = time.time()
         with self._connect() as db:
+            checkpoint = db.execute(
+                "SELECT run_id FROM checkpoints WHERE id = ?", (model_a,)
+            ).fetchone()
+            run_id = str(checkpoint["run_id"]) if checkpoint is not None else None
+            promotion_tier = str(
+                config.get(
+                    "promotion_tier",
+                    "full" if config.get("automatic_promotion") else "diagnostic",
+                )
+            )
+            trainer_scheduled = int(
+                bool(config.get("trainer_scheduled") or config.get("automatic_promotion"))
+            )
             db.execute(
                 """INSERT INTO arena_jobs(
-                    id, status, model_a, model_b, config_json, result_json,
+                    id, status, model_a, model_b, run_id, promotion_tier,
+                    trainer_scheduled, config_json, result_json,
                     created_at, updated_at
-                ) VALUES(?, 'queued', ?, ?, ?, ?, ?, ?)""",
+                ) VALUES(?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     job_id,
                     model_a,
                     model_b,
+                    run_id,
+                    promotion_tier,
+                    trainer_scheduled,
                     json.dumps(config, separators=(",", ":")),
                     json.dumps(result or {}, separators=(",", ":")),
                     now,
@@ -611,12 +695,42 @@ class Store:
         return self._decode_arena_job(row, include_internal=include_internal)
 
     def arena_jobs(
-        self, *, limit: int = 50, include_internal: bool = False
+        self,
+        *,
+        limit: int = 50,
+        include_internal: bool = False,
+        run_id: str | None = None,
+        statuses: Iterable[str] | None = None,
+        promotion_tier: str | None = None,
+        trainer_scheduled: bool | None = None,
     ) -> list[dict[str, Any]]:
+        if limit < 1:
+            return []
+        predicates: list[str] = []
+        values: list[Any] = []
+        if run_id is not None:
+            predicates.append("run_id = ?")
+            values.append(run_id)
+        if statuses is not None:
+            selected_statuses = tuple(dict.fromkeys(str(status) for status in statuses))
+            if not selected_statuses:
+                return []
+            allowed = {"queued", "running", "complete", "failed", "cancelled"}
+            if any(status not in allowed for status in selected_statuses):
+                raise ValueError("unsupported arena status filter")
+            predicates.append(f"status IN ({','.join('?' for _ in selected_statuses)})")
+            values.extend(selected_statuses)
+        if promotion_tier is not None:
+            predicates.append("promotion_tier = ?")
+            values.append(promotion_tier)
+        if trainer_scheduled is not None:
+            predicates.append("trainer_scheduled = ?")
+            values.append(int(trainer_scheduled))
+        where = f" WHERE {' AND '.join(predicates)}" if predicates else ""
+        query = f"SELECT * FROM arena_jobs{where} ORDER BY created_at DESC LIMIT ?"
+        values.append(int(limit))
         with self._connect() as db:
-            rows = db.execute(
-                "SELECT * FROM arena_jobs ORDER BY created_at DESC LIMIT ?", (limit,)
-            ).fetchall()
+            rows = db.execute(query, values).fetchall()
         return [self._decode_arena_job(row, include_internal=include_internal) for row in rows]
 
     @staticmethod

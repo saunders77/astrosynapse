@@ -475,12 +475,23 @@ class NumpyActor:
         self,
         state_features: np.ndarray,
         action_features: np.ndarray,
+        *,
+        head: int | None = None,
     ) -> np.ndarray:
         value = np.concatenate([state_features, action_features], axis=-1)
         value = _silu(self._norm(self._linear(value, "fusion_in"), "fusion_norm"))
         for index in range(self.spec.residual_blocks):
             value = self._residual(value, f"fusion_blocks.{index}")
         if getattr(getattr(self, "spec", None), "objective_version", 1) >= 2:
+            if head is not None:
+                if not 0 <= head < self.spec.bootstrap_heads:
+                    raise ValueError(
+                        f"head must be in [0, {self.spec.bootstrap_heads}), got {head}"
+                    )
+                return self._linear(
+                    self._residual(value, f"head_blocks.{head}"),
+                    f"head_outputs.{head}",
+                )
             return np.stack(
                 [
                     self._linear(
@@ -549,6 +560,95 @@ class NumpyActor:
         all_logits = self._interaction_logits(state_features, self._action_features(actions))
         return all_logits[:, family]
 
+    def predict_option_head(
+        self,
+        state: np.ndarray,
+        actions: np.ndarray,
+        family: int,
+        head: int,
+    ) -> np.ndarray:
+        """Score only one bootstrap head for a trajectory decision.
+
+        Objective-v2 heads have independent residual adapters.  Rollout actors
+        assign one head for an entire trajectory, so evaluating the other heads
+        was pure work.  The public all-head methods remain unchanged for
+        deployment ensembles, diagnostics, and checkpoint compatibility.
+        """
+
+        actions = np.asarray(actions, dtype=np.float32)
+        if actions.ndim == 1:
+            actions = actions[None, :]
+        state_batch = np.asarray(state, dtype=np.float32).reshape((1, -1))
+        state_features = np.repeat(self._state_features(state_batch), len(actions), axis=0)
+        all_logits = self._interaction_logits(
+            state_features,
+            self._action_features(actions),
+            head=head if self.spec.objective_version >= 2 else None,
+        )
+        if self.spec.objective_version >= 2:
+            return all_logits[:, family]
+        return all_logits[:, family, head]
+
+    def predict_option_value_batches(
+        self,
+        states: list[np.ndarray] | tuple[np.ndarray, ...],
+        action_sets: list[np.ndarray] | tuple[np.ndarray, ...],
+        families: list[int] | tuple[int, ...],
+        heads: list[int | None] | tuple[int | None, ...],
+    ) -> tuple[np.ndarray, ...]:
+        """Vectorize several ragged decisions, grouped by behavior head.
+
+        The result for each decision is the selected head's option vector, or
+        the mean-head deployment vector when its head is ``None``. Grouping
+        retains exact semantics while turning many tiny matrix multiplies into
+        a few larger ones inside each rollout worker.
+        """
+
+        size = len(states)
+        if not (len(action_sets) == len(families) == len(heads) == size):
+            raise ValueError("batched option inputs must have equal lengths")
+        if not size:
+            return ()
+        results: list[np.ndarray | None] = [None] * size
+        groups: dict[int | None, list[int]] = {}
+        for index, head in enumerate(heads):
+            if head is not None and not 0 <= int(head) < self.spec.bootstrap_heads:
+                raise ValueError(
+                    f"head must be in [0, {self.spec.bootstrap_heads}), got {head}"
+                )
+            groups.setdefault(None if head is None else int(head), []).append(index)
+
+        for head, indices in groups.items():
+            grouped_states = np.stack(
+                [np.asarray(states[index], dtype=np.float32) for index in indices]
+            )
+            grouped_actions = [
+                np.asarray(action_sets[index], dtype=np.float32) for index in indices
+            ]
+            if any(actions.ndim != 2 or not len(actions) for actions in grouped_actions):
+                raise ValueError("each batched decision needs a nonempty action matrix")
+            counts = np.asarray([len(actions) for actions in grouped_actions], dtype=np.int64)
+            state_features = np.repeat(self._state_features(grouped_states), counts, axis=0)
+            action_features = self._action_features(np.concatenate(grouped_actions, axis=0))
+            logits = self._interaction_logits(
+                state_features,
+                action_features,
+                head=head if head is not None and self.spec.objective_version >= 2 else None,
+            )
+            row_families = np.repeat(
+                np.asarray([families[index] for index in indices], dtype=np.int64), counts
+            )
+            if head is None:
+                values = logits[np.arange(len(logits)), row_families].mean(axis=1)
+            elif self.spec.objective_version >= 2:
+                values = logits[np.arange(len(logits)), row_families]
+            else:
+                values = logits[np.arange(len(logits)), row_families, head]
+            offsets = np.concatenate(([0], np.cumsum(counts)))
+            for local_index, result_index in enumerate(indices):
+                results[result_index] = values[offsets[local_index] : offsets[local_index + 1]]
+        return tuple(value for value in results if value is not None)
+
     def _randomized_prior(
         self,
         state: np.ndarray,
@@ -596,8 +696,48 @@ class NumpyActor:
         rng: np.random.Generator | None = None,
     ) -> tuple[int, np.ndarray]:
         generator = rng or np.random.default_rng()
-        logits = self.predict_options(state, actions, family)
-        values = logits.mean(axis=1) if head is None else logits[:, head]
+        # Keep the old path for lightweight test doubles and legacy actors.
+        # Real objective-v2 rollout actors can skip every unassigned head.
+        if (
+            head is not None
+            and hasattr(self, "weights")
+            and getattr(getattr(self, "spec", None), "objective_version", 1) >= 2
+        ):
+            values = self.predict_option_head(state, actions, family, head)
+        else:
+            logits = self.predict_options(state, actions, family)
+            values = logits.mean(axis=1) if head is None else logits[:, head]
+        return self.choose_from_values(
+            state,
+            actions,
+            family,
+            values,
+            head=head,
+            epsilon=epsilon,
+            exploration_top_k=exploration_top_k,
+            randomized_prior_scale=randomized_prior_scale,
+            rng=generator,
+        )
+
+    def choose_from_values(
+        self,
+        state: np.ndarray,
+        actions: np.ndarray,
+        family: int,
+        values: np.ndarray,
+        *,
+        head: int | None = None,
+        epsilon: float = 0.0,
+        exploration_top_k: int = 3,
+        randomized_prior_scale: float = 0.0,
+        rng: np.random.Generator | None = None,
+    ) -> tuple[int, np.ndarray]:
+        """Apply exploration to precomputed option values."""
+
+        generator = rng or np.random.default_rng()
+        values = np.asarray(values, dtype=np.float32)
+        if values.shape != (len(actions),):
+            raise ValueError("option values must align with actions")
         if randomized_prior_scale < 0:
             raise ValueError("randomized_prior_scale must be nonnegative")
         if head is not None and randomized_prior_scale:

@@ -280,6 +280,21 @@ def _default_worker_processes() -> int:
     return max(1, min(8, (os.cpu_count() or 4) - 2))
 
 
+def _trainer_arena_worker_processes(available: int) -> int:
+    """Reserve CPU capacity for self-play while a scheduled arena runs."""
+
+    configured = os.environ.get("ASTRO2_TRAINER_ARENA_WORKERS")
+    if configured is not None:
+        try:
+            return max(1, min(available, int(configured)))
+        except ValueError as exc:
+            raise ValueError("ASTRO2_TRAINER_ARENA_WORKERS must be an integer") from exc
+    # The target M4 has ten CPU cores and normally runs eight rollout actors.
+    # Two evaluators fill the otherwise reserved capacity without the previous
+    # 8+8 oversubscription. Manual arenas retain the configured full quota.
+    return max(1, min(2, available))
+
+
 def resolve_model(store: Store, reference: str) -> ResolvedModel:
     ref = reference.strip()
     baseline = ref.lower().removeprefix("baseline:")
@@ -1097,6 +1112,11 @@ class ArenaManager:
             else config.pairs
         )
         summary_config = replace(config, pairs=target_pairs) if adaptive_extension_active else config
+        job_worker_processes = (
+            _trainer_arena_worker_processes(self.worker_processes)
+            if config.trainer_scheduled
+            else self.worker_processes
+        )
         early_looks = frozenset(_early_rejection_looks(config))
         acceptance_looks = frozenset(_early_acceptance_looks(config))
         segment_start = time.monotonic()
@@ -1115,11 +1135,11 @@ class ArenaManager:
         statistical_looks = sorted(early_looks | acceptance_looks | {target_pairs})
         executor: ProcessPoolExecutor | None = None
         worker_cancel_event: Any | None = None
-        if self.worker_processes > 1:
+        if job_worker_processes > 1:
             context = mp.get_context("spawn")
             worker_cancel_event = context.Event()
             executor = ProcessPoolExecutor(
-                max_workers=self.worker_processes,
+                max_workers=job_worker_processes,
                 mp_context=context,
                 initializer=_initialize_arena_worker,
                 initargs=(worker_cancel_event,),
@@ -1131,7 +1151,7 @@ class ArenaManager:
                     raise _ArenaCancelled()
                 pair_start = len(first_scores)
                 next_look = next(look for look in statistical_looks if look > pair_start)
-                wave_end = min(next_look, pair_start + self.worker_processes)
+                wave_end = min(next_look, pair_start + job_worker_processes)
                 if executor is None:
                     wave = [
                         _play_pair(
@@ -1272,6 +1292,10 @@ class ArenaManager:
                         ),
                         "maximum_pairs": MAX_AUTOMATIC_PAIRS,
                     }
+                    result["resource_policy"] = {
+                        "worker_processes": job_worker_processes,
+                        "trainer_isolated": config.trainer_scheduled,
+                    }
                     result["_adaptive_extension_active"] = adaptive_extension_active
                     self.store.update_arena_job(job_id, status="running", result=result)
                     last_update = now
@@ -1317,6 +1341,10 @@ class ArenaManager:
             "initial_pairs": base_config.pairs,
             "additional_pairs": PROMOTION_EXTENSION_PAIRS if adaptive_extension_active else 0,
             "maximum_pairs": MAX_AUTOMATIC_PAIRS,
+        }
+        final["resource_policy"] = {
+            "worker_processes": job_worker_processes,
+            "trainer_isolated": config.trainer_scheduled,
         }
         final["_adaptive_extension_active"] = adaptive_extension_active
         if early_stopped:

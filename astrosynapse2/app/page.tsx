@@ -46,7 +46,9 @@ import {
  */
 
 const API_BASE = "http://127.0.0.1:8765/api";
-const POLL_INTERVAL_MS = 1_000;
+// Metrics arrive over SSE. This is only a recovery/catalog refresh cadence,
+// avoiding multi-megabyte global registry scans every second per browser tab.
+const POLL_INTERVAL_MS = 15_000;
 const GUI_SAMPLE_BUCKET_SECONDS = 30;
 
 const jargon = {
@@ -3308,6 +3310,57 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!remoteRunId || typeof EventSource === "undefined") return;
+    const runId = remoteRunId;
+    const source = new EventSource(
+      `${API_BASE}/events?run_id=${encodeURIComponent(runId)}&after=${metricsSeqRef.current}`,
+    );
+    const onMetric = (event: Event) => {
+      try {
+        const raw = JSON.parse((event as MessageEvent<string>).data) as unknown;
+        if (!isRecord(raw)) return;
+        const sequence = asNumber(raw.seq, -1);
+        if (sequence <= metricsSeqRef.current || activeRunIdRef.current !== runId) return;
+        setSnapshot((current) => {
+          const fallback = current.metrics.at(-1) ?? emptyMetric;
+          const metric = normalizeMetric(raw, fallback);
+          metricsSeqRef.current = metric.seq;
+          return {
+            ...current,
+            run: {
+              ...current.run,
+              games: metric.games,
+              decisions: asNumber(raw.decisions, current.run.decisions),
+              updates: asNumber(raw.updates, current.run.updates),
+              elapsedSeconds: asNumber(
+                raw.active_elapsed_seconds ?? raw.elapsed_seconds,
+                current.run.elapsedSeconds,
+              ),
+            },
+            hardware: {
+              ...current.hardware,
+              cpuPercent: metric.cpuPercent,
+              memoryUsedGb: metric.memoryGb,
+            },
+            metrics: [...current.metrics, metric].slice(-180),
+          };
+        });
+        hasConnectedRef.current = true;
+        setConnected(true);
+        setLastSync(new Date());
+      } catch {
+        // EventSource reconnects automatically; the periodic recovery poll
+        // fills any gap if a partial event was received during shutdown.
+      }
+    };
+    source.addEventListener("metric", onMetric);
+    return () => {
+      source.removeEventListener("metric", onMetric);
+      source.close();
+    };
+  }, [remoteRunId]);
+
+  useEffect(() => {
     if (!arenaRunning || (connected && arenaJobId)) return;
     const interval = window.setInterval(() => {
       setArenaProgress((current) => {
@@ -4662,7 +4715,7 @@ export default function Home() {
                 return <div key={family.name}><span>{family.name}</span><i><b style={{ width: `${percent}%`, background: colors[index % colors.length] }} /></i><strong>{percent.toFixed(1)}% stored · {formatPercent(family.sampleShare, 0)} sampled · {formatPercent(family.writeShare, 0)} incoming</strong></div>;
               })}</div>{!replayFamilyEntries.length ? <EmptyState title="Replay is warming up" detail="Per-family occupancy appears after the first self-play batches." /> : null}<dl className="compact-dl"><div><dt>Family correction</dt><dd>{latestMetric.replayImportanceCorrected ? "Enabled" : "Disabled"}</dd></div><div><dt>Recent sample share</dt><dd>{latestMetric.replayRecentFraction === null ? "—" : formatPercent(latestMetric.replayRecentFraction)}</dd></div><div><dt>Weight range</dt><dd>{latestMetric.replayWeightMin === null || latestMetric.replayWeightMax === null ? "—" : `${latestMetric.replayWeightMin.toFixed(2)}–${latestMetric.replayWeightMax.toFixed(2)}`}</dd></div><div><dt>Effective batch</dt><dd>{latestMetric.replayEffectiveSampleFraction === null ? "—" : formatPercent(latestMetric.replayEffectiveSampleFraction)}</dd></div></dl><p className="panel-note">Family weights correct stratification toward incoming decision shares. The displayed recent partition remains an intentional recency bias.</p></article>
               <article className="panel system-panel"><header className="panel-header"><div><span className="panel-kicker">Local hardware</span><h2>System health</h2></div></header><div className="system-readings"><div><Gauge value={snapshot.hardware.cpuPercent / 100} label="CPU" /><p><strong>{snapshot.hardware.actorProcesses} actors</strong><span>{snapshot.hardware.chip}</span></p></div><div><Gauge value={snapshot.hardware.memoryTotalGb ? snapshot.hardware.memoryUsedGb / snapshot.hardware.memoryTotalGb : 0} label="memory" /><p><strong>{snapshot.hardware.memoryUsedGb.toFixed(1)} / {snapshot.hardware.memoryTotalGb.toFixed(1)} GB</strong><span>Unified memory</span></p></div><div className="metal-reading"><span className="metal-glyph">M</span><p><strong>{snapshot.hardware.backend}</strong><span>{snapshot.hardware.metalAvailable === null ? "Live Metal sample pending" : snapshot.hardware.metalAvailable ? `${snapshot.hardware.learnerDevice} · ${snapshot.hardware.metalActiveGb.toFixed(2)} GB active · ${snapshot.hardware.metalPeakGb.toFixed(2)} GB peak` : "Metal unavailable"}</span></p><b>{snapshot.hardware.metalAvailable === null ? "Pending" : snapshot.hardware.metalAvailable ? "Ready" : "Offline"}</b></div></div></article>
-              <article className="panel connection-panel"><header className="panel-header"><div><span className="panel-kicker">Service link</span><h2>Local API</h2></div></header><dl className="connection-details"><div><dt>Endpoint</dt><dd><code>{API_BASE}</code></dd></div><div><dt>State</dt><dd className={connected ? "positive" : "warning-text"}>{connected ? "Connected" : "Offline · retrying each second"}</dd></div><div><dt>Transport</dt><dd>JSON · incremental API polling</dd></div><div><dt>Sample cadence</dt><dd>Trainer-controlled · may vary</dd></div><div><dt>Last sequence</dt><dd>{latestMetric.seq >= 0 ? latestMetric.seq : "Waiting"}</dd></div><div><dt>Exposure</dt><dd>Loopback only</dd></div></dl><button type="button" className="button" onClick={() => window.location.reload()}>Reconnect now</button></article>
+              <article className="panel connection-panel"><header className="panel-header"><div><span className="panel-kicker">Service link</span><h2>Local API</h2></div></header><dl className="connection-details"><div><dt>Endpoint</dt><dd><code>{API_BASE}</code></dd></div><div><dt>State</dt><dd className={connected ? "positive" : "warning-text"}>{connected ? "Connected" : "Offline · retrying periodically"}</dd></div><div><dt>Transport</dt><dd>Server-sent telemetry · recovery polling</dd></div><div><dt>Sample cadence</dt><dd>Trainer-controlled · may vary</dd></div><div><dt>Last sequence</dt><dd>{latestMetric.seq >= 0 ? latestMetric.seq : "Waiting"}</dd></div><div><dt>Exposure</dt><dd>Loopback only</dd></div></dl><button type="button" className="button" onClick={() => window.location.reload()}>Reconnect now</button></article>
             </div>
 
             {config.trainingGeneration >= 5 ? <article className={`panel governor-panel ${latestMetric.governorBranchRequested ? "has-warning" : ""}`}>

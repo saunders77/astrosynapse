@@ -664,14 +664,25 @@ async def events(
             if await request.is_disconnected():
                 return
             active = run_id or _supervisor(request).active_run_id()
-            batch = _store(request).metrics(active, after=cursor, limit=100) if active else []
+            batch = (
+                await asyncio.to_thread(
+                    _store(request).wait_for_metrics,
+                    active,
+                    cursor,
+                    15.0,
+                    100,
+                )
+                if active
+                else []
+            )
             if batch:
                 for metric in batch:
                     cursor = int(metric["seq"])
                     yield f"id: {cursor}\nevent: metric\ndata: {json.dumps(metric)}\n\n"
             else:
                 yield ": keepalive\n\n"
-            await asyncio.sleep(1.0)
+            if not active:
+                await asyncio.sleep(5.0)
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import copy
+import threading
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -56,10 +57,110 @@ class PlayerExploration:
     deployment_policy: bool = False
 
 
+class _InferenceRequest:
+    __slots__ = ("state", "actions", "family", "head", "event", "value", "error")
+
+    def __init__(
+        self,
+        state: np.ndarray,
+        actions: np.ndarray,
+        family: int,
+        head: int | None,
+    ) -> None:
+        self.state = state
+        self.actions = actions
+        self.family = family
+        self.head = head
+        self.event = threading.Event()
+        self.value: np.ndarray | None = None
+        self.error: BaseException | None = None
+
+
+class _ActorInferenceBatcher:
+    """Microbatch synchronous game callbacks onto one NumPy actor."""
+
+    def __init__(
+        self,
+        actor: NumpyActor,
+        *,
+        maximum_batch_size: int = 8,
+        maximum_wait_seconds: float = 0.00005,
+    ) -> None:
+        self.actor = actor
+        self.maximum_batch_size = max(1, int(maximum_batch_size))
+        self.maximum_wait_seconds = max(0.0, float(maximum_wait_seconds))
+        self._condition = threading.Condition()
+        self._requests: list[_InferenceRequest] = []
+        self._closed = False
+        self._thread = threading.Thread(
+            target=self._serve,
+            name="astro2-actor-inference-batcher",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def predict(
+        self,
+        state: np.ndarray,
+        actions: np.ndarray,
+        family: int,
+        head: int | None,
+    ) -> np.ndarray:
+        request = _InferenceRequest(state, actions, family, head)
+        with self._condition:
+            if self._closed:
+                raise RuntimeError("actor inference batcher is closed")
+            self._requests.append(request)
+            self._condition.notify()
+        request.event.wait()
+        if request.error is not None:
+            raise request.error
+        assert request.value is not None
+        return request.value
+
+    def _serve(self) -> None:
+        while True:
+            with self._condition:
+                while not self._requests and not self._closed:
+                    self._condition.wait()
+                if not self._requests and self._closed:
+                    return
+                if len(self._requests) < self.maximum_batch_size:
+                    self._condition.wait(timeout=self.maximum_wait_seconds)
+                requests = self._requests[: self.maximum_batch_size]
+                del self._requests[: len(requests)]
+            try:
+                values = self.actor.predict_option_value_batches(
+                    tuple(request.state for request in requests),
+                    tuple(request.actions for request in requests),
+                    tuple(request.family for request in requests),
+                    tuple(request.head for request in requests),
+                )
+                for request, value in zip(requests, values, strict=True):
+                    request.value = value
+            except BaseException as error:  # pragma: no cover - defensive worker boundary
+                for request in requests:
+                    request.error = error
+            finally:
+                for request in requests:
+                    request.event.set()
+
+    def close(self) -> None:
+        with self._condition:
+            self._closed = True
+            self._condition.notify_all()
+        self._thread.join()
+
+
 class ActorPolicy:
     """Adapter from a lightweight NumPy actor to an engine decision policy."""
 
-    def __init__(self, actor: NumpyActor, encoder: Encoder):
+    def __init__(
+        self,
+        actor: NumpyActor,
+        encoder: Encoder,
+        inference_batcher: _ActorInferenceBatcher | None = None,
+    ):
         if actor.spec.state_size != encoder.state_size:
             raise ValueError(
                 f"actor state size {actor.spec.state_size} != encoder size {encoder.state_size}"
@@ -72,6 +173,7 @@ class ActorPolicy:
             raise ValueError("actor family count does not match the stable decision-family table")
         self.actor = actor
         self.encoder = encoder
+        self.inference_batcher = inference_batcher
 
     @property
     def bootstrap_heads(self) -> int:
@@ -89,16 +191,37 @@ class ActorPolicy:
         encoded = self.encoder.encode_decision(decision.observation, decision)
         eligible = np.asarray(model_action_indices(decision), dtype=np.int64)
         deployment_policy = exploration.deployment_policy
-        local_index, probabilities = self.actor.choose(
-            encoded.state,
-            encoded.actions[eligible],
-            int(encoded.family),
-            head=None if deployment_policy else exploration.head,
-            epsilon=0.0 if deployment_policy else exploration.epsilon,
-            exploration_top_k=exploration_top_k,
-            randomized_prior_scale=0.0 if deployment_policy else randomized_prior_scale,
-            rng=rng,
-        )
+        behavior_head = None if deployment_policy else exploration.head
+        eligible_actions = encoded.actions[eligible]
+        if self.inference_batcher is None:
+            local_index, probabilities = self.actor.choose(
+                encoded.state,
+                eligible_actions,
+                int(encoded.family),
+                head=behavior_head,
+                epsilon=0.0 if deployment_policy else exploration.epsilon,
+                exploration_top_k=exploration_top_k,
+                randomized_prior_scale=0.0 if deployment_policy else randomized_prior_scale,
+                rng=rng,
+            )
+        else:
+            values = self.inference_batcher.predict(
+                encoded.state,
+                eligible_actions,
+                int(encoded.family),
+                behavior_head,
+            )
+            local_index, probabilities = self.actor.choose_from_values(
+                encoded.state,
+                eligible_actions,
+                int(encoded.family),
+                values,
+                head=behavior_head,
+                epsilon=0.0 if deployment_policy else exploration.epsilon,
+                exploration_top_k=exploration_top_k,
+                randomized_prior_scale=0.0 if deployment_policy else randomized_prior_scale,
+                rng=rng,
+            )
         index = int(eligible[local_index])
         epsilon = 0.0 if deployment_policy else exploration.epsilon
         count = (
@@ -638,7 +761,7 @@ def collect_game(
         belief_seed: int | None = None,
         horizon_turns: int | None = None,
     ) -> float | None:
-        branch = copy.deepcopy(game)
+        branch = game.fork()
         branch.cancel_hook = None
         branch.decision_hook = None
         if belief_seed is not None:
@@ -1021,6 +1144,7 @@ def collect_worker_batch(
     reanalysis_policy_temperature: float = 0.35,
     policy_replay_decisions_per_player_game: int = 0,
     encoder_version: int = 1,
+    batch_actor_inference: bool = True,
 ) -> WorkerResult:
     """Top-level ProcessPool worker; imports no MLX and caches actor archives."""
 
@@ -1029,13 +1153,18 @@ def collect_worker_batch(
     if len(actor_paths) != 2 or len(baseline_names) != 2:
         raise ValueError("actor_paths and baseline_names must have two entries")
     encoder = EngineEncoder(version=encoder_version)
-    policies: list[EnginePolicy | ActorPolicy] = []
+    actors: list[NumpyActor | None] = []
+    sequential_policies: list[EnginePolicy | ActorPolicy] = []
     for player, path in enumerate(actor_paths):
         if path is None:
-            policies.append(make_baseline(baseline_names[player], seed + 10_007 * (player + 1)))
+            actors.append(None)
+            sequential_policies.append(
+                make_baseline(baseline_names[player], seed + 10_007 * (player + 1))
+            )
         else:
             actor = _cached_actor(path)
-            policies.append(
+            actors.append(actor)
+            sequential_policies.append(
                 ActorPolicy(actor, EngineEncoder(version=actor.spec.encoder_version))
             )
     flags = (
@@ -1044,21 +1173,59 @@ def collect_worker_batch(
         else collect_players
     )
 
-    all_items: list[ReplayItem] = []
-    all_policy_items: list[PolicyItem] = []
-    all_preferences: list[PreferenceItem] = []
-    wins = [0, 0]
-    draws = truncated = turns = decisions = forced_choices = 0
-    counterfactual_preferences = 0
-    reanalysis_positions = 0
-    for game_index in range(games):
+    # Game callbacks are synchronous, but a worker task normally contains four
+    # actor-vs-actor games. Run those games as lightweight threads and funnel
+    # their inference requests through one microbatcher per distinct actor.
+    # Baseline games retain the old sequential path because their stateful RNG
+    # stream is part of the historical deterministic contract.
+    concurrent_actor_games = (
+        batch_actor_inference and games > 1 and all(actor is not None for actor in actors)
+    )
+    batchers: dict[int, _ActorInferenceBatcher] = {}
+    if concurrent_actor_games:
+        for actor in actors:
+            assert actor is not None
+            batchers.setdefault(
+                id(actor),
+                _ActorInferenceBatcher(actor, maximum_batch_size=min(8, games * 2)),
+            )
+    aligned_heads: tuple[int, int] | None = None
+    if concurrent_actor_games:
+        # One uniformly sampled head pair per small worker task gives the
+        # batcher coherent matrices. Tasks have independent seeds, so head
+        # coverage remains uniform without paying a per-decision regroup cost.
+        head_rng = np.random.default_rng(np.random.SeedSequence([seed, 0xBA7C]))
+        aligned_heads = tuple(
+            int(head_rng.integers(0, actor.spec.bootstrap_heads))
+            for actor in actors
+            if actor is not None
+        )
+        assert len(aligned_heads) == 2
+
+    def collect_one(game_index: int) -> CollectedGame:
         game_seed = seed + game_index
-        collected = collect_game(
+        if concurrent_actor_games:
+            policies: list[EnginePolicy | ActorPolicy] = []
+            for actor in actors:
+                assert actor is not None
+                policies.append(
+                    ActorPolicy(
+                        actor,
+                        EngineEncoder(version=actor.spec.encoder_version),
+                        batchers[id(actor)],
+                    )
+                )
+            game_encoder = EngineEncoder(version=encoder_version)
+        else:
+            policies = sequential_policies
+            game_encoder = encoder
+        return collect_game(
             policies,
             seed=game_seed,
-            encoder=encoder,
+            encoder=game_encoder,
             bootstrap_heads=bootstrap_heads,
             epsilons=epsilons,
+            heads=aligned_heads,
             collect_players=flags,
             game_id=game_seed,
             starting_player=game_index % 2,
@@ -1081,6 +1248,25 @@ def collect_worker_batch(
             reanalysis_horizon_turns=reanalysis_horizon_turns,
             reanalysis_policy_temperature=reanalysis_policy_temperature,
         )
+
+    try:
+        if concurrent_actor_games:
+            with ThreadPoolExecutor(max_workers=min(4, games)) as game_executor:
+                collected_games = list(game_executor.map(collect_one, range(games)))
+        else:
+            collected_games = [collect_one(game_index) for game_index in range(games)]
+    finally:
+        for batcher in batchers.values():
+            batcher.close()
+
+    all_items: list[ReplayItem] = []
+    all_policy_items: list[PolicyItem] = []
+    all_preferences: list[PreferenceItem] = []
+    wins = [0, 0]
+    draws = truncated = turns = decisions = forced_choices = 0
+    counterfactual_preferences = 0
+    reanalysis_positions = 0
+    for collected in collected_games:
         all_items.extend(collected.samples)
         all_policy_items.extend(collected.policy_samples)
         reanalysis_positions += sum(int(item.search_valid) for item in collected.policy_samples)

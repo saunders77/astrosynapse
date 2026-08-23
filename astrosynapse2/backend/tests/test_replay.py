@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 
 import numpy as np
@@ -421,6 +422,47 @@ def test_astro5_policy_reservoir_preserves_search_and_round_trips(tmp_path):
     assert restored.restore(path) == 3
     assert restored.metrics()["searched_decisions"] == 1
     assert restored.metrics()["player_games"] == 1
+
+
+def test_policy_replay_incremental_manifest_restores_latest_window(tmp_path):
+    replay = GameBalancedPolicyReplayBuffer(
+        capacity=6, state_size=5, action_size=4, bootstrap_heads=3, max_actions=5, seed=37
+    )
+
+    def episode(game_id: int) -> list[PolicyItem]:
+        return [
+            PolicyItem(
+                state=np.full(5, game_id + step, dtype=np.float32),
+                legal_actions=np.stack((np.zeros(4), np.ones(4))).astype(np.float32),
+                selected_index=step,
+                family=DecisionFamily.MAIN,
+                target=float(step),
+                behavior_probability=0.5,
+                bootstrap_mask=np.ones(3, dtype=np.uint8),
+                game_id=game_id,
+                player=0,
+                step=step,
+            )
+            for step in range(2)
+        ]
+
+    replay.extend(episode(1))
+    replay.enable_incremental_snapshots(tmp_path / "journal", max_items=4)
+    replay.extend(episode(2))
+    first_manifest = tmp_path / "first.json"
+    assert replay.snapshot_incremental(first_manifest, max_items=4) == 4
+    assert len(json.loads(first_manifest.read_text())["segments"]) == 2
+
+    replay.extend(episode(3))
+    second_manifest = tmp_path / "second.json"
+    assert replay.snapshot_incremental(second_manifest, max_items=4) == 4
+    assert len(json.loads(second_manifest.read_text())["segments"]) == 3
+
+    restored = GameBalancedPolicyReplayBuffer(
+        capacity=6, state_size=5, action_size=4, bootstrap_heads=3, max_actions=5, seed=39
+    )
+    assert restored.restore(second_manifest) == 4
+    assert set(restored._episodes) == {(2, 0), (3, 0)}
 
 
 def test_recent_replay_snapshot_round_trips_across_families(tmp_path):

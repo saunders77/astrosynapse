@@ -515,6 +515,40 @@ def test_arena_store_crud_round_trip(tmp_path):
         store.get_arena_job(job["id"])
 
 
+def test_arena_store_uses_indexed_trainer_filters(tmp_path):
+    store = Store(tmp_path / "arena-filter.sqlite3")
+    run = store.create_run(RunConfig.quick())
+    checkpoint = store.add_checkpoint(
+        run_id=run["id"],
+        label="candidate",
+        path=str(tmp_path / "model.safetensors"),
+        actor_path=str(tmp_path / "actor.npz"),
+        games=100,
+    )
+    trainer = store.create_arena_job(
+        model_a=checkpoint["id"],
+        model_b="baseline:balanced",
+        config=ArenaConfig(
+            pairs=8,
+            promotion_tier="canary",
+            trainer_scheduled=True,
+        ).to_dict(),
+    )
+    store.create_arena_job(
+        model_a="baseline:first",
+        model_b="baseline:random",
+        config=ArenaConfig(pairs=1).to_dict(),
+    )
+
+    selected = store.arena_jobs(
+        run_id=run["id"],
+        statuses=("queued",),
+        promotion_tier="canary",
+        trainer_scheduled=True,
+    )
+    assert [job["id"] for job in selected] == [trainer["id"]]
+
+
 def test_arena_api_create_list_detail_and_reconnect(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "DATA_DIR", tmp_path)
     monkeypatch.setenv("ASTRO2_ARENA_WORKERS", "1")
