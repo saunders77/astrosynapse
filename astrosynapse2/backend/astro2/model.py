@@ -101,10 +101,9 @@ def build_model(spec: ModelSpec):
                 state = block(state)
             return state
 
-        def state_values(self, states, families):
+        def state_values_from_features(self, state, families):
             if spec.objective_version < 2:
                 raise RuntimeError("separate state values require objective_version >= 2")
-            state = self.state_features(states)
             values = self.value_output(state).reshape((-1, spec.families, spec.bootstrap_heads))
             indices = mx.broadcast_to(
                 families.astype(mx.int32).reshape((-1, 1, 1)),
@@ -112,9 +111,10 @@ def build_model(spec: ModelSpec):
             )
             return mx.take_along_axis(values, indices, axis=1).squeeze(axis=1)
 
-        def __call__(self, states, actions, families=None):
-            state = self.state_features(states)
+        def state_values(self, states, families):
+            return self.state_values_from_features(self.state_features(states), families)
 
+        def action_logits_from_features(self, state, actions, families=None):
             action = nn.silu(self.action_norm(self.action_in(actions)))
             for block in self.action_blocks:
                 action = block(action)
@@ -141,6 +141,11 @@ def build_model(spec: ModelSpec):
                 (families.shape[0], 1, spec.bootstrap_heads),
             )
             return mx.take_along_axis(all_logits, indices, axis=1).squeeze(axis=1)
+
+        def __call__(self, states, actions, families=None):
+            return self.action_logits_from_features(
+                self.state_features(states), actions, families
+            )
 
     return ActionValueNet()
 
@@ -172,14 +177,15 @@ def actor_critic_policy_loss(
 
     mx, nn = _mlx_modules()
     batch, options, action_size = legal_actions.shape
-    repeated_states = mx.broadcast_to(
-        states[:, None, :], (batch, options, states.shape[-1])
-    ).reshape((batch * options, states.shape[-1]))
+    state_features = model.state_features(states)
+    repeated_state_features = mx.broadcast_to(
+        state_features[:, None, :], (batch, options, state_features.shape[-1])
+    ).reshape((batch * options, state_features.shape[-1]))
     repeated_families = mx.broadcast_to(families[:, None], (batch, options)).reshape(
         (batch * options,)
     )
-    policy_logits = model(
-        repeated_states,
+    policy_logits = model.action_logits_from_features(
+        repeated_state_features,
         legal_actions.reshape((batch * options, action_size)),
         repeated_families,
     ).reshape((batch, options, -1))
@@ -192,7 +198,7 @@ def actor_critic_policy_loss(
     chosen_log_probs = mx.sum(log_probs * selected, axis=1)
     chosen_probabilities = mx.sum(probabilities * selected, axis=1)
 
-    value_logits = model.state_values(states, families)
+    value_logits = model.state_values_from_features(state_features, families)
     values = mx.sigmoid(value_logits)
     target_matrix = mx.broadcast_to(targets[:, None], values.shape)
     advantages = mx.stop_gradient(target_matrix - values)
@@ -261,7 +267,8 @@ def actor_critic_policy_loss(
             weights * (raw_ratios > float(importance_clip))
         )
         / denominator,
-        "uncertainty": mx.mean(mx.std(probabilities, axis=2)),
+        "uncertainty": mx.sum(mx.std(probabilities, axis=2) * legal_mask)
+        / mx.maximum(mx.sum(legal_mask), mx.array(1.0)),
     }
 
 

@@ -226,6 +226,100 @@ def test_generation_four_numpy_actor_and_actor_critic_loss(tmp_path):
     )
 
 
+def test_actor_critic_loss_is_invariant_to_masked_padding_width():
+    import mlx.core as mx
+    import mlx.nn as nn
+    from mlx.utils import tree_flatten
+
+    spec = ModelSpec(
+        state_size=8,
+        action_size=6,
+        families=2,
+        hidden_size=32,
+        action_hidden_size=16,
+        residual_blocks=1,
+        bootstrap_heads=3,
+        objective_version=2,
+    )
+    model = build_model(spec)
+    rng = np.random.default_rng(31)
+    batch_size = 4
+    counts = np.asarray([2, 3, 4, 5])
+    states = rng.normal(size=(batch_size, spec.state_size)).astype(np.float32)
+    actions = rng.normal(size=(batch_size, 64, spec.action_size)).astype(np.float32)
+    mask = np.zeros((batch_size, 64), dtype=np.float32)
+    for index, count in enumerate(counts):
+        mask[index, :count] = 1.0
+        actions[index, count:] = 0.0
+    arguments = (
+        mx.array(states),
+        mx.array(np.asarray([1, 2, 3, 4], dtype=np.int32)),
+        mx.array(np.asarray([0, 1, 0, 1], dtype=np.int32)),
+        mx.array(np.asarray([1, 0, 1, 0], dtype=np.float32)),
+        mx.array(np.full(batch_size, 0.25, dtype=np.float32)),
+        mx.array(np.ones((batch_size, spec.bootstrap_heads), dtype=np.float32)),
+        mx.array(np.ones(batch_size, dtype=np.float32)),
+    )
+
+    padded_loss, padded_diagnostics = actor_critic_policy_loss(
+        model,
+        arguments[0],
+        mx.array(actions),
+        mx.array(mask),
+        *arguments[1:],
+    )
+    compact_loss, compact_diagnostics = actor_critic_policy_loss(
+        model,
+        arguments[0],
+        mx.array(actions[:, :5]),
+        mx.array(mask[:, :5]),
+        *arguments[1:],
+    )
+    mx.eval(
+        padded_loss,
+        compact_loss,
+        *padded_diagnostics.values(),
+        *compact_diagnostics.values(),
+    )
+
+    np.testing.assert_allclose(float(compact_loss.item()), float(padded_loss.item()), rtol=1e-5)
+    for name in padded_diagnostics:
+        np.testing.assert_allclose(
+            float(compact_diagnostics[name].item()),
+            float(padded_diagnostics[name].item()),
+            rtol=1e-5,
+            atol=1e-6,
+            err_msg=name,
+        )
+
+    def loss_for_width(legal_actions, legal_mask):
+        return actor_critic_policy_loss(
+            model,
+            arguments[0],
+            legal_actions,
+            legal_mask,
+            *arguments[1:],
+        )[0]
+
+    loss_and_grad = nn.value_and_grad(model, loss_for_width)
+    _padded_loss, padded_gradients = loss_and_grad(mx.array(actions), mx.array(mask))
+    _compact_loss, compact_gradients = loss_and_grad(
+        mx.array(actions[:, :5]), mx.array(mask[:, :5])
+    )
+    padded_leaves = dict(tree_flatten(padded_gradients))
+    compact_leaves = dict(tree_flatten(compact_gradients))
+    mx.eval(*padded_leaves.values(), *compact_leaves.values())
+    assert padded_leaves.keys() == compact_leaves.keys()
+    for name in padded_leaves:
+        np.testing.assert_allclose(
+            np.asarray(compact_leaves[name]),
+            np.asarray(padded_leaves[name]),
+            rtol=1e-5,
+            atol=1e-6,
+            err_msg=name,
+        )
+
+
 def test_tactical_preference_loss_is_finite_and_reports_ordering_metrics():
     import mlx.core as mx
 

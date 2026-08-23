@@ -1621,7 +1621,10 @@ class GameBalancedPolicyReplayBuffer:
                     family = families[int(self._rng.integers(0, len(families)))]
                     rows = [item for item in rows if int(item.family) == family]
                 items.append(rows[int(self._rng.integers(0, len(rows)))])
-        maximum = self.max_actions
+        # max_actions is the validation ceiling, not a reason to execute every
+        # batch at that width. Sampling is unchanged; only omit padding beyond
+        # the largest legal set selected for this batch.
+        maximum = max(len(item.legal_actions) for item in items)
         legal_actions = np.zeros((batch_size, maximum, self.action_size), dtype=np.float32)
         legal_mask = np.zeros((batch_size, maximum), dtype=np.float32)
         search_policy = np.zeros((batch_size, maximum), dtype=np.float32)

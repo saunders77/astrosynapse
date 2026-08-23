@@ -330,8 +330,42 @@ def test_policy_replay_samples_player_games_before_decisions():
     assert replay.extend_compact(compact) == 32
     batch = replay.sample(2_000)
     assert 0.45 < np.mean(batch.game_ids == 10) < 0.55
-    assert batch.legal_actions.shape == (2_000, 5, 4)
+    assert batch.legal_actions.shape == (2_000, 2, 4)
+    assert batch.legal_mask.shape == (2_000, 2)
     assert replay.metrics()["sampling"] == "uniform_player_game_then_turn_phase_then_decision"
+
+
+def test_policy_replay_pads_only_to_the_largest_sampled_legal_set():
+    replay = GameBalancedPolicyReplayBuffer(
+        capacity=16, state_size=5, action_size=4, bootstrap_heads=3, max_actions=8, seed=23
+    )
+    entries = []
+    for game_id, action_count in ((10, 2), (20, 5)):
+        entries.append(
+            PolicyItem(
+                state=np.full(5, game_id, dtype=np.float32),
+                legal_actions=np.arange(action_count * 4, dtype=np.float32).reshape(
+                    action_count, 4
+                ),
+                selected_index=action_count - 1,
+                family=DecisionFamily.MAIN,
+                target=1.0,
+                behavior_probability=0.5,
+                bootstrap_mask=np.ones(3, dtype=np.uint8),
+                game_id=game_id,
+                player=0,
+                step=0,
+            )
+        )
+    assert replay.extend(entries) == 2
+
+    batch = replay.sample(2)
+
+    assert set(batch.game_ids.tolist()) == {10, 20}
+    assert batch.legal_actions.shape == (2, 5, 4)
+    np.testing.assert_array_equal(
+        np.sort(batch.legal_mask.sum(axis=1)), np.asarray([2.0, 5.0])
+    )
 
 
 def test_astro5_policy_reservoir_preserves_search_and_round_trips(tmp_path):
