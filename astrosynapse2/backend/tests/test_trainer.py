@@ -456,6 +456,28 @@ def test_rejected_checkpoint_is_not_added_to_league(tmp_path):
     assert checkpoint["id"] not in {opponent.id for opponent in league.opponents}
 
 
+def test_sync_league_drops_actor_removed_by_npz_cleanup(tmp_path):
+    store = Store(tmp_path / "state.sqlite3")
+    run = store.create_run(RunConfig.quick())
+    actor = tmp_path / "former-champion.actor.npz"
+    actor.touch()
+    checkpoint = store.add_checkpoint(
+        run_id=run["id"],
+        label="Former champion",
+        path=str(tmp_path / "former-champion.safetensors"),
+        actor_path=str(actor),
+        games=1_000,
+        evaluation={"latest_arena": {"promoted": True}},
+    )
+    league = League()
+    _sync_league(league, store, run["id"])
+    assert [opponent.id for opponent in league.opponents] == [checkpoint["id"]]
+
+    actor.unlink()
+    _sync_league(league, store, run["id"])
+    assert league.opponents == []
+
+
 def test_only_astro3_league_uses_compatible_cross_run_frozen_anchors(
     tmp_path,
     monkeypatch,

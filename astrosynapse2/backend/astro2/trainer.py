@@ -46,7 +46,7 @@ from .replay import (
     PreferenceReplayBuffer,
     ReplayBuffer,
 )
-from .retention import RetentionSafetyError, prune_checkpoint_artifacts
+from .retention import RetentionSafetyError, cleanup_previous_checkpoint_npz
 from .selfplay import ActorPolicy, WorkerResult, collect_worker_batch
 from .storage import Store
 
@@ -1097,6 +1097,7 @@ def _sync_league(
     include_external_anchors: bool = False,
 ) -> None:
     existing = {opponent.id for opponent in league.opponents}
+    eligible_local_ids: set[str] = set()
     for checkpoint in store.checkpoints(run_id):
         actor_path = checkpoint.get("actor_path")
         evaluation = checkpoint.get("evaluation") or {}
@@ -1110,8 +1111,10 @@ def _sync_league(
             or int(checkpoint["games"]) == 0
             or not accepted
             or not Path(actor_path).exists()
-            or checkpoint["id"] in existing
         ):
+            continue
+        eligible_local_ids.add(checkpoint["id"])
+        if checkpoint["id"] in existing:
             continue
         league.upsert(
             Opponent(
@@ -1121,6 +1124,16 @@ def _sync_league(
                 label=checkpoint["label"],
             )
         )
+
+    # NPZ cleanup intentionally makes former local league actors unavailable.
+    # Drop them before another rollout plan can select a path that no longer
+    # exists, while leaving baselines and other non-checkpoint opponents alone.
+    league.opponents = [
+        opponent
+        for opponent in league.opponents
+        if opponent.kind not in {"checkpoint", "champion"}
+        or opponent.id in eligible_local_ids
+    ]
 
     if not include_external_anchors:
         return
@@ -1133,6 +1146,8 @@ def _sync_league(
         if not (checkpoint["is_champion"] or checkpoint["is_pinned"]):
             continue
         actor_path = checkpoint.get("actor_path")
+        if not actor_path or not Path(actor_path).is_file():
+            continue
         if checkpoint["id"] not in existing:
             actor_path = _compatible_external_actor_path(actor_path)
             if actor_path is None:
@@ -2890,15 +2905,19 @@ def run_training(
     def current_active_elapsed() -> float:
         return active_clock.value()
 
-    def apply_artifact_retention(boundary_checkpoint_id: str | None) -> None:
-        """Apply configured retention once, without risking the training loop."""
+    def cleanup_checkpoint_npz() -> None:
+        """Clean prior NPZ snapshots once a durable checkpoint exists."""
+
+        checkpoints = store.checkpoints(run_id)
+        if not checkpoints:
+            return
+        latest_checkpoint_id = str(checkpoints[0]["id"])
 
         try:
-            prune_checkpoint_artifacts(
+            cleanup_previous_checkpoint_npz(
                 store,
                 run_id,
-                keep_checkpoints=config.keep_checkpoints,
-                boundary_checkpoint_id=boundary_checkpoint_id,
+                latest_checkpoint_id=latest_checkpoint_id,
             )
         except (OSError, RetentionSafetyError) as error:
             # Cleanup is never a reason to lose training progress.  Stop this
@@ -2906,10 +2925,10 @@ def run_training(
             # durable boundary rather than retrying with broader semantics.
             store.event(
                 run_id,
-                "checkpoint_retention_failed",
-                "Checkpoint retention stopped without broadening its targets",
+                "checkpoint_npz_cleanup_failed",
+                "Checkpoint NPZ cleanup stopped without broadening its targets",
                 {
-                    "boundary_checkpoint_id": boundary_checkpoint_id,
+                    "boundary_checkpoint_id": latest_checkpoint_id,
                     "error": f"{type(error).__name__}: {error}",
                 },
             )
@@ -3126,7 +3145,7 @@ def run_training(
                 include_external_anchors=config.training_generation >= 3,
             )
             maybe_schedule_evaluation(checkpoint)
-        apply_artifact_retention(checkpoint["id"])
+        cleanup_checkpoint_npz()
         emit(
             force=True,
             phase="pausing" if control.pause_requested.is_set() else "self_play+learning",
@@ -3211,7 +3230,7 @@ def run_training(
             # automatic promotion job or a diagnostic trainer job finishes.
             maybe_schedule_evaluation()
             if evaluation_boundary_checkpoint_id is not None:
-                apply_artifact_retention(evaluation_boundary_checkpoint_id)
+                cleanup_checkpoint_npz()
             plateau = _plateau_status(store, run_id, config)
             governor = _governor_status(
                 store,
@@ -3410,7 +3429,7 @@ def run_training(
             parent_checkpoint_id = checkpoint["id"]
             if not control.should_stop():
                 maybe_schedule_evaluation(checkpoint)
-            apply_artifact_retention(checkpoint["id"])
+            cleanup_checkpoint_npz()
         final_evaluation_done = False
         while not control.should_stop() and not final_evaluation_done:
             if control.pause_requested.is_set():

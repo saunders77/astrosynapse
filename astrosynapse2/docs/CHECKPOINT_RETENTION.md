@@ -1,34 +1,35 @@
 # Checkpoint artifact retention
 
-`keep_checkpoints` now bounds ordinary checkpoint artifacts for new training
-runs. Retention executes only after a complete checkpoint has been persisted or
-after the trainer has handled a completed arena evaluation. It does not run on
-a timer or while a checkpoint is being written.
+After a complete checkpoint has been persisted, the trainer automatically
+removes obsolete checkpoint-owned `.npz` files for that run. Cleanup also runs
+after a completed arena evaluation so a rejected candidate that was temporarily
+needed by the evaluator can be released. It does not run on a timer or while a
+checkpoint is being written.
 
-The configured count is a floor, not permission to remove protected models.
-Astrosynapse keeps all of the following regardless of age:
+Astrosynapse always keeps all `.npz` files belonging to:
 
-- the newest `keep_checkpoints` records;
-- the current champion and any checkpoint still marked champion;
-- pinned checkpoints;
-- former promoted champions that remain part of the population league;
-- both inputs to queued or running arena jobs; and
-- the newest complete optimizer/replay resume boundary.
+- the newly saved/latest checkpoint;
+- the current (latest) champion checkpoint; and
+- either input to a queued or running arena job, until that job finishes.
 
-Every model snapshot is self-contained, so parent checkpoints are not needed to
-load a descendant. Lineage stays in SQLite even when an old snapshot is pruned.
-Evaluation results, diagnostics, metrics, arena history, and audit events are
-also retained.
+The saved checkpoint ID and current champion ID are explicit protections; the
+cleanup does not infer them from filenames. It additionally protects the newest
+database row so a stale or retried cleanup request cannot remove a newer
+checkpoint.
 
-Only explicit model, model-metadata, actor, optimizer, and replay files recorded
-for a checkpoint are eligible. The cleanup root is derived from the database
-location and run ID. Before the first deletion, every candidate must resolve to
-a regular, non-symbolic-link file directly inside that run's checkpoint
-directory and have the expected suffix. Any unsafe reference stops the pass;
-the trainer records `checkpoint_retention_failed` and does not retry with a
-broader target.
+Only explicit actor, optimizer, replay, policy-replay, and preference-replay
+`.npz` files recorded for a checkpoint are eligible. `.safetensors` model
+weights and their JSON metadata are never cleanup candidates. Checkpoint rows,
+lineage, evaluation results, diagnostics, metrics, arena history, and audit
+events are also retained.
 
-Successful passes record `checkpoint_retention_completed` with confirmed-unlink
+The cleanup root is derived from the database location and run ID. Before the
+first deletion, every candidate must resolve to a regular, non-symbolic-link
+file directly inside that run's checkpoint directory and have the expected
+suffix. Any unsafe reference stops the pass; the trainer records
+`checkpoint_npz_cleanup_failed` and does not retry with a broader target.
+
+Successful passes record `checkpoint_npz_cleanup_completed` with confirmed-unlink
 and crash-reconciliation file and byte counts. Pruned checkpoint rows carry
 `evaluation.artifact_retention`, while the models API exposes `artifact_state`,
 `model_available`, `actor_available`, `playable`, and `actor_downloadable`. The

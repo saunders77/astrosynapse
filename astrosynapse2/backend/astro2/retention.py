@@ -24,6 +24,9 @@ _REPLAY_SUFFIX = ".replay.npz"
 _POLICY_REPLAY_SUFFIX = ".policy-replay.npz"
 _PREFERENCE_REPLAY_SUFFIX = ".preference-replay.npz"
 _MODEL_METADATA_SUFFIX = ".safetensors.json"
+_NPZ_ARTIFACT_KINDS = frozenset(
+    {"actor", "optimizer", "replay", "policy_replay", "preference_replay"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +165,63 @@ def _protected_checkpoint_reasons(
         if _checkpoint_is_complete(checkpoint, config):
             protect(checkpoint["id"], "latest_complete_resume_boundary")
             break
+    return reasons
+
+
+def _npz_cleanup_protected_checkpoint_reasons(
+    store: Store,
+    run_id: str,
+    checkpoints: list[dict[str, Any]],
+    *,
+    boundary_checkpoint_id: str,
+) -> dict[str, set[str]]:
+    """Protect the two durable NPZ heads plus in-flight arena inputs.
+
+    ``boundary_checkpoint_id`` is the checkpoint whose files the caller just
+    finished writing.  Protecting both it and the newest database row makes a
+    stale/retried cleanup request fail closed.  Active arena inputs are kept
+    until their result is durable; the evaluation-boundary cleanup pass will
+    remove a rejected candidate, while a promoted candidate becomes the
+    protected current champion.
+    """
+
+    reasons: dict[str, set[str]] = {}
+
+    def protect(checkpoint_id: str | None, reason: str) -> None:
+        if checkpoint_id:
+            reasons.setdefault(checkpoint_id, set()).add(reason)
+
+    checkpoint_ids = {str(checkpoint["id"]) for checkpoint in checkpoints}
+    if boundary_checkpoint_id not in checkpoint_ids:
+        raise RetentionSafetyError(
+            "NPZ cleanup boundary is not a checkpoint belonging to this run"
+        )
+    protect(boundary_checkpoint_id, "saved_checkpoint_boundary")
+    if checkpoints:
+        protect(str(checkpoints[0]["id"]), "latest_checkpoint")
+
+    run = store.get_run(run_id)
+    champion_id = run.get("champion_id")
+    if champion_id is not None and str(champion_id) not in checkpoint_ids:
+        raise RetentionSafetyError(
+            "run champion is not a checkpoint belonging to this run"
+        )
+    protect(str(champion_id) if champion_id is not None else None, "latest_champion")
+
+    # The flag and runs.champion_id normally move in one transaction.  Keeping
+    # any flagged row too makes cleanup conservative in the face of a legacy
+    # or externally repaired database.
+    for checkpoint in checkpoints:
+        if checkpoint["is_champion"]:
+            protect(str(checkpoint["id"]), "champion_flag")
+
+    for job in store.arena_jobs(limit=1_000_000, include_internal=True):
+        if job["status"] not in _ACTIVE_ARENA_STATUSES:
+            continue
+        for field in ("model_a", "model_b"):
+            checkpoint_id = job.get(field)
+            if checkpoint_id in checkpoint_ids:
+                protect(str(checkpoint_id), "active_evaluation")
     return reasons
 
 
@@ -443,6 +503,8 @@ def _reconcile_missing_pending_intents(
     checkpoints: list[dict[str, Any]],
     root: Path,
     removed_by_checkpoint: dict[str, list[str]],
+    *,
+    eligible_kinds: frozenset[str] | None = None,
 ) -> tuple[int, int]:
     """Finish journals left between unlink and SQLite confirmation.
 
@@ -465,6 +527,8 @@ def _reconcile_missing_pending_intents(
             continue
         references = {reference.kind: reference for reference in _artifact_references(checkpoint)}
         for kind, entry in pending.items():
+            if eligible_kinds is not None and kind not in eligible_kinds:
+                continue
             reference = references.get(kind)
             if reference is None:
                 raise RetentionSafetyError(
@@ -519,6 +583,7 @@ def prune_checkpoint_artifacts(
     *,
     keep_checkpoints: int,
     boundary_checkpoint_id: str | None = None,
+    _npz_cleanup: bool = False,
 ) -> dict[str, Any]:
     """Prune old checkpoint files after a caller-established durable boundary.
 
@@ -531,6 +596,8 @@ def prune_checkpoint_artifacts(
 
     if keep_checkpoints < 1:
         raise ValueError("keep_checkpoints must be positive")
+    if _npz_cleanup and boundary_checkpoint_id is None:
+        raise ValueError("NPZ cleanup requires the saved checkpoint boundary")
     run = store.get_run(run_id)
     config = RunConfig.model_validate_persisted(run["config"])
     checkpoint_parent = store.path.parent / "checkpoints"
@@ -546,16 +613,26 @@ def prune_checkpoint_artifacts(
         checkpoints,
         root,
         removed_by_checkpoint,
+        eligible_kinds=_NPZ_ARTIFACT_KINDS if _npz_cleanup else None,
     )
     # Reconciliation can update artifact-retention metadata.  Reload before
     # protection and candidate selection so this pass uses the persisted view.
     checkpoints = store.checkpoints(run_id)
-    protected = _protected_checkpoint_reasons(
-        store,
-        run_id,
-        checkpoints,
-        keep_checkpoints=keep_checkpoints,
-        config=config,
+    protected = (
+        _npz_cleanup_protected_checkpoint_reasons(
+            store,
+            run_id,
+            checkpoints,
+            boundary_checkpoint_id=str(boundary_checkpoint_id),
+        )
+        if _npz_cleanup
+        else _protected_checkpoint_reasons(
+            store,
+            run_id,
+            checkpoints,
+            keep_checkpoints=keep_checkpoints,
+            config=config,
+        )
     )
     checkpoint_by_id = {checkpoint["id"]: checkpoint for checkpoint in checkpoints}
 
@@ -565,6 +642,8 @@ def prune_checkpoint_artifacts(
         if checkpoint is None:
             continue
         for reference in _artifact_references(checkpoint):
+            if _npz_cleanup and reference.kind not in _NPZ_ARTIFACT_KINDS:
+                continue
             try:
                 protected_paths.add(_resolve_candidate(reference, root))
             except RetentionSafetyError:
@@ -576,6 +655,8 @@ def prune_checkpoint_artifacts(
         if checkpoint["id"] in protected:
             continue
         for reference in _artifact_references(checkpoint):
+            if _npz_cleanup and reference.kind not in _NPZ_ARTIFACT_KINDS:
+                continue
             resolved = _resolve_candidate(reference, root)
             if resolved in protected_paths:
                 continue
@@ -661,6 +742,7 @@ def prune_checkpoint_artifacts(
 
     report: dict[str, Any] = {
         "status": "complete",
+        "mode": "previous_checkpoint_npz" if _npz_cleanup else "checkpoint_artifacts",
         "keep_checkpoints": keep_checkpoints,
         "checkpoints_considered": len(checkpoints),
         "checkpoints_protected": len(protected),
@@ -677,13 +759,14 @@ def prune_checkpoint_artifacts(
     if boundary_checkpoint_id is not None and boundary_checkpoint_id in checkpoint_by_id:
         store.update_checkpoint_evaluation(
             boundary_checkpoint_id,
-            {"retention_boundary": report},
+            {"npz_cleanup_boundary" if _npz_cleanup else "retention_boundary": report},
         )
     store.event(
         run_id,
-        "checkpoint_retention_completed",
+        "checkpoint_npz_cleanup_completed" if _npz_cleanup else "checkpoint_retention_completed",
         (
-            f"Checkpoint retention removed {files_removed:,} files "
+            f"Checkpoint {'NPZ cleanup' if _npz_cleanup else 'retention'} "
+            f"removed {files_removed:,} files "
             f"({bytes_removed / (1024 * 1024):.1f} MiB)"
         ),
         report,
@@ -691,7 +774,32 @@ def prune_checkpoint_artifacts(
     return report
 
 
+def cleanup_previous_checkpoint_npz(
+    store: Store,
+    run_id: str,
+    *,
+    latest_checkpoint_id: str,
+) -> dict[str, Any]:
+    """Remove obsolete NPZ snapshots after a durable checkpoint save.
+
+    Only explicitly recorded ``*.npz`` files directly inside this run's
+    checkpoint directory are eligible.  Model weights (``*.safetensors``) and
+    their metadata are never candidates.  The saved/latest checkpoint and the
+    run's current champion are always protected; active arena inputs are
+    retained until the evaluation has completed.
+    """
+
+    return prune_checkpoint_artifacts(
+        store,
+        run_id,
+        keep_checkpoints=1,
+        boundary_checkpoint_id=latest_checkpoint_id,
+        _npz_cleanup=True,
+    )
+
+
 __all__ = [
     "RetentionSafetyError",
+    "cleanup_previous_checkpoint_npz",
     "prune_checkpoint_artifacts",
 ]

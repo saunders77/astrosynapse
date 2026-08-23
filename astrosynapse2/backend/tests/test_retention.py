@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 from astro2.config import RunConfig
-from astro2.retention import RetentionSafetyError, prune_checkpoint_artifacts
+from astro2.retention import (
+    RetentionSafetyError,
+    cleanup_previous_checkpoint_npz,
+    prune_checkpoint_artifacts,
+)
 from astro2.storage import Store
 
 
@@ -46,6 +50,125 @@ def _add_artifact_checkpoint(
         },
     )
     return checkpoint, paths
+
+
+def test_npz_cleanup_keeps_latest_checkpoint_champion_and_all_weights(tmp_path):
+    store = Store(tmp_path / "astrosynapse2.sqlite3")
+    run = store.create_run(RunConfig.quick())
+    root = tmp_path / "checkpoints" / run["id"]
+    root.mkdir(parents=True)
+    checkpoints: list[dict[str, object]] = []
+    artifacts: list[dict[str, Path]] = []
+    for index in range(4):
+        checkpoint, paths = _add_artifact_checkpoint(
+            store,
+            run["id"],
+            root,
+            index,
+            champion=index == 1,
+        )
+        checkpoints.append(checkpoint)
+        artifacts.append(paths)
+        policy_replay = root / f"g{index:010d}-test.policy-replay.npz"
+        preference_replay = root / f"g{index:010d}-test.preference-replay.npz"
+        policy_replay.write_bytes(b"policy replay")
+        preference_replay.write_bytes(b"preference replay")
+        paths.update(
+            policy_replay=policy_replay,
+            preference_replay=preference_replay,
+        )
+        checkpoint_artifacts = dict(checkpoint["evaluation"]["artifacts"])
+        checkpoint_artifacts.update(
+            policy_replay_path=str(policy_replay),
+            preference_replay_path=str(preference_replay),
+        )
+        store.update_checkpoint_evaluation(
+            str(checkpoint["id"]),
+            {"artifacts": checkpoint_artifacts},
+        )
+
+    report = cleanup_previous_checkpoint_npz(
+        store,
+        run["id"],
+        latest_checkpoint_id=str(checkpoints[3]["id"]),
+    )
+
+    assert report["mode"] == "previous_checkpoint_npz"
+    assert report["files_removed"] == 10
+    assert report["protected_reasons"][str(checkpoints[1]["id"])] == [
+        "champion_flag",
+        "latest_champion",
+    ]
+    assert report["protected_reasons"][str(checkpoints[3]["id"])] == [
+        "latest_checkpoint",
+        "saved_checkpoint_boundary",
+    ]
+
+    # Safetensors weights and metadata are outside the cleanup's candidate set.
+    assert all(
+        artifacts[index][kind].is_file()
+        for index in range(4)
+        for kind in ("model", "model_metadata")
+    )
+    # Every obsolete NPZ is removed, while every NPZ belonging to the latest
+    # checkpoint and the latest champion survives.
+    npz_kinds = ("actor", "optimizer", "replay", "policy_replay", "preference_replay")
+    for index in (0, 2):
+        assert not any(artifacts[index][kind].exists() for kind in npz_kinds)
+    for index in (1, 3):
+        assert all(artifacts[index][kind].is_file() for kind in npz_kinds)
+
+    for index in (0, 2):
+        retention = store.checkpoint(str(checkpoints[index]["id"]))["evaluation"][
+            "artifact_retention"
+        ]
+        assert set(retention["removed_artifacts"]) == {
+            "actor",
+            "optimizer",
+            "replay",
+            "policy_replay",
+            "preference_replay",
+        }
+    boundary = store.checkpoint(str(checkpoints[3]["id"]))
+    assert boundary["evaluation"]["npz_cleanup_boundary"]["files_removed"] == 10
+
+
+def test_npz_cleanup_temporarily_keeps_active_arena_inputs(tmp_path):
+    store = Store(tmp_path / "astrosynapse2.sqlite3")
+    run = store.create_run(RunConfig.quick())
+    root = tmp_path / "checkpoints" / run["id"]
+    root.mkdir(parents=True)
+    champion, champion_paths = _add_artifact_checkpoint(
+        store, run["id"], root, 0, champion=True
+    )
+    candidate, candidate_paths = _add_artifact_checkpoint(store, run["id"], root, 1)
+    latest, latest_paths = _add_artifact_checkpoint(store, run["id"], root, 2)
+    job = store.create_arena_job(
+        model_a=str(candidate["id"]),
+        model_b=str(champion["id"]),
+        config={"pairs": 8},
+    )
+
+    cleanup_previous_checkpoint_npz(
+        store,
+        run["id"],
+        latest_checkpoint_id=str(latest["id"]),
+    )
+    assert all(path.is_file() for path in candidate_paths.values())
+
+    store.update_arena_job(job["id"], status="complete", result={})
+    cleanup_previous_checkpoint_npz(
+        store,
+        run["id"],
+        latest_checkpoint_id=str(latest["id"]),
+    )
+    assert candidate_paths["model"].is_file()
+    assert candidate_paths["model_metadata"].is_file()
+    assert not candidate_paths["actor"].exists()
+    assert not candidate_paths["optimizer"].exists()
+    assert not candidate_paths["replay"].exists()
+    assert all(path.is_file() for path in champion_paths.values())
+    assert all(path.is_file() for path in latest_paths.values())
 
 
 def test_retention_prunes_only_unprotected_checkpoint_files(tmp_path):
