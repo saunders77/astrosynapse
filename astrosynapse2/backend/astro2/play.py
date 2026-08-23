@@ -12,19 +12,15 @@ from typing import Any
 import numpy as np
 
 from .baselines import HeuristicChooser
-from .cards import ALL_CARDS
-from .encoding import Encoder
 from .engine import Action, Decision, Game, GameConfig, model_action_indices
+from .engine_encoding import EngineEncoder
 from .model import NumpyActor
 
 
 class ActorChooser:
     def __init__(self, actor_path: str | Path):
         self.actor = NumpyActor.load(actor_path)
-        self.encoder = Encoder(
-            card_catalog=ALL_CARDS,
-            version=self.actor.spec.encoder_version,
-        )
+        self.encoder = EngineEncoder(version=self.actor.spec.encoder_version)
 
     def __call__(self, _player_id: int, decision: Decision) -> int:
         index, _probabilities, _state_value = self.score(decision)

@@ -25,7 +25,6 @@ from typing import Any
 import numpy as np
 
 from .baselines import BASELINE_NAMES, make_baseline
-from .cards import ALL_CARDS
 from .config import MINIMUM_PROMOTION_PAIRS
 from .encoding import DecisionFamily, Encoder
 from .engine import (
@@ -37,6 +36,7 @@ from .engine import (
     Seating,
     model_action_indices,
 )
+from .engine_encoding import EngineEncoder
 from .model import NumpyActor
 from .stats import elo_delta, wilson_interval
 from .storage import Store
@@ -171,10 +171,7 @@ class _LoadedModel:
             if resolved.actor_path is None:
                 raise ModelResolutionError("checkpoint has no actor snapshot")
             self.actor = NumpyActor.load(resolved.actor_path)
-            self.encoder = Encoder(
-                card_catalog=ALL_CARDS,
-                version=self.actor.spec.encoder_version,
-            )
+            self.encoder = EngineEncoder(version=self.actor.spec.encoder_version)
             if self.actor.spec.state_size != self.encoder.state_size:
                 raise ModelResolutionError("checkpoint state encoder is incompatible")
             if self.actor.spec.action_size != self.encoder.action_size:

@@ -14,6 +14,7 @@ from astro2.encoding import (
 )
 from astro2.engine import Action, Game, GameConfig, InPlayObservation
 from astro2.engine import ActionKind as EngineActionKind
+from astro2.engine_encoding import EngineEncoder
 
 
 def card(name, cost=0, attack=0, authority=0, trade=0, faction="none", kind="ship", shield=0):
@@ -170,6 +171,90 @@ def test_every_real_engine_decision_encodes_without_unknown_family_or_action():
     ).run()
     assert encoded_decisions == result.decisions - result.forced_choices
     assert encoded_decisions > 20
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_engine_encoder_exactly_matches_generic_encoder_across_random_games(version):
+    reference = Encoder(version=version)
+    native = EngineEncoder(version=version)
+    rng = np.random.default_rng(8_100 + version)
+    decisions = 0
+
+    def chooser(_player_id, decision):
+        return int(rng.integers(len(decision.actions)))
+
+    def audit(_player_id, decision, _selected):
+        nonlocal decisions
+        expected = reference.encode_decision(decision.observation, decision)
+        actual = native.encode_decision(decision.observation, decision)
+        repeated = native.encode_decision(decision.observation, decision)
+        assert actual.family == expected.family
+        np.testing.assert_array_equal(actual.state, expected.state)
+        np.testing.assert_array_equal(actual.actions, expected.actions)
+        np.testing.assert_array_equal(repeated.state, expected.state)
+        np.testing.assert_array_equal(repeated.actions, expected.actions)
+        decisions += 1
+
+    for seed in range(81, 85):
+        Game(
+            choosers=(chooser, chooser),
+            config=GameConfig(seed=seed, max_turns=60, max_actions_per_turn=160),
+            decision_hook=audit,
+        ).run()
+    assert decisions > 100
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_engine_encoder_matches_every_engine_decision_family(version):
+    from astro2.diagnostics import all_family_decision_suite
+
+    reference = Encoder(version=version)
+    native = EngineEncoder(version=version)
+    decisions = all_family_decision_suite(seed=113)
+
+    assert {decision.family for decision in decisions} == set(type(decisions[0].family))
+    for decision in decisions:
+        expected = reference.encode_decision(decision.observation, decision)
+        actual = native.encode_decision(decision.observation, decision)
+        assert actual.family == expected.family
+        np.testing.assert_array_equal(actual.state, expected.state)
+        np.testing.assert_array_equal(actual.actions, expected.actions)
+
+
+def test_engine_encoder_incremental_cache_invalidates_changed_state_blocks():
+    reference = Encoder(version=2)
+    native = EngineEncoder(version=2)
+    game = Game(config=GameConfig(seed=127))
+    base = game.observation(0)
+    changed = replace(
+        base,
+        own_authority=31,
+        combat=7,
+        hand=(CARD_BY_ID[0], CARD_BY_ID[1], CARD_BY_ID[3]),
+        own_discard=(CARD_BY_ID[4], CARD_BY_ID[4]),
+        own_known_top=(CARD_BY_ID[7], CARD_BY_ID[10]),
+        opponent_known_top=(CARD_BY_ID[27],),
+        own_in_play=(
+            InPlayObservation(CARD_BY_ID[9], False, True, False),
+            InPlayObservation(CARD_BY_ID[23], True, False, True),
+        ),
+        opponent_in_play=(
+            InPlayObservation(CARD_BY_ID[15], False, False, False),
+        ),
+    )
+    reordered = replace(
+        changed,
+        own_known_top=tuple(reversed(changed.own_known_top)),
+        own_in_play=(
+            InPlayObservation(CARD_BY_ID[9], True, False, False),
+            InPlayObservation(CARD_BY_ID[23], False, True, True),
+        ),
+    )
+
+    for observation in (base, changed, game.observation(1), reordered, base):
+        np.testing.assert_array_equal(
+            native.encode_state(observation), reference.encode_state(observation)
+        )
 
 
 def test_astro3_relational_features_expose_ally_acquisition_context():

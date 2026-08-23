@@ -38,6 +38,7 @@ from .engine import (
     GameConfig,
     model_action_indices,
 )
+from .engine_encoding import EngineEncoder
 from .model import NumpyActor
 from .storage import Store
 
@@ -143,7 +144,7 @@ def _load_actor_encoder(actor_path: str) -> tuple[NumpyActor, Encoder]:
     cached = _POLICY_CACHE.get(path)
     if cached is None or cached[:2] != (stat.st_mtime_ns, stat.st_size):
         actor = NumpyActor.load(path)
-        encoder = Encoder(card_catalog=ALL_CARDS, version=actor.spec.encoder_version)
+        encoder = EngineEncoder(version=actor.spec.encoder_version)
         _POLICY_CACHE[path] = (stat.st_mtime_ns, stat.st_size, actor, encoder)
     else:
         actor, encoder = cached[2], cached[3]

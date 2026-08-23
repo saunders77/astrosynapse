@@ -24,6 +24,7 @@ from .engine import (
     model_action_indices,
 )
 from .engine import DecisionFamily as EngineDecisionFamily
+from .engine_encoding import EngineEncoder
 from .model import NumpyActor
 from .replay import MAX_POLICY_ACTIONS, PolicyItem, PreferenceItem, ReplayItem, make_bootstrap_mask
 
@@ -534,7 +535,7 @@ def collect_game(
         or reanalysis_policy_temperature <= 0
     ):
         raise ValueError("invalid reanalysis rollout settings")
-    encoder = encoder or Encoder()
+    encoder = encoder or EngineEncoder()
     requested_epsilon_pair = _coerce_pair(epsilons, "epsilons")
     if any(not 0 <= epsilon <= 1 for epsilon in requested_epsilon_pair):
         raise ValueError("epsilons must be in [0, 1]")
@@ -1027,14 +1028,16 @@ def collect_worker_batch(
         raise ValueError("games must be positive")
     if len(actor_paths) != 2 or len(baseline_names) != 2:
         raise ValueError("actor_paths and baseline_names must have two entries")
-    encoder = Encoder(version=encoder_version)
+    encoder = EngineEncoder(version=encoder_version)
     policies: list[EnginePolicy | ActorPolicy] = []
     for player, path in enumerate(actor_paths):
         if path is None:
             policies.append(make_baseline(baseline_names[player], seed + 10_007 * (player + 1)))
         else:
             actor = _cached_actor(path)
-            policies.append(ActorPolicy(actor, Encoder(version=actor.spec.encoder_version)))
+            policies.append(
+                ActorPolicy(actor, EngineEncoder(version=actor.spec.encoder_version))
+            )
     flags = (
         tuple(path is not None for path in actor_paths)
         if collect_players is None

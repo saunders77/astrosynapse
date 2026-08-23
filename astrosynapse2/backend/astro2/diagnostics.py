@@ -22,6 +22,7 @@ from .engine import (
     InPlayObservation,
     model_action_indices,
 )
+from .engine_encoding import EngineEncoder
 from .model import NumpyActor
 from .replay import PolicyItem
 from .selfplay import ActorPolicy, collect_game
@@ -29,7 +30,7 @@ from .selfplay import ActorPolicy, collect_game
 
 def _actor_encoder(actor: Any) -> Encoder:
     version = int(getattr(getattr(actor, "spec", None), "encoder_version", 1))
-    return Encoder(version=version)
+    return EngineEncoder(version=version)
 
 
 def all_family_decision_suite(*, seed: int) -> tuple[Decision, ...]:
