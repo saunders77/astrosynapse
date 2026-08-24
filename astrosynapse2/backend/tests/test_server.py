@@ -29,6 +29,9 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         assert astro5["evaluation_early_acceptance"] is True
         assert astro5["evaluation_early_acceptance_min_pairs"] == 1_000
         assert astro5["policy_replay_capacity"] == 250_000
+        assert astro5["policy_replay_disk_capacity"] == 5_000_000
+        assert astro5["policy_replay_disk_sample_fraction"] == 0.30
+        assert astro5["policy_replay_disk_shard_items"] == 8_192
         assert astro5["resume_replay_items"] == 250_000
         assert presets["astro4_m4"]["training_generation"] == 4
         assert presets["astro4_m4"]["seed"] == 20260813
@@ -39,6 +42,7 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         assert presets["astro4_m4"]["randomized_prior_scale"] > 0
         assert presets["astro4_m4"]["checkpoint_every_games"] == 50_000
         assert presets["astro4_m4"]["evaluate_every_games"] == 250_000
+        assert presets["astro4_m4"]["policy_replay_disk_capacity"] == 0
         assert presets["astro3_m4"]["training_generation"] == 3
         assert presets["astro3_m4"]["seed"] == 20260807
         assert presets["astro3_m4"]["deployment_policy_selfplay_fraction"] == 0.2

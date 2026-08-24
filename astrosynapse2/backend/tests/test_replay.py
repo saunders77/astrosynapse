@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -463,6 +464,151 @@ def test_policy_replay_incremental_manifest_restores_latest_window(tmp_path):
     )
     assert restored.restore(second_manifest) == 4
     assert set(restored._episodes) == {(2, 0), (3, 0)}
+
+
+def test_policy_replay_moves_old_episodes_to_bounded_mmap_disk_tier(tmp_path):
+    def episode(game_id: int) -> list[PolicyItem]:
+        return [
+            PolicyItem(
+                state=np.full(12, (game_id + step) / 50, dtype=np.float32),
+                legal_actions=np.stack((np.zeros(4), np.ones(4))).astype(np.float32),
+                selected_index=step,
+                family=DecisionFamily.MAIN,
+                target=float(step),
+                behavior_probability=0.5,
+                bootstrap_mask=np.ones(3, dtype=np.uint8),
+                game_id=game_id,
+                player=0,
+                step=step,
+            )
+            for step in range(2)
+        ]
+
+    disk = tmp_path / "cold"
+    replay = GameBalancedPolicyReplayBuffer(
+        capacity=4,
+        state_size=12,
+        action_size=4,
+        bootstrap_heads=3,
+        max_actions=5,
+        disk_directory=disk,
+        disk_capacity=4,
+        disk_sample_fraction=1.0,
+        disk_shard_items=2,
+        seed=43,
+    )
+    for game_id in range(1, 6):
+        replay.extend(episode(game_id))
+
+    metrics = replay.metrics()
+    assert metrics["hot"]["size"] == 4
+    assert metrics["cold"]["size"] == 4
+    assert metrics["size"] == 8
+    assert metrics["capacity"] == 8
+    assert metrics["cold"]["shards"] == 2
+    assert metrics["cold"]["pending_decisions"] == 0
+
+    batch = replay.sample(100)
+    assert set(batch.game_ids.tolist()) == {2, 3}
+    assert len(replay._cold._mapped) <= 4
+    assert all(
+        isinstance(arrays["states"], np.memmap)
+        for arrays in replay._cold._mapped.values()
+    )
+
+
+def test_hybrid_policy_replay_checkpoint_restores_hot_and_cold_tiers(tmp_path):
+    def episode(game_id: int) -> list[PolicyItem]:
+        return [
+            PolicyItem(
+                state=np.full(12, (game_id + step) / 50, dtype=np.float32),
+                legal_actions=np.stack((np.zeros(4), np.ones(4))).astype(np.float32),
+                selected_index=step,
+                family=DecisionFamily.MAIN,
+                target=float(step),
+                behavior_probability=0.5,
+                bootstrap_mask=np.ones(3, dtype=np.uint8),
+                game_id=game_id,
+                player=0,
+                step=step,
+            )
+            for step in range(2)
+        ]
+
+    replay = GameBalancedPolicyReplayBuffer(
+        capacity=4,
+        state_size=12,
+        action_size=4,
+        bootstrap_heads=3,
+        disk_directory=tmp_path / "source-cold",
+        disk_capacity=8,
+        disk_sample_fraction=0.5,
+        disk_shard_items=2,
+        seed=47,
+    )
+    replay.enable_incremental_snapshots(tmp_path / "source-journal", max_items=4)
+    for game_id in range(1, 6):
+        replay.extend(episode(game_id))
+    manifest = tmp_path / "checkpoint.policy-replay.json"
+    assert replay.snapshot_incremental(manifest, max_items=4) == 10
+    payload = json.loads(manifest.read_text())
+    assert payload["format"] == "hybrid_game_reservoir_v3"
+    assert payload["hot_items"] == 4
+    assert payload["cold_items"] == 6
+
+    restored = GameBalancedPolicyReplayBuffer(
+        capacity=4,
+        state_size=12,
+        action_size=4,
+        bootstrap_heads=3,
+        disk_directory=tmp_path / "restored-cold",
+        disk_capacity=8,
+        disk_sample_fraction=0.5,
+        disk_shard_items=2,
+        seed=53,
+    )
+    assert restored.restore(manifest) == 10
+    restored_metrics = restored.metrics()
+    assert restored_metrics["hot"]["size"] == 4
+    assert restored_metrics["cold"]["size"] == 6
+    sampled_game_ids = {
+        int(game_id)
+        for _ in range(8)
+        for game_id in restored.sample(50).game_ids.tolist()
+    }
+    assert sampled_game_ids == {1, 2, 3, 4, 5}
+    assert all(
+        shard.path.parent == (tmp_path / "restored-cold").resolve()
+        for shard in restored._cold._shards
+    )
+
+    # Clearing and restoring from the same live store must not mark restored
+    # shards obsolete when the next durable checkpoint is committed.
+    restored_snapshot = restored._cold.snapshot_payload()
+    restored.clear()
+    restored._cold.import_payload(restored_snapshot)
+    restored._cold.commit_snapshot()
+    assert all(shard.path.is_dir() for shard in restored._cold._shards)
+
+    first_cold_paths = {
+        Path(value["path"]) for value in payload["cold"]["shards"]
+    }
+    replay.extend(episode(6))
+    replay.extend(episode(7))
+    second_manifest = tmp_path / "next.policy-replay.json"
+    replay.snapshot_incremental(second_manifest, max_items=4)
+    second_payload = json.loads(second_manifest.read_text())
+    second_cold_paths = {
+        Path(value["path"]) for value in second_payload["cold"]["shards"]
+    }
+    retired_paths = first_cold_paths - second_cold_paths
+    assert retired_paths
+    replay.commit_incremental_snapshot()
+    assert all(path.is_dir() for path in retired_paths)
+
+    manifest.unlink()
+    replay.commit_incremental_snapshot()
+    assert all(not path.exists() for path in retired_paths)
 
 
 def test_recent_replay_snapshot_round_trips_across_families(tmp_path):

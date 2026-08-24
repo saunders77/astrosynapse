@@ -402,6 +402,9 @@ type TrainerConfig = {
   terminalTargetWeight: number;
   preferenceLossWeight: number;
   policyReplayCapacity: number;
+  policyReplayDiskCapacity: number;
+  policyReplayDiskSampleFraction: number;
+  policyReplayDiskShardItems: number;
   policyValueLossWeight: number;
   policyEntropyWeight: number;
   policyImportanceClip: number;
@@ -643,6 +646,9 @@ const initialConfig: TrainerConfig = {
   terminalTargetWeight: 1,
   preferenceLossWeight: 0,
   policyReplayCapacity: 250_000,
+  policyReplayDiskCapacity: 5_000_000,
+  policyReplayDiskSampleFraction: 0.30,
+  policyReplayDiskShardItems: 8_192,
   policyValueLossWeight: 0.5,
   policyEntropyWeight: 0.02,
   policyImportanceClip: 2,
@@ -685,6 +691,7 @@ const astro4Config: TrainerConfig = {
   replayWarmup: 50_000,
   resumeReplayItems: 0,
   policyReplayCapacity: 250_000,
+  policyReplayDiskCapacity: 0,
   policyEntropyWeight: 0.03,
   counterfactualFraction: 0.02,
   counterfactualMaxPerGame: 1,
@@ -2181,6 +2188,9 @@ function configToApi(config: TrainerConfig): Record<string, string | number | bo
     terminal_target_weight: config.terminalTargetWeight,
     preference_loss_weight: config.preferenceLossWeight,
     policy_replay_capacity: config.policyReplayCapacity,
+    policy_replay_disk_capacity: config.trainingGeneration >= 5 ? config.policyReplayDiskCapacity : 0,
+    policy_replay_disk_sample_fraction: config.policyReplayDiskSampleFraction,
+    policy_replay_disk_shard_items: config.policyReplayDiskShardItems,
     policy_value_loss_weight: config.policyValueLossWeight,
     policy_entropy_weight: config.policyEntropyWeight,
     policy_importance_clip: config.policyImportanceClip,
@@ -2305,6 +2315,18 @@ function configFromApi(raw: unknown, prior: TrainerConfig): TrainerConfig {
     policyReplayCapacity: asNumber(
       item.policy_replay_capacity,
       previous.policyReplayCapacity,
+    ),
+    policyReplayDiskCapacity: asNumber(
+      item.policy_replay_disk_capacity,
+      previous.policyReplayDiskCapacity,
+    ),
+    policyReplayDiskSampleFraction: asNumber(
+      item.policy_replay_disk_sample_fraction,
+      previous.policyReplayDiskSampleFraction,
+    ),
+    policyReplayDiskShardItems: asNumber(
+      item.policy_replay_disk_shard_items,
+      previous.policyReplayDiskShardItems,
     ),
     policyValueLossWeight: asNumber(
       item.policy_value_loss_weight,
@@ -2871,9 +2893,11 @@ export default function Home() {
       decisionsPerSecond: samples.reduce((sum, point) => sum + point.decisionsPerSecond, 0) / divisor,
     };
   }, [snapshot.metrics]);
-  const activeReplayCapacity = config.trainingGeneration >= 4
-    ? config.policyReplayCapacity
-    : config.replayCapacity;
+  const activeReplayCapacity = config.trainingGeneration >= 5
+    ? config.policyReplayCapacity + config.policyReplayDiskCapacity
+    : config.trainingGeneration >= 4
+      ? config.policyReplayCapacity
+      : config.replayCapacity;
   const provisionalEvaluationPairs = Math.min(
     config.evaluationPairs,
     Math.max(200, Math.floor(config.evaluationPairs / 25)),
@@ -4453,7 +4477,12 @@ export default function Home() {
                       <label title="Small tasks let idle actor processes take work from slower workers."><span>Tasks / actor process</span><input type="number" min="1" max="16" value={config.rolloutTasksPerActor} onChange={(event) => updateConfig("rolloutTasksPerActor", Number(event.target.value))} /></label>
                     </div></div>
                     <div className="field-section"><h3>Replay & exploration</h3><div className="field-grid">
-                      {config.trainingGeneration >= 4 ? <label><span>Legal-set policy capacity</span><input type="number" min="1000" max="2000000" step="1000" value={config.policyReplayCapacity} onChange={(event) => updateConfig("policyReplayCapacity", Number(event.target.value))} /></label> : <label><span><Jargon term="replayCapacity">Outcome replay capacity</Jargon></span><input type="number" value={config.replayCapacity} onChange={(event) => updateConfig("replayCapacity", Number(event.target.value))} /></label>}
+                      {config.trainingGeneration >= 4 ? <label><span>{config.trainingGeneration >= 5 ? "Hot policy capacity (RAM)" : "Legal-set policy capacity"}</span><input type="number" min="1000" max="2000000" step="1000" value={config.policyReplayCapacity} onChange={(event) => updateConfig("policyReplayCapacity", Number(event.target.value))} /></label> : <label><span><Jargon term="replayCapacity">Outcome replay capacity</Jargon></span><input type="number" value={config.replayCapacity} onChange={(event) => updateConfig("replayCapacity", Number(event.target.value))} /></label>}
+                      {config.trainingGeneration >= 5 ? <>
+                        <label title="Older policy decisions are stored in memory-mapped SSD shards instead of consuming RAM."><span>Disk policy capacity</span><input type="number" min="0" max="50000000" step="100000" value={config.policyReplayDiskCapacity} onChange={(event) => updateConfig("policyReplayDiskCapacity", Number(event.target.value))} /></label>
+                        <label title="Fraction of each policy batch sampled from the older SSD tier when enough disk decisions are available."><span>Disk replay batch share</span><input type="number" min="0" max="1" step="0.05" value={config.policyReplayDiskSampleFraction} onChange={(event) => updateConfig("policyReplayDiskSampleFraction", Number(event.target.value))} /></label>
+                        <label title="Larger immutable shards reduce filesystem overhead; smaller shards make capacity trimming more exact."><span>Disk shard decisions</span><input type="number" min="512" max="100000" step="512" value={config.policyReplayDiskShardItems} onChange={(event) => updateConfig("policyReplayDiskShardItems", Number(event.target.value))} /></label>
+                      </> : null}
                       <label><span><Jargon term="replayWarmup">Replay warmup</Jargon></span><input type="number" value={config.replayWarmup} onChange={(event) => updateConfig("replayWarmup", Number(event.target.value))} /></label>
                       <label><span><Jargon term="epsilon">Epsilon start</Jargon></span><input type="number" step="0.005" value={config.epsilonStart} onChange={(event) => updateConfig("epsilonStart", Number(event.target.value))} /></label>
                       <label><span><Jargon term="epsilon">Epsilon end</Jargon></span><input type="number" step="0.005" value={config.epsilonEnd} onChange={(event) => updateConfig("epsilonEnd", Number(event.target.value))} /></label>

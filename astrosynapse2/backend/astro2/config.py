@@ -70,6 +70,11 @@ class RunConfig(BaseModel):
     preference_margin: float = Field(default=1.0, ge=0, le=10)
     tactical_preference_training: bool = True
     policy_replay_capacity: int = Field(default=150_000, ge=1_000, le=2_000_000)
+    # The hot tier stays in Python/NumPy objects for low-latency updates. Older
+    # complete player-game episodes can live in mmap-backed columnar shards.
+    policy_replay_disk_capacity: int = Field(default=0, ge=0, le=50_000_000)
+    policy_replay_disk_sample_fraction: float = Field(default=0.30, ge=0, le=1)
+    policy_replay_disk_shard_items: int = Field(default=8_192, ge=512, le=100_000)
     policy_value_loss_weight: float = Field(default=0.5, ge=0, le=10)
     policy_entropy_weight: float = Field(default=0.01, ge=0, le=1)
     policy_importance_clip: float = Field(default=2.0, ge=1, le=20)
@@ -214,6 +219,13 @@ class RunConfig(BaseModel):
             and self.training_generation >= 3
         ):
             self.gate_heldout_brier_regression = False
+        if (
+            "policy_replay_disk_capacity" not in self.model_fields_set
+            and self.training_generation >= 5
+        ):
+            # Persisted Astro5 recipes predate the disk tier. Resuming them
+            # should gain the longer replay horizon without editing SQLite.
+            self.policy_replay_disk_capacity = 5_000_000
         mix = self.current_selfplay_fraction + self.league_fraction + self.baseline_fraction
         if abs(mix - 1.0) > 1e-6:
             raise ValueError("opponent fractions must sum to 1.0")
@@ -445,6 +457,9 @@ class RunConfig(BaseModel):
             # WindowServer.  A 250k window still remembers about 20k complete
             # player-games while leaving the desktop a real memory reserve.
             policy_replay_capacity=250_000,
+            policy_replay_disk_capacity=5_000_000,
+            policy_replay_disk_sample_fraction=0.30,
+            policy_replay_disk_shard_items=8_192,
             policy_replay_decisions_per_player_game=12,
             policy_replay_family_balanced=True,
             replay_warmup=12_000,

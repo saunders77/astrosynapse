@@ -69,7 +69,11 @@ def test_npz_cleanup_keeps_latest_checkpoint_champion_and_all_weights(tmp_path):
         )
         checkpoints.append(checkpoint)
         artifacts.append(paths)
-        policy_replay = root / f"g{index:010d}-test.policy-replay.npz"
+        policy_replay = root / (
+            f"g{index:010d}-test.policy-replay.json"
+            if index == 2
+            else f"g{index:010d}-test.policy-replay.npz"
+        )
         preference_replay = root / f"g{index:010d}-test.preference-replay.npz"
         policy_replay.write_bytes(b"policy replay")
         preference_replay.write_bytes(b"preference replay")

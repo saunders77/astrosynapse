@@ -272,6 +272,7 @@ def test_astro4_recipe_uses_legal_set_training_and_m4_safe_batches():
     assert config.seed == 20260813
     assert config.batch_size == 256
     assert config.policy_replay_capacity == 250_000
+    assert config.policy_replay_disk_capacity == 0
     assert config.counterfactual_fraction > 0
     assert config.counterfactual_loss_weight == pytest.approx(0.05)
     assert config.policy_entropy_weight == pytest.approx(0.03)
@@ -294,12 +295,25 @@ def test_astro5_recipe_and_runtime_envelope_leave_16gb_desktop_headroom():
     limits = _memory_safety_limits(16 * (1 << 30))
 
     assert config.policy_replay_capacity == 250_000
+    assert config.policy_replay_disk_capacity == 5_000_000
+    assert config.policy_replay_disk_sample_fraction == pytest.approx(0.30)
+    assert config.policy_replay_disk_shard_items == 8_192
     assert config.resume_replay_items == 250_000
     assert limits["policy_replay_capacity"] == 250_000
     assert limits["minimum_available_bytes"] == 4 * (1 << 30)
     assert limits["critical_available_bytes"] == 2 * (1 << 30)
     assert limits["mlx_cache_limit_bytes"] == 512 * (1 << 20)
     assert limits["mlx_memory_limit_bytes"] == 4 * (1 << 30)
+
+
+def test_legacy_astro5_config_migrates_to_disk_replay_horizon():
+    migrated = RunConfig.model_validate({"training_generation": 5})
+    explicit_disabled = RunConfig.model_validate(
+        {"training_generation": 5, "policy_replay_disk_capacity": 0}
+    )
+
+    assert migrated.policy_replay_disk_capacity == 5_000_000
+    assert explicit_disabled.policy_replay_disk_capacity == 0
 
 
 def test_memory_envelope_scales_policy_replay_without_removing_reserve():

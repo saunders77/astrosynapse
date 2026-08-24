@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -41,6 +42,48 @@ def test_rate_meter_includes_idle_time_between_batched_results(monkeypatch):
     assert idle["games_per_second"] == 0.0
     assert measured["games_per_second"] == 10.0
     assert measured["decisions_per_second"] == 200.0
+
+
+def test_branch_policy_manifest_copies_hot_segments_and_cold_shards(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    segment = source / "delta.npz"
+    segment.write_bytes(b"hot replay")
+    shard = source / "shard-00000000"
+    shard.mkdir()
+    (shard / "shard.json").write_text("{}")
+    (shard / "states.npy").write_bytes(b"cold replay")
+    manifest = source / "checkpoint.policy-replay.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "format": "hybrid_game_reservoir_v3",
+                "hot": {
+                    "format": "game_reservoir_incremental_v2",
+                    "segments": [str(segment)],
+                },
+                "cold": {
+                    "format": "disk_policy_replay_v1",
+                    "shards": [{"path": str(shard), "decisions": 10}],
+                },
+            }
+        )
+    )
+    destination = tmp_path / "branch" / "branch-root.policy-replay.json"
+
+    copied = Supervisor._copy_policy_replay_manifest(str(manifest), destination)
+    payload = json.loads(Path(copied).read_text())
+    copied_segment = Path(payload["hot"]["segments"][0])
+    copied_shard = Path(payload["cold"]["shards"][0]["path"])
+    assert copied_segment.parent == destination.parent
+    assert copied_segment.read_bytes() == b"hot replay"
+    assert copied_shard.parent == destination.parent / "branch-root.policy-cold"
+    assert (copied_shard / "states.npy").read_bytes() == b"cold replay"
+
+    segment.unlink()
+    (shard / "states.npy").unlink()
+    assert copied_segment.is_file()
+    assert (copied_shard / "states.npy").is_file()
 
 
 @pytest.mark.parametrize(

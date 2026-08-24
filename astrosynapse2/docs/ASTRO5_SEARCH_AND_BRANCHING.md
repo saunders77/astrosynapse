@@ -26,10 +26,12 @@ older run contracts; selecting Astro4, Astro3, or Astro2 still creates those exa
 5. **Remember games, not repeated rows.** Workers retain a phase/family reservoir (12 decisions
    per player-game by default) before process-pool transfer. Search-labelled positions are kept
    first. Replay then samples player-games uniformly and balances phase/family within a game.
-6. **Persist the long horizon.** Scheduled checkpoints retain up to 500,000 policy decisions;
-   pause/final checkpoints retain the full buffer. Policy archives are uncompressed for fast local
-   save/load because disk, not CPU time, is the available resource. Up to 100 checkpoint families
-   are retained by the Astro5 preset.
+6. **Persist the long horizon without spending RAM.** The newest 250,000 policy decisions remain
+   in the low-latency in-memory reservoir. Up to 5 million older decisions move by complete
+   player-game into immutable float16 columnar SSD shards and are sampled through bounded NumPy
+   memory maps; 30% of a batch comes from this tier by default. Checkpoint manifests cover both
+   tiers, preserve referenced shards across rollback/branch creation, and reclaim obsolete shards
+   only after no retained checkpoint references them.
 7. **Measure natural behavior.** Checkpoint diagnostics use positions produced by the candidate
    playing fixed opponents. They report natural head disagreement, normalized entropy,
    own-policy value calibration, and KL from the current champion. The synthetic all-family suite

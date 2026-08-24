@@ -480,8 +480,27 @@ def _readable_policy_replay(path: str | Path | None, *, required: set[str]) -> b
         return _readable_npz(target, required=required)
     try:
         manifest = json.loads(target.read_text(encoding="utf-8"))
+        if manifest.get("format") == "hybrid_game_reservoir_v3":
+            hot = manifest.get("hot")
+            cold = manifest.get("cold")
+            if not isinstance(hot, dict) or not isinstance(cold, dict):
+                return False
+            cold_shards = cold.get("shards")
+            if cold.get("format") != "disk_policy_replay_v1" or not isinstance(
+                cold_shards, list
+            ):
+                return False
+            if any(
+                not isinstance(item, dict)
+                or not isinstance(item.get("path"), str)
+                or not Path(item["path"]).is_dir()
+                or not (Path(item["path"]) / "shard.json").is_file()
+                for item in cold_shards
+            ):
+                return False
+            manifest = hot
         segments = manifest.get("segments")
-        return (
+        return bool(
             manifest.get("format") == "game_reservoir_incremental_v2"
             and isinstance(segments, list)
             and bool(segments)
@@ -1081,7 +1100,11 @@ def _save_checkpoint(
                 max_items=0 if full_replay else resume_replay_items,
                 force_compact=full_replay,
             )
-            policy_replay_format = "game_reservoir_incremental_v2"
+            policy_replay_format = (
+                "hybrid_game_reservoir_v3"
+                if policy_replay.disk_capacity
+                else "game_reservoir_incremental_v2"
+            )
         else:
             policy_replay_path = checkpoint_dir / f"{stem}.policy-replay.npz"
             policy_items = policy_replay.snapshot(
@@ -1092,6 +1115,8 @@ def _save_checkpoint(
         artifacts.update(
             policy_replay_items=int(policy_items),
             policy_replay_capacity=int(policy_replay.capacity),
+            policy_replay_disk_capacity=int(policy_replay.disk_capacity),
+            policy_replay_total_capacity=int(policy_replay.total_capacity),
             policy_replay_format=policy_replay_format,
         )
         if policy_items:
@@ -2506,6 +2531,7 @@ def run_training(
         / "runtime"
         / f"policy-replay-journal-{time.time_ns()}-{uuid.uuid4().hex[:8]}"
     )
+    policy_replay_cold = checkpoint_root / "runtime" / "policy-replay-cold"
     latest = _learner_resume_checkpoint(store, run_id, config)
     _repair_anomalous_deployment_anchor(store, run_id)
     if latest is not None:
@@ -2585,6 +2611,12 @@ def run_training(
         bootstrap_heads=config.bootstrap_heads,
         max_decisions_per_player_game=config.policy_replay_decisions_per_player_game,
         family_balanced=config.policy_replay_family_balanced,
+        disk_directory=policy_replay_cold,
+        disk_capacity=(
+            config.policy_replay_disk_capacity if config.training_generation >= 5 else 0
+        ),
+        disk_sample_fraction=config.policy_replay_disk_sample_fraction,
+        disk_shard_items=config.policy_replay_disk_shard_items,
         seed=config.seed + 47,
     )
     store.event(
@@ -2595,6 +2627,9 @@ def run_training(
             **memory_limits,
             "configured_policy_replay_capacity": config.policy_replay_capacity,
             "effective_policy_replay_capacity": effective_policy_replay_capacity,
+            "policy_replay_disk_capacity": policy_replay.disk_capacity,
+            "policy_replay_total_capacity": policy_replay.total_capacity,
+            "policy_replay_disk_sample_fraction": policy_replay.disk_sample_fraction,
             "configured_preference_replay_capacity": config.preference_replay_capacity,
             "effective_preference_replay_capacity": preference_replay.capacity,
         },
@@ -2636,9 +2671,27 @@ def run_training(
         "replay_items_persisted": replay_items_persisted,
         "replay_capacity_at_snapshot": max(
             0,
-            int(artifacts.get("replay_capacity") or config.replay_capacity),
+            int(
+                artifacts.get(
+                    "policy_replay_total_capacity"
+                    if config.training_generation >= 4
+                    else "replay_capacity"
+                )
+                or (
+                    policy_replay.total_capacity
+                    if config.training_generation >= 4
+                    else config.replay_capacity
+                )
+            ),
         ),
-        "replay_snapshot_mode": str(artifacts.get("replay_format") or "none"),
+        "replay_snapshot_mode": str(
+            artifacts.get(
+                "policy_replay_format"
+                if config.training_generation >= 4
+                else "replay_format"
+            )
+            or "none"
+        ),
         "latest_checkpoint_id": (latest or {}).get("id"),
         "latest_checkpoint_games": int((latest or {}).get("games", 0)),
         "latest_checkpoint_reason": str(
@@ -3266,6 +3319,8 @@ def run_training(
                 **pressure_release,
                 "consecutive_critical_samples": consecutive_critical_memory_samples,
                 "effective_policy_replay_capacity": policy_replay.capacity,
+                "policy_replay_disk_capacity": policy_replay.disk_capacity,
+                "policy_replay_total_capacity": policy_replay.total_capacity,
             },
             **last_diagnostics,
         }
@@ -3344,7 +3399,16 @@ def run_training(
                 ),
                 "replay_capacity_at_snapshot": max(
                     0,
-                    int(checkpoint_artifacts.get("replay_capacity", replay.capacity)),
+                    int(
+                        checkpoint_artifacts.get(
+                            "policy_replay_total_capacity"
+                            if config.training_generation >= 4
+                            else "replay_capacity",
+                            policy_replay.total_capacity
+                            if config.training_generation >= 4
+                            else replay.capacity,
+                        )
+                    ),
                 ),
                 "replay_snapshot_mode": str(
                     checkpoint_artifacts.get(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import threading
 import time
@@ -304,6 +305,55 @@ class Supervisor:
         shutil.copy2(source_path, destination)
         return str(destination)
 
+    @staticmethod
+    def _copy_policy_replay_manifest(source: str, destination: Path) -> str:
+        """Make a branch manifest independent using same-volume hard links."""
+
+        source_path = Path(source).expanduser().resolve()
+        payload = json.loads(source_path.read_text(encoding="utf-8"))
+        hot = payload.get("hot") if payload.get("format") == "hybrid_game_reservoir_v3" else payload
+        if not isinstance(hot, dict) or not isinstance(hot.get("segments"), list):
+            raise ValueError("source policy replay manifest is invalid")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        copied_segments: list[str] = []
+        for ordinal, value in enumerate(hot["segments"]):
+            source_segment = Path(str(value)).expanduser().resolve()
+            if not source_segment.is_file():
+                raise ValueError("source policy replay segment disappeared")
+            target = destination.parent / f"branch-root.policy-hot-{ordinal:05d}.npz"
+            try:
+                os.link(source_segment, target)
+            except OSError:
+                shutil.copy2(source_segment, target)
+            copied_segments.append(str(target))
+        hot["segments"] = copied_segments
+
+        if payload.get("format") == "hybrid_game_reservoir_v3":
+            cold = payload.get("cold")
+            if not isinstance(cold, dict) or not isinstance(cold.get("shards"), list):
+                raise ValueError("source disk policy replay manifest is invalid")
+            cold_root = destination.parent / "branch-root.policy-cold"
+            copied_shards: list[dict[str, Any]] = []
+            for ordinal, value in enumerate(cold["shards"]):
+                if not isinstance(value, dict) or not isinstance(value.get("path"), str):
+                    raise ValueError("source disk policy replay shard is invalid")
+                source_shard = Path(value["path"]).expanduser().resolve()
+                if not source_shard.is_dir():
+                    raise ValueError("source disk policy replay shard disappeared")
+                target = cold_root / f"shard-{ordinal:08d}"
+                try:
+                    shutil.copytree(source_shard, target, copy_function=os.link)
+                except OSError:
+                    if target.exists():
+                        shutil.rmtree(target)
+                    shutil.copytree(source_shard, target, copy_function=shutil.copy2)
+                copied_shards.append({**value, "path": str(target)})
+            cold["shards"] = copied_shards
+
+        destination.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+        return str(destination)
+
     def create_branch_experiment(
         self,
         *,
@@ -384,9 +434,20 @@ class Supervisor:
                 ("policy_replay_path", "branch-root.policy-replay.npz"),
                 ("preference_replay_path", "branch-root.preference-replay.npz"),
             ):
-                copied = self._copy_checkpoint_artifact(
-                    source_artifacts.get(artifact_key), destination / filename
-                )
+                source_artifact = source_artifacts.get(artifact_key)
+                if (
+                    artifact_key == "policy_replay_path"
+                    and isinstance(source_artifact, str)
+                    and Path(source_artifact).suffix.lower() == ".json"
+                ):
+                    filename = "branch-root.policy-replay.json"
+                    copied = self._copy_policy_replay_manifest(
+                        source_artifact, destination / filename
+                    )
+                else:
+                    copied = self._copy_checkpoint_artifact(
+                        source_artifact, destination / filename
+                    )
                 if copied:
                     artifacts[artifact_key] = copied
             for key in (
@@ -394,6 +455,9 @@ class Supervisor:
                 "replay_capacity",
                 "replay_format",
                 "policy_replay_items",
+                "policy_replay_capacity",
+                "policy_replay_disk_capacity",
+                "policy_replay_total_capacity",
                 "policy_replay_format",
                 "preference_replay_items",
             ):

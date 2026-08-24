@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
+import shutil
 import threading
 from collections import OrderedDict
 from contextlib import suppress
@@ -1404,6 +1406,461 @@ class PreferenceReplayBuffer:
 ReplayBuffer = StratifiedReplayBuffer
 
 
+@dataclass(frozen=True, slots=True)
+class _DiskPolicyShard:
+    path: Path
+    decisions: int
+    episodes: int
+    action_rows: int
+    searched_decisions: int
+    size_bytes: int
+
+
+class _DiskPolicyReplayStore:
+    """Immutable columnar shards sampled through NumPy memory maps.
+
+    Hot replay evicts complete player-game episodes into a small write buffer.
+    Each flush writes sequential ``.npy`` columns; learner reads page only the
+    selected rows and keeps at most a few shards mapped at once.  Whole-shard
+    FIFO eviction bounds the active archive without rewriting tens of GB.
+    """
+
+    FORMAT = "disk_policy_replay_v1"
+    _ARRAY_NAMES = (
+        "episode_game_ids",
+        "episode_players",
+        "episode_offsets",
+        "states",
+        "legal_actions",
+        "action_offsets",
+        "selected_indices",
+        "families",
+        "targets",
+        "behavior_probabilities",
+        "bootstrap_masks",
+        "steps",
+        "search_policy",
+        "search_mask",
+        "search_values",
+        "search_valid",
+    )
+
+    def __init__(
+        self,
+        directory: str | Path,
+        *,
+        capacity: int,
+        shard_items: int,
+        state_size: int,
+        action_size: int,
+        bootstrap_heads: int,
+        max_actions: int,
+        mapped_shards: int = 4,
+    ) -> None:
+        self.directory = Path(directory).expanduser().resolve()
+        self.capacity = max(0, int(capacity))
+        self.shard_items = max(1, int(shard_items))
+        self.state_size = int(state_size)
+        self.action_size = int(action_size)
+        self.bootstrap_heads = int(bootstrap_heads)
+        self.max_actions = int(max_actions)
+        self.mapped_shards = max(1, int(mapped_shards))
+        self._manifest_path = self.directory / "store.json"
+        self._shards: list[_DiskPolicyShard] = []
+        self._pending: list[tuple[tuple[int, int], list[PolicyItem]]] = []
+        self._pending_decisions = 0
+        self._obsolete: list[Path] = []
+        self._generation = 0
+        self._writes = 0
+        self._evicted_decisions = 0
+        self._samples_drawn = 0
+        self._mapped: OrderedDict[str, dict[str, np.ndarray]] = OrderedDict()
+        self._lock = threading.RLock()
+        if self.capacity:
+            self.directory.mkdir(parents=True, exist_ok=True)
+            self._load_live_manifest()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return sum(shard.decisions for shard in self._shards)
+
+    @property
+    def episodes(self) -> int:
+        with self._lock:
+            return sum(shard.episodes for shard in self._shards)
+
+    def _manifest_header(self) -> dict[str, Any]:
+        return {
+            "format": self.FORMAT,
+            "capacity": self.capacity,
+            "shard_items": self.shard_items,
+            "state_size": self.state_size,
+            "action_size": self.action_size,
+            "bootstrap_heads": self.bootstrap_heads,
+            "max_actions": self.max_actions,
+        }
+
+    @staticmethod
+    def _shard_payload(shard: _DiskPolicyShard) -> dict[str, Any]:
+        return {
+            "path": str(shard.path),
+            "decisions": shard.decisions,
+            "episodes": shard.episodes,
+            "action_rows": shard.action_rows,
+            "searched_decisions": shard.searched_decisions,
+            "size_bytes": shard.size_bytes,
+        }
+
+    def _payload(self) -> dict[str, Any]:
+        return {
+            **self._manifest_header(),
+            "generation": self._generation,
+            "items": sum(shard.decisions for shard in self._shards),
+            "episodes": sum(shard.episodes for shard in self._shards),
+            "shards": [self._shard_payload(shard) for shard in self._shards],
+        }
+
+    def _write_live_manifest(self) -> None:
+        if not self.capacity:
+            return
+        temporary = self._manifest_path.with_suffix(".json.partial")
+        temporary.write_text(
+            json.dumps(self._payload(), separators=(",", ":")),
+            encoding="utf-8",
+        )
+        temporary.replace(self._manifest_path)
+
+    def _validate_header(self, payload: dict[str, Any]) -> None:
+        if payload.get("format") != self.FORMAT:
+            raise ValueError("unsupported disk policy replay manifest")
+        expected = {
+            "state_size": self.state_size,
+            "action_size": self.action_size,
+            "bootstrap_heads": self.bootstrap_heads,
+            "max_actions": self.max_actions,
+        }
+        if any(int(payload.get(name, -1)) != value for name, value in expected.items()):
+            raise ValueError("disk policy replay dimensions do not match")
+
+    def _decode_shard(self, value: object) -> _DiskPolicyShard:
+        if not isinstance(value, dict):
+            raise ValueError("invalid disk policy replay shard")
+        path_value = value.get("path")
+        if not isinstance(path_value, str):
+            raise ValueError("disk policy replay shard has no path")
+        path = Path(path_value).expanduser().resolve()
+        metadata_path = path / "shard.json"
+        if not path.is_dir() or not metadata_path.is_file():
+            raise ValueError("disk policy replay shard is unavailable")
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        self._validate_header(metadata)
+        for name in self._ARRAY_NAMES:
+            if not (path / f"{name}.npy").is_file():
+                raise ValueError(f"disk policy replay shard is missing {name}")
+        return _DiskPolicyShard(
+            path=path,
+            decisions=max(0, int(metadata["decisions"])),
+            episodes=max(0, int(metadata["episodes"])),
+            action_rows=max(0, int(metadata["action_rows"])),
+            searched_decisions=max(0, int(metadata.get("searched_decisions", 0))),
+            size_bytes=max(0, int(metadata.get("size_bytes", value.get("size_bytes", 0)))),
+        )
+
+    def _load_live_manifest(self) -> None:
+        if not self._manifest_path.is_file():
+            return
+        payload = json.loads(self._manifest_path.read_text(encoding="utf-8"))
+        self._validate_header(payload)
+        shards = payload.get("shards")
+        if not isinstance(shards, list):
+            raise ValueError("invalid disk policy replay shard list")
+        self._shards = [self._decode_shard(value) for value in shards]
+        self._generation = max(0, int(payload.get("generation", len(self._shards))))
+        self._enforce_capacity()
+
+    def _close_mapped(self, path: Path | None = None) -> None:
+        keys = list(self._mapped) if path is None else [str(path)]
+        for key in keys:
+            arrays = self._mapped.pop(key, None)
+            if arrays is None:
+                continue
+            for array in arrays.values():
+                mmap = getattr(array, "_mmap", None)
+                if mmap is not None:
+                    with suppress(OSError):
+                        mmap.close()
+
+    def _mapped_arrays(self, shard: _DiskPolicyShard) -> dict[str, np.ndarray]:
+        key = str(shard.path)
+        arrays = self._mapped.pop(key, None)
+        if arrays is None:
+            arrays = {
+                name: np.load(shard.path / f"{name}.npy", mmap_mode="r", allow_pickle=False)
+                for name in self._ARRAY_NAMES
+            }
+        self._mapped[key] = arrays
+        while len(self._mapped) > self.mapped_shards:
+            oldest = next(iter(self._mapped))
+            self._close_mapped(Path(oldest))
+        return arrays
+
+    def append_episodes(
+        self,
+        episodes: list[tuple[tuple[int, int], list[PolicyItem]]],
+    ) -> None:
+        if not self.capacity or not episodes:
+            return
+        with self._lock:
+            self._pending.extend(episodes)
+            count = sum(len(rows) for _key, rows in episodes)
+            self._pending_decisions += count
+            self._writes += count
+            while self._pending_decisions >= self.shard_items:
+                self._flush_pending(max_decisions=self.shard_items)
+
+    def _flush_pending(self, *, max_decisions: int = 0) -> None:
+        if not self._pending:
+            return
+        split = len(self._pending)
+        if max_decisions > 0:
+            decisions = 0
+            split = 0
+            for _key, rows in self._pending:
+                decisions += len(rows)
+                split += 1
+                if decisions >= max_decisions:
+                    break
+        episodes = self._pending[:split]
+        self._pending = self._pending[split:]
+        flushed_decisions = sum(len(rows) for _key, rows in episodes)
+        self._pending_decisions -= flushed_decisions
+        generation = self._generation
+        self._generation += 1
+        final = self.directory / f"shard-{generation:08d}"
+        while final.exists():
+            generation = self._generation
+            self._generation += 1
+            final = self.directory / f"shard-{generation:08d}"
+        temporary = self.directory / f"shard-{generation:08d}.partial"
+        if temporary.exists():
+            shutil.rmtree(temporary)
+        temporary.mkdir(parents=True)
+        items = [item for _key, rows in episodes for item in rows]
+        counts = np.asarray([len(item.legal_actions) for item in items], dtype=np.uint16)
+        action_offsets = np.concatenate(
+            (np.zeros(1, dtype=np.uint64), np.cumsum(counts, dtype=np.uint64))
+        )
+        episode_lengths = np.asarray([len(rows) for _key, rows in episodes], dtype=np.uint16)
+        episode_offsets = np.concatenate(
+            (np.zeros(1, dtype=np.uint64), np.cumsum(episode_lengths, dtype=np.uint64))
+        )
+        arrays: dict[str, np.ndarray] = {
+            "episode_game_ids": np.asarray([key[0] for key, _rows in episodes], dtype=np.uint64),
+            "episode_players": np.asarray([key[1] for key, _rows in episodes], dtype=np.uint8),
+            "episode_offsets": episode_offsets,
+            "states": np.stack([item.state for item in items]).astype(np.float16),
+            "legal_actions": np.concatenate([item.legal_actions for item in items]).astype(
+                np.float16
+            ),
+            "action_offsets": action_offsets,
+            "selected_indices": np.asarray(
+                [item.selected_index for item in items], dtype=np.uint16
+            ),
+            "families": np.asarray([int(item.family) for item in items], dtype=np.uint8),
+            "targets": np.asarray([item.target for item in items], dtype=np.float16),
+            "behavior_probabilities": np.asarray(
+                [item.behavior_probability for item in items], dtype=np.float16
+            ),
+            "bootstrap_masks": np.stack([item.bootstrap_mask for item in items]).astype(np.uint8),
+            "steps": np.asarray([item.step for item in items], dtype=np.uint32),
+            "search_policy": np.concatenate([item.search_policy for item in items]).astype(
+                np.float16
+            ),
+            "search_mask": np.concatenate([item.search_mask for item in items]).astype(np.uint8),
+            "search_values": np.asarray(
+                [item.search_value for item in items], dtype=np.float16
+            ),
+            "search_valid": np.asarray([item.search_valid for item in items], dtype=np.uint8),
+        }
+        for name, array in arrays.items():
+            np.save(temporary / f"{name}.npy", array, allow_pickle=False)
+        size_bytes = sum(path.stat().st_size for path in temporary.glob("*.npy"))
+        metadata = {
+            **self._manifest_header(),
+            "decisions": len(items),
+            "episodes": len(episodes),
+            "action_rows": int(action_offsets[-1]),
+            "searched_decisions": sum(int(item.search_valid) for item in items),
+            "size_bytes": size_bytes,
+        }
+        (temporary / "shard.json").write_text(
+            json.dumps(metadata, separators=(",", ":")), encoding="utf-8"
+        )
+        temporary.replace(final)
+        shard = self._decode_shard({"path": str(final)})
+        self._shards.append(shard)
+        self._enforce_capacity()
+        self._write_live_manifest()
+
+    def _enforce_capacity(self) -> None:
+        active = sum(shard.decisions for shard in self._shards)
+        while active > self.capacity and len(self._shards) > 1:
+            removed = self._shards.pop(0)
+            self._close_mapped(removed.path)
+            self._obsolete.append(removed.path)
+            active -= removed.decisions
+            self._evicted_decisions += removed.decisions
+
+    def snapshot_payload(self) -> dict[str, Any]:
+        with self._lock:
+            while self._pending:
+                self._flush_pending(max_decisions=self.shard_items)
+            self._write_live_manifest()
+            return self._payload()
+
+    def commit_snapshot(self, *, protected_paths: set[Path] | None = None) -> None:
+        protected = protected_paths or set()
+        with self._lock:
+            obsolete = self._obsolete
+            self._obsolete = [path for path in obsolete if path in protected]
+        for path in (path for path in obsolete if path not in protected):
+            if path.parent == self.directory and path.name.startswith(("shard-", "import-")):
+                with suppress(OSError):
+                    shutil.rmtree(path)
+
+    def import_payload(self, payload: dict[str, Any] | None) -> int:
+        with self._lock:
+            old_paths = {shard.path for shard in self._shards}
+            self._close_mapped()
+            self._pending.clear()
+            self._pending_decisions = 0
+            self._shards = []
+            if not payload or not self.capacity:
+                self._obsolete.extend(old_paths)
+                self._write_live_manifest()
+                return 0
+            self._validate_header(payload)
+            values = payload.get("shards")
+            if not isinstance(values, list):
+                raise ValueError("invalid disk policy replay shard list")
+            imported: list[_DiskPolicyShard] = []
+            for ordinal, value in enumerate(values):
+                source = self._decode_shard(value)
+                if source.path.parent == self.directory:
+                    destination = source.path
+                else:
+                    destination = self.directory / (
+                        f"import-{self._generation:08d}-{ordinal:05d}"
+                    )
+                    self._generation += 1
+                    if not destination.exists():
+                        try:
+                            shutil.copytree(source.path, destination, copy_function=os.link)
+                        except OSError:
+                            # A cross-device hard-link failure can leave a
+                            # partially populated destination behind.
+                            if destination.exists():
+                                shutil.rmtree(destination)
+                            shutil.copytree(source.path, destination, copy_function=shutil.copy2)
+                imported.append(self._decode_shard({"path": str(destination)}))
+            self._shards = imported
+            retained_paths = {shard.path for shard in imported}
+            self._obsolete = [path for path in self._obsolete if path not in retained_paths]
+            self._obsolete.extend(old_paths - retained_paths)
+            self._enforce_capacity()
+            self._write_live_manifest()
+            return len(self)
+
+    def sample_items(
+        self,
+        count: int,
+        rng: np.random.Generator,
+        *,
+        family_balanced: bool,
+    ) -> list[PolicyItem]:
+        if count < 1:
+            return []
+        with self._lock:
+            shards = tuple(self._shards)
+            if not shards:
+                return []
+            weights = np.asarray([shard.episodes for shard in shards], dtype=np.float64)
+            weights /= weights.sum()
+            chunk_count = min(4, count)
+            base, extra = divmod(count, chunk_count)
+            items: list[PolicyItem] = []
+            for chunk in range(chunk_count):
+                shard = shards[int(rng.choice(len(shards), p=weights))]
+                arrays = self._mapped_arrays(shard)
+                requested = base + int(chunk < extra)
+                episode_indices = rng.integers(0, shard.episodes, size=requested)
+                for episode_index_value in episode_indices:
+                    episode_index = int(episode_index_value)
+                    start = int(arrays["episode_offsets"][episode_index])
+                    stop = int(arrays["episode_offsets"][episode_index + 1])
+                    rows = np.arange(start, stop, dtype=np.int64)
+                    turns = (
+                        arrays["states"][rows, 11].astype(np.float32) * 50.0
+                        if self.state_size > 11
+                        else np.zeros(len(rows), dtype=np.float32)
+                    )
+                    phases = np.where(turns <= 6, 0, np.where(turns <= 16, 1, 2))
+                    phase_values = np.unique(phases)
+                    phase = phase_values[int(rng.integers(0, len(phase_values)))]
+                    candidates = rows[phases == phase]
+                    if family_balanced:
+                        family_values = np.unique(arrays["families"][candidates])
+                        family = family_values[int(rng.integers(0, len(family_values)))]
+                        candidates = candidates[arrays["families"][candidates] == family]
+                    row = int(candidates[int(rng.integers(0, len(candidates)))])
+                    action_start = int(arrays["action_offsets"][row])
+                    action_stop = int(arrays["action_offsets"][row + 1])
+                    items.append(
+                        PolicyItem(
+                            state=arrays["states"][row],
+                            legal_actions=arrays["legal_actions"][action_start:action_stop],
+                            selected_index=int(arrays["selected_indices"][row]),
+                            family=int(arrays["families"][row]),
+                            target=float(arrays["targets"][row]),
+                            behavior_probability=float(
+                                arrays["behavior_probabilities"][row]
+                            ),
+                            bootstrap_mask=arrays["bootstrap_masks"][row],
+                            game_id=int(arrays["episode_game_ids"][episode_index]),
+                            player=int(arrays["episode_players"][episode_index]),
+                            step=int(arrays["steps"][row]),
+                            search_policy=arrays["search_policy"][action_start:action_stop],
+                            search_mask=arrays["search_mask"][action_start:action_stop],
+                            search_value=float(arrays["search_values"][row]),
+                            search_valid=bool(arrays["search_valid"][row]),
+                        )
+                    )
+            self._samples_drawn += len(items)
+            return items
+
+    def metrics(self) -> dict[str, Any]:
+        with self._lock:
+            decisions = sum(shard.decisions for shard in self._shards)
+            episodes = sum(shard.episodes for shard in self._shards)
+            return {
+                "size": decisions,
+                "capacity": self.capacity,
+                "utilization": decisions / self.capacity if self.capacity else 0.0,
+                "player_games": episodes,
+                "shards": len(self._shards),
+                "pending_decisions": self._pending_decisions,
+                "storage_bytes": sum(shard.size_bytes for shard in self._shards),
+                "searched_decisions": sum(
+                    shard.searched_decisions for shard in self._shards
+                ),
+                "writes": self._writes,
+                "evicted_decisions": self._evicted_decisions,
+                "samples_drawn": self._samples_drawn,
+                "mapped_shards": len(self._mapped),
+                "format": self.FORMAT,
+            }
+
+
 class GameBalancedPolicyReplayBuffer:
     """Bounded policy replay sampled uniformly by player-game, then decision.
 
@@ -1422,10 +1879,18 @@ class GameBalancedPolicyReplayBuffer:
         max_actions: int = MAX_POLICY_ACTIONS,
         max_decisions_per_player_game: int = 0,
         family_balanced: bool = False,
+        disk_directory: str | Path | None = None,
+        disk_capacity: int = 0,
+        disk_sample_fraction: float = 0.30,
+        disk_shard_items: int = 8_192,
         seed: int = 0,
     ) -> None:
         if capacity < 1:
             raise ValueError("capacity must be positive")
+        if not 0 <= disk_sample_fraction <= 1:
+            raise ValueError("disk_sample_fraction must be in [0, 1]")
+        if disk_capacity and disk_directory is None:
+            raise ValueError("disk_directory is required when disk replay is enabled")
         self.capacity = int(capacity)
         self.state_size = int(state_size)
         self.action_size = int(action_size)
@@ -1433,6 +1898,7 @@ class GameBalancedPolicyReplayBuffer:
         self.max_actions = int(max_actions)
         self.max_decisions_per_player_game = max(0, int(max_decisions_per_player_game))
         self.family_balanced = bool(family_balanced)
+        self.disk_sample_fraction = float(disk_sample_fraction)
         self._episodes: OrderedDict[tuple[int, int], list[PolicyItem]] = OrderedDict()
         # OrderedDict supplies FIFO eviction, while this dense side index makes
         # uniform episode sampling O(1). Rebuilding list(self._episodes) for
@@ -1449,12 +1915,30 @@ class GameBalancedPolicyReplayBuffer:
         self._incremental_dirty_keys: OrderedDict[tuple[int, int], None] = OrderedDict()
         self._incremental_obsolete: list[Path] = []
         self._incremental_generation = 0
+        self._checkpoint_manifest_directory: Path | None = None
         self._rng = np.random.default_rng(seed)
         self._lock = threading.RLock()
+        self._cold = _DiskPolicyReplayStore(
+            disk_directory or Path.cwd() / ".disabled-policy-replay",
+            capacity=disk_capacity,
+            shard_items=disk_shard_items,
+            state_size=self.state_size,
+            action_size=self.action_size,
+            bootstrap_heads=self.bootstrap_heads,
+            max_actions=self.max_actions,
+        )
 
     def __len__(self) -> int:
         with self._lock:
-            return self._size
+            return self._size + len(self._cold)
+
+    @property
+    def disk_capacity(self) -> int:
+        return self._cold.capacity
+
+    @property
+    def total_capacity(self) -> int:
+        return self.capacity + self._cold.capacity
 
     def _add_episode_key(self, key: tuple[int, int]) -> None:
         self._episode_key_indices[key] = len(self._episode_keys)
@@ -1570,6 +2054,7 @@ class GameBalancedPolicyReplayBuffer:
         for item in validated:
             key = (int(_numeric_game_id(item.game_id)), item.player)
             grouped.setdefault(key, []).append(item)
+        evicted: list[tuple[tuple[int, int], list[PolicyItem]]] = []
         with self._lock:
             for key, episode in grouped.items():
                 episode = self._compact_episode(episode)
@@ -1585,6 +2070,7 @@ class GameBalancedPolicyReplayBuffer:
             self._writes += len(validated)
             while self._size > self.capacity and self._episodes:
                 removed_key, removed = self._episodes.popitem(last=False)
+                evicted.append((removed_key, removed))
                 self._remove_episode_key(removed_key)
                 self._size -= len(removed)
                 self._searched_decisions -= sum(int(item.search_valid) for item in removed)
@@ -1594,6 +2080,7 @@ class GameBalancedPolicyReplayBuffer:
                     self._incremental_dirty_keys.pop(key, None)
                     if key in self._episodes:
                         self._incremental_dirty_keys[key] = None
+        self._cold.append_episodes(evicted)
         return len(validated)
 
     def extend_compact(self, compact: Any) -> int:
@@ -1633,16 +2120,16 @@ class GameBalancedPolicyReplayBuffer:
         ]
         return self.extend(items)
 
-    def sample(self, batch_size: int) -> PolicyBatch:
-        if batch_size < 1:
-            raise ValueError("batch_size must be positive")
+    def _sample_hot_items(self, count: int) -> list[PolicyItem]:
+        if count < 1:
+            return []
         with self._lock:
             if not self._episodes:
-                raise ValueError("cannot sample empty policy replay")
+                return []
             chosen_keys = self._rng.choice(
                 len(self._episode_keys),
-                size=batch_size,
-                replace=batch_size > len(self._episode_keys),
+                size=count,
+                replace=count > len(self._episode_keys),
             )
             items: list[PolicyItem] = []
             for key_index in chosen_keys:
@@ -1660,6 +2147,10 @@ class GameBalancedPolicyReplayBuffer:
                     family = families[int(self._rng.integers(0, len(families)))]
                     rows = [item for item in rows if int(item.family) == family]
                 items.append(rows[int(self._rng.integers(0, len(rows)))])
+            return items
+
+    def _batch_from_items(self, items: list[PolicyItem]) -> PolicyBatch:
+        batch_size = len(items)
         # max_actions is the validation ceiling, not a reason to execute every
         # batch at that width. Sampling is unchanged; only omit padding beyond
         # the largest legal set selected for this batch.
@@ -1697,21 +2188,66 @@ class GameBalancedPolicyReplayBuffer:
             search_valid=np.asarray([item.search_valid for item in items], dtype=np.float32),
         )
 
+    def sample(self, batch_size: int) -> PolicyBatch:
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        hot_available = self._size > 0
+        cold_available = len(self._cold) > 0
+        if not hot_available and not cold_available:
+            raise ValueError("cannot sample empty policy replay")
+        if hot_available and cold_available:
+            cold_count = int(round(batch_size * self.disk_sample_fraction))
+            cold_count = min(batch_size, max(0, cold_count))
+        else:
+            cold_count = batch_size if cold_available else 0
+        hot_count = batch_size - cold_count
+        items = self._sample_hot_items(hot_count)
+        items.extend(
+            self._cold.sample_items(
+                cold_count,
+                self._rng,
+                family_balanced=self.family_balanced,
+            )
+        )
+        # A cold store can have only a not-yet-flushed write buffer. Fall back
+        # to hot replay so every requested learner batch remains full.
+        if len(items) < batch_size:
+            items.extend(self._sample_hot_items(batch_size - len(items)))
+        if len(items) != batch_size:
+            raise ValueError("policy replay could not assemble a complete batch")
+        order = self._rng.permutation(batch_size)
+        return self._batch_from_items([items[int(index)] for index in order])
+
     def metrics(self) -> dict[str, Any]:
         with self._lock:
             player_games = len(self._episodes)
+            cold = self._cold.metrics()
+            total_size = self._size + int(cold["size"])
+            total_capacity = self.capacity + int(cold["capacity"])
+            total_games = player_games + int(cold["player_games"])
             return {
-                "size": self._size,
-                "capacity": self.capacity,
-                "utilization": self._size / self.capacity,
-                "player_games": player_games,
-                "mean_decisions_per_player_game": self._size / player_games if player_games else 0.0,
+                "size": total_size,
+                "capacity": total_capacity,
+                "utilization": total_size / total_capacity,
+                "player_games": total_games,
+                "mean_decisions_per_player_game": (
+                    total_size / total_games if total_games else 0.0
+                ),
                 "writes": self._writes,
                 "evicted_decisions": self._evicted_decisions,
                 "sampling": "uniform_player_game_then_turn_phase_then_decision",
+                "sampling_tiers": "mixed_hot_memory_and_cold_mmap_disk",
                 "max_decisions_per_player_game": self.max_decisions_per_player_game,
                 "family_balanced": self.family_balanced,
-                "searched_decisions": self._searched_decisions,
+                "searched_decisions": self._searched_decisions
+                + int(cold["searched_decisions"]),
+                "hot": {
+                    "size": self._size,
+                    "capacity": self.capacity,
+                    "player_games": player_games,
+                },
+                "cold": cold,
+                "disk_sample_fraction": self.disk_sample_fraction,
             }
 
     def clear(self) -> None:
@@ -1722,6 +2258,7 @@ class GameBalancedPolicyReplayBuffer:
             self._size = 0
             self._searched_decisions = 0
             self._incremental_dirty_keys.clear()
+        self._cold.import_payload(None)
 
     def snapshot(
         self,
@@ -1838,17 +2375,23 @@ class GameBalancedPolicyReplayBuffer:
             self._incremental_dirty_keys.clear()
             if source_manifest is not None and not reset:
                 manifest = json.loads(Path(source_manifest).read_text(encoding="utf-8"))
-                if manifest.get("format") != "game_reservoir_incremental_v2":
+                if manifest.get("format") == "hybrid_game_reservoir_v3":
+                    hot_manifest = manifest.get("hot")
+                    if not isinstance(hot_manifest, dict):
+                        raise ValueError("hybrid policy replay has no hot manifest")
+                else:
+                    hot_manifest = manifest
+                if hot_manifest.get("format") != "game_reservoir_incremental_v2":
                     raise ValueError("unsupported incremental replay source manifest")
-                segments = manifest.get("segments")
+                segments = hot_manifest.get("segments")
                 if not isinstance(segments, list) or not all(
                     isinstance(item, str) and Path(item).is_file() for item in segments
                 ):
                     raise ValueError("incremental replay source segments are unavailable")
                 self._incremental_segments = [Path(item) for item in segments]
                 self._incremental_persisted_decisions = max(
-                    int(manifest.get("items", 0)),
-                    int(manifest.get("persisted_decisions", 0)),
+                    int(hot_manifest.get("items", 0)),
+                    int(hot_manifest.get("persisted_decisions", 0)),
                 )
             elif self._episodes:
                 base = self._next_incremental_path("base")
@@ -1874,6 +2417,7 @@ class GameBalancedPolicyReplayBuffer:
         with self._lock:
             if self._incremental_directory is None:
                 raise RuntimeError("incremental replay snapshots are not enabled")
+            self._checkpoint_manifest_directory = manifest_path.parent.resolve()
             retained_limit = self.capacity if max_items <= 0 else min(self.capacity, max_items)
             compact = bool(self._incremental_segments) and (
                 force_compact
@@ -1911,50 +2455,112 @@ class GameBalancedPolicyReplayBuffer:
                     if item_count and item_count + len(rows) > retained_limit:
                         break
                     item_count += len(rows)
-            payload = {
+            hot_payload = {
                 "format": "game_reservoir_incremental_v2",
                 "segments": [str(segment) for segment in self._incremental_segments],
                 "max_items": retained_limit,
                 "items": item_count,
                 "persisted_decisions": self._incremental_persisted_decisions,
             }
+            if self._cold.capacity:
+                cold_payload = self._cold.snapshot_payload()
+                payload = {
+                    "format": "hybrid_game_reservoir_v3",
+                    "hot": hot_payload,
+                    "cold": cold_payload,
+                    "hot_items": item_count,
+                    "cold_items": int(cold_payload.get("items", 0)),
+                    "items": item_count + int(cold_payload.get("items", 0)),
+                }
+            else:
+                payload = hot_payload
             manifest_path.parent.mkdir(parents=True, exist_ok=True)
             temporary = manifest_path.with_name(f"{manifest_path.name}.partial")
             temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
             temporary.replace(manifest_path)
-            return item_count
+            return int(payload["items"])
 
     def commit_incremental_snapshot(self) -> None:
         """Remove journal generations superseded by a durable manifest."""
 
+        referenced_segments: set[Path] = set()
+        referenced_shards: set[Path] = set()
+        if self._checkpoint_manifest_directory is not None:
+            checkpoint_directory = self._checkpoint_manifest_directory
+            for manifest_path in checkpoint_directory.glob("*.policy-replay.json"):
+                try:
+                    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    hot = (
+                        payload.get("hot")
+                        if payload.get("format") == "hybrid_game_reservoir_v3"
+                        else payload
+                    )
+                    if isinstance(hot, dict) and isinstance(hot.get("segments"), list):
+                        referenced_segments.update(
+                            Path(value).expanduser().resolve()
+                            for value in hot["segments"]
+                            if isinstance(value, str)
+                        )
+                    cold = payload.get("cold")
+                    if isinstance(cold, dict) and isinstance(cold.get("shards"), list):
+                        referenced_shards.update(
+                            Path(value["path"]).expanduser().resolve()
+                            for value in cold["shards"]
+                            if isinstance(value, dict)
+                            and isinstance(value.get("path"), str)
+                        )
+                except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                    # A partial/unrelated manifest cannot authorize deletion.
+                    continue
         with self._lock:
-            obsolete, self._incremental_obsolete = self._incremental_obsolete, []
-        for path in obsolete:
+            obsolete = self._incremental_obsolete
+            self._incremental_obsolete = [
+                path for path in obsolete if path.resolve() in referenced_segments
+            ]
+        for path in (
+            path for path in obsolete if path.resolve() not in referenced_segments
+        ):
             with suppress(OSError):
                 path.unlink(missing_ok=True)
+        self._cold.commit_snapshot(protected_paths=referenced_shards)
 
     def restore(self, path: str | Path) -> int:
         target = Path(path)
         if target.suffix.lower() == ".json":
             manifest = json.loads(target.read_text(encoding="utf-8"))
-            if manifest.get("format") != "game_reservoir_incremental_v2":
+            if manifest.get("format") == "hybrid_game_reservoir_v3":
+                hot_manifest = manifest.get("hot")
+                cold_manifest = manifest.get("cold")
+                if not isinstance(hot_manifest, dict) or not isinstance(
+                    cold_manifest, dict
+                ):
+                    raise ValueError("hybrid policy replay manifest is incomplete")
+            else:
+                hot_manifest = manifest
+                cold_manifest = None
+            if hot_manifest.get("format") != "game_reservoir_incremental_v2":
                 raise ValueError("unsupported policy replay manifest")
-            segments = manifest.get("segments")
+            segments = hot_manifest.get("segments")
             if not isinstance(segments, list) or not all(isinstance(item, str) for item in segments):
                 raise ValueError("invalid policy replay segment manifest")
             self.clear()
             for segment in segments:
                 self._restore_npz(Path(segment), clear=False)
-            limit = max(0, int(manifest.get("max_items", 0)))
+            limit = max(0, int(hot_manifest.get("max_items", 0)))
             if limit:
+                evicted: list[tuple[tuple[int, int], list[PolicyItem]]] = []
                 with self._lock:
                     while self._size > limit and self._episodes:
                         removed_key, removed = self._episodes.popitem(last=False)
+                        evicted.append((removed_key, removed))
                         self._remove_episode_key(removed_key)
                         self._size -= len(removed)
                         self._searched_decisions -= sum(
                             int(item.search_valid) for item in removed
                         )
+                self._cold.append_episodes(evicted)
+            if cold_manifest is not None:
+                self._cold.import_payload(cold_manifest)
             return len(self)
         return self._restore_npz(target, clear=True)
 
@@ -1962,33 +2568,86 @@ class GameBalancedPolicyReplayBuffer:
         with np.load(path, allow_pickle=False) as archive:
             if int(archive["state_size"]) != self.state_size or int(archive["action_size"]) != self.action_size:
                 raise ValueError("policy replay snapshot dimensions do not match")
-            offsets = np.asarray(archive["action_offsets"], dtype=np.int64)
+            lengths = np.asarray(archive["episode_lengths"], dtype=np.int64)
             game_ids = np.asarray(archive["episode_game_ids"], dtype=np.uint64)
             players = np.asarray(archive["episode_players"], dtype=np.uint8)
-            lengths = np.asarray(archive["episode_lengths"], dtype=np.int64)
-            item_game_ids = np.repeat(game_ids, lengths)
-            item_players = np.repeat(players, lengths)
-            compact = type(
-                "PolicySnapshot",
-                (),
-                {
-                    "states": archive["states"],
-                    "legal_actions": archive["legal_actions"],
-                    "action_offsets": offsets,
-                    "selected_indices": archive["selected_indices"],
-                    "families": archive["families"],
-                    "targets": archive["targets"],
-                    "behavior_probabilities": archive["behavior_probabilities"],
-                    "bootstrap_masks": archive["bootstrap_masks"],
-                    "game_ids": item_game_ids,
-                    "players": item_players,
-                    "steps": archive["steps"],
-                    "search_policy": archive["search_policy"],
-                    "search_mask": archive["search_mask"],
-                    "search_values": archive["search_values"],
-                    "search_valid": archive["search_valid"],
-                },
-            )
+            offsets = np.asarray(archive["action_offsets"], dtype=np.int64)
+            columns = {
+                name: archive[name]
+                for name in (
+                    "states",
+                    "legal_actions",
+                    "selected_indices",
+                    "families",
+                    "targets",
+                    "behavior_probabilities",
+                    "bootstrap_masks",
+                    "steps",
+                    "search_policy",
+                    "search_mask",
+                    "search_values",
+                    "search_valid",
+                )
+            }
             if clear:
                 self.clear()
-            return self.extend_compact(compact)
+            restored = 0
+            episode_start = 0
+            decision_start = 0
+            # Restore bounded whole-episode chunks. A monolithic 250k-row
+            # conversion temporarily held multiple full PolicyItem lists next
+            # to the hydrated hot replay and could recreate the RAM spike this
+            # tiered design is intended to prevent.
+            while episode_start < len(lengths):
+                episode_stop = episode_start
+                decisions = 0
+                while episode_stop < len(lengths) and (
+                    decisions < 2_048 or episode_stop == episode_start
+                ):
+                    decisions += int(lengths[episode_stop])
+                    episode_stop += 1
+                decision_stop = decision_start + decisions
+                action_start = int(offsets[decision_start])
+                action_stop = int(offsets[decision_stop])
+                chunk_lengths = lengths[episode_start:episode_stop]
+                compact = type(
+                    "PolicySnapshotChunk",
+                    (),
+                    {
+                        "states": columns["states"][decision_start:decision_stop],
+                        "legal_actions": columns["legal_actions"][action_start:action_stop],
+                        "action_offsets": (
+                            offsets[decision_start : decision_stop + 1] - action_start
+                        ),
+                        "selected_indices": columns["selected_indices"][
+                            decision_start:decision_stop
+                        ],
+                        "families": columns["families"][decision_start:decision_stop],
+                        "targets": columns["targets"][decision_start:decision_stop],
+                        "behavior_probabilities": columns["behavior_probabilities"][
+                            decision_start:decision_stop
+                        ],
+                        "bootstrap_masks": columns["bootstrap_masks"][
+                            decision_start:decision_stop
+                        ],
+                        "game_ids": np.repeat(
+                            game_ids[episode_start:episode_stop], chunk_lengths
+                        ),
+                        "players": np.repeat(
+                            players[episode_start:episode_stop], chunk_lengths
+                        ),
+                        "steps": columns["steps"][decision_start:decision_stop],
+                        "search_policy": columns["search_policy"][action_start:action_stop],
+                        "search_mask": columns["search_mask"][action_start:action_stop],
+                        "search_values": columns["search_values"][
+                            decision_start:decision_stop
+                        ],
+                        "search_valid": columns["search_valid"][
+                            decision_start:decision_stop
+                        ],
+                    },
+                )
+                restored += self.extend_compact(compact)
+                episode_start = episode_stop
+                decision_start = decision_stop
+            return restored

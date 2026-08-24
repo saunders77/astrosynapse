@@ -81,6 +81,9 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /expected_win_rate/);
   assert.match(page, /Expected win rate/);
   assert.match(page, /policy_replay_capacity:\s*config\.policyReplayCapacity/);
+  assert.match(page, /policy_replay_disk_capacity:\s*config\.trainingGeneration >= 5/);
+  assert.match(page, /Hot policy capacity \(RAM\)/);
+  assert.match(page, /Disk policy capacity/);
   assert.match(page, /Counterfactual decision fraction/);
   assert.match(page, /Minimum head disagreement/);
   assert.match(page, /Full promotion cadence/);

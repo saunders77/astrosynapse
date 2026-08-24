@@ -22,6 +22,7 @@ _ACTOR_SUFFIX = ".actor.npz"
 _OPTIMIZER_SUFFIX = ".optimizer.npz"
 _REPLAY_SUFFIX = ".replay.npz"
 _POLICY_REPLAY_SUFFIX = ".policy-replay.npz"
+_POLICY_REPLAY_MANIFEST_SUFFIX = ".policy-replay.json"
 _PREFERENCE_REPLAY_SUFFIX = ".preference-replay.npz"
 _MODEL_METADATA_SUFFIX = ".safetensors.json"
 _NPZ_ARTIFACT_KINDS = frozenset(
@@ -65,7 +66,17 @@ def _artifact_references(checkpoint: dict[str, Any]) -> list[_ArtifactReference]
     if isinstance(artifacts, dict):
         append("optimizer", artifacts.get("optimizer_path"), _OPTIMIZER_SUFFIX)
         append("replay", artifacts.get("replay_path"), _REPLAY_SUFFIX)
-        append("policy_replay", artifacts.get("policy_replay_path"), _POLICY_REPLAY_SUFFIX)
+        policy_replay_path = artifacts.get("policy_replay_path")
+        append(
+            "policy_replay",
+            policy_replay_path,
+            (
+                _POLICY_REPLAY_MANIFEST_SUFFIX
+                if isinstance(policy_replay_path, str)
+                and policy_replay_path.endswith(_POLICY_REPLAY_MANIFEST_SUFFIX)
+                else _POLICY_REPLAY_SUFFIX
+            ),
+        )
         append(
             "preference_replay",
             artifacts.get("preference_replay_path"),
