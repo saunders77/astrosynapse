@@ -277,6 +277,29 @@ def _memory_safety_limits(total_memory_bytes: int) -> dict[str, int]:
     }
 
 
+def _swap_pressure_is_critical(
+    system: dict[str, Any],
+    limits: dict[str, int],
+) -> bool:
+    """Return whether swap pressure justifies protective intervention.
+
+    macOS grows its swap pool dynamically, so a small reported free remainder
+    is not by itself evidence that the machine is in danger. Treat that signal
+    as critical only when physical-memory headroom is also critical. A large
+    amount of swap already in use remains an independent backstop.
+    """
+
+    if int(system["swap_total_bytes"]) <= 0:
+        return False
+    if int(system["swap_used_bytes"]) > limits["maximum_swap_used_bytes"]:
+        return True
+    return (
+        int(system["swap_free_bytes"]) < limits["minimum_swap_free_bytes"]
+        and int(system["memory_available_bytes"])
+        < limits["critical_available_bytes"]
+    )
+
+
 def _plateau_status(store: Store, run_id: str, config: RunConfig) -> dict[str, Any]:
     """Summarize recent promotion evidence and choose a bounded response."""
 
@@ -3180,13 +3203,7 @@ def run_training(
             "swap_triggered": False,
             "cache_released_bytes": 0,
         }
-        swap_total = int(full_system["swap_total_bytes"])
-        swap_unsafe = swap_total > 0 and (
-            int(full_system["swap_used_bytes"])
-            > memory_limits["maximum_swap_used_bytes"]
-            or int(full_system["swap_free_bytes"])
-            < memory_limits["minimum_swap_free_bytes"]
-        )
+        swap_unsafe = _swap_pressure_is_critical(full_system, memory_limits)
         if (
             full_system["memory_available_bytes"]
             < memory_limits["minimum_available_bytes"]

@@ -34,6 +34,7 @@ from astro2.trainer import (
     _restore_totals,
     _save_checkpoint,
     _schedule_evaluation,
+    _swap_pressure_is_critical,
     _sync_league,
     _Totals,
     _trainer_evaluation_outcome,
@@ -344,6 +345,39 @@ def test_memory_envelope_scales_policy_replay_without_removing_reserve():
     assert large["policy_replay_capacity"] == 500_000
     assert small["minimum_available_bytes"] == 3 * (1 << 30)
     assert large["minimum_available_bytes"] == 8 * (1 << 30)
+
+
+def test_low_dynamic_swap_reserve_does_not_pause_with_healthy_ram():
+    gib = 1 << 30
+    limits = _memory_safety_limits(16 * gib)
+    system = {
+        "memory_available_bytes": 7 * gib,
+        "swap_total_bytes": 3 * gib,
+        "swap_used_bytes": 2 * gib,
+        "swap_free_bytes": 1 * gib,
+    }
+
+    assert _swap_pressure_is_critical(system, limits) is False
+
+
+def test_swap_pressure_requires_critical_ram_or_excessive_swap_use():
+    gib = 1 << 30
+    limits = _memory_safety_limits(16 * gib)
+    low_ram = {
+        "memory_available_bytes": int(1.5 * gib),
+        "swap_total_bytes": 3 * gib,
+        "swap_used_bytes": 2 * gib,
+        "swap_free_bytes": 1 * gib,
+    }
+    excessive_swap = {
+        "memory_available_bytes": 7 * gib,
+        "swap_total_bytes": 12 * gib,
+        "swap_used_bytes": 9 * gib,
+        "swap_free_bytes": 3 * gib,
+    }
+
+    assert _swap_pressure_is_critical(low_ram, limits) is True
+    assert _swap_pressure_is_critical(excessive_swap, limits) is True
 
 
 def test_heldout_brier_gate_migrates_by_training_generation():
