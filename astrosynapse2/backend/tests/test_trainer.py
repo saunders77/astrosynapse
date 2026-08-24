@@ -322,6 +322,8 @@ def test_astro5_recipe_and_runtime_envelope_leave_16gb_desktop_headroom():
     assert limits["critical_available_bytes"] == 2 * (1 << 30)
     assert limits["mlx_cache_limit_bytes"] == 512 * (1 << 20)
     assert limits["mlx_memory_limit_bytes"] == 4 * (1 << 30)
+    assert limits["maximum_swap_used_bytes"] == 8 * (1 << 30)
+    assert limits["minimum_swap_free_bytes"] == 2 * (1 << 30)
 
 
 def test_legacy_astro5_config_migrates_to_disk_replay_horizon():

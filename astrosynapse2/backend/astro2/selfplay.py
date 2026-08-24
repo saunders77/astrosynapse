@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import threading
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
@@ -1053,6 +1054,35 @@ def collect_game(
 
 _ACTOR_CACHE_LIMIT = 4
 _ACTOR_CACHE: OrderedDict[str, tuple[int, int, NumpyActor]] = OrderedDict()
+_ACTOR_BATCHERS: dict[int, _ActorInferenceBatcher] = {}
+_GAME_EXECUTOR: ThreadPoolExecutor | None = None
+
+
+def _drop_actor_resources(actor: NumpyActor) -> None:
+    batcher = _ACTOR_BATCHERS.pop(id(actor), None)
+    if batcher is not None:
+        batcher.close()
+
+
+def _cached_actor_batcher(actor: NumpyActor) -> _ActorInferenceBatcher:
+    batcher = _ACTOR_BATCHERS.get(id(actor))
+    if batcher is None:
+        batcher = _ActorInferenceBatcher(actor, maximum_batch_size=8)
+        _ACTOR_BATCHERS[id(actor)] = batcher
+    return batcher
+
+
+def _game_executor() -> ThreadPoolExecutor:
+    global _GAME_EXECUTOR
+    if _GAME_EXECUTOR is None:
+        # ProcessPool workers execute one task at a time. Reusing these threads
+        # avoids leaving thousands of retired macOS thread stacks and malloc
+        # arenas behind during a long run.
+        _GAME_EXECUTOR = ThreadPoolExecutor(
+            max_workers=4,
+            thread_name_prefix="astro2-selfplay-game",
+        )
+    return _GAME_EXECUTOR
 
 
 def _cached_actor(path: str) -> NumpyActor:
@@ -1061,20 +1091,36 @@ def _cached_actor(path: str) -> NumpyActor:
     signature = (stat.st_mtime_ns, stat.st_size)
     cached = _ACTOR_CACHE.get(key)
     if cached is None or cached[:2] != signature:
+        if cached is not None:
+            _drop_actor_resources(cached[2])
         actor = NumpyActor.load(key)
         _ACTOR_CACHE[key] = (*signature, actor)
     else:
         actor = cached[2]
     _ACTOR_CACHE.move_to_end(key)
     while len(_ACTOR_CACHE) > _ACTOR_CACHE_LIMIT:
-        _ACTOR_CACHE.popitem(last=False)
+        _old_key, (_mtime, _size, old_actor) = _ACTOR_CACHE.popitem(last=False)
+        _drop_actor_resources(old_actor)
     return actor
 
 
 def clear_actor_cache() -> None:
     """Drop process-local actor archives (mainly useful for tests/diagnostics)."""
 
+    for _mtime, _size, actor in _ACTOR_CACHE.values():
+        _drop_actor_resources(actor)
     _ACTOR_CACHE.clear()
+
+
+def _shutdown_worker_threads() -> None:
+    global _GAME_EXECUTOR
+    clear_actor_cache()
+    if _GAME_EXECUTOR is not None:
+        _GAME_EXECUTOR.shutdown(wait=True, cancel_futures=True)
+        _GAME_EXECUTOR = None
+
+
+atexit.register(_shutdown_worker_threads)
 
 
 def _compact_policy_transfer(
@@ -1185,10 +1231,7 @@ def collect_worker_batch(
     if concurrent_actor_games:
         for actor in actors:
             assert actor is not None
-            batchers.setdefault(
-                id(actor),
-                _ActorInferenceBatcher(actor, maximum_batch_size=min(8, games * 2)),
-            )
+            batchers.setdefault(id(actor), _cached_actor_batcher(actor))
     aligned_heads: tuple[int, int] | None = None
     if concurrent_actor_games:
         # One uniformly sampled head pair per small worker task gives the
@@ -1249,15 +1292,10 @@ def collect_worker_batch(
             reanalysis_policy_temperature=reanalysis_policy_temperature,
         )
 
-    try:
-        if concurrent_actor_games:
-            with ThreadPoolExecutor(max_workers=min(4, games)) as game_executor:
-                collected_games = list(game_executor.map(collect_one, range(games)))
-        else:
-            collected_games = [collect_one(game_index) for game_index in range(games)]
-    finally:
-        for batcher in batchers.values():
-            batcher.close()
+    if concurrent_actor_games:
+        collected_games = list(_game_executor().map(collect_one, range(games)))
+    else:
+        collected_games = [collect_one(game_index) for game_index in range(games)]
 
     all_items: list[ReplayItem] = []
     all_policy_items: list[PolicyItem] = []

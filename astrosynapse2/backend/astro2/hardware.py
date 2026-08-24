@@ -52,6 +52,7 @@ class RateMeter:
 
 def system_snapshot() -> dict[str, Any]:
     memory = psutil.virtual_memory()
+    swap = psutil.swap_memory()
     process = psutil.Process()
     return {
         "platform": platform.platform(),
@@ -64,6 +65,12 @@ def system_snapshot() -> dict[str, Any]:
         "memory_available_bytes": memory.available,
         "memory_percent": memory.percent,
         "process_rss_bytes": process.memory_info().rss,
+        "swap_total_bytes": swap.total,
+        "swap_used_bytes": swap.used,
+        "swap_free_bytes": swap.free,
+        "swap_percent": swap.percent,
+        "swap_in_bytes": swap.sin,
+        "swap_out_bytes": swap.sout,
         "python": platform.python_version(),
         "recommended_actor_processes": max(2, min(8, (psutil.cpu_count(logical=True) or 4) - 2)),
         "accelerator": "MLX / Metal" if platform.machine() == "arm64" else "MLX CPU",

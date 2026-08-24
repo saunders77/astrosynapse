@@ -260,6 +260,11 @@ def _memory_safety_limits(total_memory_bytes: int) -> dict[str, int]:
     # Round down to make the effective limit stable and easy to explain in
     # telemetry.  Even an 8 GB machine retains a useful 100k+ decision window.
     policy_capacity = max(50_000, (raw_capacity // 50_000) * 50_000)
+    # macOS has no dependable per-process swap quota. Bound system swap here
+    # so retained actor heaps cannot silently consume tens of gigabytes while
+    # the ordinary available-RAM signal still looks non-critical.
+    maximum_swap_used = max(2 * _GIB, min(8 * _GIB, total // 2))
+    minimum_swap_free = max(1 * _GIB, total // 8)
     return {
         "total_memory_bytes": total,
         "minimum_available_bytes": minimum_available,
@@ -267,6 +272,8 @@ def _memory_safety_limits(total_memory_bytes: int) -> dict[str, int]:
         "mlx_cache_limit_bytes": mlx_cache,
         "mlx_memory_limit_bytes": mlx_memory,
         "policy_replay_capacity": policy_capacity,
+        "maximum_swap_used_bytes": maximum_swap_used,
+        "minimum_swap_free_bytes": minimum_swap_free,
     }
 
 
@@ -3170,11 +3177,20 @@ def run_training(
         full_system = system_snapshot()
         pressure_release: dict[str, int | bool] = {
             "triggered": False,
+            "swap_triggered": False,
             "cache_released_bytes": 0,
         }
+        swap_total = int(full_system["swap_total_bytes"])
+        swap_unsafe = swap_total > 0 and (
+            int(full_system["swap_used_bytes"])
+            > memory_limits["maximum_swap_used_bytes"]
+            or int(full_system["swap_free_bytes"])
+            < memory_limits["minimum_swap_free_bytes"]
+        )
         if (
             full_system["memory_available_bytes"]
             < memory_limits["minimum_available_bytes"]
+            or swap_unsafe
         ):
             # Cached Metal pages are the cheapest memory to return.  Do this at
             # the same safe learner boundary used for metrics; active arrays
@@ -3185,6 +3201,7 @@ def run_training(
                 cached_after = int(mx.get_cache_memory())
                 pressure_release = {
                     "triggered": True,
+                    "swap_triggered": swap_unsafe,
                     "cache_released_bytes": max(0, cached_before - cached_after),
                 }
                 full_system = system_snapshot()
@@ -3199,6 +3216,14 @@ def run_training(
                             "minimum_available_bytes": memory_limits[
                                 "minimum_available_bytes"
                             ],
+                            "swap_used_bytes": full_system["swap_used_bytes"],
+                            "swap_free_bytes": full_system["swap_free_bytes"],
+                            "maximum_swap_used_bytes": memory_limits[
+                                "maximum_swap_used_bytes"
+                            ],
+                            "minimum_swap_free_bytes": memory_limits[
+                                "minimum_swap_free_bytes"
+                            ],
                         },
                     )
                     last_memory_pressure_event_at = now
@@ -3207,11 +3232,13 @@ def run_training(
                 # run if a future MLX build does not expose cache controls.
                 pressure_release = {
                     "triggered": True,
+                    "swap_triggered": swap_unsafe,
                     "cache_released_bytes": 0,
                 }
         if (
             full_system["memory_available_bytes"]
             < memory_limits["critical_available_bytes"]
+            or swap_unsafe
         ):
             consecutive_critical_memory_samples += 1
         else:
@@ -3231,6 +3258,14 @@ def run_training(
                     "critical_available_bytes": memory_limits[
                         "critical_available_bytes"
                     ],
+                    "swap_used_bytes": full_system["swap_used_bytes"],
+                    "swap_free_bytes": full_system["swap_free_bytes"],
+                    "maximum_swap_used_bytes": memory_limits[
+                        "maximum_swap_used_bytes"
+                    ],
+                    "minimum_swap_free_bytes": memory_limits[
+                        "minimum_swap_free_bytes"
+                    ],
                     "consecutive_samples": consecutive_critical_memory_samples,
                 },
             )
@@ -3242,6 +3277,12 @@ def run_training(
                 "memory_available_bytes",
                 "memory_percent",
                 "process_rss_bytes",
+                "swap_total_bytes",
+                "swap_used_bytes",
+                "swap_free_bytes",
+                "swap_percent",
+                "swap_in_bytes",
+                "swap_out_bytes",
             )
         }
         try:
@@ -3533,7 +3574,14 @@ def run_training(
     # macOS uses spawn, avoiding unsafe post-Metal forks. Actors never import
     # MLX, so each process remains a small engine/NumPy worker.
     context = mp.get_context("spawn")
-    executor = ProcessPoolExecutor(max_workers=config.actor_processes, mp_context=context)
+    executor = ProcessPoolExecutor(
+        max_workers=config.actor_processes,
+        mp_context=context,
+        # A worker is cheap to hydrate from the current 8 MB actor archive.
+        # Recycling provides a hard backstop for native allocator high-water
+        # marks that Python garbage collection cannot return on macOS.
+        max_tasks_per_child=256,
+    )
     try:
         emit(force=True, phase="initializing")
         while not control.should_stop():
