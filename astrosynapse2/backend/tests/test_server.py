@@ -28,6 +28,8 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         assert astro5["governor_interval_games"] == 500
         assert astro5["evaluation_early_acceptance"] is True
         assert astro5["evaluation_early_acceptance_min_pairs"] == 1_000
+        assert astro5["policy_replay_capacity"] == 250_000
+        assert astro5["resume_replay_items"] == 250_000
         assert presets["astro4_m4"]["training_generation"] == 4
         assert presets["astro4_m4"]["seed"] == 20260813
         assert presets["astro4_m4"]["batch_size"] == 256

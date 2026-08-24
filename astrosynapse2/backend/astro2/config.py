@@ -439,9 +439,12 @@ class RunConfig(BaseModel):
             seed=20260819,
             games_per_actor_batch=4,
             rollout_tasks_per_actor=4,
-            # A compact 12-decision reservoir/player-game gives this budget a
-            # horizon near 125k player-games instead of ~2.5k full trajectories.
-            policy_replay_capacity=1_500_000,
+            # Policy replay is object/ragged-array backed rather than one dense
+            # float16 ring.  On a 16 GB unified-memory Mac, 1.5m entries plus
+            # Metal's allocator cache can exhaust the VM compressor and starve
+            # WindowServer.  A 250k window still remembers about 20k complete
+            # player-games while leaving the desktop a real memory reserve.
+            policy_replay_capacity=250_000,
             policy_replay_decisions_per_player_game=12,
             policy_replay_family_balanced=True,
             replay_warmup=12_000,
@@ -470,7 +473,7 @@ class RunConfig(BaseModel):
             evaluation_early_acceptance_min_pairs=MINIMUM_PROMOTION_PAIRS,
             evaluation_early_acceptance_confidence=0.995,
             persist_optimizer_state=True,
-            resume_replay_items=500_000,
+            resume_replay_items=250_000,
             realtime_governor=True,
             adaptive_training=False,
             governor_interval_games=500,

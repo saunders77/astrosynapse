@@ -55,6 +55,13 @@ _EVALUATION_RETRY_BASE_SECONDS = 30.0
 _EVALUATION_RETRY_MAX_SECONDS = 15.0 * 60.0
 _EVALUATION_RETRY_SEED_STRIDE = 1_000_003
 _FINAL_EVALUATION_MAX_ATTEMPTS = 3
+_GIB = 1 << 30
+_MIB = 1 << 20
+# Policy rows contain a state vector, a ragged legal-action matrix, several
+# small arrays, and Python/NumPy object overhead.  Budgeting only their float16
+# payload substantially understated real resident memory in the first Astro5
+# runs.  This deliberately conservative estimate is used only to cap capacity.
+_POLICY_REPLAY_BUDGET_BYTES_PER_DECISION = 8_192
 _TRAINING_STATE_REQUIRED_COUNTERS = frozenset(
     {
         "games",
@@ -229,6 +236,38 @@ def _learning_rate(
     # from the unusually correlated first replay batches.
     warmup = min(1.0, (updates_since_optimizer_reset + 1) / 500.0)
     return max(config.min_learning_rate * warmup, scheduled * warmup)
+
+
+def _memory_safety_limits(total_memory_bytes: int) -> dict[str, int]:
+    """Return a conservative unified-memory envelope for the local learner.
+
+    Metal allocations, Python replay, actor processes, WindowServer, and the
+    filesystem cache all share physical memory on Apple silicon.  MLX's default
+    cache can otherwise retain most of a 16 GB machine even when only a few
+    megabytes are actively used by the model.
+    """
+
+    total = max(4 * _GIB, int(total_memory_bytes))
+    # Keep at least a quarter of RAM outside the learner.  This is especially
+    # important on 16 GB systems, where WindowServer watchdog failures occur
+    # before ordinary allocation errors provide a useful process boundary.
+    minimum_available = max(3 * _GIB, total // 4)
+    critical_available = max(2 * _GIB, total // 8)
+    mlx_cache = max(128 * _MIB, min(512 * _MIB, total // 32))
+    mlx_memory = max(1 * _GIB, min(4 * _GIB, total // 4))
+    replay_budget = max(384 * _MIB, total // 8)
+    raw_capacity = replay_budget // _POLICY_REPLAY_BUDGET_BYTES_PER_DECISION
+    # Round down to make the effective limit stable and easy to explain in
+    # telemetry.  Even an 8 GB machine retains a useful 100k+ decision window.
+    policy_capacity = max(50_000, (raw_capacity // 50_000) * 50_000)
+    return {
+        "total_memory_bytes": total,
+        "minimum_available_bytes": minimum_available,
+        "critical_available_bytes": critical_available,
+        "mlx_cache_limit_bytes": mlx_cache,
+        "mlx_memory_limit_bytes": mlx_memory,
+        "policy_replay_capacity": policy_capacity,
+    }
 
 
 def _plateau_status(store: Store, run_id: str, config: RunConfig) -> dict[str, Any]:
@@ -2398,7 +2437,7 @@ def _train_updates(
     return metrics
 
 
-def _configure_mlx(device: str) -> dict[str, Any]:
+def _configure_mlx(device: str, *, total_memory_bytes: int) -> dict[str, Any]:
     import mlx.core as mx
 
     if device == "cpu":
@@ -2409,7 +2448,18 @@ def _configure_mlx(device: str) -> dict[str, Any]:
         mx.set_default_device(mx.gpu)
     elif mx.metal.is_available():
         mx.set_default_device(mx.gpu)
-    return mlx_snapshot()
+    limits = _memory_safety_limits(total_memory_bytes)
+    if mx.metal.is_available() and device != "cpu":
+        # MLX defaults the free cache to its much larger memory limit.  The
+        # observed workload retained 10.6 GB while only ~24 MB was active.
+        # Bound both knobs before the first graph is evaluated and discard any
+        # allocations made while probing the device.
+        mx.set_memory_limit(limits["mlx_memory_limit_bytes"])
+        mx.set_cache_limit(limits["mlx_cache_limit_bytes"])
+        mx.clear_cache()
+    snapshot = mlx_snapshot()
+    snapshot["safety_limits"] = limits
+    return snapshot
 
 
 def run_training(
@@ -2430,12 +2480,17 @@ def run_training(
 
     run = store.get_run(run_id)
     config = RunConfig.model_validate_persisted(run["config"])
-    hardware = _configure_mlx(config.device)
+    initial_system = system_snapshot()
+    memory_limits = _memory_safety_limits(initial_system["memory_total_bytes"])
+    hardware = _configure_mlx(
+        config.device,
+        total_memory_bytes=initial_system["memory_total_bytes"],
+    )
     store.event(
         run_id,
         "training_hardware",
         "Initialized MLX learner and hardware",
-        {"mlx": hardware, "system": system_snapshot()},
+        {"mlx": hardware, "system": initial_system, "memory_safety": memory_limits},
     )
 
     import mlx.core as mx
@@ -2507,21 +2562,42 @@ def run_training(
         importance_correct_sampling=config.importance_correct_replay,
         seed=config.seed + 41,
     )
+    preference_collection_enabled = bool(
+        config.tactical_preference_training
+        or (config.training_generation >= 4 and config.counterfactual_fraction > 0)
+    )
     preference_replay = PreferenceReplayBuffer(
-        capacity=config.preference_replay_capacity,
+        # Avoid reserving ~173 MB for a buffer that Astro5 never writes.
+        capacity=config.preference_replay_capacity if preference_collection_enabled else 1,
         state_size=encoder.state_size,
         action_size=encoder.action_size,
         bootstrap_heads=config.bootstrap_heads,
         seed=config.seed + 43,
     )
+    effective_policy_replay_capacity = min(
+        config.policy_replay_capacity,
+        memory_limits["policy_replay_capacity"],
+    )
     policy_replay = GameBalancedPolicyReplayBuffer(
-        capacity=config.policy_replay_capacity,
+        capacity=effective_policy_replay_capacity,
         state_size=encoder.state_size,
         action_size=encoder.action_size,
         bootstrap_heads=config.bootstrap_heads,
         max_decisions_per_player_game=config.policy_replay_decisions_per_player_game,
         family_balanced=config.policy_replay_family_balanced,
         seed=config.seed + 47,
+    )
+    store.event(
+        run_id,
+        "memory_safety_configured",
+        "Applied bounded replay and Metal memory limits",
+        {
+            **memory_limits,
+            "configured_policy_replay_capacity": config.policy_replay_capacity,
+            "effective_policy_replay_capacity": effective_policy_replay_capacity,
+            "configured_preference_replay_capacity": config.preference_replay_capacity,
+            "effective_preference_replay_capacity": preference_replay.capacity,
+        },
     )
     totals = _restore_totals(store, run, latest)
     restored_training_state = _checkpoint_training_state(latest)
@@ -2703,6 +2779,8 @@ def run_training(
     rate.last_decisions = totals.decisions
     active_clock = _ActiveElapsedClock(_persisted_active_elapsed(store, run_id, latest))
     last_metric_at = 0.0
+    last_memory_pressure_event_at = 0.0
+    consecutive_critical_memory_samples = 0
     last_diagnostics: dict[str, float] = {}
     metric_seq = int(time.time() * 1_000)
     seed_cursor = int(
@@ -3003,6 +3081,7 @@ def run_training(
             )
 
     def emit(force: bool = False, phase: str = "self_play+learning") -> None:
+        nonlocal consecutive_critical_memory_samples, last_memory_pressure_event_at
         nonlocal last_metric_at, metric_seq
         now = time.monotonic()
         if not force and now - last_metric_at < config.metrics_interval_seconds:
@@ -3023,6 +3102,72 @@ def run_training(
         active_elapsed = current_active_elapsed()
         duration_seconds = config.duration_minutes * 60.0
         full_system = system_snapshot()
+        pressure_release: dict[str, int | bool] = {
+            "triggered": False,
+            "cache_released_bytes": 0,
+        }
+        if (
+            full_system["memory_available_bytes"]
+            < memory_limits["minimum_available_bytes"]
+        ):
+            # Cached Metal pages are the cheapest memory to return.  Do this at
+            # the same safe learner boundary used for metrics; active arrays
+            # remain valid and MLX will rebuild only what the next update uses.
+            try:
+                cached_before = int(mx.get_cache_memory())
+                mx.clear_cache()
+                cached_after = int(mx.get_cache_memory())
+                pressure_release = {
+                    "triggered": True,
+                    "cache_released_bytes": max(0, cached_before - cached_after),
+                }
+                full_system = system_snapshot()
+                if now - last_memory_pressure_event_at >= 60.0:
+                    store.event(
+                        run_id,
+                        "memory_pressure_relieved",
+                        "Released the Metal cache to protect the desktop memory reserve",
+                        {
+                            **pressure_release,
+                            "memory_available_bytes": full_system["memory_available_bytes"],
+                            "minimum_available_bytes": memory_limits[
+                                "minimum_available_bytes"
+                            ],
+                        },
+                    )
+                    last_memory_pressure_event_at = now
+            except Exception:
+                # Telemetry and the hard allocator limits still protect the
+                # run if a future MLX build does not expose cache controls.
+                pressure_release = {
+                    "triggered": True,
+                    "cache_released_bytes": 0,
+                }
+        if (
+            full_system["memory_available_bytes"]
+            < memory_limits["critical_available_bytes"]
+        ):
+            consecutive_critical_memory_samples += 1
+        else:
+            consecutive_critical_memory_samples = 0
+        if (
+            consecutive_critical_memory_samples >= 3
+            and not control.pause_requested.is_set()
+            and not control.should_stop()
+        ):
+            control.pause_requested.set()
+            store.event(
+                run_id,
+                "memory_safety_pause",
+                "Automatically paused training after sustained critical memory pressure",
+                {
+                    "memory_available_bytes": full_system["memory_available_bytes"],
+                    "critical_available_bytes": memory_limits[
+                        "critical_available_bytes"
+                    ],
+                    "consecutive_samples": consecutive_critical_memory_samples,
+                },
+            )
         snapshot = {
             key: full_system[key]
             for key in (
@@ -3116,6 +3261,12 @@ def run_training(
             "replay": replay_metrics,
             "system": snapshot,
             "metal": metal,
+            "memory_safety": {
+                **memory_limits,
+                **pressure_release,
+                "consecutive_critical_samples": consecutive_critical_memory_samples,
+                "effective_policy_replay_capacity": policy_replay.capacity,
+            },
             **last_diagnostics,
         }
         store.append_metric(run_id, metric_seq, payload)
@@ -3142,6 +3293,10 @@ def run_training(
 
         nonlocal parent_checkpoint_id, last_checkpoint_games
         emit(force=True, phase="checkpointing")
+        # Checkpoint serialization temporarily duplicates replay arrays on the
+        # CPU.  Free reusable GPU pages first so that durable saves cannot push
+        # WindowServer into compressor exhaustion.
+        mx.clear_cache()
         save_started = time.monotonic()
         checkpoint = _save_checkpoint(
             store=store,
@@ -3468,6 +3623,7 @@ def run_training(
 
         if totals.games > last_checkpoint_games or control.checkpoint_due():
             emit(force=True, phase="checkpointing")
+            mx.clear_cache()
             checkpoint = _save_checkpoint(
                 store=store,
                 run_id=run_id,

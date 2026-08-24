@@ -25,6 +25,7 @@ from astro2.trainer import (
     _learning_rate,
     _make_bootstrap_plan,
     _make_plan,
+    _memory_safety_limits,
     _next_evaluation_candidate,
     _optimizer_schedule_origin,
     _persisted_active_elapsed,
@@ -286,6 +287,29 @@ def test_astro4_recipe_uses_legal_set_training_and_m4_safe_batches():
     assert config.evaluation_pairs == 2_000
     assert config.adaptive_evaluation is True
     assert config.resume_replay_items == 0
+
+
+def test_astro5_recipe_and_runtime_envelope_leave_16gb_desktop_headroom():
+    config = RunConfig.astro5_search()
+    limits = _memory_safety_limits(16 * (1 << 30))
+
+    assert config.policy_replay_capacity == 250_000
+    assert config.resume_replay_items == 250_000
+    assert limits["policy_replay_capacity"] == 250_000
+    assert limits["minimum_available_bytes"] == 4 * (1 << 30)
+    assert limits["critical_available_bytes"] == 2 * (1 << 30)
+    assert limits["mlx_cache_limit_bytes"] == 512 * (1 << 20)
+    assert limits["mlx_memory_limit_bytes"] == 4 * (1 << 30)
+
+
+def test_memory_envelope_scales_policy_replay_without_removing_reserve():
+    small = _memory_safety_limits(8 * (1 << 30))
+    large = _memory_safety_limits(32 * (1 << 30))
+
+    assert small["policy_replay_capacity"] == 100_000
+    assert large["policy_replay_capacity"] == 500_000
+    assert small["minimum_available_bytes"] == 3 * (1 << 30)
+    assert large["minimum_available_bytes"] == 8 * (1 << 30)
 
 
 def test_heldout_brier_gate_migrates_by_training_generation():

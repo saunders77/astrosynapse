@@ -137,3 +137,4 @@ MLX initializes Metal when imported. A headless or restricted shell may report t
 ## Honest scope
 
 This is a corrected training platform, not a pre-trained “excellent” Astro4 model. The audit identifies direct causes of the Astro3 learning weakness and verifies the new system at unit/integration scale; only fresh multi-seed training and held-out paired arenas can establish a large skill gain. Use diverse frozen opponents, paired seeds, seat splits, truncation rates, calibration, and confidence intervals. The Python engine remains the production engine; a future native search engine should replace it only after differential replay tests prove rule equivalence.
+ 
