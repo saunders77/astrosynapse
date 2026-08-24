@@ -1695,6 +1695,19 @@ def _schedule_evaluation(
     return job
 
 
+def _is_exclusive_full_promotion_job(job: dict[str, Any] | None) -> bool:
+    """Return whether training must yield the machine to this arena job."""
+
+    if job is None or job.get("status") not in {"queued", "running"}:
+        return False
+    config = job.get("config") or {}
+    return bool(
+        config.get("trainer_scheduled")
+        and config.get("automatic_promotion")
+        and config.get("promotion_tier", "full") == "full"
+    )
+
+
 def _finish_final_evaluations(
     *,
     store: Store,
@@ -3443,6 +3456,43 @@ def run_training(
     def current_evaluation_manager() -> Any | None:
         return evaluation_manager
 
+    def finish_exclusive_full_evaluation() -> bool:
+        """Wait at an actor-batch boundary while a full promotion gate runs."""
+
+        pending = _pending_trainer_evaluation_job(store, run_id)
+        if not _is_exclusive_full_promotion_job(pending):
+            return False
+        manager = current_evaluation_manager()
+        if manager is None:
+            raise RuntimeError("a full promotion evaluation has no owning ArenaManager")
+
+        job_id = str(pending["id"])
+        active_clock.pause()
+        emit(force=True, phase="promotion_evaluation")
+        store.event(
+            run_id,
+            "exclusive_promotion_evaluation_started",
+            "Paused rollout and learning for the full promotion evaluation",
+            {"job_id": job_id},
+        )
+        try:
+            while not manager.wait_for_job(job_id, timeout=0.25):
+                if control.should_stop() or control.pause_requested.is_set():
+                    manager.cancel(job_id)
+                service_final_checkpoint()
+            process_completed_evaluations()
+            cleanup_checkpoint_npz()
+        finally:
+            if not control.should_stop() and not control.pause_requested.is_set():
+                active_clock.resume()
+        store.event(
+            run_id,
+            "exclusive_promotion_evaluation_finished",
+            "Full promotion evaluation finished; rollout and learning may resume",
+            {"job_id": job_id},
+        )
+        return True
+
     def service_paused_work() -> bool:
         """Honor pause/manual checkpoint requests before reporting paused."""
 
@@ -3517,6 +3567,11 @@ def run_training(
             # per iteration releases the newest due checkpoint after either an
             # automatic promotion job or a diagnostic trainer job finishes.
             maybe_schedule_evaluation()
+            # This point follows a completely drained rollout batch. Full
+            # promotion gates run exclusively so their immutable comparison
+            # finishes quickly and before the learner advances further.
+            if finish_exclusive_full_evaluation():
+                continue
             if evaluation_boundary_checkpoint_id is not None:
                 cleanup_checkpoint_npz()
             plateau = _plateau_status(store, run_id, config)

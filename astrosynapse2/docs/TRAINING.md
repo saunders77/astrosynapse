@@ -166,6 +166,12 @@ Calibration, fixed-opponent, and ensemble diagnostics plus pass/fail reasons are
 
 ## Paired arena evaluation
 
+Full trainer-scheduled promotion arenas are exclusive. The trainer drains its
+current rollout batch, pauses learning and active-budget time, gives the arena
+the full evaluator process pool, and resumes only after the comparison reaches
+a terminal state. Short canary and diagnostic arenas continue alongside
+training with the reserved two-process evaluator quota.
+
 Each seed is run twice with the same isolated game randomness and exact seat swap. The seed pair—not two correlated games—is the statistical unit. The reported record contains overall and seat-split score, draws, truncations, throughput, job progress, and a distribution-free two-sided Hoeffding confidence interval for the bounded paired score.
 
 Automatic promotion requires all of the following:

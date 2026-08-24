@@ -1,9 +1,10 @@
 """Persistent, bounded, paired arena evaluation jobs.
 
 Every seed is played twice with exact seat reversal.  This removes most first-
-player and deal noise while keeping jobs small enough to run beside training on
-the 16 GB M4 target.  Jobs write progress to SQLite, so a browser can disconnect
-and reconnect without owning the evaluator process.
+player and deal noise. Short diagnostics can run beside training on the 16 GB
+M4 target; full promotion jobs exclusively use the evaluator pool. Jobs write
+progress to SQLite, so a browser can disconnect and reconnect without owning
+the evaluator process.
 """
 
 from __future__ import annotations
@@ -277,7 +278,7 @@ def _default_worker_processes() -> int:
             return max(1, min(16, int(configured)))
         except ValueError as exc:
             raise ValueError("ASTRO2_ARENA_WORKERS must be an integer") from exc
-    return max(1, min(8, (os.cpu_count() or 4) - 2))
+    return max(1, min(16, os.cpu_count() or 4))
 
 
 def _trainer_arena_worker_processes(available: int) -> int:
@@ -290,9 +291,24 @@ def _trainer_arena_worker_processes(available: int) -> int:
         except ValueError as exc:
             raise ValueError("ASTRO2_TRAINER_ARENA_WORKERS must be an integer") from exc
     # The target M4 has ten CPU cores and normally runs eight rollout actors.
-    # Two evaluators fill the otherwise reserved capacity without the previous
-    # 8+8 oversubscription. Manual arenas retain the configured full quota.
+    # Two evaluators fill the otherwise reserved capacity for short trainer
+    # diagnostics. Exclusive full promotions and manual arenas use the full
+    # configured quota.
     return max(1, min(2, available))
+
+
+def _arena_worker_processes(config: ArenaConfig, available: int) -> int:
+    """Give exclusive full promotion gates the complete evaluator pool."""
+
+    if (
+        config.trainer_scheduled
+        and config.automatic_promotion
+        and config.promotion_tier == "full"
+    ):
+        return max(1, available)
+    if config.trainer_scheduled:
+        return _trainer_arena_worker_processes(available)
+    return max(1, available)
 
 
 def resolve_model(store: Store, reference: str) -> ResolvedModel:
@@ -1112,11 +1128,7 @@ class ArenaManager:
             else config.pairs
         )
         summary_config = replace(config, pairs=target_pairs) if adaptive_extension_active else config
-        job_worker_processes = (
-            _trainer_arena_worker_processes(self.worker_processes)
-            if config.trainer_scheduled
-            else self.worker_processes
-        )
+        job_worker_processes = _arena_worker_processes(config, self.worker_processes)
         early_looks = frozenset(_early_rejection_looks(config))
         acceptance_looks = frozenset(_early_acceptance_looks(config))
         segment_start = time.monotonic()

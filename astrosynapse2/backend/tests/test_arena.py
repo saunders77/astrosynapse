@@ -148,6 +148,25 @@ def test_only_trainer_owned_automatic_arenas_may_use_the_4000_pair_cap():
     assert config.pairs == 4_000
 
 
+def test_full_promotion_arenas_use_all_available_workers():
+    full = ArenaConfig(automatic_promotion=True, trainer_scheduled=True)
+    canary = ArenaConfig(
+        pairs=64,
+        promotion_tier="canary",
+        trainer_scheduled=True,
+    )
+
+    assert arena_module._arena_worker_processes(full, 10) == 10
+    assert arena_module._arena_worker_processes(canary, 10) == 2
+
+
+def test_default_arena_pool_uses_all_detected_cpus(monkeypatch):
+    monkeypatch.delenv("ASTRO2_ARENA_WORKERS", raising=False)
+    monkeypatch.setattr(arena_module.os, "cpu_count", lambda: 10)
+
+    assert arena_module._default_worker_processes() == 10
+
+
 @pytest.mark.parametrize(
     ("estimate", "lower_bound", "expected"),
     [

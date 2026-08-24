@@ -145,6 +145,24 @@ class FakeArenaManager:
         return {"id": "automatic-job"}
 
 
+def test_only_active_full_promotion_jobs_are_exclusive():
+    from astro2.trainer import _is_exclusive_full_promotion_job
+
+    full = {
+        "status": "running",
+        "config": {
+            "trainer_scheduled": True,
+            "automatic_promotion": True,
+            "promotion_tier": "full",
+        },
+    }
+    assert _is_exclusive_full_promotion_job(full) is True
+    assert _is_exclusive_full_promotion_job(
+        {**full, "config": {**full["config"], "promotion_tier": "canary"}}
+    ) is False
+    assert _is_exclusive_full_promotion_job({**full, "status": "complete"}) is False
+
+
 def test_runtime_actor_export_is_uncompressed_and_atomic(tmp_path, monkeypatch):
     target = tmp_path / "runtime" / "current.actor.npz"
     observed = {}
