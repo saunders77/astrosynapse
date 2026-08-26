@@ -446,12 +446,11 @@ def _apply_scrap_result(state: dict[str, Any], decision: ChoiceDecision, base_k:
 
 
 def _leaderboard(state: dict[str, Any], kind: AnalysisKind, base_k: float) -> list[dict[str, Any]]:
-    normalization = 1.0
+    normalization_offset = 0.0
     if _is_acquire_kind(kind):
         explorer_key = "card:2"
         explorer_rating = state["ratings"].get(explorer_key, INITIAL_ELO)
-        if abs(explorer_rating) > 1e-9:
-            normalization = explorer_rating / ACQUIRE_EXPLORER_TARGET
+        normalization_offset = ACQUIRE_EXPLORER_TARGET - explorer_rating
     entries: list[dict[str, Any]] = []
     for key in state["order"]:
         option: ChoiceOption = state["options"][key]
@@ -465,11 +464,11 @@ def _leaderboard(state: dict[str, Any], kind: AnalysisKind, base_k: float) -> li
             {
                 **option.to_dict(),
                 "card_color": _card_color_for_option(option),
-                "elo": round(raw_elo / normalization, 4),
+                "card_cost": _card_cost_for_option(option),
+                "elo": round(raw_elo + normalization_offset, 4),
                 "raw_elo": round(raw_elo, 4),
-                "uncertainty": (
-                    None if raw_uncertainty is None else round(raw_uncertainty / abs(normalization), 4)
-                ),
+                "uncertainty": None if raw_uncertainty is None else round(raw_uncertainty, 4),
+                "raw_uncertainty": None if raw_uncertainty is None else round(raw_uncertainty, 4),
                 "decision_count": decisions,
                 "pairwise_comparisons": int(state["comparisons"][key]),
                 "wins": int(state["wins"][key]),
@@ -492,6 +491,15 @@ def _card_color_for_option(option: ChoiceOption) -> str:
     return _FACTION_COLORS.get(card.faction, "neutral")
 
 
+def _card_cost_for_option(option: ChoiceOption) -> int:
+    try:
+        card_id = int(option.key.split(":", 1)[1])
+    except (IndexError, ValueError):
+        return 0
+    card = CARD_BY_ID.get(card_id)
+    return int(card.cost) if card is not None else 0
+
+
 def rate_choice_decisions(
     decisions: Sequence[ChoiceDecision],
     kind: AnalysisKind | str,
@@ -508,15 +516,14 @@ def rate_choice_decisions(
         comparisons += added
         scored += int(added > 0)
     explorer_raw = state["ratings"].get("card:2", INITIAL_ELO)
-    normalization = (
-        explorer_raw / ACQUIRE_EXPLORER_TARGET
-        if _is_acquire_kind(resolved_kind) and abs(explorer_raw) > 1e-9
-        else 1.0
+    normalization_offset = (
+        ACQUIRE_EXPLORER_TARGET - explorer_raw if _is_acquire_kind(resolved_kind) else 0.0
     )
     return {
         "scored_decisions": scored,
         "pairwise_comparisons": comparisons,
-        "normalization_factor": normalization,
+        "normalization_factor": 1.0,
+        "normalization_offset": normalization_offset,
         "explorer_raw_elo": explorer_raw if _is_acquire_kind(resolved_kind) else None,
         "leaderboard": _leaderboard(state, resolved_kind, k_factor),
     }

@@ -1,6 +1,7 @@
 from dataclasses import replace
 
 import pytest
+from astro2 import card_analysis
 from astro2.card_analysis import (
     AcquisitionContext,
     AnalysisKind,
@@ -104,6 +105,25 @@ def test_acquire_elo_is_normalized_to_explorer_and_rates_all_alternatives():
     assert entries["card:2"]["elo"] == pytest.approx(2.0)
     assert entries["card:2"]["elo"] > entries["card:4"]["elo"]
     assert entries["card:2"]["elo"] > entries["card:11"]["elo"]
+
+
+def test_acquire_normalization_preserves_order_when_explorer_raw_elo_is_negative():
+    state = card_analysis._initial_rating_state(AnalysisKind.ACQUIRE)
+    state["ratings"]["card:2"] = -1.5
+    state["ratings"]["card:4"] = 1_965.0
+    state["information"]["card:2"] = 4.0
+    state["information"]["card:4"] = 4.0
+
+    entries = {
+        entry["key"]: entry
+        for entry in card_analysis._leaderboard(state, AnalysisKind.ACQUIRE, 24.0)
+    }
+
+    assert entries["card:2"]["elo"] == pytest.approx(2.0)
+    assert entries["card:4"]["elo"] > entries["card:2"]["elo"]
+    assert entries["card:4"]["elo"] == pytest.approx(1_968.5)
+    assert entries["card:4"]["card_cost"] == 2
+    assert entries["card:4"]["uncertainty"] == entries["card:4"]["raw_uncertainty"]
 
 
 def test_acquire_context_is_captured_before_the_purchase_and_tracks_opponent_color():

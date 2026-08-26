@@ -83,6 +83,12 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /Percentile within bucket/);
   assert.match(page, /percentileUncertainty/);
   assert.match(page, /percentile uncertainty bars visible/);
+  assert.match(page, /rawElo/);
+  assert.match(page, /legacyNormalizationFactor/);
+  assert.match(page, /Chart filters/);
+  assert.match(page, /Reset filters/);
+  assert.match(page, /selectedCosts/);
+  assert.match(page, /selectedColors/);
   assert.match(page, /1,000 standard · 10,000 bucketed/);
   assert.match(page, /model_value/);
   assert.match(page, /expected_win_rate/);

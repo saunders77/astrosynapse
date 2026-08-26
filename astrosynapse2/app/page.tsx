@@ -311,12 +311,15 @@ type CardEloEntry = {
   source: string;
   label: string;
   elo: number;
+  rawElo: number;
   uncertainty: number | null;
+  rawUncertainty: number | null;
   decisions: number;
   comparisons: number;
   wins: number;
   losses: number;
   cardColor: "red" | "green" | "blue" | "yellow" | "neutral";
+  cost: number;
 };
 
 type CardEloBucket = {
@@ -1895,6 +1898,11 @@ function titleCase(value: string): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+const legacyCardCosts = [
+  0, 0, 2, 6, 2, 6, 4, 1, 3, 8, 7, 3, 5, 2, 5, 3, 8, 6, 7, 5, 2, 6, 4, 4, 3,
+  1, 6, 2, 7, 8, 1, 3, 4, 6, 4, 3, 5, 4, 7, 8, 2, 5, 3, 1, 6, 4, 6, 5, 3,
+];
+
 function normalizeArenaJob(raw: unknown): ArenaResultView | null {
   if (!isRecord(raw)) return null;
   const result = isRecord(raw.result) ? raw.result : {};
@@ -1943,24 +1951,36 @@ function normalizeCardAnalysis(raw: unknown): CardAnalysisView | null {
     gamesRequested ? gamesCompleted / gamesRequested : 0,
   );
   const rawLeaderboard = Array.isArray(result.leaderboard) ? result.leaderboard : [];
-  const normalizeEloEntry = (entry: unknown, index: number): CardEloEntry => {
+  const normalizeEloEntry = (
+    entry: unknown,
+    index: number,
+    legacyNormalizationFactor = 1,
+  ): CardEloEntry => {
     const item = isRecord(entry) ? entry : {};
+    const key = asString(item.key, `card-elo-${index}`);
+    const cardId = Number(key.split(":").at(-1));
     const rawColor = asString(item.card_color, "neutral");
     const cardColor = ["red", "green", "blue", "yellow"].includes(rawColor)
       ? rawColor as CardEloEntry["cardColor"]
       : "neutral";
+    const uncertainty = asOptionalNumber(item.uncertainty);
+    const rawUncertainty = asOptionalNumber(item.raw_uncertainty)
+      ?? (uncertainty === null ? null : uncertainty * Math.abs(legacyNormalizationFactor));
     return {
-      key: asString(item.key, `card-elo-${index}`),
+      key,
       cardName: asString(item.card_name, "Unknown card"),
       source: asString(item.source, ""),
       label: asString(item.label ?? item.card_name, "Unknown card"),
       elo: asNumber(item.elo, 0),
-      uncertainty: asOptionalNumber(item.uncertainty),
+      rawElo: asNumber(item.raw_elo, asNumber(item.elo, 0)),
+      uncertainty,
+      rawUncertainty,
       decisions: asNumber(item.decision_count, 0),
       comparisons: asNumber(item.pairwise_comparisons, 0),
       wins: asNumber(item.wins, 0),
       losses: asNumber(item.losses, 0),
       cardColor,
+      cost: asNumber(item.card_cost, legacyCardCosts[cardId] ?? 0),
     };
   };
   const rawCharts = Array.isArray(result.bucketed_charts) ? result.bucketed_charts : [];
@@ -1979,7 +1999,7 @@ function normalizeCardAnalysis(raw: unknown): CardAnalysisView | null {
     comparisons: asNumber(result.pairwise_comparisons, 0),
     truncatedGames: asNumber(result.truncated_games, 0),
     durationSeconds: asNumber(result.duration_seconds, 0),
-    leaderboard: rawLeaderboard.map(normalizeEloEntry),
+    leaderboard: rawLeaderboard.map((entry, index) => normalizeEloEntry(entry, index)),
     bucketedCharts: rawCharts.map((chart, chartIndex): CardEloChart => {
       const item = isRecord(chart) ? chart : {};
       const rawBuckets = Array.isArray(item.buckets) ? item.buckets : [];
@@ -1992,11 +2012,14 @@ function normalizeCardAnalysis(raw: unknown): CardAnalysisView | null {
           const bucketLeaderboard = Array.isArray(bucketItem.leaderboard)
             ? bucketItem.leaderboard
             : [];
+          const legacyNormalizationFactor = asNumber(bucketItem.normalization_factor, 1);
           return {
             key: asString(bucketItem.key, `bucket-${bucketIndex}`),
             label: asString(bucketItem.label, String(bucketIndex + 1)),
             capturedDecisions: asNumber(bucketItem.captured_decisions, 0),
-            leaderboard: bucketLeaderboard.map(normalizeEloEntry),
+            leaderboard: bucketLeaderboard.map((entry, index) => (
+              normalizeEloEntry(entry, index, legacyNormalizationFactor)
+            )),
           };
         }),
       };
@@ -2857,6 +2880,18 @@ type CardPercentilePoint = {
   upperPercentile: number;
 };
 
+const chartCostOptions = [1, 2, 3, 4, 5, 6, 7, 8];
+const chartColorOptions: Array<{
+  key: CardEloEntry["cardColor"];
+  label: string;
+}> = [
+  { key: "red", label: "Red" },
+  { key: "green", label: "Green" },
+  { key: "blue", label: "Blue" },
+  { key: "yellow", label: "Yellow" },
+  { key: "neutral", label: "Neutral" },
+];
+
 function percentileRank(value: number, sortedValues: number[]): number {
   if (sortedValues.length <= 1) return 100;
   const lower = sortedValues.filter((candidate) => candidate < value).length;
@@ -2878,16 +2913,27 @@ function percentileUncertainty(entry: CardEloEntry, competitors: CardEloEntry[])
   if (competitors.length <= 1) return 0;
   const variance = competitors.reduce((total, competitor) => {
     if (competitor.key === entry.key) return total;
-    const combinedSigma = Math.hypot(entry.uncertainty ?? 0, competitor.uncertainty ?? 0);
+    const combinedSigma = Math.hypot(
+      entry.rawUncertainty ?? 0,
+      competitor.rawUncertainty ?? 0,
+    );
     const probabilityAbove = combinedSigma > 0
-      ? normalCdf((entry.elo - competitor.elo) / combinedSigma)
-      : entry.elo === competitor.elo ? 0.5 : Number(entry.elo > competitor.elo);
+      ? normalCdf((entry.rawElo - competitor.rawElo) / combinedSigma)
+      : entry.rawElo === competitor.rawElo ? 0.5 : Number(entry.rawElo > competitor.rawElo);
     return total + probabilityAbove * (1 - probabilityAbove);
   }, 0);
   return Math.sqrt(variance) / (competitors.length - 1) * 100;
 }
 
-function BucketedEloChart({ chart }: { chart: CardEloChart }) {
+function BucketedEloChart({
+  chart,
+  selectedCosts,
+  selectedColors,
+}: {
+  chart: CardEloChart;
+  selectedCosts: number[];
+  selectedColors: CardEloEntry["cardColor"][];
+}) {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const width = 1_920;
   const height = 1_080;
@@ -2898,10 +2944,10 @@ function BucketedEloChart({ chart }: { chart: CardEloChart }) {
     const cards = new Map<string, CardEloEntry>();
     const bucketPoints = chart.buckets.map((bucket) => {
       const scored = bucket.leaderboard.filter((entry) => entry.decisions > 0);
-      const sortedElos = scored.map((entry) => entry.elo).sort((a, b) => a - b);
+      const sortedElos = scored.map((entry) => entry.rawElo).sort((a, b) => a - b);
       return new Map(scored.map((entry): [string, CardPercentilePoint] => {
         if (!cards.has(entry.key)) cards.set(entry.key, entry);
-        const percentile = percentileRank(entry.elo, sortedElos);
+        const percentile = percentileRank(entry.rawElo, sortedElos);
         const uncertainty = percentileUncertainty(entry, scored);
         return [entry.key, {
           entry,
@@ -2917,9 +2963,14 @@ function BucketedEloChart({ chart }: { chart: CardEloChart }) {
         key: card.key,
         label: card.label,
         color: cardLineColors[card.cardColor],
+        cardColor: card.cardColor,
+        cost: card.cost,
         points: bucketPoints.map((points) => points.get(card.key) ?? null),
-      }));
-  }, [chart]);
+      }))
+      .filter((card) => (
+        selectedCosts.includes(card.cost) && selectedColors.includes(card.cardColor)
+      ));
+  }, [chart, selectedColors, selectedCosts]);
   const xAt = (index: number) => plot.left
     + (chart.buckets.length <= 1 ? plotWidth / 2 : index / (chart.buckets.length - 1) * plotWidth);
   const yAt = (percentile: number) => plot.bottom - percentile / 100 * plotHeight;
@@ -2935,7 +2986,8 @@ function BucketedEloChart({ chart }: { chart: CardEloChart }) {
       return `${command}${xAt(index).toFixed(1)},${yAt(point.percentile).toFixed(1)}`;
     }).join(" ");
   };
-  const activeSeries = series.find((item) => item.key === activeKey) ?? null;
+  const resolvedActiveKey = series.some((item) => item.key === activeKey) ? activeKey : null;
+  const activeSeries = series.find((item) => item.key === resolvedActiveKey) ?? null;
   const legendColumns = 5;
   const legendColumnWidth = 350;
   const legendRowHeight = 25;
@@ -2967,8 +3019,8 @@ function BucketedEloChart({ chart }: { chart: CardEloChart }) {
           <text transform={`translate(31 ${(plot.top + plot.bottom) / 2}) rotate(-90)`} textAnchor="middle" className="bucketed-chart-axis-title">Percentile within bucket</text>
           {chart.buckets.map((bucket, index) => <g key={bucket.key}><line x1={xAt(index)} x2={xAt(index)} y1={plot.top} y2={plot.bottom} className="bucketed-chart-grid bucketed-chart-grid-vertical" /><text x={xAt(index)} y={plot.bottom + 30} textAnchor="middle" className="bucketed-chart-axis">{bucket.label}</text><text x={xAt(index)} y={plot.bottom + 50} textAnchor="middle" className="bucketed-chart-count">n={numberFormatter.format(bucket.capturedDecisions)}</text></g>)}
           {series.map((item) => {
-            const active = activeKey === item.key;
-            const dimmed = activeKey !== null && !active;
+            const active = resolvedActiveKey === item.key;
+            const dimmed = resolvedActiveKey !== null && !active;
             const path = pathFor(item.points);
             return <g key={item.key} className={active ? "is-active" : dimmed ? "is-dimmed" : ""}>
               {active ? item.points.map((point, index) => {
@@ -2989,14 +3041,53 @@ function BucketedEloChart({ chart }: { chart: CardEloChart }) {
             const row = Math.floor(index / legendColumns);
             const x = plot.left + column * legendColumnWidth;
             const y = 825 + row * legendRowHeight;
-            const active = activeKey === item.key;
-            const dimmed = activeKey !== null && !active;
+            const active = resolvedActiveKey === item.key;
+            const dimmed = resolvedActiveKey !== null && !active;
             return <g key={`${item.key}-legend`} transform={`translate(${x} ${y})`} className={`bucketed-legend-item${active ? " is-active" : ""}${dimmed ? " is-dimmed" : ""}`} onMouseEnter={() => setActiveKey(item.key)} onFocus={() => setActiveKey(item.key)} onBlur={() => setActiveKey(null)} tabIndex={0} role="button" aria-label={`Highlight ${item.label}`}><rect x="-7" y="-17" width={legendColumnWidth - 12} height="23" rx="5" /><line x1="0" x2="31" y1="-5" y2="-5" stroke={item.color} /><text x="40" y="0" fill={active ? item.color : undefined}>{item.label}</text></g>;
           })}
         </svg>
       </div>
     </article>
   );
+}
+
+function BucketedEloCharts({ charts }: { charts: CardEloChart[] }) {
+  const [selectedCosts, setSelectedCosts] = useState<number[]>(chartCostOptions);
+  const [selectedColors, setSelectedColors] = useState<CardEloEntry["cardColor"][]>(
+    chartColorOptions.map((option) => option.key),
+  );
+  const availableCards = useMemo(() => {
+    const cards = new Map<string, CardEloEntry>();
+    charts.forEach((chart) => chart.buckets.forEach((bucket) => {
+      bucket.leaderboard.forEach((entry) => {
+        if (entry.decisions > 0) cards.set(entry.key, entry);
+      });
+    }));
+    return [...cards.values()];
+  }, [charts]);
+  const visibleCardCount = availableCards.filter((card) => (
+    selectedCosts.includes(card.cost) && selectedColors.includes(card.cardColor)
+  )).length;
+  const toggleCost = (cost: number) => setSelectedCosts((current) => (
+    current.includes(cost) ? current.filter((item) => item !== cost) : [...current, cost]
+  ));
+  const toggleColor = (color: CardEloEntry["cardColor"]) => setSelectedColors((current) => (
+    current.includes(color) ? current.filter((item) => item !== color) : [...current, color]
+  ));
+  const resetFilters = () => {
+    setSelectedCosts(chartCostOptions);
+    setSelectedColors(chartColorOptions.map((option) => option.key));
+  };
+
+  return <div className="bucketed-elo-results">
+    <p>Five independent post-hoc views of the same acquisition choices. Each 1920×1080 view scales to the full available window width and ranks cards independently within every bucket.</p>
+    <section className="bucketed-chart-filters" aria-label="Filter cards shown in bucketed charts">
+      <header><div><span>Chart filters</span><strong>{visibleCardCount} of {availableCards.length} cards visible</strong></div><button type="button" onClick={resetFilters}>Reset filters</button></header>
+      <fieldset><legend>Cost</legend><div>{chartCostOptions.map((cost) => <button type="button" key={cost} aria-pressed={selectedCosts.includes(cost)} onClick={() => toggleCost(cost)}>Cost {cost}</button>)}</div></fieldset>
+      <fieldset><legend>Colour</legend><div>{chartColorOptions.map((option) => <button type="button" key={option.key} className={`filter-color-${option.key}`} aria-pressed={selectedColors.includes(option.key)} onClick={() => toggleColor(option.key)}><i style={{ background: cardLineColors[option.key] }} />{option.label}</button>)}</div></fieldset>
+    </section>
+    {visibleCardCount ? charts.map((chart) => <BucketedEloChart key={chart.key} chart={chart} selectedCosts={selectedCosts} selectedColors={selectedColors} />) : <EmptyState title="No cards match these filters" detail="Select at least one cost and one colour to restore chart lines." />}
+  </div>;
 }
 
 function EmptyState({ title, detail }: { title: string; detail: string }) {
@@ -4958,7 +5049,7 @@ export default function Home() {
                 {analysisResult.error ? <p className="card-analysis-error">{analysisResult.error}</p> : null}
                 {analysisResult.leaderboard.length ? <div className="card-elo-results">
                   <div className="card-elo-summary"><span><small>Scored choices</small><strong>{numberFormatter.format(analysisResult.scoredDecisions)}</strong></span><span><small>Comparisons</small><strong>{numberFormatter.format(analysisResult.comparisons)}</strong></span><span><small>Truncations</small><strong>{numberFormatter.format(analysisResult.truncatedGames)}</strong></span><span><small>Duration</small><strong>{formatDuration(analysisResult.durationSeconds)}</strong></span></div>
-                  {analysisResult.bucketedCharts.length ? <div className="bucketed-elo-results"><p>Five independent post-hoc views of the same acquisition choices. Each 1920×1080 view scales to the full available window width and ranks cards independently within every bucket.</p>{analysisResult.bucketedCharts.map((chart) => <BucketedEloChart key={chart.key} chart={chart} />)}</div> : <div className="card-elo-table" role="table" aria-label={`${analysisResult.kind} card Elo rankings`}><div className="card-elo-row card-elo-header" role="row"><span role="columnheader">Rank / card</span><span role="columnheader">Elo</span><span role="columnheader">± uncertainty</span><span role="columnheader">Decisions</span><span role="columnheader">Comparisons</span></div>{analysisResult.leaderboard.map((entry, index) => <div className="card-elo-row" role="row" key={entry.key}><span role="cell"><b>{index + 1}</b><strong>{entry.label}</strong></span><span role="cell">{entry.elo.toFixed(2)}</span><span role="cell">{entry.uncertainty === null ? "—" : entry.uncertainty.toFixed(2)}</span><span role="cell">{numberFormatter.format(entry.decisions)}</span><span role="cell">{numberFormatter.format(entry.comparisons)}</span></div>)}</div>}
+                  {analysisResult.bucketedCharts.length ? <BucketedEloCharts charts={analysisResult.bucketedCharts} /> : <div className="card-elo-table" role="table" aria-label={`${analysisResult.kind} card Elo rankings`}><div className="card-elo-row card-elo-header" role="row"><span role="columnheader">Rank / card</span><span role="columnheader">Elo</span><span role="columnheader">± uncertainty</span><span role="columnheader">Decisions</span><span role="columnheader">Comparisons</span></div>{analysisResult.leaderboard.map((entry, index) => <div className="card-elo-row" role="row" key={entry.key}><span role="cell"><b>{index + 1}</b><strong>{entry.label}</strong></span><span role="cell">{entry.elo.toFixed(2)}</span><span role="cell">{entry.uncertainty === null ? "—" : entry.uncertainty.toFixed(2)}</span><span role="cell">{numberFormatter.format(entry.decisions)}</span><span role="cell">{numberFormatter.format(entry.comparisons)}</span></div>)}</div>}
                 </div> : analysisRunning ? null : <EmptyState title="No comparable choices observed" detail="The candidate completed the sample without a single-card turn containing at least one alternate card choice." />}
               </> : <EmptyState title="Choose a candidate and a probe" detail="Scrap Elo combines hand and discard evidence into one score per card. Acquire Elo compares every card that was legally acquirable at the selected purchase or free-acquire decision." />}
             </article>
