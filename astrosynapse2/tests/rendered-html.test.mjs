@@ -76,7 +76,12 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /fetchJson\("\/card-analysis"/);
   assert.match(page, /Run Scrap Elo/);
   assert.match(page, /Run Acquire Elo/);
-  assert.match(page, /1,000 self-play games/);
+  assert.match(page, /Run 10k Bucketed Acquire Elo/);
+  assert.match(page, /kind === "acquire_bucketed" \? 10_000 : 1_000/);
+  assert.match(page, /BucketedEloChart/);
+  assert.match(page, /width = 1_920/);
+  assert.match(page, /uncertainty bars visible/);
+  assert.match(page, /1,000 standard · 10,000 bucketed/);
   assert.match(page, /model_value/);
   assert.match(page, /expected_win_rate/);
   assert.match(page, /Estimated win probability/);

@@ -32,11 +32,11 @@ from .arena import (
     ModelResolutionError,
 )
 from .card_analysis import (
-    DEFAULT_ANALYSIS_GAMES,
     MAX_ANALYSIS_GAMES,
     AnalysisKind,
     CardAnalysisConfig,
     CardAnalysisManager,
+    default_games_for_kind,
 )
 from .config import RunConfig, preset_config
 from .hardware import system_snapshot
@@ -107,7 +107,7 @@ class CreateCardAnalysisRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     model_id: str = Field(min_length=1, max_length=128)
     kind: AnalysisKind
-    games: int = Field(default=DEFAULT_ANALYSIS_GAMES, ge=1, le=MAX_ANALYSIS_GAMES)
+    games: int | None = Field(default=None, ge=1, le=MAX_ANALYSIS_GAMES)
     seed: int = Field(default=20260813, ge=0, le=9_007_199_254_740_991)
     max_turns: int = Field(default=400, ge=20, le=500)
     max_actions_per_turn: int = Field(default=200, ge=20, le=500)
@@ -584,11 +584,12 @@ def create_card_analysis(
     payload: CreateCardAnalysisRequest, request: Request
 ) -> dict[str, Any]:
     try:
+        games = payload.games or default_games_for_kind(payload.kind)
         return _card_analysis(request).create(
             payload.model_id,
             payload.kind,
             CardAnalysisConfig(
-                games=payload.games,
+                games=games,
                 seed=payload.seed,
                 max_turns=payload.max_turns,
                 max_actions_per_turn=payload.max_actions_per_turn,

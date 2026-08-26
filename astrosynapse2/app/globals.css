@@ -1632,7 +1632,7 @@ textarea:focus {
 
 .card-analysis-controls {
   display: grid;
-  grid-template-columns: minmax(260px, 1.5fr) minmax(170px, 0.75fr) auto auto;
+  grid-template-columns: minmax(260px, 1.5fr) minmax(170px, 0.75fr) auto auto auto;
   gap: 11px;
   align-items: end;
   padding: 16px;
@@ -1774,6 +1774,137 @@ textarea:focus {
   font-size: 7px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.bucketed-elo-results > p {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.bucketed-chart-card {
+  margin-top: 18px;
+}
+
+.bucketed-chart-frame {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #050a10;
+}
+
+.bucketed-elo-svg {
+  display: block;
+  width: 1920px;
+  height: 1080px;
+  font-family: var(--mono);
+}
+
+.bucketed-chart-background {
+  fill: #050a10;
+}
+
+.bucketed-chart-title {
+  fill: var(--ink);
+  font-size: 25px;
+  font-weight: 650;
+}
+
+.bucketed-chart-subtitle,
+.bucketed-chart-count {
+  fill: var(--faint);
+  font-size: 12px;
+}
+
+.bucketed-chart-grid {
+  stroke: rgba(140, 167, 193, 0.15);
+  stroke-width: 1;
+}
+
+.bucketed-chart-grid-vertical {
+  stroke: rgba(140, 167, 193, 0.07);
+}
+
+.bucketed-chart-axis,
+.bucketed-chart-axis-title {
+  fill: var(--muted);
+  font-size: 13px;
+}
+
+.bucketed-chart-axis-title {
+  font-size: 15px;
+  letter-spacing: 0.05em;
+}
+
+.bucketed-card-line {
+  opacity: 0.42;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: opacity 120ms ease, stroke-width 120ms ease;
+}
+
+.bucketed-card-hit {
+  cursor: crosshair;
+  pointer-events: stroke;
+}
+
+.bucketed-elo-svg g.is-active .bucketed-card-line {
+  opacity: 1;
+  stroke-width: 5;
+  filter: drop-shadow(0 0 5px currentColor);
+}
+
+.bucketed-elo-svg g.is-dimmed .bucketed-card-line {
+  opacity: 0.055;
+}
+
+.bucketed-error-bar line {
+  stroke: currentColor;
+  stroke-width: 2;
+  opacity: 0.9;
+}
+
+.bucketed-chart-legend-title {
+  fill: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bucketed-legend-item {
+  cursor: pointer;
+  outline: none;
+}
+
+.bucketed-legend-item rect {
+  fill: transparent;
+}
+
+.bucketed-legend-item line {
+  stroke-width: 3;
+}
+
+.bucketed-legend-item text {
+  fill: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.bucketed-legend-item.is-active rect,
+.bucketed-legend-item:focus rect {
+  fill: rgba(255, 255, 255, 0.07);
+}
+
+.bucketed-legend-item.is-active text,
+.bucketed-legend-item:focus text {
+  font-weight: 750;
+}
+
+.bucketed-legend-item.is-dimmed {
+  opacity: 0.18;
 }
 
 .versus-row {

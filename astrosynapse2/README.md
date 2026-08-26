@@ -63,7 +63,7 @@ The Astro5 preset is the recommended M4/16 GB starting point: 8 CPU actors, four
 - **Overview** — run phase, elapsed time and ETA, games/s, decisions/s, replay fill, learning quality, hardware, and recent persisted events.
 - **Train** — create a run, select Astro5, Astro4, Astro3, quick validation, or Astro2 compatibility, expose search/governor settings, and start, durably pause, resume, stop, or checkpoint at safe boundaries.
 - **Branch Lab** — choose a compatible generation-4/5 checkpoint from any run, select any combination of 1–8 optimization/search variants, and optionally run the queue automatically. Source checkpoints are pinned and every branch independently receives copied immutable artifacts plus its own seed stream; branches do not continue from the preceding branch's champion. Per-branch budgets can be expressed in minutes, training games, or completed full evaluations. The Branch runner controls always pause, resume, or stop the actually active trainer even when a queued branch is selected for inspection.
-- **Models & Arena** — inspect checkpoint lineage, pin models, download `.actor.npz` exports, compare checkpoints or baselines with exact seed-paired seat swaps, and select any retained candidate for a one-click 1,000-game Scrap Elo or Acquire Elo card-choice probe. Manual comparisons are capped at 2,000 pairs.
+- **Models & Arena** — inspect checkpoint lineage, pin models, download `.actor.npz` exports, compare checkpoints or baselines with exact seed-paired seat swaps, and select any retained candidate for a one-click 1,000-game Scrap/Acquire Elo probe or a 10,000-game post-hoc bucketed Acquire Elo probe with five interactive charts. Manual comparisons are capped at 2,000 pairs.
 - **Play** — use the primary **Hard AI companion** while Star Realms runs on your iPad: choose any retained checkpoint and starting player, transcribe the trade row and Hard AI actions, and confirm Astro's recommended action after entering it in the game. Every physical card zone is editable, unknown cards remain visibly `Undefined`, and the companion withholds model advice until the observed position is complete. The secondary **Simulated match** mode preserves the original in-browser game. Astro4/5 recommendations show normalized legal-action policy shares plus the checkpoint's separate expected win rate; legacy checkpoints show independent outcome estimates.
 - **Diagnostics / Settings** — outcome/search losses, natural-state calibration and ensemble diagnostics, objective gradient norms, clipping, normalized entropy, governor multipliers/reasons, replay health, CPU/RAM/Metal telemetry, and audit events.
 
@@ -118,6 +118,7 @@ Training survives browser disconnects. If the backend or Mac exits unexpectedly,
 # Run the same card probe offered in Models & Arena
 ./.venv/bin/astro2 card-analysis --model <checkpoint-id> --kind scrap
 ./.venv/bin/astro2 card-analysis --model <checkpoint-id> --kind acquire
+./.venv/bin/astro2 card-analysis --model <checkpoint-id> --kind acquire_bucketed
 
 # Start only the API (dashboard development or automation)
 ./.venv/bin/astro2 serve

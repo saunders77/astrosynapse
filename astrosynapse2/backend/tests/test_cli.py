@@ -135,11 +135,17 @@ def test_train_parser_accepts_an_explicit_seed():
     assert args.seed == 20260812
 
 
-def test_card_analysis_parser_defaults_to_one_thousand_games():
-    args = cli.build_parser().parse_args(
+def test_card_analysis_parser_uses_kind_specific_default_games():
+    acquire = cli.build_parser().parse_args(
         ["card-analysis", "--model", "candidate-42", "--kind", "acquire"]
     )
+    bucketed = cli.build_parser().parse_args(
+        ["card-analysis", "--model", "candidate-42", "--kind", "acquire_bucketed"]
+    )
 
-    assert args.model == "candidate-42"
-    assert args.kind == "acquire"
-    assert args.games == 1_000
+    assert acquire.model == "candidate-42"
+    assert acquire.kind == "acquire"
+    assert acquire.games is None
+    assert cli.default_games_for_kind(acquire.kind) == 1_000
+    assert bucketed.games is None
+    assert cli.default_games_for_kind(bucketed.kind) == 10_000

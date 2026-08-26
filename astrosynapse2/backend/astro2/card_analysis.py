@@ -16,7 +16,7 @@ import os
 import threading
 import time
 import uuid
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
@@ -28,7 +28,7 @@ from typing import Any
 import numpy as np
 
 from .arena import ModelResolutionError, resolve_model
-from .cards import ALL_CARDS, CARD_BY_ID
+from .cards import ALL_CARDS, CARD_BY_ID, Faction
 from .encoding import DecisionFamily, Encoder
 from .engine import (
     Action,
@@ -43,6 +43,7 @@ from .model import NumpyActor
 from .storage import Store
 
 DEFAULT_ANALYSIS_GAMES = 1_000
+BUCKETED_ANALYSIS_GAMES = 10_000
 MAX_ANALYSIS_GAMES = 10_000
 DEFAULT_K_FACTOR = 24.0
 INITIAL_ELO = 1_000.0
@@ -57,6 +58,19 @@ ADAPTIVE_K_MAX_MULTIPLIER = 4.0
 class AnalysisKind(StrEnum):
     SCRAP = "scrap"
     ACQUIRE = "acquire"
+    ACQUIRE_BUCKETED = "acquire_bucketed"
+
+
+def _is_acquire_kind(kind: AnalysisKind) -> bool:
+    return kind in {AnalysisKind.ACQUIRE, AnalysisKind.ACQUIRE_BUCKETED}
+
+
+def default_games_for_kind(kind: AnalysisKind | str) -> int:
+    return (
+        BUCKETED_ANALYSIS_GAMES
+        if AnalysisKind(kind) == AnalysisKind.ACQUIRE_BUCKETED
+        else DEFAULT_ANALYSIS_GAMES
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +113,18 @@ class ChoiceOption:
 class ChoiceDecision:
     winner: ChoiceOption
     alternatives: tuple[ChoiceOption, ...]
+    context: AcquisitionContext | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AcquisitionContext:
+    """Pre-acquisition state attached to a choice for post-hoc grouping."""
+
+    turn: int
+    own_authority: int
+    acquired_cards: int
+    opponent_authority: int
+    opponent_top_color: str | None
 
 
 @dataclass(slots=True)
@@ -183,6 +209,7 @@ def _choice_decision(
     decision: Decision,
     selected: Action,
     option_from_action: Callable[[Action], ChoiceOption | None],
+    context: AcquisitionContext | None = None,
 ) -> ChoiceDecision | None:
     winner = option_from_action(selected)
     if winner is None:
@@ -195,7 +222,27 @@ def _choice_decision(
             continue
         seen.add(option.key)
         alternatives.append(option)
-    return ChoiceDecision(winner, tuple(alternatives))
+    return ChoiceDecision(winner, tuple(alternatives), context)
+
+
+_FACTION_COLORS = {
+    Faction.MACHINE_CULT: "red",
+    Faction.BLOB: "green",
+    Faction.TRADE_FEDERATION: "blue",
+    Faction.STAR_EMPIRE: "yellow",
+}
+_COLOR_ORDER = ("red", "green", "blue", "yellow")
+
+
+def _opponent_top_acquired_color(
+    counts: Counter[str],
+    most_recent: dict[str, int],
+) -> str | None:
+    maximum = max((counts.get(color, 0) for color in _COLOR_ORDER), default=0)
+    if maximum <= 0:
+        return None
+    leaders = [color for color in _COLOR_ORDER if counts.get(color, 0) == maximum]
+    return max(leaders, key=lambda color: most_recent.get(color, -1))
 
 
 def extract_single_card_turn_decisions(
@@ -211,15 +258,36 @@ def extract_single_card_turn_decisions(
 
     resolved_kind = AnalysisKind(kind)
     turns: dict[tuple[int, int], _TurnChoices] = {}
+    acquired_counts = {0: 0, 1: 0}
+    acquired_colors = {0: Counter(), 1: Counter()}
+    most_recent_colors: dict[int, dict[str, int]] = {0: {}, 1: {}}
+    acquisition_sequence = 0
     for player_id, decision, selected in events:
         key = (int(player_id), int(decision.observation.turn))
         turn = turns.setdefault(key, _TurnChoices())
         if selected.kind in {ActionKind.ACQUIRE, ActionKind.FREE_ACQUIRE}:
             turn.acquired_cards += 1
-            choice = _choice_decision(decision, selected, _acquire_option)
+            opponent_id = 1 - int(player_id)
+            context = AcquisitionContext(
+                turn=max(1, int(decision.observation.turn)),
+                own_authority=max(0, int(decision.observation.own_authority)),
+                acquired_cards=acquired_counts[int(player_id)],
+                opponent_authority=max(0, int(decision.observation.opponent_authority)),
+                opponent_top_color=_opponent_top_acquired_color(
+                    acquired_colors[opponent_id], most_recent_colors[opponent_id]
+                ),
+            )
+            choice = _choice_decision(decision, selected, _acquire_option, context)
             if choice is not None:
                 assert turn.acquire_decisions is not None
                 turn.acquire_decisions.append(choice)
+            acquired_counts[int(player_id)] += 1
+            card = CARD_BY_ID.get(selected.card_id)
+            color = _FACTION_COLORS.get(card.faction) if card is not None else None
+            if color is not None:
+                acquisition_sequence += 1
+                acquired_colors[int(player_id)][color] += 1
+                most_recent_colors[int(player_id)][color] = acquisition_sequence
         if selected.kind in {ActionKind.SCRAP_CARD, ActionKind.SCRAP_FOR_ABILITY}:
             turn.scrapped_cards += 1
             if selected.kind == ActionKind.SCRAP_CARD:
@@ -228,9 +296,9 @@ def extract_single_card_turn_decisions(
                     assert turn.scrap_decisions is not None
                     turn.scrap_decisions.append(choice)
 
-    counter = "acquired_cards" if resolved_kind == AnalysisKind.ACQUIRE else "scrapped_cards"
+    counter = "acquired_cards" if _is_acquire_kind(resolved_kind) else "scrapped_cards"
     choices = (
-        "acquire_decisions" if resolved_kind == AnalysisKind.ACQUIRE else "scrap_decisions"
+        "acquire_decisions" if _is_acquire_kind(resolved_kind) else "scrap_decisions"
     )
     single_card_turns = 0
     decisions: list[ChoiceDecision] = []
@@ -263,7 +331,7 @@ def _adaptive_k(base: float, decisions: int) -> float:
 
 
 def _initial_rating_state(kind: AnalysisKind) -> dict[str, Any]:
-    if kind == AnalysisKind.ACQUIRE:
+    if _is_acquire_kind(kind):
         options = [
             ChoiceOption(f"card:{card.card_id}", card.name, "", card.name)
             for card in ALL_CARDS
@@ -379,7 +447,7 @@ def _apply_scrap_result(state: dict[str, Any], decision: ChoiceDecision, base_k:
 
 def _leaderboard(state: dict[str, Any], kind: AnalysisKind, base_k: float) -> list[dict[str, Any]]:
     normalization = 1.0
-    if kind == AnalysisKind.ACQUIRE:
+    if _is_acquire_kind(kind):
         explorer_key = "card:2"
         explorer_rating = state["ratings"].get(explorer_key, INITIAL_ELO)
         if abs(explorer_rating) > 1e-9:
@@ -396,6 +464,7 @@ def _leaderboard(state: dict[str, Any], kind: AnalysisKind, base_k: float) -> li
         entries.append(
             {
                 **option.to_dict(),
+                "card_color": _card_color_for_option(option),
                 "elo": round(raw_elo / normalization, 4),
                 "raw_elo": round(raw_elo, 4),
                 "uncertainty": (
@@ -412,6 +481,17 @@ def _leaderboard(state: dict[str, Any], kind: AnalysisKind, base_k: float) -> li
     return entries
 
 
+def _card_color_for_option(option: ChoiceOption) -> str:
+    try:
+        card_id = int(option.key.split(":", 1)[1])
+    except (IndexError, ValueError):
+        return "neutral"
+    card = CARD_BY_ID.get(card_id)
+    if card is None:
+        return "neutral"
+    return _FACTION_COLORS.get(card.faction, "neutral")
+
+
 def rate_choice_decisions(
     decisions: Sequence[ChoiceDecision],
     kind: AnalysisKind | str,
@@ -422,7 +502,7 @@ def rate_choice_decisions(
     state = _initial_rating_state(resolved_kind)
     comparisons = 0
     scored = 0
-    apply = _apply_acquire_result if resolved_kind == AnalysisKind.ACQUIRE else _apply_scrap_result
+    apply = _apply_acquire_result if _is_acquire_kind(resolved_kind) else _apply_scrap_result
     for decision in decisions:
         added = apply(state, decision, k_factor)
         comparisons += added
@@ -430,16 +510,142 @@ def rate_choice_decisions(
     explorer_raw = state["ratings"].get("card:2", INITIAL_ELO)
     normalization = (
         explorer_raw / ACQUIRE_EXPLORER_TARGET
-        if resolved_kind == AnalysisKind.ACQUIRE and abs(explorer_raw) > 1e-9
+        if _is_acquire_kind(resolved_kind) and abs(explorer_raw) > 1e-9
         else 1.0
     )
     return {
         "scored_decisions": scored,
         "pairwise_comparisons": comparisons,
         "normalization_factor": normalization,
-        "explorer_raw_elo": explorer_raw if resolved_kind == AnalysisKind.ACQUIRE else None,
+        "explorer_raw_elo": explorer_raw if _is_acquire_kind(resolved_kind) else None,
         "leaderboard": _leaderboard(state, resolved_kind, k_factor),
     }
+
+
+_ACQUIRED_CARD_BUCKETS = (
+    ("0", "0", 0, 0),
+    ("1", "1", 1, 1),
+    ("2", "2", 2, 2),
+    ("3", "3", 3, 3),
+    ("4_5", "4–5", 4, 5),
+    ("6_8", "6–8", 6, 8),
+    ("9_13", "9–13", 9, 13),
+    ("14_21", "14–21", 14, 21),
+    ("22_plus", "22+", 22, None),
+)
+
+
+def _ten_authority_bucket(value: int) -> tuple[str, str]:
+    start = max(0, int(value)) // 10 * 10
+    return f"{start}_{start + 9}", f"{start}–{start + 9}"
+
+
+def _acquired_card_bucket(value: int) -> tuple[str, str]:
+    for key, label, minimum, maximum in _ACQUIRED_CARD_BUCKETS:
+        if value >= minimum and (maximum is None or value <= maximum):
+            return key, label
+    return "22_plus", "22+"
+
+
+def rate_bucketed_acquire_decisions(
+    decisions: Sequence[ChoiceDecision],
+    *,
+    k_factor: float = DEFAULT_K_FACTOR,
+) -> list[dict[str, Any]]:
+    """Rate the same captured choices independently in five context groupings."""
+
+    contextual = [decision for decision in decisions if decision.context is not None]
+    maximum_own_authority = max(
+        (max(0, decision.context.own_authority) for decision in contextual), default=0
+    )
+    maximum_opponent_authority = max(
+        (max(0, decision.context.opponent_authority) for decision in contextual), default=0
+    )
+    own_authority_starts = list(range(0, maximum_own_authority // 10 * 10 + 1, 10))
+    opponent_authority_starts = list(
+        range(0, maximum_opponent_authority // 10 * 10 + 1, 10)
+    )
+    definitions: list[tuple[str, str, list[tuple[str, str]]]] = [
+        (
+            "turn",
+            "Turn number",
+            [(str(turn), "20+" if turn == 20 else str(turn)) for turn in range(1, 21)],
+        ),
+        (
+            "own_authority",
+            "Your authority",
+            [(f"{start}_{start + 9}", f"{start}–{start + 9}") for start in own_authority_starts],
+        ),
+        (
+            "acquired_cards",
+            "Cards already acquired",
+            [(key, label) for key, label, _minimum, _maximum in _ACQUIRED_CARD_BUCKETS],
+        ),
+        (
+            "opponent_authority",
+            "Opponent authority",
+            [
+                (f"{start}_{start + 9}", f"{start}–{start + 9}")
+                for start in opponent_authority_starts
+            ],
+        ),
+        (
+            "opponent_top_color",
+            "Opponent top-acquired color",
+            [(color, color.title()) for color in _COLOR_ORDER],
+        ),
+    ]
+
+    grouped: dict[str, dict[str, list[ChoiceDecision]]] = {
+        key: {bucket_key: [] for bucket_key, _label in buckets}
+        for key, _label, buckets in definitions
+    }
+    unbucketed_colors = 0
+    for decision in contextual:
+        context = decision.context
+        assert context is not None
+        grouped["turn"][str(min(20, max(1, context.turn)))].append(decision)
+        grouped["own_authority"][_ten_authority_bucket(context.own_authority)[0]].append(
+            decision
+        )
+        grouped["acquired_cards"][_acquired_card_bucket(context.acquired_cards)[0]].append(
+            decision
+        )
+        grouped["opponent_authority"][
+            _ten_authority_bucket(context.opponent_authority)[0]
+        ].append(decision)
+        if context.opponent_top_color is None:
+            unbucketed_colors += 1
+        else:
+            grouped["opponent_top_color"][context.opponent_top_color].append(decision)
+
+    charts: list[dict[str, Any]] = []
+    for key, label, buckets in definitions:
+        bucket_results = []
+        for bucket_key, bucket_label in buckets:
+            bucket_decisions = grouped[key].get(bucket_key, [])
+            rated = rate_choice_decisions(
+                bucket_decisions,
+                AnalysisKind.ACQUIRE,
+                k_factor=k_factor,
+            )
+            bucket_results.append(
+                {
+                    "key": bucket_key,
+                    "label": bucket_label,
+                    "captured_decisions": len(bucket_decisions),
+                    **rated,
+                }
+            )
+        charts.append(
+            {
+                "key": key,
+                "label": label,
+                "buckets": bucket_results,
+                "unbucketed_decisions": unbucketed_colors if key == "opponent_top_color" else 0,
+            }
+        )
+    return charts
 
 
 def _simulate_game_batch(
@@ -613,21 +819,31 @@ def _simulate_games(
 
 def format_analysis_report(result: dict[str, Any]) -> str:
     kind = AnalysisKind(result["kind"])
+    display_kind = "Bucketed Acquire" if kind == AnalysisKind.ACQUIRE_BUCKETED else kind.value.title()
     lines = [
-        f"{kind.value.title()} Elo Test for {result['model']['label']}",
+        f"{display_kind} Elo Test for {result['model']['label']}",
         f"Checkpoint: {result['model']['id']}",
         f"Games: {result['games_completed']} / {result['games_requested']}",
         "Policy: greedy mean-head deployment policy",
         f"Turns observed: {result['turns_observed']}",
-        f"Eligible single-{kind.value} turns: {result['single_card_turns']}",
+        f"Eligible single-{'acquire' if _is_acquire_kind(kind) else 'scrap'} turns: {result['single_card_turns']}",
         f"Scored decisions: {result['scored_decisions']}",
         f"Pairwise comparisons: {result['pairwise_comparisons']}",
         f"Truncated games: {result['truncated_games']}",
         "The chosen card beats every unchosen card that was legal in the same decision.",
         "Turns containing more than one acquired or scrapped card are excluded in full.",
-        "",
-        "Rankings",
     ]
+    if kind == AnalysisKind.ACQUIRE_BUCKETED:
+        lines.extend(
+            [
+                "Ratings were grouped after simulation from the pre-acquisition game state.",
+                "Turn 20 includes turn 20 and later; opponent color uses the most recently acquired tied leader.",
+                "Opponent-color states before any colored opponent acquisition are reported as unbucketed.",
+                "",
+                "Charts: turn, own authority, acquired-card count, opponent authority, opponent top-acquired color.",
+            ]
+        )
+    lines.extend(["", "Rankings"])
     for index, entry in enumerate(result["leaderboard"], 1):
         uncertainty = entry.get("uncertainty")
         uncertainty_text = "-" if uncertainty is None else f"{float(uncertainty):.2f}"
@@ -650,7 +866,7 @@ def run_card_analysis(
     output_dir: Path | None = None,
 ) -> dict[str, Any]:
     resolved_kind = AnalysisKind(kind)
-    resolved_config = config or CardAnalysisConfig()
+    resolved_config = config or CardAnalysisConfig(games=default_games_for_kind(resolved_kind))
     resolved = resolve_model(store, model_id)
     if resolved.kind != "checkpoint" or resolved.actor_path is None:
         raise ModelResolutionError("card-choice analysis requires a checkpoint candidate")
@@ -662,9 +878,8 @@ def run_card_analysis(
         progress=progress,
         cancelled=cancelled,
     )
-    rated = rate_choice_decisions(
-        simulated.pop("decisions"), resolved_kind, k_factor=resolved_config.k_factor
-    )
+    decisions = simulated.pop("decisions")
+    rated = rate_choice_decisions(decisions, resolved_kind, k_factor=resolved_config.k_factor)
     result: dict[str, Any] = {
         "kind": resolved_kind.value,
         "model": {
@@ -678,12 +893,16 @@ def run_card_analysis(
         "config": resolved_config.to_dict(),
         "rating_model": (
             "multinomial_elo_plackett_luce_adaptive_k"
-            if resolved_kind == AnalysisKind.ACQUIRE
+            if _is_acquire_kind(resolved_kind)
             else "pairwise_elo_adaptive_k"
         ),
         "duration_seconds": time.monotonic() - started,
         "completed_at": datetime.now(UTC).isoformat(),
     }
+    if resolved_kind == AnalysisKind.ACQUIRE_BUCKETED:
+        result["bucketed_charts"] = rate_bucketed_acquire_decisions(
+            decisions, k_factor=resolved_config.k_factor
+        )
     result["report_text"] = format_analysis_report(result)
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -717,7 +936,7 @@ class CardAnalysisManager:
         config: CardAnalysisConfig | None = None,
     ) -> dict[str, Any]:
         resolved_kind = AnalysisKind(kind)
-        resolved_config = config or CardAnalysisConfig()
+        resolved_config = config or CardAnalysisConfig(games=default_games_for_kind(resolved_kind))
         resolved = resolve_model(self.store, model_id)
         if resolved.kind != "checkpoint":
             raise ModelResolutionError("card-choice analysis requires a checkpoint candidate")
@@ -815,15 +1034,19 @@ class CardAnalysisManager:
 
 __all__ = [
     "ACQUIRE_EXPLORER_TARGET",
+    "AcquisitionContext",
     "AnalysisKind",
+    "BUCKETED_ANALYSIS_GAMES",
     "CardAnalysisConfig",
     "CardAnalysisManager",
     "ChoiceDecision",
     "ChoiceOption",
     "DEFAULT_ANALYSIS_GAMES",
     "MAX_ANALYSIS_GAMES",
+    "default_games_for_kind",
     "extract_single_card_turn_decisions",
     "format_analysis_report",
     "rate_choice_decisions",
+    "rate_bucketed_acquire_decisions",
     "run_card_analysis",
 ]

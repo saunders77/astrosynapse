@@ -46,7 +46,7 @@ Trainer cadence and plateau state count only complete, current evidence. A trunc
 
 ## Card-choice Elo probes
 
-- `POST /card-analysis` — queue a probe with `{model_id, kind: "scrap"|"acquire", games?, seed?, max_turns?, max_actions_per_turn?}`. The GUI always requests 1,000 games.
+- `POST /card-analysis` — queue a probe with `{model_id, kind: "scrap"|"acquire"|"acquire_bucketed", games?, seed?, max_turns?, max_actions_per_turn?}`. Standard probes default to 1,000 games; `acquire_bucketed` defaults to 10,000 and returns turn, own-authority, acquired-card-count, opponent-authority, and opponent-top-color charts.
 - `GET /card-analysis?limit={n}&model_id={checkpoint}&run_id={run}` — recent process-local jobs, optionally filtered to one checkpoint or run. The dashboard uses this to reconnect to an active job after a browser refresh.
 - `GET /card-analysis/{id}` — live progress or the completed card leaderboard.
 

@@ -235,6 +235,13 @@ def test_card_analysis_api_queues_and_polls_a_fixed_thousand_game_candidate_job(
         assert response.status_code == 201
         assert response.json()["config"]["games"] == 1_000
         assert calls[0][0:2] == ("candidate-42", "scrap")
+        bucketed = client.post(
+            "/api/card-analysis",
+            json={"model_id": "candidate-42", "kind": "acquire_bucketed"},
+        )
+        assert bucketed.status_code == 201
+        assert bucketed.json()["config"]["games"] == 10_000
+        assert calls[1][0:2] == ("candidate-42", "acquire_bucketed")
         assert client.get("/api/card-analysis/analysis-1").json()["status"] == "running"
         assert client.get("/api/card-analysis/missing").status_code == 404
         listing = client.get(

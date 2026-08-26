@@ -2,10 +2,12 @@ from dataclasses import replace
 
 import pytest
 from astro2.card_analysis import (
+    AcquisitionContext,
     AnalysisKind,
     ChoiceDecision,
     ChoiceOption,
     extract_single_card_turn_decisions,
+    rate_bucketed_acquire_decisions,
     rate_choice_decisions,
 )
 from astro2.cards import CARD_BY_ID
@@ -102,3 +104,68 @@ def test_acquire_elo_is_normalized_to_explorer_and_rates_all_alternatives():
     assert entries["card:2"]["elo"] == pytest.approx(2.0)
     assert entries["card:2"]["elo"] > entries["card:4"]["elo"]
     assert entries["card:2"]["elo"] > entries["card:11"]["elo"]
+
+
+def test_acquire_context_is_captured_before_the_purchase_and_tracks_opponent_color():
+    battle_pod = Action(ActionKind.ACQUIRE, card_id=4, source_zone="trade_row")
+    explorer = Action(ActionKind.ACQUIRE, card_id=2, source_zone="explorer_supply")
+    ram = Action(ActionKind.ACQUIRE, card_id=11, source_zone="trade_row")
+    player_one = _decision(1, DecisionFamily.MAIN, (battle_pod, explorer))
+    player_zero = replace(
+        _decision(2, DecisionFamily.MAIN, (explorer, ram)),
+        observation=replace(
+            _decision(2, DecisionFamily.MAIN, (explorer, ram)).observation,
+            own_authority=37,
+            opponent_authority=24,
+        ),
+    )
+
+    extracted = extract_single_card_turn_decisions(
+        [(1, player_one, battle_pod), (0, player_zero, explorer)],
+        AnalysisKind.ACQUIRE_BUCKETED,
+    )
+
+    contexts = [decision.context for decision in extracted["decisions"]]
+    assert contexts[0] == AcquisitionContext(1, 50, 0, 50, None)
+    assert contexts[1] == AcquisitionContext(2, 37, 0, 24, "green")
+
+
+def test_bucketed_acquire_rates_the_same_decisions_in_all_five_post_hoc_views():
+    explorer = ChoiceOption("card:2", CARD_BY_ID[2].name, "", CARD_BY_ID[2].name)
+    battle_pod = ChoiceOption("card:4", CARD_BY_ID[4].name, "", CARD_BY_ID[4].name)
+    decisions = [
+        ChoiceDecision(
+            explorer,
+            (battle_pod,),
+            AcquisitionContext(1, 9, 0, 27, None),
+        ),
+        ChoiceDecision(
+            battle_pod,
+            (explorer,),
+            AcquisitionContext(23, 17, 5, 31, "green"),
+        ),
+    ]
+
+    charts = rate_bucketed_acquire_decisions(decisions)
+    chart_by_key = {chart["key"]: chart for chart in charts}
+
+    assert list(chart_by_key) == [
+        "turn",
+        "own_authority",
+        "acquired_cards",
+        "opponent_authority",
+        "opponent_top_color",
+    ]
+    assert len(chart_by_key["turn"]["buckets"]) == 20
+    assert chart_by_key["turn"]["buckets"][-1]["label"] == "20+"
+    assert chart_by_key["turn"]["buckets"][-1]["captured_decisions"] == 1
+    assert chart_by_key["own_authority"]["buckets"][1]["label"] == "10–19"
+    assert [bucket["label"] for bucket in chart_by_key["acquired_cards"]["buckets"]] == [
+        "0", "1", "2", "3", "4–5", "6–8", "9–13", "14–21", "22+"
+    ]
+    assert chart_by_key["opponent_top_color"]["unbucketed_decisions"] == 1
+    green = chart_by_key["opponent_top_color"]["buckets"][1]
+    assert green["captured_decisions"] == 1
+    scored_entries = [entry for entry in green["leaderboard"] if entry["decision_count"]]
+    assert {entry["card_color"] for entry in scored_entries} == {"green", "neutral"}
+    assert all(entry["uncertainty"] is not None for entry in scored_entries)

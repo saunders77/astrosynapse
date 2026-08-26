@@ -10,7 +10,12 @@ import time
 from pathlib import Path
 
 from .arena import ArenaManager
-from .card_analysis import AnalysisKind, CardAnalysisConfig, run_card_analysis
+from .card_analysis import (
+    AnalysisKind,
+    CardAnalysisConfig,
+    default_games_for_kind,
+    run_card_analysis,
+)
 from .config import RunConfig, preset_config
 from .hardware import system_snapshot
 from .storage import Store
@@ -86,15 +91,17 @@ def command_card_analysis(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir).expanduser().resolve()
     store = Store(data_dir / "astrosynapse2.sqlite3")
 
+    resolved_games = args.games or default_games_for_kind(args.kind)
+
     def progress(games: int, _single_card_turns: int, _decisions: int) -> None:
-        if games == args.games or games % max(1, args.games // 20) == 0:
-            print(f"{args.kind}: {games:,}/{args.games:,} games", file=sys.stderr)
+        if games == resolved_games or games % max(1, resolved_games // 20) == 0:
+            print(f"{args.kind}: {games:,}/{resolved_games:,} games", file=sys.stderr)
 
     result = run_card_analysis(
         store,
         args.model,
         AnalysisKind(args.kind),
-        CardAnalysisConfig(games=args.games, seed=args.seed),
+        CardAnalysisConfig(games=resolved_games, seed=args.seed),
         progress=progress,
         output_dir=data_dir / "analysis",
     )
@@ -135,11 +142,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     analysis = subparsers.add_parser(
         "card-analysis",
-        help="run a 1,000-game scrap/acquire Elo probe for one checkpoint",
+        help="run a card-choice Elo probe for one checkpoint",
     )
     analysis.add_argument("--model", required=True, help="checkpoint ID to analyze")
     analysis.add_argument("--kind", choices=[kind.value for kind in AnalysisKind], required=True)
-    analysis.add_argument("--games", type=int, default=1_000)
+    analysis.add_argument(
+        "--games",
+        type=int,
+        default=None,
+        help="game count (defaults to 10,000 for acquire_bucketed, otherwise 1,000)",
+    )
     analysis.add_argument("--seed", type=int, default=20260813)
     analysis.add_argument("--data-dir", default=str(PROJECT_ROOT / "data"))
     analysis.set_defaults(func=command_card_analysis)
