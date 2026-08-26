@@ -54,6 +54,135 @@ The selected checkpoint plays both seats using its greedy mean-head deployment p
 
 Completed text and JSON reports are written under `data/analysis/`. Job progress itself is process-local; restarting the backend clears the in-memory job list but does not remove completed reports.
 
+## Manual checkpoint advisor
+
+- `GET /cards` — the 49 canonical Core Set card definitions, ordered by stable `card_id`. A React client may put these objects directly into advisor zones; the advisor trusts their ID and rehydrates the canonical server definition.
+- `POST /advisor/evaluate` — score one manually tracked checkpoint decision without creating or mutating a server game.
+
+The request body is:
+
+```ts
+type CardRef = {
+  card_id: number; // 0..48; the other fields from GET /cards may remain present
+};
+
+type InPlayRef = {
+  card: CardRef;
+  activated: boolean;
+  ally_triggered: boolean;
+  copied_from_stealth_needle?: boolean;
+};
+
+type AdvisorObservation = {
+  version: 2;
+  player_id: 0 | 1;
+  active_player: 0 | 1;       // must equal player_id
+  starting_player: 0 | 1;
+  is_starting_player: boolean;
+  turn: number;
+  action_number: number;
+  own_authority: number;
+  opponent_authority: number;
+  opponent_pending_discard: number;
+  combat: number;
+  trade: number;
+  pending_discard: number;
+  hand: CardRef[];
+  own_deck_count: number;      // own_deck.length + own_known_top.length
+  own_deck: CardRef[];         // scrambled/unknown portion only
+  own_known_top: CardRef[];    // top first
+  own_discard: CardRef[];
+  own_in_play: InPlayRef[];
+  opponent_hand_count: number;
+  opponent_known_hand: CardRef[];
+  opponent_hidden: CardRef[];  // unknown hand + unknown deck, scrambled together
+  opponent_deck_count: number;
+  opponent_known_top: CardRef[];
+  opponent_discard: CardRef[];
+  opponent_in_play: InPlayRef[];
+  trade_row: [CardRef, CardRef, CardRef, CardRef, CardRef];
+  trade_deck_count: number;
+  trade_deck: CardRef[];       // remaining trade-deck multiset, unordered
+  explorers_remaining: number;
+  explorer_supply: CardRef[];  // exactly that many Explorer objects
+  scrap_heap: CardRef[];
+  next_ship_to_top: boolean;
+  blob_cards_played: number;
+  all_allied: boolean;         // true exactly when own_in_play contains Mech World
+  fleet_active: boolean;       // true exactly when own_in_play contains Fleet HQ
+};
+
+type SemanticAction = {
+  kind: "play_card" | "activate_base" | "scrap_for_ability" |
+        "attack_base" | "attack_player" | "acquire" | "end_turn" |
+        "discard_card" | "scrap_card" | "choose_mode" | "copy_ship" |
+        "destroy_base" | "scrap_trade_row" | "free_acquire" | "decline";
+  card_id?: number;            // -1 means no source card
+  target_card_id?: number;     // -1 means no target card
+  ability?: string;
+  source_zone?: string;
+  amount?: number;
+  amount2?: number;
+};
+
+type AdvisorRequest = {
+  model_id: string;
+  observation: AdvisorObservation;
+  decision?: {
+    family: "main" | "discard" | "scrap" | "ability_mode" |
+            "copy_ship" | "destroy_base" | "scrap_trade_row" | "free_acquire";
+    prompt?: string;
+    actions?: SemanticAction[];
+  };
+};
+```
+
+Omit `decision` or set its family to `main` to have the server generate the same semantic main-phase legal set as the game engine. If a client includes actions with a `main` decision, they are ignored in favor of the server-generated legal set; its prompt is still preserved. Main generation requires `pending_discard: 0`; if a forced discard or another nested card choice is unresolved, the client supplies that decision instead. For a nested choice—discard, scrap, ability mode, copy, destroy, trade-row scrap, or free acquire—the client supplies the exact legal semantic actions shown by the physical card. Repeated physical copies with the same semantic action collapse to one checkpoint option, just as they do in the engine. The advisor scores them but never executes them.
+
+Example nested decision fragment:
+
+```json
+{
+  "family": "scrap",
+  "prompt": "Missile Bot: scrap from hand or discard",
+  "actions": [
+    {"kind": "scrap_card", "card_id": 0, "source_zone": "hand"},
+    {"kind": "scrap_card", "card_id": 1, "source_zone": "discard"},
+    {"kind": "decline", "card_id": 20, "ability": "scrap_any"}
+  ]
+}
+```
+
+The response is deliberately flat for the action console:
+
+```json
+{
+  "family": "main",
+  "prompt": "Main phase",
+  "score_semantics": "policy_probability",
+  "expected_win_rate": 0.584,
+  "actions": [
+    {
+      "id": 0,
+      "label": "play card Scout",
+      "kind": "play_card",
+      "card_id": 0,
+      "target_card_id": -1,
+      "ability": "",
+      "source_zone": "hand",
+      "amount": 0,
+      "amount2": 0,
+      "model_value": 0.713,
+      "model_recommended": true
+    }
+  ]
+}
+```
+
+Astro4/Astro5 objective-version-2 checkpoints return normalized legal-action policy shares in `model_value`; `expected_win_rate` is the separate mean state-value estimate. Legacy outcome-head checkpoints return `score_semantics: "win_outcome"`, independent per-action outcome estimates, and `expected_win_rate: null` because they do not expose a separate state-value head.
+
+Undefined cards are never silently encoded as blank slots. Missing/negative card IDs, a null/undefined trade-row card, inconsistent public zone counts, duplicate semantic nested actions, or a non-main decision without actions returns `422`. An unknown checkpoint returns `404`; a checkpoint whose actor was pruned or cannot be loaded returns `409`.
+
 ## Human games
 
 - `GET /games` — active/recent in-memory game sessions.

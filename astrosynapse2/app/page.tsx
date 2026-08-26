@@ -1,5 +1,6 @@
 "use client";
 
+import ManualHardAiMatch from "./manual-hard-ai-match";
 import {
   useEffect,
   useMemo,
@@ -2861,6 +2862,7 @@ export default function Home() {
   const [arenaModels, setArenaModels] = useState<ModelCheckpoint[]>(demoModels);
   const [remoteGame, setRemoteGame] = useState<RemoteGameSession | null>(null);
   const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [playMode, setPlayMode] = useState<"companion" | "simulated">("companion");
   const [branchExperiments, setBranchExperiments] = useState<BranchExperiment[]>([]);
   const [branchSources, setBranchSources] = useState<ModelCheckpoint[]>([]);
   const [branchSourceId, setBranchSourceId] = useState("");
@@ -4673,7 +4675,27 @@ export default function Home() {
           </section>
         ) : null}
 
-        {activeTab === "play" ? (
+        {activeTab === "play" ? <div className="play-mode-switch" role="tablist" aria-label="Play mode">
+          <button type="button" role="tab" aria-selected={playMode === "companion"} className={playMode === "companion" ? "is-active" : ""} onClick={() => setPlayMode("companion")}><strong>Hard AI companion</strong><span>Record the iPad game</span></button>
+          <button type="button" role="tab" aria-selected={playMode === "simulated"} className={playMode === "simulated" ? "is-active" : ""} onClick={() => setPlayMode("simulated")}><strong>Simulated match</strong><span>Play inside Astro2</span></button>
+        </div> : null}
+
+        {activeTab === "play" && playMode === "companion" ? (
+          <section className="tab-panel play-panel manual-play-panel" aria-label="Hard AI companion">
+            <ManualHardAiMatch
+              apiBase={API_BASE}
+              connected={connected}
+              modelGroups={arenaModelGroups.map((group) => ({
+                runId: group.runId,
+                runName: group.runName,
+                models: group.models.map((model) => ({ id: model.id, label: model.label })),
+              }))}
+              onToast={showToast}
+            />
+          </section>
+        ) : null}
+
+        {playMode === "simulated" && activeTab === "play" ? (
           <section className="tab-panel play-panel" aria-labelledby="play-title">
             <header className="section-heading play-heading">
               <div><span className="section-number">05 / PLAY</span><h1 id="play-title">Enter the arena yourself.</h1><p>Challenge any checkpoint through the same legal-action interface used in self-play.</p></div>

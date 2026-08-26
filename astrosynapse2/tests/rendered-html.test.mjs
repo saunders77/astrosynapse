@@ -163,3 +163,47 @@ test("contains the real local API adapters and no disposable starter shell", asy
     await assert.rejects(access(new URL(relativePath, projectRoot)));
   }
 });
+
+test("contains the editable Hard AI companion and stateless checkpoint advisor client", async () => {
+  const [page, companion, styles, server, advisor] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/manual-hard-ai-match.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../backend/astro2/server.py", import.meta.url), "utf8"),
+    readFile(new URL("../backend/astro2/advisor.py", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /Hard AI companion/);
+  assert.match(page, /Simulated match/);
+  assert.match(page, /<ManualHardAiMatch/);
+  assert.match(companion, /Play the checkpoint\. Record the iPad\./);
+  assert.match(companion, /Start new match/);
+  assert.match(companion, /Astro5 first|Astro5/);
+  assert.match(companion, /Hard AI first|Hard AI/);
+  assert.match(companion, /Undefined/);
+  assert.match(companion, /role="combobox"/);
+  assert.match(companion, /Decks & hidden cards/);
+  assert.match(companion, /Scrambled hand \+ deck/);
+  assert.match(companion, /Play from hand/);
+  assert.match(companion, /Attack base/);
+  assert.match(companion, /Trigger ability/);
+  assert.match(companion, /Click the action once/);
+  assert.match(companion, /Play all cards in hand/);
+  assert.match(companion, /What replaced the acquired card/);
+  assert.match(companion, /relay-card-quick-picks/);
+  assert.match(companion, /hardLegalActionKinds/);
+  assert.match(companion, /setHardAmount\(match\.hard\.combat\)/);
+  assert.match(companion, /astroHandCandidateCatalog/);
+  assert.match(companion, /catalogForCard=\{possibleAstroHandCards\}/);
+  assert.match(companion, /reservedCardId: item\.cardId/);
+  assert.match(companion, /expected_win_rate/);
+  assert.match(companion, /model_value/);
+  assert.match(companion, /\/advisor\/evaluate/);
+  assert.match(companion, /localStorage/);
+  assert.match(styles, /\.relay-shell\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\) 355px/);
+  assert.match(styles, /\.relay-card-undefined/);
+  assert.match(server, /@app\.get\("\/api\/cards"\)/);
+  assert.match(server, /@app\.post\("\/api\/advisor\/evaluate"/);
+  assert.match(advisor, /class CheckpointAdvisor/);
+  assert.match(advisor, /def main_phase_actions/);
+});

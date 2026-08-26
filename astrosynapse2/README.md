@@ -14,7 +14,7 @@ This repository is a from-scratch Star Realms self-play system built for a 16 GB
 - paired-seed, seat-swapped canary and promotion evaluation with confidence intervals;
 - durable multi-branch experiments from any compatible champion/checkpoint;
 - a persistent local training dashboard and model registry;
-- a browser game for playing against any retained checkpoint actor.
+- a desktop Hard AI companion for driving any retained checkpoint against a Star Realms game on another device, plus the original simulated browser match.
 
 The original `sim.py` supplied the card/rule reference only. Astrosynapse 2 does not reuse the legacy PPO trainer, lossy feature representation, promotion gate, or GUI.
 
@@ -64,10 +64,20 @@ The Astro5 preset is the recommended M4/16 GB starting point: 8 CPU actors, four
 - **Train** — create a run, select Astro5, Astro4, Astro3, quick validation, or Astro2 compatibility, expose search/governor settings, and start, durably pause, resume, stop, or checkpoint at safe boundaries.
 - **Branch Lab** — choose a compatible generation-4/5 checkpoint from any run, select any combination of 1–8 optimization/search variants, and optionally run the queue automatically. Source checkpoints are pinned and every branch independently receives copied immutable artifacts plus its own seed stream; branches do not continue from the preceding branch's champion. Per-branch budgets can be expressed in minutes, training games, or completed full evaluations. The Branch runner controls always pause, resume, or stop the actually active trainer even when a queued branch is selected for inspection.
 - **Models & Arena** — inspect checkpoint lineage, pin models, download `.actor.npz` exports, compare checkpoints or baselines with exact seed-paired seat swaps, and select any retained candidate for a one-click 1,000-game Scrap Elo or Acquire Elo card-choice probe. Manual comparisons are capped at 2,000 pairs.
-- **Play** — select a checkpoint, choose the starting seat, and play through legal semantic actions. Astro4 shows normalized legal-action policy shares; legacy checkpoints show independent outcome estimates. Baseline games do not invent model scores.
+- **Play** — use the primary **Hard AI companion** while Star Realms runs on your iPad: choose any retained checkpoint and starting player, transcribe the trade row and Hard AI actions, and confirm Astro's recommended action after entering it in the game. Every physical card zone is editable, unknown cards remain visibly `Undefined`, and the companion withholds model advice until the observed position is complete. The secondary **Simulated match** mode preserves the original in-browser game. Astro4/5 recommendations show normalized legal-action policy shares plus the checkpoint's separate expected win rate; legacy checkpoints show independent outcome estimates.
 - **Diagnostics / Settings** — outcome/search losses, natural-state calibration and ensemble diagnostics, objective gradient norms, clipping, normalized entropy, governor multipliers/reasons, replay health, CPU/RAM/Metal telemetry, and audit events.
 
 The first random checkpoint is only a lineage root and initial deployment anchor, not a trained opponent. After that root, “champion” means the latest model to pass its persisted automatic paired-evaluation contract; adaptive early tiers use fewer pairs than the mature 2,000-pair gate. It is not an absolute Elo claim.
+
+### Hard AI companion workflow
+
+1. Run Star Realms against the Hard AI on the iPad, then open **Play → Hard AI companion** on the computer.
+2. Select a retained checkpoint, choose who goes first, and start the match. The companion auto-saves the table in browser storage.
+3. Enter card names with the autocomplete editor. Use `Undefined` for cards that have not been revealed yet; every card can be edited, added, moved through an action, or deleted later to correct transcription mistakes.
+4. On the Hard AI turn, record each play, acquire, attack, ability, scrap, discard, or other prompted decision. Open **Decks & hidden cards** to maintain known top cards and the deliberately unordered hidden pools.
+5. On Astro's turn, review the checkpoint's ranked legal actions, policy/value for every action, and expected win rate. Stage one action, enter it on the iPad, then click **I entered this on the iPad**. Supply any newly revealed cards before requesting the next recommendation.
+
+The companion is intentionally local: it reads checkpoint files through the loopback control API and is designed to stay open on the computer beside the iPad game.
 
 ### Branch Lab workflow
 

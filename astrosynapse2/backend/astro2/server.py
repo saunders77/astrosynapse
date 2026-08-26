@@ -16,6 +16,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from .advisor import (
+    AdvisorEvaluateRequest,
+    AdvisorEvaluation,
+    AdvisorInputError,
+    AdvisorModelError,
+    CheckpointAdvisor,
+    card_catalog,
+)
 from .arena import (
     MAX_PAIRS,
     RECOMMENDED_PAIRS,
@@ -128,6 +136,7 @@ async def lifespan(app: FastAPI):
     app.state.store = store
     app.state.arena = ArenaManager(store)
     app.state.card_analysis = CardAnalysisManager(store, DATA_DIR / "analysis")
+    app.state.advisor = CheckpointAdvisor()
     app.state.supervisor = Supervisor(
         store,
         PROJECT_ROOT,
@@ -139,6 +148,7 @@ async def lifespan(app: FastAPI):
     finally:
         app.state.supervisor.shutdown()
         app.state.play.shutdown()
+        app.state.advisor.clear()
         app.state.card_analysis.shutdown()
         app.state.arena.shutdown()
 
@@ -180,6 +190,10 @@ def _arena(request: Request) -> ArenaManager:
 
 def _card_analysis(request: Request) -> CardAnalysisManager:
     return request.app.state.card_analysis
+
+
+def _advisor(request: Request) -> CheckpointAdvisor:
+    return request.app.state.advisor
 
 
 def _artifact_retention(checkpoint: dict[str, Any]) -> dict[str, Any]:
@@ -300,6 +314,13 @@ def presets() -> dict[str, Any]:
         "m4_24h": RunConfig().model_dump(),
         "quick": RunConfig.quick().model_dump(),
     }
+
+
+@app.get("/api/cards")
+def cards() -> list[dict[str, Any]]:
+    """Canonical card objects used by manual advisor observations."""
+
+    return card_catalog()
 
 
 @app.get("/api/branches")
@@ -603,6 +624,28 @@ def card_analysis_job(job_id: str, request: Request) -> dict[str, Any]:
         return _card_analysis(request).get(job_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="card analysis job not found") from error
+
+
+@app.post("/api/advisor/evaluate", response_model=AdvisorEvaluation)
+def evaluate_advisor(
+    payload: AdvisorEvaluateRequest,
+    request: Request,
+) -> AdvisorEvaluation:
+    """Score one manually supplied checkpoint decision without mutating a game."""
+
+    try:
+        checkpoint = _store(request).checkpoint(payload.model_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="model not found") from error
+    actor_path = checkpoint.get("actor_path")
+    if not actor_path or not Path(actor_path).is_file():
+        raise HTTPException(status_code=409, detail=_actor_unavailable_detail(checkpoint))
+    try:
+        return _advisor(request).evaluate(actor_path, payload)
+    except AdvisorInputError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except AdvisorModelError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @app.get("/api/games")
