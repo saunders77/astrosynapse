@@ -52,6 +52,7 @@ type CardDefinition = {
 type TrackedCard = {
   uid: string;
   cardId: number | null;
+  knownEmpty?: boolean;
   reservedCardId?: number | null;
   copiedCardId?: number | null;
   activated?: boolean;
@@ -472,7 +473,21 @@ function EditableCard({
   onToggleActivated?: () => void;
   showAllOptions?: boolean;
 }) {
-  const [editing, setEditing] = useState(tracked.cardId === null);
+  const [editing, setEditing] = useState(tracked.cardId === null && !tracked.knownEmpty);
+
+  if (tracked.knownEmpty && !editing) {
+    return (
+      <article className={`relay-card relay-card-empty${compact ? " is-compact" : ""}`}>
+        {topLabel ? <span className="relay-top-label">{topLabel}</span> : null}
+        <strong>Empty slot</strong>
+        <p>Trade deck exhausted</p>
+        <div className="relay-card-controls">
+          <button type="button" onClick={() => setEditing(true)} aria-label="Define empty trade-row slot" title="Edit slot">✎</button>
+          <button type="button" onClick={onDelete} aria-label="Delete empty trade-row slot" title="Delete slot">×</button>
+        </div>
+      </article>
+    );
+  }
 
   if (editing || tracked.cardId === null) {
     return (
@@ -486,7 +501,7 @@ function EditableCard({
             if (cardId !== null) setEditing(false);
           }}
           onCancel={() => {
-            if (tracked.cardId !== null) setEditing(false);
+            if (tracked.cardId !== null || tracked.knownEmpty) setEditing(false);
           }}
           listboxId={`relay-card-options-${tracked.uid}`}
           autoFocus={tracked.cardId !== null}
@@ -647,6 +662,7 @@ function unresolvedCards(match: ManualMatch, definitions: Map<number, CardDefini
     ["scrapHeap", "scrap heap", match.scrapHeap],
   ];
   return zones.flatMap(([zone, label, cards]) => cards.filter((item) => {
+    if (zone === "tradeRow" && item.knownEmpty) return false;
     const cardId = zone === "astroInPlay" || zone === "hardInPlay" ? effectiveCardId(item) : item.cardId;
     return cardId === null || !definitions.has(cardId);
   }).map((item) => ({ zone, uid: item.uid, label })));
@@ -1227,7 +1243,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
         if ((zone === "astroInPlay" || zone === "hardInPlay") && item.copiedCardId !== undefined && item.copiedCardId !== null) {
           return { ...item, copiedCardId: cardId };
         }
-        return { ...item, cardId, copiedCardId: undefined };
+        return { ...item, cardId, knownEmpty: false, copiedCardId: undefined };
       }));
       if (zone === "astroHand" && target && cardId !== null) {
         const outgoingCardId = target.cardId ?? target.reservedCardId;
@@ -1392,6 +1408,11 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
   }, [definitions]);
 
   const applyAstroAction = useCallback((action: SemanticAction) => {
+    const tradeRefillSlot = action.kind === "acquire" && action.source_zone === "trade_row"
+      ? match.tradeRow.findIndex((item) => item.cardId === action.card_id)
+      : ["scrap_trade_row", "free_acquire"].includes(action.kind)
+        ? match.tradeRow.findIndex((item) => item.cardId === action.target_card_id)
+        : -1;
     setMatch((current) => {
       const priorDecision = current.pendingDecision;
       let next: ManualMatch = { ...current, pendingDecision: null, actionNumber: current.actionNumber + 1 };
@@ -1579,7 +1600,8 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
       setHardActionOpen(true);
     }
     setRecommendation(null);
-  }, [applySimpleEffect, definitions, match.hard.pendingDiscard]);
+    if (tradeRefillSlot >= 0) setPendingTradeRefillSlot(tradeRefillSlot);
+  }, [applySimpleEffect, definitions, match.hard.pendingDiscard, match.tradeRow]);
 
   const playAll = useCallback(() => {
     for (const item of match.astro.hand) {
@@ -1590,7 +1612,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
   }, [applyAstroAction, definitions, match.astro.hand]);
 
   const recordHardAction = () => {
-    const acquiredTradeRowSlot = hardActionKind === "acquire" && hardTargetUid !== "explorer-supply"
+    const refilledTradeRowSlot = ((hardActionKind === "acquire" && hardTargetUid !== "explorer-supply") || hardActionKind === "scrap_row")
       ? match.tradeRow.findIndex((item) => item.uid === hardTargetUid)
       : -1;
     setMatch((current) => {
@@ -1816,8 +1838,8 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
       setHardDecisionNotice("");
       setHardActionOpen(false);
     }
-    if (acquiredTradeRowSlot >= 0) {
-      setPendingTradeRefillSlot(acquiredTradeRowSlot);
+    if (refilledTradeRowSlot >= 0) {
+      setPendingTradeRefillSlot(refilledTradeRowSlot);
       setHardActionOpen(false);
     }
     setRecommendation(null);
@@ -1921,8 +1943,8 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
         <aside className="relay-command" aria-label="Turn command center">
           <div className="relay-command-head">
             <span>{match.activeSide === "astro5" ? "Checkpoint advisor" : "External turn recorder"}</span>
-            <strong>{match.activeSide === "astro5" ? "Next Astro5 action" : "What did the Hard AI do?"}</strong>
-            <small>{match.activeSide === "astro5" ? "Nothing changes until you confirm it happened on the iPad." : "Record one action, then continue until it ends the turn."}</small>
+            <strong>{match.activeSide === "astro5" ? match.pendingDecision ? "Resolve the card effect" : "Next Astro5 action" : "What did the Hard AI do?"}</strong>
+            <small>{match.activeSide === "astro5" ? match.pendingDecision ? currentDecision.prompt : "Click once after entering the action on the iPad." : "Record one action, then continue until it ends the turn."}</small>
             {match.activeSide === "astro5" && match.pendingDecision ? <button type="button" className="relay-clear-decision" onClick={() => { setMatch((current) => ({ ...current, pendingDecision: null })); setRecommendation(null); }}>Clear this prompted decision</button> : null}
           </div>
 
@@ -1943,9 +1965,16 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
               {unresolved.length > 5 ? <small>+ {unresolved.length - 5} more</small> : null}
             </div>
           ) : recommendationState === "loading" ? (
-            <div className="relay-thinking"><i /><strong>Astro5 is scoring the position</strong><span>Every legal action is being compared.</span></div>
+            <div className="relay-thinking"><i /><strong>{match.pendingDecision ? currentDecision.prompt : "Astro5 is scoring the position"}</strong><span>Every legal option is being compared.</span></div>
           ) : recommendation ? (
             <>
+              {recommendation.family !== "main" ? (
+                <div className="relay-triggered-decision">
+                  <span>Card-triggered decision · {titleCase(recommendation.family)}</span>
+                  <strong>{recommendation.prompt}</strong>
+                  <small>{recommendation.actions.length} legal {recommendation.actions.length === 1 ? "option" : "options"} scored by {checkpointLabel}</small>
+                </div>
+              ) : null}
               <div className="relay-win-rate">
                 <span>Expected win rate</span>
                 <strong>{formatPercent(recommendation.expected_win_rate)}</strong>
@@ -1960,10 +1989,10 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
                 </button>
               ) : null}
               <div className="relay-alternatives">
-                <header><span>All legal actions</span><small>{recommendation.score_semantics === "policy_probability" ? "policy share" : "value"}</small></header>
+                <header><span>All {recommendation.actions.length} legal {recommendation.actions.length === 1 ? "option" : "options"}</span><small>{recommendation.score_semantics === "policy_probability" ? "policy share" : "value"}</small></header>
                 {recommendation.actions.map((action) => (
                   <button key={action.id} type="button" className={action.model_recommended ? "is-best" : ""} onClick={() => applyAstroAction(action)}>
-                    <span>{action.label}</span><b>{formatPercent(action.model_value)}</b>
+                    <span>{action.label}{action.model_recommended ? <em>Recommended</em> : null}</span><b>{formatPercent(action.model_value)}</b>
                   </button>
                 ))}
               </div>
@@ -1974,7 +2003,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
               <strong>{recommendationState === "error" ? "Position could not be scored" : "Advisor is offline"}</strong>
               <p>{recommendationState === "error" ? advisorError || "Check the edited card counts and try again. The board remains saved." : "Start the local Astro5 service to see checkpoint values and expected win rate."}</p>
               <button type="button" onClick={() => setAdvisorAttempt((attempt) => attempt + 1)}>Retry checkpoint advisor</button>
-              <div className="relay-unscored-actions">{currentDecision.actions.slice(0, 8).map((action) => <span key={action.id}>{action.label}</span>)}</div>
+              <div className="relay-unscored-actions">{currentDecision.actions.map((action) => <span key={action.id}>{action.label}</span>)}</div>
             </div>
           )}
 
@@ -2008,10 +2037,10 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
       ) : null}
 
       {pendingTradeRefillSlot !== null ? (
-        <RelayModal title="What replaced the acquired card?" kicker={`Trade-row slot ${pendingTradeRefillSlot + 1}`} onClose={() => setPendingTradeRefillSlot(null)}>
+        <RelayModal title="What is the trade-row replacement?" kicker={`Trade-row slot ${pendingTradeRefillSlot + 1}`} onClose={() => setPendingTradeRefillSlot(null)}>
           <div className="relay-refill-prompt">
             <strong>Choose the new trade-row card</strong>
-            <p>The slot stays unresolved until you enter the replacement shown on the iPad.</p>
+            <p>The engine refills every acquired or scrapped trade-row slot. Enter the replacement shown on the iPad before continuing.</p>
             <CardNameEditor
               value={undefined}
               catalog={[...new Map(remainingTradeDeck(match, catalog).map((definition) => [definition.card_id, definition])).values()]}
@@ -2026,6 +2055,12 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
               listboxId="relay-trade-refill-options"
               autoFocus
             />
+            {!remainingTradeDeck(match, catalog).length ? <button type="button" className="relay-empty-refill" onClick={() => {
+              setMatch((current) => withEvent({ ...current, tradeRow: current.tradeRow.map((item, index) => index === pendingTradeRefillSlot ? { ...item, cardId: null, knownEmpty: true } : item) }, "system", "Trade deck exhausted; the market slot remains empty"));
+              setPendingTradeRefillSlot(null);
+              setHardActionOpen(false);
+              invalidateAdvice();
+            }}>Trade deck is empty — leave this slot empty</button> : null}
           </div>
         </RelayModal>
       ) : null}

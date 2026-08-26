@@ -189,13 +189,16 @@ test("contains the editable Hard AI companion and stateless checkpoint advisor c
   assert.match(companion, /Trigger ability/);
   assert.match(companion, /Click the action once/);
   assert.match(companion, /Play all cards in hand/);
-  assert.match(companion, /What replaced the acquired card/);
+  assert.match(companion, /What is the trade-row replacement/);
   assert.match(companion, /relay-card-quick-picks/);
   assert.match(companion, /hardLegalActionKinds/);
   assert.match(companion, /setHardAmount\(match\.hard\.combat\)/);
   assert.match(companion, /astroHandCandidateCatalog/);
   assert.match(companion, /catalogForCard=\{possibleAstroHandCards\}/);
   assert.match(companion, /reservedCardId: item\.cardId/);
+  assert.match(companion, /Card-triggered decision/);
+  assert.match(companion, /Resolve the card effect/);
+  assert.match(companion, /All \{recommendation\.actions\.length\} legal/);
   assert.match(companion, /expected_win_rate/);
   assert.match(companion, /model_value/);
   assert.match(companion, /\/advisor\/evaluate/);

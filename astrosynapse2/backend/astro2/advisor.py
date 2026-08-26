@@ -120,7 +120,7 @@ class AdvisorObservation(BaseModel):
     opponent_known_top: list[CardReference]
     opponent_discard: list[CardReference]
     opponent_in_play: list[InPlayReference]
-    trade_row: list[CardReference] = Field(min_length=5, max_length=5)
+    trade_row: list[CardReference | None] = Field(min_length=5, max_length=5)
     trade_deck_count: int = Field(ge=0)
     trade_deck: list[CardReference]
     explorers_remaining: int = Field(ge=0, le=10)
@@ -202,7 +202,7 @@ class AdvisorObservation(BaseModel):
             opponent_known_top=cards(self.opponent_known_top),
             opponent_discard=cards(self.opponent_discard),
             opponent_in_play=tuple(item.in_play() for item in self.opponent_in_play),
-            trade_row=cards(self.trade_row),
+            trade_row=tuple(item.card() if item is not None else None for item in self.trade_row),
             trade_deck_count=self.trade_deck_count,
             trade_deck=cards(self.trade_deck),
             explorers_remaining=self.explorers_remaining,
@@ -476,16 +476,13 @@ def _validate_supplied_actions(
                 raise AdvisorInputError(
                     f"{action.label} does not reference its declared hand/discard zone"
                 )
-        elif action.kind in {
-            ActionKind.ACTIVATE_BASE,
-            ActionKind.SCRAP_FOR_ABILITY,
-            ActionKind.CHOOSE_MODE,
-            ActionKind.COPY_SHIP,
-            ActionKind.DESTROY_BASE,
-            ActionKind.SCRAP_TRADE_ROW,
-            ActionKind.FREE_ACQUIRE,
-            ActionKind.DECLINE,
-        } and action.card_id not in own_in_play:
+        # A nested effect can legally outlive its source in the public zones:
+        # scrapping Battlecruiser resolves its draw/destroy choice after the
+        # card has moved to the scrap heap, and a scrapped Stealth Needle may
+        # identify that source by the copied card id.  The engine has already
+        # emitted that triggered decision, so validate its targets below while
+        # requiring in-play membership only for copy selection itself.
+        elif action.kind == ActionKind.COPY_SHIP and action.card_id not in own_in_play:
             raise AdvisorInputError(
                 f"{action.label} does not reference a card in own_in_play"
             )

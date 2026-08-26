@@ -150,6 +150,52 @@ def test_advisor_scores_generated_and_supplied_nested_decisions_with_actor_choos
         decision_from_request(AdvisorEvaluateRequest.model_validate(undefined_action))
 
 
+def test_triggered_decision_remains_scoreable_after_its_source_was_scrapped():
+    payload = _request_payload()
+    payload["observation"]["opponent_in_play"].append(
+        {
+            "card": CARD_BY_NAME["Trading Post"].to_dict(),
+            "activated": True,
+            "ally_triggered": False,
+            "copied_from_stealth_needle": False,
+        }
+    )
+    payload["decision"] = {
+        "family": "destroy_base",
+        "prompt": "Battlecruiser: optionally destroy a base",
+        "actions": [
+            {
+                "kind": "destroy_base",
+                "card_id": CARD_BY_NAME["Battlecruiser"].card_id,
+                "target_card_id": CARD_BY_NAME["Trading Post"].card_id,
+                "ability": "destroy_base",
+                "source_zone": "opponent_in_play",
+            },
+            {
+                "kind": "decline",
+                "card_id": CARD_BY_NAME["Battlecruiser"].card_id,
+                "ability": "destroy_base",
+            },
+        ],
+    }
+
+    decision = decision_from_request(AdvisorEvaluateRequest.model_validate(payload))
+
+    assert decision.family.value == "destroy_base"
+    assert [action.kind.value for action in decision.actions] == ["destroy_base", "decline"]
+
+
+def test_advisor_accepts_empty_trade_row_slots_after_trade_deck_exhaustion():
+    payload = _request_payload()
+    payload["observation"]["trade_row"][0] = None
+
+    request = AdvisorEvaluateRequest.model_validate(payload)
+    decision = decision_from_request(request)
+
+    assert request.observation.observation().trade_row[0] is None
+    assert decision.actions[-1].kind.value == "end_turn"
+
+
 def test_card_catalog_and_advisor_http_contract(tmp_path, monkeypatch):
     class FakeActorChooser:
         def __init__(self, _actor_path):
