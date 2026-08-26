@@ -10,6 +10,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * Local trainer API contract (all routes are rooted at API_BASE):
@@ -2777,7 +2778,7 @@ function CardInventory({ game, onClose }: { game: GameState; onClose: () => void
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div className="inventory-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
     }}>
@@ -2791,7 +2792,8 @@ function CardInventory({ game, onClose }: { game: GameState; onClose: () => void
           <article><h3><span className="player-avatar opponent-avatar">AI</span>Opponent cards</h3><CardCollection label="Hidden hand + deck" cards={game.opponentHidden} /><CardCollection label="Discard pile" cards={game.opponentDiscard} /></article>
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
