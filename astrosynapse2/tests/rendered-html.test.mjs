@@ -80,7 +80,9 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /kind === "acquire_bucketed" \? 10_000 : 1_000/);
   assert.match(page, /BucketedEloChart/);
   assert.match(page, /width = 1_920/);
-  assert.match(page, /uncertainty bars visible/);
+  assert.match(page, /Percentile within bucket/);
+  assert.match(page, /percentileUncertainty/);
+  assert.match(page, /percentile uncertainty bars visible/);
   assert.match(page, /1,000 standard · 10,000 bucketed/);
   assert.match(page, /model_value/);
   assert.match(page, /expected_win_rate/);

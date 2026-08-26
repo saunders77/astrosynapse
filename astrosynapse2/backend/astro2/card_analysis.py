@@ -569,7 +569,7 @@ def rate_bucketed_acquire_decisions(
         (
             "turn",
             "Turn number",
-            [(str(turn), "20+" if turn == 20 else str(turn)) for turn in range(1, 21)],
+            [(str(turn), "30+" if turn == 30 else str(turn)) for turn in range(1, 31)],
         ),
         (
             "own_authority",
@@ -604,7 +604,7 @@ def rate_bucketed_acquire_decisions(
     for decision in contextual:
         context = decision.context
         assert context is not None
-        grouped["turn"][str(min(20, max(1, context.turn)))].append(decision)
+        grouped["turn"][str(min(30, max(1, context.turn)))].append(decision)
         grouped["own_authority"][_ten_authority_bucket(context.own_authority)[0]].append(
             decision
         )
@@ -837,7 +837,7 @@ def format_analysis_report(result: dict[str, Any]) -> str:
         lines.extend(
             [
                 "Ratings were grouped after simulation from the pre-acquisition game state.",
-                "Turn 20 includes turn 20 and later; opponent color uses the most recently acquired tied leader.",
+                "Turn 30 includes turn 30 and later; opponent color uses the most recently acquired tied leader.",
                 "Opponent-color states before any colored opponent acquisition are reported as unbucketed.",
                 "",
                 "Charts: turn, own authority, acquired-card count, opponent authority, opponent top-acquired color.",

@@ -428,10 +428,10 @@ code {
 }
 
 .workspace {
-  width: min(1500px, calc(100% - 52px));
+  width: 100%;
   min-height: calc(100vh - 180px);
   margin: 0 auto;
-  padding: 34px 0 70px;
+  padding: 34px 12px 70px;
 }
 
 .tab-panel {
@@ -1787,8 +1787,8 @@ textarea:focus {
 }
 
 .bucketed-chart-frame {
-  max-width: 100%;
-  overflow-x: auto;
+  width: 100%;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #050a10;
@@ -1796,8 +1796,9 @@ textarea:focus {
 
 .bucketed-elo-svg {
   display: block;
-  width: 1920px;
-  height: 1080px;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
   font-family: var(--mono);
 }
 
@@ -3564,7 +3565,7 @@ button.game-card:hover:not(:disabled) {
 
 @media (max-width: 1180px) {
   .topbar { padding: 0 22px; }
-  .workspace { width: min(100% - 32px, 1400px); }
+  .workspace { width: 100%; padding-inline: 10px; }
   .overview-grid { grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.7fr); }
   .live-stats-panel { grid-column: 1 / -1; }
   .event-panel { grid-column: auto; }
@@ -3624,7 +3625,7 @@ button.game-card:hover:not(:disabled) {
   .primary-tabs::-webkit-scrollbar { display: none; }
   .primary-tabs button { flex: 0 0 auto; padding-inline: 12px; font-size: 10px; }
   .primary-tabs button::after { right: 12px; left: 12px; }
-  .workspace { width: calc(100% - 22px); padding-top: 20px; }
+  .workspace { width: 100%; padding: 20px 6px 70px; }
   .mission-copy { padding: 28px 21px 24px; }
   .mission-copy h1 { font-size: 38px; }
   .eyebrow-row { align-items: flex-start; flex-direction: column; gap: 8px; }

@@ -142,7 +142,7 @@ def test_bucketed_acquire_rates_the_same_decisions_in_all_five_post_hoc_views():
         ChoiceDecision(
             battle_pod,
             (explorer,),
-            AcquisitionContext(23, 17, 5, 31, "green"),
+            AcquisitionContext(33, 17, 5, 31, "green"),
         ),
     ]
 
@@ -156,8 +156,8 @@ def test_bucketed_acquire_rates_the_same_decisions_in_all_five_post_hoc_views():
         "opponent_authority",
         "opponent_top_color",
     ]
-    assert len(chart_by_key["turn"]["buckets"]) == 20
-    assert chart_by_key["turn"]["buckets"][-1]["label"] == "20+"
+    assert len(chart_by_key["turn"]["buckets"]) == 30
+    assert chart_by_key["turn"]["buckets"][-1]["label"] == "30+"
     assert chart_by_key["turn"]["buckets"][-1]["captured_decisions"] == 1
     assert chart_by_key["own_authority"]["buckets"][1]["label"] == "10–19"
     assert [bucket["label"] for bucket in chart_by_key["acquired_cards"]["buckets"]] == [
