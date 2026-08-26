@@ -3204,6 +3204,18 @@ button.game-card:hover:not(:disabled) {
 .action-button b { color: inherit; font-size: 9px; font-weight: 620; }
 .action-button span { color: var(--faint); font-size: 7px; }
 .action-button i { grid-column: 2; grid-row: 1 / span 2; color: var(--faint); font-family: var(--mono); font-size: 8px; font-style: normal; }
+.action-button .action-policy-share {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-2px);
+  transition: opacity 140ms ease, transform 140ms ease, visibility 140ms ease;
+}
+.action-button:hover .action-policy-share,
+.action-button:focus-visible .action-policy-share {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
 
 .game-log > p {
   display: grid;

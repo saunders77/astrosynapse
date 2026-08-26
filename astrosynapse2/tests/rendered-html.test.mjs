@@ -79,7 +79,7 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /1,000 self-play games/);
   assert.match(page, /model_value/);
   assert.match(page, /expected_win_rate/);
-  assert.doesNotMatch(page, /<Jargon term="outcomeEstimate">Expected win rate/);
+  assert.match(page, /Estimated win probability/);
   assert.match(page, /policy_replay_capacity:\s*config\.policyReplayCapacity/);
   assert.match(page, /policy_replay_disk_capacity:\s*config\.trainingGeneration >= 5/);
   assert.match(page, /Hot policy capacity \(RAM\)/);
@@ -156,6 +156,9 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /onScrap=\{hasScrapAbility \? \(\) => scrapInPlayCard\(card\) : undefined\}/);
   assert.match(styles, /\.card-scrap-action:hover:not\(:disabled\)/);
   assert.match(page, /Model lens · hover to reveal/);
+  assert.match(page, /className="action-policy-share"/);
+  assert.match(styles, /\.action-button:hover \.action-policy-share/);
+  assert.match(styles, /\.action-button:focus-visible \.action-policy-share/);
   assert.match(styles, /\.model-hint:hover \.model-hint-details/);
   assert.match(styles, /\.model-hint:focus-visible \.model-hint-details/);
   assert.match(page, /Primary: \$\{describeAbility\(item\.primary, 0\)\}/);
