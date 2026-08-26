@@ -4074,9 +4074,17 @@ export default function Home() {
     }
   };
 
-  const acquireSelected = () => {
-    const card = game.market.find((item) => item.id === selectedCard);
-    if (!card || card.cost > game.trade) return;
+  const acquireMarketCard = (card: GameCard) => {
+    if (remoteGame) {
+      const acquireAction = remoteGame.actions.find(
+        (action) => action.kind === "acquire" && action.cardId === card.catalogId,
+      );
+      if (acquireAction && remoteGame.status === "your_turn") {
+        submitRemoteChoice(acquireAction.id);
+      }
+      return;
+    }
+    if (card.cost > game.trade) return;
     setGame((current) => ({
       ...current,
       trade: current.trade - card.cost,
@@ -4087,6 +4095,12 @@ export default function Home() {
     }));
     setSelectedCard(null);
   };
+
+  const canAcquireMarketCard = (card: GameCard) => remoteGame
+    ? remoteGame.status === "your_turn"
+      && commandBusy !== "game-choice"
+      && remoteGame.actions.some((action) => action.kind === "acquire" && action.cardId === card.catalogId)
+    : card.cost <= game.trade;
 
   const attackOpponent = () => {
     if (game.attack <= 0) return;
@@ -4711,8 +4725,8 @@ export default function Home() {
                 </section>
 
                 <section className="market-zone" aria-label="Trade row">
-                  <header><span>Trade row</span><p>Click a card to inspect or acquire it</p><div className="explorer-stack"><b>{game.explorersRemaining}</b><span>Explorers left</span><small>cost 2 each</small></div></header>
-                  <div className="market-row">{game.market.map((card) => <CardTile key={card.id} card={card} selected={selectedCard === card.id} disabled={card.cost > game.trade} onClick={() => setSelectedCard(card.id)} />)}{game.market.length === 0 ? <EmptyState title="Trade row depleted" detail="Start a new game to restore the market." /> : null}</div>
+                  <header><span>Trade row</span><p>Click an affordable card to acquire it</p><div className="explorer-stack"><b>{game.explorersRemaining}</b><span>Explorers left</span><small>cost 2 each</small></div></header>
+                  <div className="market-row">{game.market.map((card) => <CardTile key={card.id} card={card} disabled={!canAcquireMarketCard(card)} onClick={() => acquireMarketCard(card)} />)}{game.market.length === 0 ? <EmptyState title="Trade row depleted" detail="Start a new game to restore the market." /> : null}</div>
                 </section>
 
                 <section className="player-zone human-zone" aria-label="Your board">
@@ -4730,20 +4744,18 @@ export default function Home() {
                 <div className="decision-label"><span className="connection-pulse" /><p><small>{remoteGame?.status === "model_thinking" ? "Opponent thinking" : remoteGame?.status === "complete" ? "Game complete" : "Decision requested"}</small><strong>{remoteGame?.result ?? remoteGame?.prompt ?? "Your main phase"}</strong></p><b>Turn {game.turn}</b></div>
                 <div className="legal-actions">
                   <span className="panel-kicker"><Jargon term="actions">Legal actions</Jargon></span>
-                  {remoteGame ? remoteGame.actions.map((action, index) => <button key={action.id} type="button" className={`action-button${action.recommended ? " is-recommended" : ""}`} onClick={() => submitRemoteChoice(action.id)} disabled={commandBusy === "game-choice" || remoteGame.status !== "your_turn"}><b>{titleCase(action.label)}</b><span>{action.modelValue === null ? `${titleCase(remoteGame.family)} · legal engine action` : `${formatPercent(action.modelValue)} ${remoteGame.scoreSemantics === "policy_probability" ? "legal-action policy share" : "acting-player outcome value"}${action.recommended ? " · model choice" : ""}`}</span><i>{index + 1}</i></button>) : <>
+                  {remoteGame ? remoteGame.actions.map((action, index) => <button key={action.id} type="button" className="action-button" onClick={() => submitRemoteChoice(action.id)} disabled={commandBusy === "game-choice" || remoteGame.status !== "your_turn"}><b>{titleCase(action.label)}</b><span>{titleCase(remoteGame.family)} · legal engine action</span><i>{index + 1}</i></button>) : <>
                     {selectedCard && game.hand.some((card) => card.id === selectedCard) ? <button type="button" className="action-button is-recommended" onClick={() => playHandCard(game.hand.find((card) => card.id === selectedCard)!)}><b>Play selected card</b><span>Resolve its primary effect</span><i>↵</i></button> : null}
-                    {selectedCard && game.market.some((card) => card.id === selectedCard) ? <button type="button" className="action-button is-recommended" onClick={acquireSelected} disabled={(game.market.find((card) => card.id === selectedCard)?.cost ?? 99) > game.trade}><b>Acquire selected</b><span>Cost {(game.market.find((card) => card.id === selectedCard)?.cost ?? 0)} · {game.trade} trade available</span><i>↵</i></button> : null}
                     <button type="button" className="action-button" onClick={attackOpponent} disabled={game.attack <= 0 || game.opponentBases.length > 0}><b>Attack opponent</b><span>{game.opponentBases.length ? "Destroy the outpost first" : `${game.attack} combat available`}</span><i>A</i></button>
                     <button type="button" className="action-button" onClick={endTurn}><b>End turn</b><span>Discard hand and draw five</span><i>E</i></button>
                   </>}
                   {remoteGame && remoteGame.actions.length === 0 ? <EmptyState title={remoteGame.status === "model_thinking" ? "Opponent is thinking" : remoteGame.result ?? "No action pending"} detail={remoteGame.error ?? "The board will update automatically."} /> : null}
                 </div>
-                <div className="choice-inspector"><span className="panel-kicker">Model lens</span>{remoteGame ? (() => {
+                <div className="choice-inspector model-hint" tabIndex={0} aria-label="Model recommendation; hover or focus to reveal"><span className="panel-kicker">Model lens · hover to reveal</span>{remoteGame ? (() => {
                   const recommendation = remoteGame.actions.find((action) => action.recommended);
-                  if (!recommendation || recommendation.modelValue === null) return <><div><span><Jargon term="actionValue">Action values</Jargon></span><strong>Not exposed for this opponent</strong><b>—</b></div><p>Baseline sessions provide legal actions but no model scores; no values are inferred or fabricated.</p></>;
-                  const policyScore = remoteGame.scoreSemantics === "policy_probability";
-                  return <><div><span>Recommended action</span><strong>{titleCase(recommendation.label)}</strong><b>{formatPercent(recommendation.modelValue)}</b></div>{remoteGame.expectedWinRate !== null ? <div><span><Jargon term="outcomeEstimate">Expected win rate</Jargon></span><strong>Current state value</strong><b>{formatPercent(remoteGame.expectedWinRate)}</b></div> : null}<div><span><Jargon term="actionValue">Action semantics</Jargon></span><strong>{policyScore ? "Legal-action policy share" : "Acting-player win outcome"}</strong><b>{policyScore ? "π" : "Q"}</b></div><p>{policyScore ? "Policy shares compare the legal actions. Expected win rate comes separately from Astro4’s state-value heads." : "Values come directly from the checkpoint actor’s bootstrapped heads."} Your choice is sent unchanged.</p></>;
-                })() : <><div><span>Recommended action</span><strong>Play Federation Shuttle</strong><b>42%</b></div><div><span><Jargon term="outcomeEstimate">Outcome estimate</Jargon></span><strong>Acting-player win value</strong><b>56.4%</b></div><p>Illustrative demo values are replaced by live checkpoint scores when the local service connects.</p></>}</div>
+                  if (!recommendation || recommendation.modelValue === null) return <div className="model-hint-details"><span>Recommended action</span><strong>Not exposed for this opponent</strong><b>—</b></div>;
+                  return <div className="model-hint-details"><span>Recommended action</span><strong>{titleCase(recommendation.label)}</strong><b>{formatPercent(recommendation.modelValue)} policy share</b></div>;
+                })() : <div className="model-hint-details"><span>Recommended action</span><strong>Play Federation Shuttle</strong><b>42% policy share</b></div>}</div>
                 <div className="game-log"><header><span className="panel-kicker">Action log</span><button type="button" onClick={() => setGame((current) => ({ ...current, log: [] }))}>Clear</button></header>{game.log.length ? game.log.map((entry, index) => <p key={`${entry}-${index}`}><span>{String(game.turn - Math.min(index, 2)).padStart(2, "0")}</span>{entry}</p>) : <EmptyState title="No actions yet" detail="Play a card to begin the log." />}</div>
               </aside>
             </div>}

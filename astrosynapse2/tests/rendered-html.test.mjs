@@ -79,7 +79,7 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /1,000 self-play games/);
   assert.match(page, /model_value/);
   assert.match(page, /expected_win_rate/);
-  assert.match(page, /Expected win rate/);
+  assert.doesNotMatch(page, /<Jargon term="outcomeEstimate">Expected win rate/);
   assert.match(page, /policy_replay_capacity:\s*config\.policyReplayCapacity/);
   assert.match(page, /policy_replay_disk_capacity:\s*config\.trainingGeneration >= 5/);
   assert.match(page, /Hot policy capacity \(RAM\)/);
@@ -145,6 +145,11 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /<VisiblePile label="Your discard pile" cards=\{game\.ownDiscard\}/);
   assert.match(page, /<VisiblePile label="Opponent discard pile" cards=\{game\.opponentDiscard\}/);
   assert.match(page, /action\.kind === "play_card" && action\.cardId === card\.catalogId/);
+  assert.match(page, /action\.kind === "acquire" && action\.cardId === card\.catalogId/);
+  assert.match(page, /onClick=\{\(\) => acquireMarketCard\(card\)\}/);
+  assert.match(page, /Model lens · hover to reveal/);
+  assert.match(styles, /\.model-hint:hover \.model-hint-details/);
+  assert.match(styles, /\.model-hint:focus-visible \.model-hint-details/);
   assert.match(page, /Primary: \$\{describeAbility\(item\.primary, 0\)\}/);
   assert.match(styles, /Play table: prioritize complete, readable card state over viewport packing/);
   assert.match(styles, /\.play-panel \.hand-row[\s\S]*?overflow: visible/);
