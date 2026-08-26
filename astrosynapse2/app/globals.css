@@ -2262,6 +2262,9 @@ textarea:focus {
 
 .authority-display small { color: var(--faint); font-size: 7px; }
 .authority-display strong { color: var(--danger); font-family: var(--mono); font-size: 19px; font-weight: 540; }
+.attack-target { cursor: pointer; transition: border-color 160ms ease, background 160ms ease, transform 160ms ease; }
+.attack-target:hover:not(:disabled) { transform: translateY(-2px); border-color: rgba(255, 125, 120, 0.62); background: rgba(255, 125, 120, 0.08); }
+.attack-target:disabled { cursor: not-allowed; opacity: 0.56; }
 
 .deck-display {
   position: relative;
@@ -2414,6 +2417,23 @@ button.game-card:hover:not(:disabled) {
 }
 
 .card-stats b { color: var(--ink); font-family: var(--mono); font-size: 9px; }
+.card-scrap-action {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--danger);
+  font: inherit;
+  font-weight: 700;
+  text-align: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 125, 120, 0.45);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.card-scrap-action:hover:not(:disabled) { color: #ffaaa6; text-decoration-color: currentColor; }
+.card-scrap-action:disabled { color: var(--faint); cursor: not-allowed; text-decoration: none; }
 
 .card-compact {
   width: 82px;

@@ -505,6 +505,7 @@ type RemoteGameAction = {
   label: string;
   kind: string;
   cardId: number;
+  targetCardId: number;
   modelValue: number | null;
   recommended: boolean;
 };
@@ -2081,6 +2082,7 @@ function normalizeRemoteGame(raw: unknown, previous: GameState): {
           label: asString(item.label, `Action ${index + 1}`),
           kind: asString(item.kind, ""),
           cardId: asNumber(item.card_id, -1),
+          targetCardId: asNumber(item.target_card_id, -1),
           modelValue: item.model_value === null || item.model_value === undefined ? null : asNumber(item.model_value, 0.5),
           recommended: Boolean(item.model_recommended),
         };
@@ -2669,6 +2671,9 @@ function CardTile({
   count = 1,
   selected = false,
   disabled = false,
+  ariaLabel,
+  onScrap,
+  scrapDisabled = false,
   onClick,
 }: {
   card: GameCard;
@@ -2676,15 +2681,21 @@ function CardTile({
   count?: number;
   selected?: boolean;
   disabled?: boolean;
+  ariaLabel?: string;
+  onScrap?: () => void;
+  scrapDisabled?: boolean;
   onClick?: () => void;
 }) {
+  const scrapParts = card.text.split(/(Scrap:[^·]*)/i);
   const content = (
     <>
       <span className="card-cost" aria-label={`Cost ${card.cost}`}>{card.cost}</span>
       {count > 1 ? <span className="card-count" aria-label={`${count} copies`}>{count}×</span> : null}
       <span className="card-kind">{card.kind}</span>
       <strong className="card-title" title={card.name}>{card.name}</strong>
-      <span className="card-rule">{card.text}</span>
+      <span className="card-rule">{scrapParts.map((part, index) => part.toLowerCase().startsWith("scrap:") && onScrap
+        ? <button key={`${part}-${index}`} type="button" className="card-scrap-action" onClick={onScrap} disabled={scrapDisabled} aria-label={`Scrap ${card.name}`}>{part}</button>
+        : <span key={`${part}-${index}`}>{part}</span>)}</span>
       <span className="card-stats">
         {card.trade ? <span><b>{card.trade}</b> trade</span> : null}
         {card.attack ? <span><b>{card.attack}</b> combat</span> : null}
@@ -2696,7 +2707,7 @@ function CardTile({
   const className = `game-card faction-${card.faction}${compact ? " card-compact" : ""}${selected ? " is-selected" : ""}`;
   if (onClick) {
     return (
-      <button type="button" className={className} onClick={onClick} disabled={disabled} aria-pressed={selected} aria-label={`Play or select ${card.name}`}>
+      <button type="button" className={className} onClick={onClick} disabled={disabled} aria-pressed={selected} aria-label={ariaLabel ?? `Play or select ${card.name}`}>
         {content}
       </button>
     );
@@ -4103,6 +4114,13 @@ export default function Home() {
     : card.cost <= game.trade;
 
   const attackOpponent = () => {
+    if (remoteGame) {
+      const attackAction = remoteGame.actions.find((action) => action.kind === "attack_player");
+      if (attackAction && remoteGame.status === "your_turn") {
+        submitRemoteChoice(attackAction.id);
+      }
+      return;
+    }
     if (game.attack <= 0) return;
     setGame((current) => ({
       ...current,
@@ -4111,6 +4129,71 @@ export default function Home() {
       log: [`You dealt ${current.attack} damage to Orion`, ...current.log],
     }));
   };
+
+  const canAttackOpponent = remoteGame
+    ? remoteGame.status === "your_turn"
+      && commandBusy !== "game-choice"
+      && remoteGame.actions.some((action) => action.kind === "attack_player")
+    : game.attack > 0 && game.opponentBases.length === 0;
+
+  const attackOpponentCard = (card: GameCard) => {
+    if (remoteGame) {
+      const attackAction = remoteGame.actions.find(
+        (action) => action.kind === "attack_base" && action.targetCardId === card.catalogId,
+      );
+      if (attackAction && remoteGame.status === "your_turn") {
+        submitRemoteChoice(attackAction.id);
+      }
+      return;
+    }
+    const combatCost = card.defense ?? 0;
+    if (game.attack <= 0 || game.attack < combatCost) return;
+    setGame((current) => ({
+      ...current,
+      attack: Math.max(0, current.attack - combatCost),
+      opponentInPlay: current.opponentInPlay.filter((item) => item.id !== card.id),
+      opponentBases: current.opponentBases.filter((item) => item.id !== card.id),
+      opponentDiscard: [...current.opponentDiscard, card],
+      log: [`You attacked ${card.name}${combatCost ? ` for ${combatCost} combat` : ""}`, ...current.log],
+    }));
+  };
+
+  const canAttackOpponentCard = (card: GameCard) => remoteGame
+    ? remoteGame.status === "your_turn"
+      && commandBusy !== "game-choice"
+      && remoteGame.actions.some(
+        (action) => action.kind === "attack_base" && action.targetCardId === card.catalogId,
+      )
+    : game.attack > 0 && game.attack >= (card.defense ?? 0);
+
+  const scrapInPlayCard = (card: GameCard) => {
+    if (remoteGame) {
+      const scrapAction = remoteGame.actions.find(
+        (action) => action.kind === "scrap_for_ability" && action.cardId === card.catalogId,
+      );
+      if (scrapAction && remoteGame.status === "your_turn") {
+        submitRemoteChoice(scrapAction.id);
+      }
+      return;
+    }
+    if (!/Scrap:/i.test(card.text)) return;
+    const combatGain = Number(card.text.match(/Scrap:[^·]*?(\d+)\s+combat/i)?.[1] ?? 0);
+    setGame((current) => ({
+      ...current,
+      attack: current.attack + combatGain,
+      humanInPlay: current.humanInPlay.filter((item) => item.id !== card.id),
+      humanBases: current.humanBases.filter((item) => item.id !== card.id),
+      log: [`You scrapped ${card.name}${combatGain ? ` · +${combatGain} combat` : ""}`, ...current.log],
+    }));
+  };
+
+  const canScrapInPlayCard = (card: GameCard) => remoteGame
+    ? remoteGame.status === "your_turn"
+      && commandBusy !== "game-choice"
+      && remoteGame.actions.some(
+        (action) => action.kind === "scrap_for_ability" && action.cardId === card.catalogId,
+      )
+    : /Scrap:/i.test(card.text);
 
   const endTurn = () => {
     setGame((current) => ({
@@ -4719,8 +4802,8 @@ export default function Home() {
             {connected && !remoteGame ? <div className="panel connected-game-empty"><EmptyState title="Start a live game" detail="Choose a checkpoint or the balanced baseline, then create a session. Every card and legal action will come from the engine." /></div> : <div className="game-shell">
               <div className="board-column">
                 <section className="player-zone opponent-zone" aria-label="Opponent board">
-                  <header><div><span className="player-avatar opponent-avatar">AI</span><p><strong>Orion</strong><small>{remoteGame?.modelLabel ?? snapshot.models.find((model) => model.id === playModel)?.label ?? "Balanced baseline"}</small></p></div><DiscardNotice count={game.opponentPendingDiscard} subject="Opponent" /><button type="button" className="zone-cards-button" onClick={() => setInventoryOpen(true)}><b>{game.opponentHandCount}</b><span>hand</span></button><div className="authority-display"><small>Authority</small><strong>{game.opponentAuthority}</strong></div><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View opponent hidden hand and deck pool"><i /><span>{game.opponentDeckCount}<small>deck</small></span></button></header>
-                  <div className="board-zone"><span className="zone-label">Opponent board · all cards in play</span><div className="in-play-row">{game.opponentInPlay.map((card) => <CardTile key={card.id} card={card} compact />)}{!game.opponentInPlay.length ? <span className="empty-card-zone">No cards in play</span> : null}</div></div>
+                  <header><div><span className="player-avatar opponent-avatar">AI</span><p><strong>Orion</strong><small>{remoteGame?.modelLabel ?? snapshot.models.find((model) => model.id === playModel)?.label ?? "Balanced baseline"}</small></p></div><DiscardNotice count={game.opponentPendingDiscard} subject="Opponent" /><button type="button" className="zone-cards-button" onClick={() => setInventoryOpen(true)}><b>{game.opponentHandCount}</b><span>hand</span></button><button type="button" className="authority-display attack-target" onClick={attackOpponent} disabled={!canAttackOpponent} aria-label={`Attack opponent authority with ${game.attack} combat`}><small>Authority</small><strong>{game.opponentAuthority}</strong></button><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View opponent hidden hand and deck pool"><i /><span>{game.opponentDeckCount}<small>deck</small></span></button></header>
+                  <div className="board-zone"><span className="zone-label">Opponent board · click an attackable card to attack it</span><div className="in-play-row">{game.opponentInPlay.map((card) => <CardTile key={card.id} card={card} compact disabled={!canAttackOpponentCard(card)} onClick={() => attackOpponentCard(card)} ariaLabel={`Attack ${card.name}`} />)}{!game.opponentInPlay.length ? <span className="empty-card-zone">No cards in play</span> : null}</div></div>
                   <VisiblePile label="Opponent discard pile" cards={game.opponentDiscard} />
                 </section>
 
@@ -4730,7 +4813,10 @@ export default function Home() {
                 </section>
 
                 <section className="player-zone human-zone" aria-label="Your board">
-                  <div className="board-zone"><span className="zone-label">Your board · all cards in play</span><div className="in-play-row">{game.humanInPlay.map((card) => <CardTile key={card.id} card={card} compact />)}{!game.humanInPlay.length ? <span className="empty-card-zone">No cards in play</span> : null}</div></div>
+                  <div className="board-zone"><span className="zone-label">Your board · all cards in play</span><div className="in-play-row">{game.humanInPlay.map((card) => {
+                    const hasScrapAbility = /Scrap:/i.test(card.text);
+                    return <CardTile key={card.id} card={card} compact onScrap={hasScrapAbility ? () => scrapInPlayCard(card) : undefined} scrapDisabled={hasScrapAbility && !canScrapInPlayCard(card)} />;
+                  })}{!game.humanInPlay.length ? <span className="empty-card-zone">No cards in play</span> : null}</div></div>
                   <header><div><span className="player-avatar human-avatar">YOU</span><p><strong>Hand</strong><small>Turn {game.turn} · click a card to play it</small></p></div><DiscardNotice count={game.pendingDiscard} subject="You" /><div className="resource-pips"><span className="trade-pip"><b>{game.trade}</b>Trade</span><span className="attack-pip"><b>{game.attack}</b>Combat</span></div><div className="authority-display"><small>Authority</small><strong>{game.humanAuthority}</strong></div><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View your hand and unordered deck"><i /><span>{game.deckCount}<small>deck</small></span><span>{game.discardCount}<small>discard</small></span></button></header>
                   <div className="hand-row">{game.hand.map((card) => {
                     const canPlay = !remoteGame || (remoteGame.status === "your_turn" && remoteGame.actions.some((action) => action.kind === "play_card" && action.cardId === card.catalogId));
@@ -4746,7 +4832,7 @@ export default function Home() {
                   <span className="panel-kicker"><Jargon term="actions">Legal actions</Jargon></span>
                   {remoteGame ? remoteGame.actions.map((action, index) => <button key={action.id} type="button" className="action-button" onClick={() => submitRemoteChoice(action.id)} disabled={commandBusy === "game-choice" || remoteGame.status !== "your_turn"}><b>{titleCase(action.label)}</b><span>{titleCase(remoteGame.family)} · legal engine action</span><i>{index + 1}</i></button>) : <>
                     {selectedCard && game.hand.some((card) => card.id === selectedCard) ? <button type="button" className="action-button is-recommended" onClick={() => playHandCard(game.hand.find((card) => card.id === selectedCard)!)}><b>Play selected card</b><span>Resolve its primary effect</span><i>↵</i></button> : null}
-                    <button type="button" className="action-button" onClick={attackOpponent} disabled={game.attack <= 0 || game.opponentBases.length > 0}><b>Attack opponent</b><span>{game.opponentBases.length ? "Destroy the outpost first" : `${game.attack} combat available`}</span><i>A</i></button>
+                    <button type="button" className="action-button" onClick={attackOpponent} disabled={!canAttackOpponent}><b>Attack opponent</b><span>{game.opponentBases.length ? "Destroy the outpost first" : `${game.attack} combat available`}</span><i>A</i></button>
                     <button type="button" className="action-button" onClick={endTurn}><b>End turn</b><span>Discard hand and draw five</span><i>E</i></button>
                   </>}
                   {remoteGame && remoteGame.actions.length === 0 ? <EmptyState title={remoteGame.status === "model_thinking" ? "Opponent is thinking" : remoteGame.result ?? "No action pending"} detail={remoteGame.error ?? "The board will update automatically."} /> : null}
