@@ -50,7 +50,7 @@ older run contracts; selecting Astro4, Astro3, or Astro2 still creates those exa
     coverage. Optimization health is checked every 500 games; strategic state changes only when a
     new canary arrives. Each actor iteration is divided into four microtasks per worker, allowing
     the process pool to steal work around slow games while CPU collection overlaps Metal learning.
-    Branch Lab can fork 1–8 independent recipes from any compatible checkpoint and run them
+    Branch Lab can fork independent recipes from any compatible checkpoint and run them
     sequentially on the single Metal learner.
 
 ## Branch execution model
@@ -63,12 +63,32 @@ the trainer. Stopping a branch pauses its experiment instead of unexpectedly sta
 The GUI's Branch runner controls resolve the backend's active run ID, so pause/stop remain enabled
 and target the correct process even while the user is viewing a queued branch.
 
-The built-in GUI variants are balanced search, search-heavy, entropy recovery, value-first, fast
-exploitation, wide belief search, low-learning-rate long memory, and explorer. They inherit model
+The built-in GUI variants include mature champion refinement, balanced search, search-heavy,
+entropy recovery, value-first, fast exploitation, wide belief search, low-learning-rate long
+memory, and explorer. They inherit model
 architecture from the source checkpoint so the imported weights always remain compatible. The GUI
 allows any subset of these recipes and can stop each branch by elapsed minutes, generated training
 games, or the number of valid completed full promotion evaluations. Game budgets finish at a safe
 actor-batch boundary and may therefore exceed the requested count by the final batch.
+
+## Mature champion refinement
+
+This mode is for a champion that already plays well and needs small, defensible improvements. At
+the branch root it keeps the imported weights but intentionally clears imported optimizer momentum
+and replay, avoiding continued training on a stale losing trajectory. It then runs conservative
+local trials with lower exploration, more searched action-set supervision, a larger champion-history
+share, and rollback to the champion boundary after a failed full evaluation. Pause/resume after the
+branch has begun remains fully durable and restores the branch's own optimizer and replay.
+
+The mature governor monitors clipping, normalized entropy, behavior-policy importance ratios,
+searched-batch coverage, and rolling three-canary trends. It can cool learning-rate/update pressure
+and increase searched supervision within configured bounds. It never weakens promotion confidence.
+
+If a full evaluation is score-positive but its adjusted lower confidence bound still overlaps the
+promotion threshold, the arena adds fixed-size blocks until the advantage is proven, the observed
+score stops leaning positive, or the configured ceiling is reached. The default mature ceiling is
+12,000 pairs and the GUI permits up to 50,000. Confidence is Bonferroni-adjusted for every possible
+extension boundary so optional repeated looks do not make promotion easier.
 
 ## Reading the result
 

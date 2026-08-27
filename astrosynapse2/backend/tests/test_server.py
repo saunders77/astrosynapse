@@ -13,7 +13,13 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         assert health.json()["ok"] is True
 
         presets = client.get("/api/presets").json()
+        mature = presets["astro5_mature"]
         astro5 = presets["astro5_search"]
+        assert mature["governor_strategy"] == "mature"
+        assert mature["reset_optimizer_on_branch_start"] is True
+        assert mature["reset_replay_on_branch_start"] is True
+        assert mature["rejected_candidate_action"] == "restore_lineage"
+        assert mature["evaluation_extension_max_pairs"] == 12_000
         assert astro5["games_per_actor_batch"] == 4
         assert astro5["rollout_tasks_per_actor"] == 4
         assert astro5["reanalysis_fraction"] == 0.0025

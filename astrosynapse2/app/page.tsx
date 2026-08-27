@@ -382,7 +382,7 @@ type RunChoice = {
 
 type TrainerConfig = {
   name: string;
-  preset: "astro5_search" | "astro4_m4" | "astro3_m4" | "m4_24h" | "quick" | "custom";
+  preset: "astro5_mature" | "astro5_search" | "astro4_m4" | "astro3_m4" | "m4_24h" | "quick" | "custom";
   seed: number;
   trainingGeneration: number;
   behaviorPolicy: string;
@@ -448,13 +448,21 @@ type TrainerConfig = {
   canaryEveryGames: number;
   canaryPairs: number;
   realtimeGovernor: boolean;
+  governorStrategy: "standard" | "mature";
   governorIntervalGames: number;
   governorTargetNormalizedEntropy: number;
   evaluationEarlyAcceptance: boolean;
   evaluationEarlyAcceptanceMinPairs: number;
   evaluationEarlyAcceptanceConfidence: number;
+  evaluationExtensionEnabled: boolean;
+  evaluationExtensionMaxPairs: number;
+  evaluationExtensionBlockPairs: number;
+  evaluationExtensionMinScore: number;
+  evaluationExtensionMinLowerBound: number;
   naturalDiagnosticPositions: number;
   checkpointKlLimit: number;
+  resetOptimizerOnBranchStart: boolean;
+  resetReplayOnBranchStart: boolean;
 };
 
 type BranchMember = {
@@ -561,6 +569,11 @@ const arenaBaselines = [
 ];
 
 const branchVariantTemplates = [
+  {
+    id: "mature-refinement",
+    label: "Mature champion refinement",
+    preset: "astro5_mature",
+  },
   { id: "balanced", label: "Balanced search" },
   {
     id: "search-heavy",
@@ -693,13 +706,52 @@ const initialConfig: TrainerConfig = {
   canaryEveryGames: 10_000,
   canaryPairs: 64,
   realtimeGovernor: true,
+  governorStrategy: "standard",
   governorIntervalGames: 500,
   governorTargetNormalizedEntropy: 0.55,
   evaluationEarlyAcceptance: true,
   evaluationEarlyAcceptanceMinPairs: 1_000,
   evaluationEarlyAcceptanceConfidence: 0.995,
+  evaluationExtensionEnabled: true,
+  evaluationExtensionMaxPairs: 4_000,
+  evaluationExtensionBlockPairs: 2_000,
+  evaluationExtensionMinScore: 0.50,
+  evaluationExtensionMinLowerBound: 0.48,
   naturalDiagnosticPositions: 2_000,
   checkpointKlLimit: 0.35,
+  resetOptimizerOnBranchStart: false,
+  resetReplayOnBranchStart: false,
+};
+
+const matureConfig: TrainerConfig = {
+  ...initialConfig,
+  name: "Astro5 mature champion refinement",
+  preset: "astro5_mature",
+  learningRate: 0.00006,
+  policyEntropyWeight: 0.012,
+  epsilonStart: 0.04,
+  epsilonEnd: 0.015,
+  randomizedPriorScale: 0.10,
+  bootstrapInclusionProbability: 0.15,
+  policyReplayDiskSampleFraction: 0.10,
+  reanalysisFraction: 0.005,
+  reanalysisRolloutsPerAction: 2,
+  reanalysisHorizonTurns: 4,
+  reanalysisPolicyLossWeight: 1.25,
+  reanalysisValueLossWeight: 0.75,
+  currentSelfplayFraction: 0.50,
+  deploymentPolicySelfplayFraction: 0.30,
+  leagueFraction: 0.45,
+  baselineFraction: 0.05,
+  canaryEveryGames: 20_000,
+  canaryPairs: 128,
+  evaluateEveryGames: 100_000,
+  governorStrategy: "mature",
+  governorTargetNormalizedEntropy: 0.72,
+  evaluationExtensionMaxPairs: 12_000,
+  evaluationExtensionMinLowerBound: 0,
+  resetOptimizerOnBranchStart: true,
+  resetReplayOnBranchStart: true,
 };
 
 const astro4Config: TrainerConfig = {
@@ -2285,24 +2337,34 @@ function configToApi(config: TrainerConfig): Record<string, string | number | bo
     canary_every_games: config.trainingGeneration >= 5 ? config.canaryEveryGames : 0,
     canary_pairs: config.canaryPairs,
     realtime_governor: config.trainingGeneration >= 5 && config.realtimeGovernor,
+    governor_strategy: config.governorStrategy,
     governor_interval_games: config.governorIntervalGames,
     governor_target_normalized_entropy: config.governorTargetNormalizedEntropy,
     evaluation_early_acceptance: config.trainingGeneration >= 5 && config.evaluationEarlyAcceptance,
     evaluation_early_acceptance_min_pairs: config.evaluationEarlyAcceptanceMinPairs,
     evaluation_early_acceptance_confidence: config.evaluationEarlyAcceptanceConfidence,
+    evaluation_extension_enabled: config.evaluationExtensionEnabled,
+    evaluation_extension_max_pairs: config.evaluationExtensionMaxPairs,
+    evaluation_extension_block_pairs: config.evaluationExtensionBlockPairs,
+    evaluation_extension_min_score: config.evaluationExtensionMinScore,
+    evaluation_extension_min_lower_bound: config.evaluationExtensionMinLowerBound,
     natural_diagnostic_positions: config.naturalDiagnosticPositions,
     checkpoint_kl_limit: config.checkpointKlLimit,
+    reset_optimizer_on_branch_start: config.resetOptimizerOnBranchStart,
+    reset_replay_on_branch_start: config.resetReplayOnBranchStart,
   };
 }
 
 function configFromApi(raw: unknown, prior: TrainerConfig): TrainerConfig {
   const item = isRecord(raw) ? raw : {};
   const presetValue = String(item.preset ?? prior.preset);
-  const preset: TrainerConfig["preset"] = ["astro5_search", "astro4_m4", "astro3_m4", "m4_24h", "quick", "custom"].includes(presetValue)
+  const preset: TrainerConfig["preset"] = ["astro5_mature", "astro5_search", "astro4_m4", "astro3_m4", "m4_24h", "quick", "custom"].includes(presetValue)
     ? presetValue as TrainerConfig["preset"]
     : prior.preset;
   const requestedGeneration = asOptionalNumber(item.training_generation);
-  const previous = preset === "astro5_search"
+  const previous = preset === "astro5_mature"
+    ? matureConfig
+    : preset === "astro5_search"
     ? initialConfig
     : preset === "astro4_m4"
     ? astro4Config
@@ -2449,13 +2511,21 @@ function configFromApi(raw: unknown, prior: TrainerConfig): TrainerConfig {
     canaryEveryGames: asNumber(item.canary_every_games, previous.canaryEveryGames),
     canaryPairs: asNumber(item.canary_pairs, previous.canaryPairs),
     realtimeGovernor: asBoolean(item.realtime_governor, previous.realtimeGovernor),
+    governorStrategy: item.governor_strategy === "mature" ? "mature" : "standard",
     governorIntervalGames: asNumber(item.governor_interval_games, previous.governorIntervalGames),
     governorTargetNormalizedEntropy: asNumber(item.governor_target_normalized_entropy, previous.governorTargetNormalizedEntropy),
     evaluationEarlyAcceptance: asBoolean(item.evaluation_early_acceptance, previous.evaluationEarlyAcceptance),
     evaluationEarlyAcceptanceMinPairs: asNumber(item.evaluation_early_acceptance_min_pairs, previous.evaluationEarlyAcceptanceMinPairs),
     evaluationEarlyAcceptanceConfidence: asNumber(item.evaluation_early_acceptance_confidence, previous.evaluationEarlyAcceptanceConfidence),
+    evaluationExtensionEnabled: asBoolean(item.evaluation_extension_enabled, previous.evaluationExtensionEnabled),
+    evaluationExtensionMaxPairs: asNumber(item.evaluation_extension_max_pairs, previous.evaluationExtensionMaxPairs),
+    evaluationExtensionBlockPairs: asNumber(item.evaluation_extension_block_pairs, previous.evaluationExtensionBlockPairs),
+    evaluationExtensionMinScore: asNumber(item.evaluation_extension_min_score, previous.evaluationExtensionMinScore),
+    evaluationExtensionMinLowerBound: asNumber(item.evaluation_extension_min_lower_bound, previous.evaluationExtensionMinLowerBound),
     naturalDiagnosticPositions: asNumber(item.natural_diagnostic_positions, previous.naturalDiagnosticPositions),
     checkpointKlLimit: asNumber(item.checkpoint_kl_limit, previous.checkpointKlLimit),
+    resetOptimizerOnBranchStart: asBoolean(item.reset_optimizer_on_branch_start, previous.resetOptimizerOnBranchStart),
+    resetReplayOnBranchStart: asBoolean(item.reset_replay_on_branch_start, previous.resetReplayOnBranchStart),
   };
 }
 
@@ -3173,7 +3243,7 @@ export default function Home() {
   const [branchSources, setBranchSources] = useState<ModelCheckpoint[]>([]);
   const [branchSourceId, setBranchSourceId] = useState("");
   const [branchName, setBranchName] = useState("Champion branch lab");
-  const [branchVariantIds, setBranchVariantIds] = useState<string[]>(["balanced", "search-heavy", "entropy-recovery"]);
+  const [branchVariantIds, setBranchVariantIds] = useState<string[]>(["mature-refinement"]);
   const [branchBudgetType, setBranchBudgetType] = useState<BranchBudgetType>("minutes");
   const [branchMinutes, setBranchMinutes] = useState(360);
   const [branchGames, setBranchGames] = useState(50_000);
@@ -3944,7 +4014,10 @@ export default function Home() {
   };
 
   const choosePreset = (preset: TrainerConfig["preset"]) => {
-    if (preset === "astro5_search") {
+    if (preset === "astro5_mature") {
+      basePresetRef.current = "astro5_mature";
+      setConfig(configFromApi(presetCatalogRef.current.astro5_mature, matureConfig));
+    } else if (preset === "astro5_search") {
       basePresetRef.current = "astro5_search";
       setConfig(configFromApi(presetCatalogRef.current.astro5_search, initialConfig));
     } else if (preset === "astro4_m4") {
@@ -4019,19 +4092,6 @@ export default function Home() {
             ...(branchBudgetType === "full_evaluations" ? { budget_full_evaluations: branchFullEvaluations } : {}),
             games_per_actor_batch: 4,
             rollout_tasks_per_actor: 4,
-            reanalysis_fraction: 0.0025,
-            reanalysis_max_per_game: 1,
-            reanalysis_max_actions: 4,
-            reanalysis_rollouts_per_action: 1,
-            reanalysis_horizon_turns: 2,
-            checkpoint_every_games: 10_000,
-            canary_every_games: 10_000,
-            canary_pairs: 64,
-            evaluate_every_games: 50_000,
-            governor_interval_games: 500,
-            evaluation_early_acceptance: true,
-            evaluation_early_acceptance_min_pairs: 1_000,
-            evaluation_early_acceptance_confidence: 0.995,
           },
           auto_advance: branchAutoAdvance,
           start: true,
@@ -4098,10 +4158,16 @@ export default function Home() {
       canary_every_games: config.canaryEveryGames,
       canary_pairs: config.canaryPairs,
       realtime_governor: config.trainingGeneration >= 5 && config.realtimeGovernor,
+      governor_strategy: config.governorStrategy,
       governor_interval_games: config.governorIntervalGames,
       evaluation_early_acceptance: config.trainingGeneration >= 5 && config.evaluationEarlyAcceptance,
       evaluation_early_acceptance_min_pairs: config.evaluationEarlyAcceptanceMinPairs,
       evaluation_early_acceptance_confidence: config.evaluationEarlyAcceptanceConfidence,
+      evaluation_extension_enabled: config.evaluationExtensionEnabled,
+      evaluation_extension_max_pairs: config.evaluationExtensionMaxPairs,
+      evaluation_extension_block_pairs: config.evaluationExtensionBlockPairs,
+      evaluation_extension_min_score: config.evaluationExtensionMinScore,
+      evaluation_extension_min_lower_bound: config.evaluationExtensionMinLowerBound,
     };
     try {
       if (connected) {
@@ -4804,6 +4870,9 @@ export default function Home() {
               <form className="recipe-form panel" onSubmit={saveConfig}>
                 <div className="recipe-title"><div><span className="panel-kicker">Run recipe</span><h2>Choose a flight plan</h2></div><span className="recommended-label">Astro5 · search · live governor</span></div>
                 <div className="preset-grid" role="radiogroup" aria-label="Training preset">
+                  <button type="button" role="radio" aria-checked={config.preset === "astro5_mature"} className={config.preset === "astro5_mature" ? "is-selected" : ""} onClick={() => choosePreset("astro5_mature")}>
+                    <span>Mature models</span><strong>Champion refinement</strong><p>Clean local trials around an imported strong champion, searched supervision, live conservative control, and patient promotion gates.</p><small>Use from Branch Lab · fresh trial state · up to 12k pairs</small>
+                  </button>
                   <button type="button" role="radio" aria-checked={config.preset === "astro5_search"} className={config.preset === "astro5_search" ? "is-selected" : ""} onClick={() => choosePreset("astro5_search")}>
                     <span>Recommended</span><strong>Astro5 search & branching</strong><p>Depth-limited public-belief reanalysis, work-stealing actors, cheap canaries, and a bounded realtime governor.</p><small>1.5m compact decisions · 64-pair canaries · full durable state</small>
                   </button>
@@ -4898,9 +4967,17 @@ export default function Home() {
                           <label><span>Canary cadence</span><input type="number" min={config.checkpointEveryGames} step="1000" value={config.canaryEveryGames} onChange={(event) => updateConfig("canaryEveryGames", Number(event.target.value))} /></label>
                           <label><span>Canary pairs</span><input type="number" min="8" max="2000" value={config.canaryPairs} onChange={(event) => updateConfig("canaryPairs", Number(event.target.value))} /></label>
                           <label><span>Optimization governor cadence</span><input type="number" min="100" step="100" value={config.governorIntervalGames} onChange={(event) => updateConfig("governorIntervalGames", Number(event.target.value))} /></label>
+                          <label><span>Governor strategy</span><select value={config.governorStrategy} onChange={(event) => updateConfig("governorStrategy", event.target.value as "standard" | "mature")}><option value="standard">Standard exploration</option><option value="mature">Mature local refinement</option></select></label>
                           <label className="toggle-label"><input type="checkbox" checked={config.evaluationEarlyAcceptance} onChange={(event) => updateConfig("evaluationEarlyAcceptance", event.target.checked)} /><span />Confidence-safe early promotion</label>
                           <label><span>First early-promotion look</span><input type="number" min="1000" max="2000" step="100" value={config.evaluationEarlyAcceptanceMinPairs} onChange={(event) => updateConfig("evaluationEarlyAcceptanceMinPairs", Number(event.target.value))} /></label>
                           <label><span>Early-promotion confidence</span><input type="number" min="0.9" max="0.9999" step="0.0005" value={config.evaluationEarlyAcceptanceConfidence} onChange={(event) => updateConfig("evaluationEarlyAcceptanceConfidence", Number(event.target.value))} /></label>
+                          <label className="toggle-label"><input type="checkbox" checked={config.evaluationExtensionEnabled} onChange={(event) => updateConfig("evaluationExtensionEnabled", event.target.checked)} /><span />Extend positive borderline gates</label>
+                          <label title="Hard ceiling for a positive but statistically unresolved promotion evaluation."><span>Extended gate maximum pairs</span><input type="number" min={config.evaluationPairs} max="50000" step="1000" value={config.evaluationExtensionMaxPairs} onChange={(event) => updateConfig("evaluationExtensionMaxPairs", Number(event.target.value))} /></label>
+                          <label><span>Extension block pairs</span><input type="number" min="250" max="10000" step="250" value={config.evaluationExtensionBlockPairs} onChange={(event) => updateConfig("evaluationExtensionBlockPairs", Number(event.target.value))} /></label>
+                          <label title="Only candidates above this observed score receive more pairs."><span>Minimum extension score</span><input type="number" min="0.5" max="0.75" step="0.001" value={config.evaluationExtensionMinScore} onChange={(event) => updateConfig("evaluationExtensionMinScore", Number(event.target.value))} /></label>
+                          <label title="Set to zero to let any score-leading candidate continue; repeated-look confidence remains adjusted."><span>Minimum extension lower bound</span><input type="number" min="0" max="0.5" step="0.005" value={config.evaluationExtensionMinLowerBound} onChange={(event) => updateConfig("evaluationExtensionMinLowerBound", Number(event.target.value))} /></label>
+                          <label className="toggle-label"><input type="checkbox" checked={config.resetOptimizerOnBranchStart} onChange={(event) => updateConfig("resetOptimizerOnBranchStart", event.target.checked)} /><span />Fresh optimizer at branch root</label>
+                          <label className="toggle-label"><input type="checkbox" checked={config.resetReplayOnBranchStart} onChange={(event) => updateConfig("resetReplayOnBranchStart", event.target.checked)} /><span />Fresh replay at branch root</label>
                         </> : null}
                       </> : <>
                         <label><span>Terminal target weight</span><input type="number" min="0" max="1" step="0.05" value={config.terminalTargetWeight} onChange={(event) => updateConfig("terminalTargetWeight", Number(event.target.value))} /></label>
@@ -4953,7 +5030,7 @@ export default function Home() {
         {activeTab === "branches" ? (
           <section className="tab-panel branch-panel" aria-labelledby="branches-title">
             <div className="section-heading">
-              <div><span className="section-number">03 / BRANCH LAB</span><h1 id="branches-title">Search several futures from any champion.</h1><p>Each branch gets its own copied weights, optimizer, replay archive, seed stream, schedules, canaries, and governor state. The single Metal learner runs branches sequentially.</p></div>
+              <div><span className="section-number">03 / BRANCH LAB</span><h1 id="branches-title">Search several futures from any champion.</h1><p>Each branch gets private weights, seed stream, schedules, canaries, and governor state. Mature refinement intentionally starts a clean optimizer and replay; comparative variants copy compatible lineage state.</p></div>
               <div className="section-summary"><span>Storage policy</span><strong>Full lineage snapshots</strong><small>No disk-saving constraint · source checkpoints are pinned automatically</small></div>
             </div>
             <div className="train-layout">
@@ -4986,7 +5063,7 @@ export default function Home() {
                   </div>
                   {trainerActiveRun && trainerActiveRun.id !== remoteRunId ? <button type="button" className="text-button" onClick={() => selectRun(trainerActiveRun.id)}>View active branch →</button> : null}
                 </article>
-                <article className="panel"><header className="panel-header"><div><span className="panel-kicker">Why branch</span><h2>Cross the valley safely</h2></div></header><p>A rejected intermediate is quarantined from deployment but its learner can continue. Short independent canaries reveal which search/entropy/value regime deserves a longer run.</p><dl className="compact-dl"><div><dt>Evaluation</dt><dd>64-pair canaries every 5k games</dd></div><div><dt>Promotion</dt><dd>2,000-pair cap · safe looks from 1,000</dd></div><div><dt>Rollback</dt><dd>Full lineage only</dd></div></dl></article>
+                <article className="panel"><header className="panel-header"><div><span className="panel-kicker">Why branch</span><h2>Improve without risking the champion</h2></div></header><p>Mature refinement runs clean local trials, rolls failed full gates back to the champion, and gives genuinely positive near-ties more evaluation pairs.</p><dl className="compact-dl"><div><dt>Monitoring</dt><dd>128-pair canaries every 20k games</dd></div><div><dt>Promotion</dt><dd>2,000 pairs · extendable to 12,000</dd></div><div><dt>Confidence</dt><dd>Adjusted across every extension look</dd></div></dl></article>
               </aside>
             </div>
             <article className="panel branch-registry">

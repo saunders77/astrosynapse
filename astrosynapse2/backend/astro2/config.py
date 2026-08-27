@@ -22,7 +22,13 @@ class RunConfig(BaseModel):
 
     name: str = Field(default="M4 24-hour run", min_length=1, max_length=80)
     preset: Literal[
-        "astro5_search", "astro4_m4", "astro3_m4", "m4_24h", "quick", "custom"
+        "astro5_mature",
+        "astro5_search",
+        "astro4_m4",
+        "astro3_m4",
+        "m4_24h",
+        "quick",
+        "custom",
     ] = "m4_24h"
     training_generation: Literal[2, 3, 4, 5] = 2
     # Keep seeds exactly representable by the JavaScript dashboard as well as
@@ -155,11 +161,20 @@ class RunConfig(BaseModel):
     evaluation_early_acceptance_confidence: float = Field(
         default=0.995, ge=0.90, le=0.9999
     )
+    # Promotion evaluations may continue in fixed blocks when the candidate is
+    # ahead but the confidence bound still overlaps the promotion threshold.
+    # Repeated looks use a Bonferroni-adjusted confidence level in the arena.
+    evaluation_extension_enabled: bool = True
+    evaluation_extension_max_pairs: int = Field(default=4_000, ge=2_000, le=50_000)
+    evaluation_extension_block_pairs: int = Field(default=2_000, ge=250, le=10_000)
+    evaluation_extension_min_score: float = Field(default=0.50, ge=0.50, le=0.75)
+    evaluation_extension_min_lower_bound: float = Field(default=0.48, ge=0.0, le=0.50)
     keep_checkpoints: int = Field(default=12, ge=2, le=100)
 
     # The controller changes only bounded multipliers and records every
     # decision.  It cannot weaken promotion confidence or mutate architecture.
     realtime_governor: bool = False
+    governor_strategy: Literal["standard", "mature"] = "standard"
     governor_interval_games: int = Field(default=25_000, ge=100)
     governor_max_learning_rate_multiplier: float = Field(default=1.5, ge=1, le=4)
     governor_min_learning_rate_multiplier: float = Field(default=0.25, gt=0, le=1)
@@ -173,6 +188,12 @@ class RunConfig(BaseModel):
     # optimizer/replay artifacts from this checkpoint before training starts.
     initial_checkpoint_id: str | None = Field(default=None, min_length=1, max_length=128)
     branch_experiment_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+    # A mature branch should begin as a clean local experiment around the
+    # imported champion. Later pause/resume checkpoints still restore their
+    # own optimizer and replay normally.
+    reset_optimizer_on_branch_start: bool = False
+    reset_replay_on_branch_start: bool = False
 
     # Astro3 can persist enough state to resume the same optimization process.
     # Zero keeps legacy checkpoints small and weight-only.
@@ -257,6 +278,10 @@ class RunConfig(BaseModel):
         ):
             raise ValueError(
                 "evaluation_early_acceptance_min_pairs must be smaller than evaluation_pairs"
+            )
+        if self.evaluation_extension_max_pairs < self.evaluation_pairs:
+            raise ValueError(
+                "evaluation_extension_max_pairs must be at least evaluation_pairs"
             )
         if self.canary_every_games and self.canary_every_games < self.checkpoint_every_games:
             raise ValueError("canary_every_games must be zero or at least checkpoint_every_games")
@@ -502,6 +527,62 @@ class RunConfig(BaseModel):
         )
         return cls.model_validate(base)
 
+    @classmethod
+    def astro5_mature(cls, name: str = "Astro5 mature champion refinement") -> RunConfig:
+        """Patient local improvement for an already-strong imported champion.
+
+        This recipe intentionally starts a branch with fresh optimizer/replay
+        state, makes searched action-set targets a larger share of the signal,
+        and restores the champion boundary after a failed full gate. It is a
+        hill-climbing regime, not a from-scratch curriculum.
+        """
+
+        base = cls.astro5_search(name=name).model_dump()
+        base.update(
+            preset="astro5_mature",
+            learning_rate=6e-5,
+            min_learning_rate=8e-6,
+            learning_rate_restart_updates=120_000,
+            learning_rate_restart_decay=0.92,
+            updates_per_iteration=20,
+            policy_entropy_weight=0.012,
+            epsilon_start=0.04,
+            epsilon_end=0.015,
+            epsilon_decay_games=400_000,
+            randomized_prior_scale=0.10,
+            bootstrap_inclusion_probability=0.15,
+            policy_replay_disk_sample_fraction=0.10,
+            reanalysis_fraction=0.005,
+            reanalysis_max_actions=4,
+            reanalysis_rollouts_per_action=2,
+            reanalysis_horizon_turns=4,
+            reanalysis_policy_loss_weight=1.25,
+            reanalysis_value_loss_weight=0.75,
+            current_selfplay_fraction=0.50,
+            deployment_policy_selfplay_fraction=0.30,
+            league_fraction=0.45,
+            baseline_fraction=0.05,
+            rejected_candidate_action="restore_lineage",
+            rollback_rejected_candidates=True,
+            canary_every_games=20_000,
+            canary_pairs=128,
+            evaluate_every_games=100_000,
+            governor_strategy="mature",
+            governor_target_normalized_entropy=0.72,
+            governor_min_learning_rate_multiplier=0.20,
+            governor_max_learning_rate_multiplier=1.25,
+            governor_max_updates_multiplier=1.5,
+            evaluation_early_rejection=False,
+            evaluation_extension_enabled=True,
+            evaluation_extension_max_pairs=12_000,
+            evaluation_extension_block_pairs=2_000,
+            evaluation_extension_min_score=0.50,
+            evaluation_extension_min_lower_bound=0.0,
+            reset_optimizer_on_branch_start=True,
+            reset_replay_on_branch_start=True,
+        )
+        return cls.model_validate(base)
+
 
 SAFE_LIVE_FIELDS = {
     "duration_minutes",
@@ -529,14 +610,22 @@ SAFE_LIVE_FIELDS = {
     "canary_every_games",
     "canary_pairs",
     "realtime_governor",
+    "governor_strategy",
     "governor_interval_games",
     "evaluation_early_acceptance",
     "evaluation_early_acceptance_min_pairs",
     "evaluation_early_acceptance_confidence",
+    "evaluation_extension_enabled",
+    "evaluation_extension_max_pairs",
+    "evaluation_extension_block_pairs",
+    "evaluation_extension_min_score",
+    "evaluation_extension_min_lower_bound",
 }
 
 
 def preset_config(preset: str) -> RunConfig:
+    if preset == "astro5_mature":
+        return RunConfig.astro5_mature()
     if preset == "astro5_search":
         return RunConfig.astro5_search()
     if preset == "astro4_m4":

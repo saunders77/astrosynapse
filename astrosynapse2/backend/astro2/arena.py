@@ -44,10 +44,9 @@ from .storage import Store
 
 RECOMMENDED_PAIRS = 2_000
 MAX_PAIRS = 2_000
-MAX_AUTOMATIC_PAIRS = 4_000
+MAX_AUTOMATIC_PAIRS = 50_000
 PROMOTION_EXTENSION_PAIRS = 2_000
 PROMOTION_EXTENSION_LOWER_MIN = 0.48
-PROMOTION_EXTENSION_LOWER_MAX = 0.50
 
 
 class ModelResolutionError(ValueError):
@@ -72,6 +71,11 @@ class ArenaConfig:
     early_acceptance: bool = False
     early_acceptance_min_pairs: int = MINIMUM_PROMOTION_PAIRS
     early_acceptance_confidence: float = 0.995
+    extension_enabled: bool = True
+    extension_max_pairs: int = 4_000
+    extension_block_pairs: int = PROMOTION_EXTENSION_PAIRS
+    extension_min_score: float = 0.50
+    extension_min_lower_bound: float = PROMOTION_EXTENSION_LOWER_MIN
 
     def __post_init__(self) -> None:
         pair_limit = (
@@ -126,6 +130,16 @@ class ArenaConfig:
             raise ValueError("early acceptance is available only for automatic promotion jobs")
         if self.early_acceptance and self.early_acceptance_min_pairs >= self.pairs:
             raise ValueError("early_acceptance_min_pairs must be smaller than requested pairs")
+        if not self.pairs <= self.extension_max_pairs <= MAX_AUTOMATIC_PAIRS:
+            raise ValueError(
+                f"extension_max_pairs must be between pairs and {MAX_AUTOMATIC_PAIRS:,}"
+            )
+        if not 250 <= self.extension_block_pairs <= 10_000:
+            raise ValueError("extension_block_pairs must be between 250 and 10,000")
+        if not 0.50 <= self.extension_min_score <= 0.75:
+            raise ValueError("extension_min_score must be between 0.50 and 0.75")
+        if not 0.0 <= self.extension_min_lower_bound <= 0.50:
+            raise ValueError("extension_min_lower_bound must be between 0.0 and 0.50")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -630,16 +644,30 @@ def _should_extend_promotion_evaluation(
     estimate: float,
     lower_bound: float,
 ) -> bool:
-    """Return whether a completed full gate qualifies for one more 2,000-pair block."""
+    """Return whether a positive but unproven gate merits another fixed block."""
 
     return (
         config.automatic_promotion
         and config.trainer_scheduled
-        and config.pairs == RECOMMENDED_PAIRS
-        and pairs_completed == RECOMMENDED_PAIRS
-        and estimate > 0.5
-        and PROMOTION_EXTENSION_LOWER_MIN <= lower_bound <= PROMOTION_EXTENSION_LOWER_MAX
+        and config.promotion_tier == "full"
+        and config.extension_enabled
+        and pairs_completed >= config.pairs
+        and pairs_completed < config.extension_max_pairs
+        and estimate > max(
+            config.extension_min_score, 0.5 + config.promotion_margin
+        )
+        and config.extension_min_lower_bound
+        <= lower_bound
+        <= 0.5 + config.promotion_margin
     )
+
+
+def _extension_confidence(config: ArenaConfig) -> float:
+    """Bonferroni-adjust confidence for every possible extension boundary."""
+
+    additional = max(0, config.extension_max_pairs - config.pairs)
+    looks = 1 + math.ceil(additional / config.extension_block_pairs)
+    return 1.0 - (1.0 - config.confidence) / looks
 
 
 def _summary(
@@ -998,6 +1026,11 @@ class ArenaManager:
         early_acceptance: bool = False,
         early_acceptance_min_pairs: int = MINIMUM_PROMOTION_PAIRS,
         early_acceptance_confidence: float = 0.995,
+        extension_enabled: bool = True,
+        extension_max_pairs: int = 4_000,
+        extension_block_pairs: int = PROMOTION_EXTENSION_PAIRS,
+        extension_min_score: float = 0.50,
+        extension_min_lower_bound: float = PROMOTION_EXTENSION_LOWER_MIN,
         cancellation_hook: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         """Trainer-only entry point for a promotion-eligible paired job."""
@@ -1022,6 +1055,11 @@ class ArenaManager:
                 early_acceptance=early_acceptance,
                 early_acceptance_min_pairs=early_acceptance_min_pairs,
                 early_acceptance_confidence=early_acceptance_confidence,
+                extension_enabled=extension_enabled,
+                extension_max_pairs=extension_max_pairs,
+                extension_block_pairs=extension_block_pairs,
+                extension_min_score=extension_min_score,
+                extension_min_lower_bound=extension_min_lower_bound,
             ),
             cancellation_hook=cancellation_hook,
         )
@@ -1122,12 +1160,20 @@ class ArenaManager:
         early_stop_reason = previous.get("early_stop_reason")
         adaptive_extension_active = bool(previous.get("_adaptive_extension_active", False))
         base_config = config
+        restored_extension_target = int(
+            previous.get("_adaptive_extension_target_pairs")
+            or (config.pairs + config.extension_block_pairs)
+        )
         target_pairs = (
-            RECOMMENDED_PAIRS + PROMOTION_EXTENSION_PAIRS
+            min(config.extension_max_pairs, restored_extension_target)
             if adaptive_extension_active
             else config.pairs
         )
-        summary_config = replace(config, pairs=target_pairs) if adaptive_extension_active else config
+        summary_config = (
+            replace(config, pairs=target_pairs, confidence=_extension_confidence(config))
+            if adaptive_extension_active
+            else config
+        )
         job_worker_processes = _arena_worker_processes(config, self.worker_processes)
         early_looks = frozenset(_early_rejection_looks(config))
         acceptance_looks = frozenset(_early_acceptance_looks(config))
@@ -1240,8 +1286,7 @@ class ArenaManager:
                         )
                 if (
                     not early_stopped
-                    and not adaptive_extension_active
-                    and pairs_completed == base_config.pairs
+                    and pairs_completed == target_pairs
                 ):
                     extension_interval = _paired_interval(
                         _conservative_pair_scores(
@@ -1249,7 +1294,7 @@ class ArenaManager:
                             second_scores,
                             truncated_games=truncated_games,
                         ),
-                        base_config.confidence,
+                        _extension_confidence(base_config),
                     )
                     if _should_extend_promotion_evaluation(
                         config=base_config,
@@ -1258,8 +1303,15 @@ class ArenaManager:
                         lower_bound=float(extension_interval["low"]),
                     ):
                         adaptive_extension_active = True
-                        target_pairs = RECOMMENDED_PAIRS + PROMOTION_EXTENSION_PAIRS
-                        summary_config = replace(base_config, pairs=target_pairs)
+                        target_pairs = min(
+                            base_config.extension_max_pairs,
+                            pairs_completed + base_config.extension_block_pairs,
+                        )
+                        summary_config = replace(
+                            base_config,
+                            pairs=target_pairs,
+                            confidence=_extension_confidence(base_config),
+                        )
                         statistical_looks = sorted(
                             early_looks | acceptance_looks | {target_pairs}
                         )
@@ -1299,16 +1351,17 @@ class ArenaManager:
                     result["adaptive_extension"] = {
                         "active": adaptive_extension_active,
                         "initial_pairs": base_config.pairs,
-                        "additional_pairs": (
-                            PROMOTION_EXTENSION_PAIRS if adaptive_extension_active else 0
-                        ),
-                        "maximum_pairs": MAX_AUTOMATIC_PAIRS,
+                        "additional_pairs": max(0, target_pairs - base_config.pairs),
+                        "block_pairs": base_config.extension_block_pairs,
+                        "maximum_pairs": base_config.extension_max_pairs,
+                        "look_adjusted_confidence": summary_config.confidence,
                     }
                     result["resource_policy"] = {
                         "worker_processes": job_worker_processes,
                         "trainer_isolated": config.trainer_scheduled,
                     }
                     result["_adaptive_extension_active"] = adaptive_extension_active
+                    result["_adaptive_extension_target_pairs"] = target_pairs
                     self.store.update_arena_job(job_id, status="running", result=result)
                     last_update = now
         finally:
@@ -1351,14 +1404,17 @@ class ArenaManager:
         final["adaptive_extension"] = {
             "active": adaptive_extension_active,
             "initial_pairs": base_config.pairs,
-            "additional_pairs": PROMOTION_EXTENSION_PAIRS if adaptive_extension_active else 0,
-            "maximum_pairs": MAX_AUTOMATIC_PAIRS,
+            "additional_pairs": max(0, target_pairs - base_config.pairs),
+            "block_pairs": base_config.extension_block_pairs,
+            "maximum_pairs": base_config.extension_max_pairs,
+            "look_adjusted_confidence": summary_config.confidence,
         }
         final["resource_policy"] = {
             "worker_processes": job_worker_processes,
             "trainer_isolated": config.trainer_scheduled,
         }
         final["_adaptive_extension_active"] = adaptive_extension_active
+        final["_adaptive_extension_target_pairs"] = target_pairs
         if early_stopped:
             final["eta_seconds"] = 0.0
         paired_interval = _paired_interval(
@@ -1366,7 +1422,7 @@ class ArenaManager:
                 (first + second) * 0.5
                 for first, second in zip(first_scores, second_scores, strict=True)
             ],
-            config.confidence,
+            summary_config.confidence,
         )
         final["paired_interval"] = paired_interval
         final["paired_interval_method"] = "two_sided_hoeffding"

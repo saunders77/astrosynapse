@@ -395,36 +395,78 @@ def _governor_status(
     entropy = float(diagnostics.get("normalized_policy_entropy", 1.0))
     clip_fraction = float(diagnostics.get("gradient_clip_fraction", 0.0))
     searched_fraction = float(diagnostics.get("searched_fraction", 0.0))
+    importance_ratio = float(diagnostics.get("mean_importance_ratio", 1.0))
     lr_multiplier = 1.0
     updates_multiplier = 1.0
     reanalysis_multiplier = 1.0
     entropy_weight = config.policy_entropy_weight
     reasons: list[str] = []
-    if clip_fraction > 0.50:
-        lr_multiplier *= 0.50
-        updates_multiplier *= 0.75
-        reasons.append("gradient clipping is dominating updates")
-    if entropy < config.governor_target_normalized_entropy * 0.80:
-        lr_multiplier *= 0.75
-        entropy_weight *= 1.6
-        reanalysis_multiplier *= 1.5
-        reasons.append("policy entropy is below target")
-    elif entropy > min(0.98, config.governor_target_normalized_entropy * 1.35):
-        entropy_weight *= 0.7
-        updates_multiplier *= 1.15
-        reasons.append("policy remains too diffuse")
-    if consecutive_regressions >= 2:
-        lr_multiplier *= 0.75
-        entropy_weight *= 1.25
-        reanalysis_multiplier *= 1.5
-        reasons.append("successive canaries regressed")
-    elif len(recent_scores) >= 2 and recent_scores[-1] > recent_scores[-2] + 0.02:
-        updates_multiplier *= 1.2
-        reasons.append("canary trend supports a short exploitation push")
-    search_target = max(0.001, config.reanalysis_fraction * 0.8)
-    if config.reanalysis_fraction > 0 and searched_fraction < search_target and recent_scores:
-        reanalysis_multiplier *= 1.25
-        reasons.append("too few learner batches contain search targets")
+    if config.governor_strategy == "mature":
+        # Mature policies need small, reversible local moves. In particular,
+        # do not respond to a losing canary by adding entropy: that prolonged
+        # the diffuse losing regime observed in the Low-LR branch.
+        if clip_fraction > 0.80:
+            lr_multiplier *= 0.65
+            updates_multiplier *= 0.80
+            reasons.append("mature mode cooled a clipping-dominated optimizer")
+        elif clip_fraction > 0.35:
+            lr_multiplier *= 0.80
+            updates_multiplier *= 0.90
+            reasons.append("mature mode reduced elevated clipping pressure")
+        if entropy < config.governor_target_normalized_entropy * 0.80:
+            entropy_weight *= 1.20
+            reanalysis_multiplier *= 1.15
+            reasons.append("mature policy entropy is below its local-search band")
+        elif entropy > min(0.98, config.governor_target_normalized_entropy * 1.12):
+            entropy_weight *= 0.75
+            reanalysis_multiplier *= 1.20
+            reasons.append("mature policy is more diffuse than its local-search band")
+        if importance_ratio < 0.65:
+            updates_multiplier *= 0.80
+            reanalysis_multiplier *= 1.25
+            reasons.append("stale-policy ratios favor fewer updates and more searched targets")
+        if canary_evidence_changed and len(recent_scores) >= 6:
+            older_mean = sum(recent_scores[-6:-3]) / 3
+            newer_mean = sum(recent_scores[-3:]) / 3
+            canary_delta = newer_mean - older_mean
+            if canary_delta < -0.015:
+                lr_multiplier *= 0.80
+                updates_multiplier *= 0.85
+                reanalysis_multiplier *= 1.20
+                reasons.append("three-canary trend regressed; local steps were reduced")
+            elif canary_delta > 0.015 and newer_mean > 0.50:
+                updates_multiplier *= 1.05
+                reasons.append("three-canary trend supports a restrained exploitation push")
+        search_target = max(0.002, config.reanalysis_fraction)
+        if config.reanalysis_fraction > 0 and searched_fraction < search_target:
+            reanalysis_multiplier *= 1.20
+            reasons.append("searched supervision is below the mature-mode target")
+    else:
+        if clip_fraction > 0.50:
+            lr_multiplier *= 0.50
+            updates_multiplier *= 0.75
+            reasons.append("gradient clipping is dominating updates")
+        if entropy < config.governor_target_normalized_entropy * 0.80:
+            lr_multiplier *= 0.75
+            entropy_weight *= 1.6
+            reanalysis_multiplier *= 1.5
+            reasons.append("policy entropy is below target")
+        elif entropy > min(0.98, config.governor_target_normalized_entropy * 1.35):
+            entropy_weight *= 0.7
+            updates_multiplier *= 1.15
+            reasons.append("policy remains too diffuse")
+        if consecutive_regressions >= 2:
+            lr_multiplier *= 0.75
+            entropy_weight *= 1.25
+            reanalysis_multiplier *= 1.5
+            reasons.append("successive canaries regressed")
+        elif len(recent_scores) >= 2 and recent_scores[-1] > recent_scores[-2] + 0.02:
+            updates_multiplier *= 1.2
+            reasons.append("canary trend supports a short exploitation push")
+        search_target = max(0.001, config.reanalysis_fraction * 0.8)
+        if config.reanalysis_fraction > 0 and searched_fraction < search_target and recent_scores:
+            reanalysis_multiplier *= 1.25
+            reasons.append("too few learner batches contain search targets")
 
     lr_multiplier = min(
         config.governor_max_learning_rate_multiplier,
@@ -437,6 +479,7 @@ def _governor_status(
     branch_requested = consecutive_regressions >= config.governor_branch_after_failures
     state = {
         "enabled": True,
+        "strategy": config.governor_strategy,
         "decision_games": int(games),
         "optimization_decision_games": int(games),
         "canary_decision_games": (
@@ -451,6 +494,7 @@ def _governor_status(
         "target_normalized_entropy": config.governor_target_normalized_entropy,
         "observed_normalized_entropy": entropy,
         "gradient_clip_fraction": clip_fraction,
+        "mean_importance_ratio": importance_ratio,
         "consecutive_canary_regressions": consecutive_regressions,
         "recent_canary_scores": recent_scores,
         "branch_requested": branch_requested,
@@ -1688,6 +1732,11 @@ def _schedule_evaluation(
             early_acceptance=early_acceptance,
             early_acceptance_min_pairs=config.evaluation_early_acceptance_min_pairs,
             early_acceptance_confidence=config.evaluation_early_acceptance_confidence,
+            extension_enabled=config.evaluation_extension_enabled,
+            extension_max_pairs=config.evaluation_extension_max_pairs,
+            extension_block_pairs=config.evaluation_extension_block_pairs,
+            extension_min_score=config.evaluation_extension_min_score,
+            extension_min_lower_bound=config.evaluation_extension_min_lower_bound,
             cancellation_hook=cancellation_hook,
         )
     else:
@@ -2683,6 +2732,12 @@ def run_training(
         0, int(restored_training_state.get("schedule_games_origin", 0))
     )
     artifacts = ((latest or {}).get("evaluation") or {}).get("artifacts") or {}
+    latest_reason = str(((latest or {}).get("evaluation") or {}).get("reason") or "")
+    initial_branch_import = bool(
+        latest is not None
+        and int(latest.get("games", 0)) == 0
+        and latest_reason == "branch import"
+    )
     try:
         replay_items_persisted = max(
             0,
@@ -2743,20 +2798,41 @@ def run_training(
         "checkpoint_artifacts_complete": artifacts_complete,
         "fallback_checkpoint_ids": list((latest or {}).get("_resume_skipped_checkpoint_ids", [])),
         "degraded_reasons": [],
+        "branch_optimizer_reset": bool(
+            initial_branch_import and config.reset_optimizer_on_branch_start
+        ),
+        "branch_replay_reset": bool(
+            initial_branch_import and config.reset_replay_on_branch_start
+        ),
     }
     if latest is not None and artifacts_complete:
         try:
             if (
                 config.training_generation >= 4
                 and config.resume_replay_items
+                and not (
+                    initial_branch_import and config.reset_replay_on_branch_start
+                )
                 and artifacts.get("policy_replay_path")
             ):
                 durable_resume["policy_replay_items_restored"] = policy_replay.restore(
                     artifacts["policy_replay_path"]
                 )
-            elif config.resume_replay_items and artifacts.get("replay_path"):
+            elif (
+                config.resume_replay_items
+                and not (
+                    initial_branch_import and config.reset_replay_on_branch_start
+                )
+                and artifacts.get("replay_path")
+            ):
                 durable_resume["replay_items_restored"] = replay.restore(artifacts["replay_path"])
-            if config.resume_replay_items and artifacts.get("preference_replay_path"):
+            if (
+                config.resume_replay_items
+                and not (
+                    initial_branch_import and config.reset_replay_on_branch_start
+                )
+                and artifacts.get("preference_replay_path")
+            ):
                 durable_resume["preference_replay_items_restored"] = preference_replay.restore(
                     artifacts["preference_replay_path"]
                 )
@@ -2773,6 +2849,9 @@ def run_training(
             if (
                 artifacts_complete
                 and config.persist_optimizer_state
+                and not (
+                    initial_branch_import and config.reset_optimizer_on_branch_start
+                )
                 and artifacts.get("optimizer_path")
             ):
                 durable_resume["optimizer_restored"] = load_optimizer_state(

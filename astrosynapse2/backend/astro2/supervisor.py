@@ -396,7 +396,12 @@ class Supervisor:
                 **(base_overrides or {}),
                 **{key: value for key, value in variant.items() if key != "label"},
             }
-            recipe = RunConfig.astro5_search(name=f"{name} · {label}").model_dump()
+            mature_refinement = overrides.get("preset") == "astro5_mature"
+            recipe = (
+                RunConfig.astro5_mature(name=f"{name} · {label}").model_dump()
+                if mature_refinement
+                else RunConfig.astro5_search(name=f"{name} · {label}").model_dump()
+            )
             recipe.update(
                 hidden_size=actor.spec.hidden_size,
                 residual_blocks=actor.spec.residual_blocks,
@@ -434,6 +439,8 @@ class Supervisor:
                 ("policy_replay_path", "branch-root.policy-replay.npz"),
                 ("preference_replay_path", "branch-root.preference-replay.npz"),
             ):
+                if mature_refinement:
+                    continue
                 source_artifact = source_artifacts.get(artifact_key)
                 if (
                     artifact_key == "policy_replay_path"
@@ -461,7 +468,7 @@ class Supervisor:
                 "policy_replay_format",
                 "preference_replay_items",
             ):
-                if key in source_artifacts:
+                if not mature_refinement and key in source_artifacts:
                     artifacts[key] = source_artifacts[key]
             self.store.add_checkpoint(
                 run_id=run["id"],

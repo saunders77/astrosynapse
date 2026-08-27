@@ -263,11 +263,15 @@ def test_supervisor_copies_compatible_branch_root_artifacts(tmp_path):
     experiment = supervisor.create_branch_experiment(
         source_checkpoint_id=source["id"],
         name="Copied fork",
-        variants=[{"label": "Balanced"}, {"label": "Search", "reanalysis_fraction": 0.02}],
+        variants=[
+            {"label": "Balanced"},
+            {"label": "Search", "reanalysis_fraction": 0.02},
+            {"label": "Mature", "preset": "astro5_mature"},
+        ],
         base_overrides={"duration_minutes": 5},
         start=False,
     )
-    assert len(experiment["members"]) == 2
+    assert len(experiment["members"]) == 3
     for member in experiment["members"]:
         branch_run = store.get_run(member["run_id"])
         assert branch_run["config"]["initial_checkpoint_id"] == source["id"]
@@ -277,3 +281,7 @@ def test_supervisor_copies_compatible_branch_root_artifacts(tmp_path):
         assert root["is_champion"] is True
         assert (tmp_path / "checkpoints" / member["run_id"] / "branch-root.actor.npz").is_file()
     assert store.checkpoint(source["id"])["is_pinned"] is True
+    mature_run = store.get_run(experiment["members"][2]["run_id"])
+    assert mature_run["config"]["preset"] == "astro5_mature"
+    assert mature_run["config"]["governor_strategy"] == "mature"
+    assert mature_run["config"]["evaluation_extension_max_pairs"] == 12_000

@@ -19,6 +19,7 @@ from astro2.trainer import (
     _evaluation_retry_state,
     _expected_model_weight_shapes,
     _finish_final_evaluations,
+    _governor_status,
     _last_scheduled_evaluation_games,
     _latest_loadable_checkpoint,
     _learner_resume_checkpoint,
@@ -41,6 +42,32 @@ from astro2.trainer import (
     _training_state,
 )
 from safetensors.numpy import save_file
+
+
+def test_mature_governor_cools_stale_clipped_updates_without_adding_entropy(tmp_path):
+    store = Store(tmp_path / "state.sqlite3")
+    config = RunConfig.astro5_mature()
+    run = store.create_run(config)
+
+    state = _governor_status(
+        store,
+        run["id"],
+        config,
+        games=1_000,
+        diagnostics={
+            "normalized_policy_entropy": 0.84,
+            "gradient_clip_fraction": 1.0,
+            "searched_fraction": 0.001,
+            "mean_importance_ratio": 0.50,
+        },
+    )
+
+    assert state["strategy"] == "mature"
+    assert state["learning_rate_multiplier"] < 1.0
+    assert state["updates_multiplier"] < 1.0
+    assert state["reanalysis_multiplier"] > 1.0
+    assert state["entropy_weight"] < config.policy_entropy_weight
+    assert any("stale-policy" in reason for reason in state["reasons"])
 
 
 def _write_test_model(path: Path, config: RunConfig) -> Path:
