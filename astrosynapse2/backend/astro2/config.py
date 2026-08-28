@@ -165,14 +165,14 @@ class RunConfig(BaseModel):
     # Zero preserves geometric looks. A positive value schedules fixed regular
     # looks through the full extension ceiling.
     evaluation_early_look_interval_pairs: int = Field(default=0, ge=0, le=50_000)
-    # Promotion evaluations may continue in fixed blocks when the candidate is
-    # ahead but the confidence bound still overlaps the promotion threshold.
-    # Repeated looks use a Bonferroni-adjusted confidence level in the arena.
+    # Promotion evaluations continue in fixed blocks while the candidate is
+    # above 50% and its configured 95% interval still overlaps 50%. The arena
+    # enforces the 2,000-pair blocks and 50,000-pair ceiling system-wide.
     evaluation_extension_enabled: bool = True
-    evaluation_extension_max_pairs: int = Field(default=4_000, ge=2_000, le=250_000)
+    evaluation_extension_max_pairs: int = Field(default=50_000, ge=2_000, le=250_000)
     evaluation_extension_block_pairs: int = Field(default=2_000, ge=250, le=50_000)
     evaluation_extension_min_score: float = Field(default=0.50, ge=0.50, le=0.75)
-    evaluation_extension_min_lower_bound: float = Field(default=0.48, ge=0.0, le=0.50)
+    evaluation_extension_min_lower_bound: float = Field(default=0.0, ge=0.0, le=0.50)
     keep_checkpoints: int = Field(default=12, ge=2, le=100)
 
     # The controller changes only bounded multipliers and records every
@@ -265,6 +265,15 @@ class RunConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_mix_and_schedule(self) -> RunConfig:
+        # Promotion evaluations use one durable policy across every preset and
+        # persisted run. ArenaConfig independently applies the same repair to
+        # already-queued or interrupted jobs when they resume.
+        self.promotion_confidence = 0.95
+        self.evaluation_extension_enabled = True
+        self.evaluation_extension_max_pairs = 50_000
+        self.evaluation_extension_block_pairs = 2_000
+        self.evaluation_extension_min_score = 0.50
+        self.evaluation_extension_min_lower_bound = 0.0
         # Old generation-2 configs did not persist these fields and retain the
         # original hard gates. Generation 3 defaults to diagnostic-only noisy
         # checks, while an explicit caller can still opt into either gate.
@@ -645,7 +654,7 @@ class RunConfig(BaseModel):
             governor_max_updates_multiplier=1.5,
             evaluation_early_rejection=False,
             evaluation_extension_enabled=True,
-            evaluation_extension_max_pairs=12_000,
+            evaluation_extension_max_pairs=50_000,
             evaluation_extension_block_pairs=2_000,
             evaluation_extension_min_score=0.50,
             evaluation_extension_min_lower_bound=0.0,
@@ -682,7 +691,7 @@ class RunConfig(BaseModel):
             evaluation_early_acceptance_confidence=0.99,
             evaluation_early_look_interval_pairs=2_000,
             evaluation_extension_enabled=True,
-            evaluation_extension_max_pairs=100_000,
+            evaluation_extension_max_pairs=50_000,
             evaluation_extension_block_pairs=2_000,
             evaluation_extension_min_score=0.50,
             evaluation_extension_min_lower_bound=0.0,

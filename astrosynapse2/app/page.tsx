@@ -725,10 +725,10 @@ const initialConfig: TrainerConfig = {
   evaluationEarlyAcceptanceMinPairs: 1_000,
   evaluationEarlyAcceptanceConfidence: 0.995,
   evaluationExtensionEnabled: true,
-  evaluationExtensionMaxPairs: 4_000,
+  evaluationExtensionMaxPairs: 50_000,
   evaluationExtensionBlockPairs: 2_000,
   evaluationExtensionMinScore: 0.50,
-  evaluationExtensionMinLowerBound: 0.48,
+  evaluationExtensionMinLowerBound: 0,
   naturalDiagnosticPositions: 2_000,
   checkpointKlLimit: 0.35,
   resetOptimizerOnBranchStart: false,
@@ -765,7 +765,7 @@ const matureConfig: TrainerConfig = {
   evaluateEveryGames: 100_000,
   governorStrategy: "mature",
   governorTargetNormalizedEntropy: 0.72,
-  evaluationExtensionMaxPairs: 12_000,
+  evaluationExtensionMaxPairs: 50_000,
   evaluationExtensionMinLowerBound: 0,
   resetOptimizerOnBranchStart: true,
   resetReplayOnBranchStart: true,
@@ -782,7 +782,7 @@ const directionalConfig: TrainerConfig = {
   evaluationEarlyAcceptance: true,
   evaluationEarlyAcceptanceMinPairs: 2_000,
   evaluationEarlyAcceptanceConfidence: 0.99,
-  evaluationExtensionMaxPairs: 100_000,
+  evaluationExtensionMaxPairs: 50_000,
   evaluationExtensionBlockPairs: 2_000,
   canaryPairs: 256,
   promotionDirectionEnabled: true,
@@ -3311,8 +3311,8 @@ export default function Home() {
   const [branchDirectionAgreement, setBranchDirectionAgreement] = useState(0.60);
   const [branchDirectionDecay, setBranchDirectionDecay] = useState(0.75);
   const [branchDirectionInitialPairs, setBranchDirectionInitialPairs] = useState(10_000);
-  const [branchDirectionMaximumPairs, setBranchDirectionMaximumPairs] = useState(100_000);
-  const [branchDirectionBlockPairs, setBranchDirectionBlockPairs] = useState(2_000);
+  const branchDirectionMaximumPairs = 50_000;
+  const branchDirectionBlockPairs = 2_000;
   const [branchBudgetType, setBranchBudgetType] = useState<BranchBudgetType>("minutes");
   const [branchMinutes, setBranchMinutes] = useState(360);
   const [branchGames, setBranchGames] = useState(50_000);
@@ -5050,11 +5050,7 @@ export default function Home() {
                           <label className="toggle-label"><input type="checkbox" checked={config.evaluationEarlyAcceptance} onChange={(event) => updateConfig("evaluationEarlyAcceptance", event.target.checked)} /><span />Confidence-safe early promotion</label>
                           <label><span>First early-promotion look</span><input type="number" min="1000" max="2000" step="100" value={config.evaluationEarlyAcceptanceMinPairs} onChange={(event) => updateConfig("evaluationEarlyAcceptanceMinPairs", Number(event.target.value))} /></label>
                           <label><span>Early-promotion confidence</span><input type="number" min="0.9" max="0.9999" step="0.0005" value={config.evaluationEarlyAcceptanceConfidence} onChange={(event) => updateConfig("evaluationEarlyAcceptanceConfidence", Number(event.target.value))} /></label>
-                          <label className="toggle-label"><input type="checkbox" checked={config.evaluationExtensionEnabled} onChange={(event) => updateConfig("evaluationExtensionEnabled", event.target.checked)} /><span />Extend positive borderline gates</label>
-                          <label title="Hard ceiling for a positive but statistically unresolved promotion evaluation."><span>Extended gate maximum pairs</span><input type="number" min={config.evaluationPairs} max="250000" step="1000" value={config.evaluationExtensionMaxPairs} onChange={(event) => updateConfig("evaluationExtensionMaxPairs", Number(event.target.value))} /></label>
-                          <label><span>Extension block pairs</span><input type="number" min="250" max="50000" step="250" value={config.evaluationExtensionBlockPairs} onChange={(event) => updateConfig("evaluationExtensionBlockPairs", Number(event.target.value))} /></label>
-                          <label title="Only candidates above this observed score receive more pairs."><span>Minimum extension score</span><input type="number" min="0.5" max="0.75" step="0.001" value={config.evaluationExtensionMinScore} onChange={(event) => updateConfig("evaluationExtensionMinScore", Number(event.target.value))} /></label>
-                          <label title="Set to zero to let any score-leading candidate continue; repeated-look confidence remains adjusted."><span>Minimum extension lower bound</span><input type="number" min="0" max="0.5" step="0.005" value={config.evaluationExtensionMinLowerBound} onChange={(event) => updateConfig("evaluationExtensionMinLowerBound", Number(event.target.value))} /></label>
+                          <p className="panel-note">Promotion evaluations add 2,000 pairs while the score is above 50% and its 95% interval overlaps 50%, up to 50,000 pairs.</p>
                           <label className="toggle-label"><input type="checkbox" checked={config.resetOptimizerOnBranchStart} onChange={(event) => updateConfig("resetOptimizerOnBranchStart", event.target.checked)} /><span />Fresh optimizer at branch root</label>
                           <label className="toggle-label"><input type="checkbox" checked={config.resetReplayOnBranchStart} onChange={(event) => updateConfig("resetReplayOnBranchStart", event.target.checked)} /><span />Fresh replay at branch root</label>
                           <label className="toggle-label"><input type="checkbox" checked={config.promotionDirectionEnabled} onChange={(event) => updateConfig("promotionDirectionEnabled", event.target.checked)} /><span />Verified promotion-direction guidance</label>
@@ -5139,8 +5135,8 @@ export default function Home() {
                     <label title="Only coordinates whose weighted historical signs agree by at least this fraction receive guidance."><span>Minimum sign agreement</span><input type="number" min="0" max="1" step="0.05" value={branchDirectionAgreement} onChange={(event) => setBranchDirectionAgreement(Number(event.target.value))} /></label>
                     <label><span>Older-promotion weight decay</span><input type="number" min="0.01" max="1" step="0.05" value={branchDirectionDecay} onChange={(event) => setBranchDirectionDecay(Number(event.target.value))} /></label>
                     <label><span>Initial evaluation pairs</span><input type="number" min="2000" max="50000" step="1000" value={branchDirectionInitialPairs} onChange={(event) => setBranchDirectionInitialPairs(Number(event.target.value))} /></label>
-                    <label><span>Maximum evaluation pairs</span><input type="number" min={branchDirectionInitialPairs} max="250000" step="5000" value={branchDirectionMaximumPairs} onChange={(event) => setBranchDirectionMaximumPairs(Number(event.target.value))} /></label>
-                    <label><span>Extension block pairs</span><input type="number" min="250" max="50000" step="250" value={branchDirectionBlockPairs} onChange={(event) => setBranchDirectionBlockPairs(Number(event.target.value))} /></label>
+                    <label><span>Maximum evaluation pairs</span><input type="number" value={branchDirectionMaximumPairs} disabled /></label>
+                    <label><span>Extension block pairs</span><input type="number" value={branchDirectionBlockPairs} disabled /></label>
                   </div> : null}
                 </div>
                 <div className="form-actions"><div><span className="validation-light" /> Compatible generation-4/5 policy checkpoints only</div><button type="button" className="button button-primary" disabled={!branchSourceId || !branchVariantIds.length || commandBusy !== null} onClick={launchBranchExperiment}>{commandBusy === "branch-launch" ? "Copying lineage…" : "Create & start branch system"}</button></div>

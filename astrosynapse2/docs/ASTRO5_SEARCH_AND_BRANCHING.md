@@ -84,11 +84,10 @@ The mature governor monitors clipping, normalized entropy, behavior-policy impor
 searched-batch coverage, and rolling three-canary trends. It can cool learning-rate/update pressure
 and increase searched supervision within configured bounds. It never weakens promotion confidence.
 
-If a full evaluation is score-positive but its adjusted lower confidence bound still overlaps the
-promotion threshold, the arena adds fixed-size blocks until the advantage is proven, the observed
-score stops leaning positive, or the configured ceiling is reached. The default mature ceiling is
-12,000 pairs and the GUI permits automatic ceilings up to 250,000. Confidence is Bonferroni-adjusted for every possible
-extension boundary so optional repeated looks do not make promotion easier.
+After any promotion evaluation reaches its initial target, the arena adds 2,000-pair blocks while
+the score is above 50% and its 95% paired interval still overlaps 50%. It stops when that interval is
+wholly above 50%, the score is no longer above 50%, or 50,000 total pairs are complete. This policy is
+fixed across presets and is also applied when persisted runs and interrupted arena jobs resume.
 
 ## Promotion-direction refinement
 
@@ -108,13 +107,10 @@ pair count, extension block, and maximum pair count before it freezes the branch
 a prior, not a causal claim: a promoted checkpoint contains many correlated
 SGD changes, so the normal canaries and arena still decide whether the reuse helped.
 
-Directional full evaluations predeclare regular looks every 2,000 seed-pairs from pair 2,000 up to,
-but not including, the configured ceiling. At each interim look, a two-sided Hoeffding bound shares a
-1% familywise error budget across every look and both possible decisions: its upper bound must be
-below 50% to reject early, or its lower bound must be above 50% to promote early. Unresolved evidence
-continues to the ceiling—100,000 pairs by default—where a single final decision receives the remaining
-4% error budget and therefore uses 96% standalone confidence. The complete sequential procedure has
-at most 5% familywise decision error. The automatic ceiling can be configured as high as 250,000.
+Directional full evaluations retain their conservative early-decision looks. If no early decision is
+made, they use the universal promotion extension contract: inspect the 95% paired interval after each
+2,000-pair block and continue only while the observed score is above 50% but the interval still crosses
+50%, with a hard ceiling of 50,000 pairs.
 Evaluations retain only recent human-readable
 pair diagnostics in memory and checkpoint their large resumable score arrays at a reduced cadence.
 

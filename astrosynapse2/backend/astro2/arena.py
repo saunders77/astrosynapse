@@ -46,7 +46,8 @@ RECOMMENDED_PAIRS = 2_000
 MAX_PAIRS = 2_000
 MAX_AUTOMATIC_PAIRS = 250_000
 PROMOTION_EXTENSION_PAIRS = 2_000
-PROMOTION_EXTENSION_LOWER_MIN = 0.48
+PROMOTION_EXTENSION_MAX_PAIRS = 50_000
+PROMOTION_EXTENSION_LOWER_MIN = 0.0
 
 
 class ModelResolutionError(ValueError):
@@ -73,12 +74,27 @@ class ArenaConfig:
     early_acceptance_confidence: float = 0.995
     early_look_interval_pairs: int = 0
     extension_enabled: bool = True
-    extension_max_pairs: int = 4_000
+    extension_max_pairs: int = PROMOTION_EXTENSION_MAX_PAIRS
     extension_block_pairs: int = PROMOTION_EXTENSION_PAIRS
     extension_min_score: float = 0.50
     extension_min_lower_bound: float = PROMOTION_EXTENSION_LOWER_MIN
 
     def __post_init__(self) -> None:
+        if self.automatic_promotion and self.trainer_scheduled:
+            # This is a system-wide promotion contract, including jobs loaded
+            # from SQLite after an upgrade. Keep the legacy fields readable so
+            # old job JSON remains compatible, but do not let a stored preset
+            # disable or weaken the extension policy.
+            object.__setattr__(self, "confidence", 0.95)
+            object.__setattr__(self, "extension_enabled", True)
+            object.__setattr__(
+                self,
+                "extension_max_pairs",
+                max(self.pairs, PROMOTION_EXTENSION_MAX_PAIRS),
+            )
+            object.__setattr__(self, "extension_block_pairs", PROMOTION_EXTENSION_PAIRS)
+            object.__setattr__(self, "extension_min_score", 0.50)
+            object.__setattr__(self, "extension_min_lower_bound", 0.0)
         pair_limit = (
             MAX_AUTOMATIC_PAIRS
             if self.automatic_promotion and self.trainer_scheduled
@@ -774,44 +790,23 @@ def _should_extend_promotion_evaluation(
     eligible = (
         config.automatic_promotion
         and config.trainer_scheduled
-        and config.promotion_tier == "full"
         and config.extension_enabled
         and pairs_completed >= config.pairs
         and pairs_completed < config.extension_max_pairs
     )
-    if config.early_look_interval_pairs:
-        # A regularly monitored gate reaches the final reserved-alpha decision
-        # unless one of its 99% interim bounds already made either outcome clear.
-        return eligible
     return (
         eligible
-        and estimate > max(
-            config.extension_min_score, 0.5 + config.promotion_margin
-        )
-        and config.extension_min_lower_bound
-        <= lower_bound
-        <= 0.5 + config.promotion_margin
+        and estimate > 0.5
+        and lower_bound <= 0.5
     )
 
 
 def _extension_confidence(config: ArenaConfig, target_pairs: int | None = None) -> float:
-    """Return the confidence assigned to an interim or final boundary."""
+    """Use the system-wide 95% promotion interval."""
 
-    if config.early_look_interval_pairs:
-        interim_looks = _planned_decision_looks(config)
-        interim_confidence = min(
-            config.early_rejection_confidence if config.early_rejection else 1.0,
-            config.early_acceptance_confidence if config.early_acceptance else 1.0,
-        )
-        interim_alpha = 1.0 - interim_confidence
-        if target_pairs is not None and target_pairs >= config.extension_max_pairs:
-            final_alpha = max(0.0, (1.0 - config.confidence) - interim_alpha)
-            return 1.0 - final_alpha
-        if interim_looks:
-            return 1.0 - interim_alpha / len(interim_looks)
-    additional = max(0, config.extension_max_pairs - config.pairs)
-    looks = 1 + math.ceil(additional / config.extension_block_pairs)
-    return 1.0 - (1.0 - config.confidence) / looks
+    del config
+    del target_pairs
+    return 0.95
 
 
 def _summary(
@@ -1172,7 +1167,7 @@ class ArenaManager:
         early_acceptance_confidence: float = 0.995,
         early_look_interval_pairs: int = 0,
         extension_enabled: bool = True,
-        extension_max_pairs: int = 4_000,
+        extension_max_pairs: int = PROMOTION_EXTENSION_MAX_PAIRS,
         extension_block_pairs: int = PROMOTION_EXTENSION_PAIRS,
         extension_min_score: float = 0.50,
         extension_min_lower_bound: float = PROMOTION_EXTENSION_LOWER_MIN,

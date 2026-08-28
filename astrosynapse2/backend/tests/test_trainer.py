@@ -1111,7 +1111,15 @@ def test_paused_run_can_hydrate_after_backend_restart(tmp_path, monkeypatch):
 def test_start_repairs_legacy_evaluation_pairs_before_trainer_thread(tmp_path, monkeypatch):
     store = Store(tmp_path / "state.sqlite3")
     run = store.create_run(RunConfig.astro5_search())
-    legacy = run["config"] | {"evaluation_pairs": 100_000}
+    legacy = run["config"] | {
+        "evaluation_pairs": 100_000,
+        "evaluation_extension_enabled": False,
+        "evaluation_extension_max_pairs": 100_000,
+        "evaluation_extension_block_pairs": 5_000,
+        "evaluation_extension_min_score": 0.60,
+        "evaluation_extension_min_lower_bound": 0.48,
+        "promotion_confidence": 0.99,
+    }
     store.update_run(run["id"], config_json=json.dumps(legacy))
     supervisor = Supervisor(store, tmp_path)
     observed: dict[str, int] = {}
@@ -1127,6 +1135,12 @@ def test_start_repairs_legacy_evaluation_pairs_before_trainer_thread(tmp_path, m
     assert observed == {"evaluation_pairs": 50_000}
     repaired = store.get_run(run["id"])
     assert repaired["config"]["evaluation_pairs"] == 50_000
+    assert repaired["config"]["promotion_confidence"] == 0.95
+    assert repaired["config"]["evaluation_extension_enabled"] is True
+    assert repaired["config"]["evaluation_extension_max_pairs"] == 50_000
+    assert repaired["config"]["evaluation_extension_block_pairs"] == 2_000
+    assert repaired["config"]["evaluation_extension_min_score"] == 0.50
+    assert repaired["config"]["evaluation_extension_min_lower_bound"] == 0.0
     events = store.events(run["id"], limit=20)
     assert any(event["kind"] == "persisted_config_repaired" for event in events)
 

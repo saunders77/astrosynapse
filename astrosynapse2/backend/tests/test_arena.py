@@ -57,6 +57,26 @@ def test_arena_config_is_bounded_and_conservative():
         ArenaConfig(early_rejection_confidence=1.0)
 
 
+def test_existing_automatic_job_config_inherits_universal_extension_policy():
+    config = ArenaConfig(
+        automatic_promotion=True,
+        trainer_scheduled=True,
+        confidence=0.99,
+        extension_enabled=False,
+        extension_max_pairs=4_000,
+        extension_block_pairs=5_000,
+        extension_min_score=0.60,
+        extension_min_lower_bound=0.48,
+    )
+
+    assert config.confidence == 0.95
+    assert config.extension_enabled is True
+    assert config.extension_max_pairs == 50_000
+    assert config.extension_block_pairs == 2_000
+    assert config.extension_min_score == 0.50
+    assert config.extension_min_lower_bound == 0.0
+
+
 def test_arena_summary_separates_true_draws_from_truncations():
     config = ArenaConfig(pairs=1)
     model_a = ResolvedModel("baseline:balanced", "A", "baseline")
@@ -142,7 +162,9 @@ def test_regular_99_percent_looks_share_error_across_both_decisions():
         extension_block_pairs=2_000,
     )
 
-    expected_looks = tuple(range(2_000, 100_000, 2_000))
+    # Automatic jobs normalize legacy/preset-specific ceilings to the current
+    # system-wide 50,000-pair contract.
+    expected_looks = tuple(range(2_000, 50_000, 2_000))
     assert arena_module._early_rejection_looks(config) == expected_looks
     assert arena_module._early_acceptance_looks(config) == expected_looks
 
@@ -161,30 +183,28 @@ def test_regular_99_percent_looks_share_error_across_both_decisions():
     assert strong["accept"] is True
     assert weak["reject"] is True
     assert borderline["accept"] is False
-    assert strong["bonferroni_look_alpha"] == pytest.approx(0.01 / 98)
-    assert arena_module._extension_confidence(config, 98_000) == pytest.approx(
-        1.0 - 0.01 / 49
-    )
-    assert arena_module._extension_confidence(config, 100_000) == pytest.approx(0.96)
+    assert strong["bonferroni_look_alpha"] == pytest.approx(0.01 / 48)
+    assert arena_module._extension_confidence(config, 48_000) == pytest.approx(0.95)
+    assert arena_module._extension_confidence(config, 50_000) == pytest.approx(0.95)
     assert arena_module._should_extend_promotion_evaluation(
         config=config,
         pairs_completed=10_000,
         estimate=0.40,
         lower_bound=0.35,
-    ) is True
-    with pytest.raises(ValueError, match="retains an error budget"):
-        ArenaConfig(
-            pairs=10_000,
-            confidence=0.99,
-            minimum_promotion_pairs=10_000,
-            automatic_promotion=True,
-            trainer_scheduled=True,
-            early_rejection=True,
-            early_rejection_min_pairs=2_000,
-            early_rejection_confidence=0.99,
-            early_look_interval_pairs=2_000,
-            extension_max_pairs=100_000,
-        )
+    ) is False
+    repaired = ArenaConfig(
+        pairs=10_000,
+        confidence=0.99,
+        minimum_promotion_pairs=10_000,
+        automatic_promotion=True,
+        trainer_scheduled=True,
+        early_rejection=True,
+        early_rejection_min_pairs=2_000,
+        early_rejection_confidence=0.99,
+        early_look_interval_pairs=2_000,
+        extension_max_pairs=100_000,
+    )
+    assert repaired.confidence == 0.95
 
 
 def test_final_paired_interval_is_valid_for_constant_samples():
@@ -237,7 +257,8 @@ def test_default_arena_pool_uses_all_detected_cpus(monkeypatch):
         (0.51, 0.48, True),
         (0.51, 0.50, True),
         (0.50, 0.49, False),
-        (0.51, 0.479, False),
+        (0.49, 0.45, False),
+        (0.51, 0.479, True),
         (0.51, 0.501, False),
     ],
 )
@@ -256,6 +277,23 @@ def test_promotion_extension_uses_the_requested_mean_and_interval_window(
         )
         is expected
     )
+
+
+def test_all_automatic_promotion_tiers_can_extend():
+    config = ArenaConfig(
+        pairs=1_000,
+        minimum_promotion_pairs=1_000,
+        promotion_tier="provisional",
+        automatic_promotion=True,
+        trainer_scheduled=True,
+    )
+
+    assert arena_module._should_extend_promotion_evaluation(
+        config=config,
+        pairs_completed=1_000,
+        estimate=0.51,
+        lower_bound=0.49,
+    ) is True
 
 
 def test_marginal_positive_full_evaluation_runs_one_more_2000_pair_block(
@@ -304,19 +342,19 @@ def test_marginal_positive_full_evaluation_runs_one_more_2000_pair_block(
 
     assert complete["status"] == "complete", complete.get("error")
     result = complete["result"]
-    assert result["pairs_completed"] == 4_000
-    assert result["pairs_requested"] == 4_000
+    assert result["pairs_completed"] == 6_000
+    assert result["pairs_requested"] == 6_000
     assert result["adaptive_extension"] == {
         "active": True,
         "initial_pairs": 2_000,
-        "additional_pairs": 2_000,
+        "additional_pairs": 4_000,
         "block_pairs": 2_000,
-        "maximum_pairs": 4_000,
-        "look_adjusted_confidence": pytest.approx(0.975),
+        "maximum_pairs": 50_000,
+        "look_adjusted_confidence": pytest.approx(0.95),
     }
     assert result["paired_interval"]["estimate"] == pytest.approx(0.52)
-    assert 0.48 <= result["paired_interval"]["low"] <= 0.50
-    assert result["promotion"]["promoted"] is False
+    assert result["paired_interval"]["low"] > 0.50
+    assert result["promotion"]["promoted"] is True
 
 
 def test_mature_evaluation_can_extend_across_multiple_blocks(tmp_path, monkeypatch):
@@ -367,12 +405,64 @@ def test_mature_evaluation_can_extend_across_multiple_blocks(tmp_path, monkeypat
 
     assert complete["status"] == "complete", complete.get("error")
     result = complete["result"]
-    assert result["pairs_completed"] == 8_000
-    assert result["adaptive_extension"]["additional_pairs"] == 6_000
-    assert result["adaptive_extension"]["maximum_pairs"] == 8_000
+    assert result["pairs_completed"] == 20_000
+    assert result["adaptive_extension"]["additional_pairs"] == 18_000
+    assert result["adaptive_extension"]["maximum_pairs"] == 50_000
     assert result["adaptive_extension"]["look_adjusted_confidence"] == pytest.approx(
-        0.9875
+        0.95
     )
+    assert result["promotion"]["promoted"] is True
+
+
+def test_promotion_extension_stops_at_50000_pairs_when_still_unresolved(
+    tmp_path,
+    monkeypatch,
+):
+    store = Store(tmp_path / "arena.sqlite3")
+    run = store.create_run(RunConfig.quick())
+    champion_actor = tmp_path / "champion.npz"
+    candidate_actor = tmp_path / "candidate.npz"
+    champion_actor.touch()
+    candidate_actor.touch()
+    champion = store.add_checkpoint(
+        run_id=run["id"],
+        label="champion",
+        path=str(tmp_path / "champion.safetensors"),
+        actor_path=str(champion_actor),
+        games=2_000,
+        champion=True,
+    )
+    candidate = store.add_checkpoint(
+        run_id=run["id"],
+        label="candidate",
+        path=str(tmp_path / "candidate.safetensors"),
+        actor_path=str(candidate_actor),
+        games=10_000,
+    )
+
+    def fake_pair(_model_a, _model_b, _config, pair_index, **_kwargs):
+        score = 1.0 if pair_index % 1_000 < 501 else 0.0
+        return {
+            "pair_index": pair_index,
+            "first_score": score,
+            "second_score": score,
+            "turns": 2,
+            "decisions": 2,
+            "truncated_games": 0,
+            "record": {"pair_index": pair_index},
+        }
+
+    monkeypatch.setattr(arena_module, "_play_pair", fake_pair)
+    manager = ArenaManager(store, worker_processes=1, recover=False)
+    created = manager.create_automatic(candidate["id"], champion["id"])
+    complete = _wait_for_job(manager, created["id"])
+    manager.shutdown()
+
+    assert complete["status"] == "complete", complete.get("error")
+    result = complete["result"]
+    assert result["pairs_completed"] == 50_000
+    assert result["paired_interval"]["estimate"] == pytest.approx(0.501)
+    assert result["paired_interval"]["low"] <= 0.50
     assert result["promotion"]["promoted"] is False
 
 
