@@ -1,8 +1,8 @@
 """Candidate card-choice Elo probes for acquisition and deck-thinning decisions.
 
 The probes intentionally measure the policy that is present in a checkpoint,
-not game outcomes.  A selected card wins against every other card that was
-legal in the same decision.  Whole turns are retained only when exactly one
+not game outcomes. A selected card wins against every other card that was
+legal in the same decision. Whole turns are retained only when zero or one
 card was acquired or scrapped, preventing a multi-card turn from being treated
 as several independent preferences.
 """
@@ -29,11 +29,13 @@ import numpy as np
 
 from .arena import ModelResolutionError, resolve_model
 from .cards import ALL_CARDS, CARD_BY_ID, Faction
-from .encoding import DecisionFamily, Encoder
+from .encoding import DecisionFamily as EncodedDecisionFamily
+from .encoding import Encoder
 from .engine import (
     Action,
     ActionKind,
     Decision,
+    DecisionFamily,
     Game,
     GameConfig,
     model_action_indices,
@@ -109,6 +111,10 @@ class ChoiceOption:
         return asdict(self)
 
 
+NO_CARD_OPTION = ChoiceOption("no_card", "No Card", "", "No Card")
+NO_DISCARD_OPTION = ChoiceOption("no_discard", "No Discard", "", "No Discard")
+
+
 @dataclass(frozen=True, slots=True)
 class ChoiceDecision:
     winner: ChoiceOption
@@ -118,7 +124,7 @@ class ChoiceDecision:
 
 @dataclass(frozen=True, slots=True)
 class AcquisitionContext:
-    """Pre-acquisition state attached to a choice for post-hoc grouping."""
+    """Choice-time state attached to an acquisition result for post-hoc grouping."""
 
     turn: int
     own_authority: int
@@ -133,6 +139,7 @@ class _TurnChoices:
     scrapped_cards: int = 0
     acquire_decisions: list[ChoiceDecision] | None = None
     scrap_decisions: list[ChoiceDecision] | None = None
+    end_turn_decision: ChoiceDecision | None = None
 
     def __post_init__(self) -> None:
         self.acquire_decisions = [] if self.acquire_decisions is None else self.acquire_decisions
@@ -195,6 +202,8 @@ def _acquire_option(action: Action) -> ChoiceOption | None:
 
 
 def _scrap_option(action: Action) -> ChoiceOption | None:
+    if action.kind == ActionKind.DECLINE:
+        return NO_DISCARD_OPTION
     if action.kind != ActionKind.SCRAP_CARD:
         return None
     card = CARD_BY_ID.get(action.card_id)
@@ -223,6 +232,31 @@ def _choice_decision(
         seen.add(option.key)
         alternatives.append(option)
     return ChoiceDecision(winner, tuple(alternatives), context)
+
+
+def _no_card_decision(
+    decision: Decision,
+    context: AcquisitionContext,
+) -> ChoiceDecision | None:
+    """Build the end-of-turn choice among declining and affordable cards."""
+
+    alternatives: list[ChoiceOption] = []
+    seen: set[str] = set()
+    for action in decision.actions:
+        option = _acquire_option(action)
+        card = CARD_BY_ID.get(action.card_id)
+        if (
+            option is None
+            or card is None
+            or card.cost > decision.observation.trade
+            or option.key in seen
+        ):
+            continue
+        seen.add(option.key)
+        alternatives.append(option)
+    if not alternatives:
+        return None
+    return ChoiceDecision(NO_CARD_OPTION, tuple(alternatives), context)
 
 
 _FACTION_COLORS = {
@@ -288,29 +322,56 @@ def extract_single_card_turn_decisions(
                 acquisition_sequence += 1
                 acquired_colors[int(player_id)][color] += 1
                 most_recent_colors[int(player_id)][color] = acquisition_sequence
+        if selected.kind == ActionKind.END_TURN:
+            opponent_id = 1 - int(player_id)
+            context = AcquisitionContext(
+                turn=max(1, int(decision.observation.turn)),
+                own_authority=max(0, int(decision.observation.own_authority)),
+                acquired_cards=acquired_counts[int(player_id)],
+                opponent_authority=max(0, int(decision.observation.opponent_authority)),
+                opponent_top_color=_opponent_top_acquired_color(
+                    acquired_colors[opponent_id], most_recent_colors[opponent_id]
+                ),
+            )
+            turn.end_turn_decision = _no_card_decision(decision, context)
         if selected.kind in {ActionKind.SCRAP_CARD, ActionKind.SCRAP_FOR_ABILITY}:
             turn.scrapped_cards += 1
-            if selected.kind == ActionKind.SCRAP_CARD:
-                choice = _choice_decision(decision, selected, _scrap_option)
-                if choice is not None:
-                    assert turn.scrap_decisions is not None
-                    turn.scrap_decisions.append(choice)
+        if decision.family == DecisionFamily.SCRAP:
+            choice = _choice_decision(decision, selected, _scrap_option)
+            if choice is not None:
+                assert turn.scrap_decisions is not None
+                turn.scrap_decisions.append(choice)
 
-    counter = "acquired_cards" if _is_acquire_kind(resolved_kind) else "scrapped_cards"
-    choices = (
-        "acquire_decisions" if _is_acquire_kind(resolved_kind) else "scrap_decisions"
-    )
     single_card_turns = 0
     decisions: list[ChoiceDecision] = []
     for turn in turns.values():
-        if getattr(turn, counter) != 1:
+        if _is_acquire_kind(resolved_kind):
+            if turn.acquired_cards > 1:
+                continue
+            if turn.acquired_cards == 1:
+                single_card_turns += 1
+                # Rate the acquired card against the alternatives at purchase,
+                # then give it a separate head-to-head win over No Card. This
+                # keeps No Card from indirectly competing with cards that were
+                # merely present earlier in the turn.
+                acquired = (turn.acquire_decisions or [])[:1]
+                decisions.extend(acquired)
+                if acquired:
+                    choice = acquired[0]
+                    decisions.append(
+                        ChoiceDecision(choice.winner, (NO_CARD_OPTION,), choice.context)
+                    )
+            elif turn.end_turn_decision is not None:
+                single_card_turns += 1
+                decisions.append(turn.end_turn_decision)
             continue
-        single_card_turns += 1
-        turn_decisions = getattr(turn, choices) or []
-        # Exactly one actual card move implies at most one corresponding rated
-        # choice. The slice protects this invariant if a future engine emits a
-        # second semantic hook for the same physical acquisition/scrap.
-        decisions.extend(turn_decisions[:1])
+
+        if turn.scrapped_cards > 1:
+            continue
+        turn_decisions = turn.scrap_decisions or []
+        if turn_decisions:
+            single_card_turns += 1
+            decisions.extend(turn_decisions)
     return {
         "turns_observed": len(turns),
         "single_card_turns": single_card_turns,
@@ -337,11 +398,13 @@ def _initial_rating_state(kind: AnalysisKind) -> dict[str, Any]:
             for card in ALL_CARDS
             if card.card_id not in {0, 1}  # starters never enter an acquire choice
         ]
+        options.append(NO_CARD_OPTION)
     else:
         options = [
             ChoiceOption(f"card:{card.card_id}", card.name, "", card.name)
             for card in ALL_CARDS
         ]
+        options.append(NO_DISCARD_OPTION)
     return {
         "ratings": {option.key: INITIAL_ELO for option in options},
         "decisions": {option.key: 0 for option in options},
@@ -667,7 +730,7 @@ def _simulate_game_batch(
     actor, encoder = _load_actor_encoder(actor_path)
     if actor.spec.state_size != encoder.state_size or actor.spec.action_size != encoder.action_size:
         raise ModelResolutionError("checkpoint actor encoder is incompatible")
-    if actor.spec.families != len(DecisionFamily):
+    if actor.spec.families != len(EncodedDecisionFamily):
         raise ModelResolutionError("checkpoint actor decision families are incompatible")
 
     decisions: list[ChoiceDecision] = []
@@ -833,17 +896,22 @@ def format_analysis_report(result: dict[str, Any]) -> str:
         f"Games: {result['games_completed']} / {result['games_requested']}",
         "Policy: greedy mean-head deployment policy",
         f"Turns observed: {result['turns_observed']}",
-        f"Eligible single-{'acquire' if _is_acquire_kind(kind) else 'scrap'} turns: {result['single_card_turns']}",
+        f"Eligible zero-or-one-{'acquire' if _is_acquire_kind(kind) else 'scrap'} turns: {result['single_card_turns']}",
         f"Scored decisions: {result['scored_decisions']}",
         f"Pairwise comparisons: {result['pairwise_comparisons']}",
         f"Truncated games: {result['truncated_games']}",
         "The chosen card beats every unchosen card that was legal in the same decision.",
+        (
+            "No Card faces only the card actually acquired, or all cards affordable when a zero-acquire turn ended."
+            if _is_acquire_kind(kind)
+            else "No Discard is rated alongside the cards in each hand/discard scrap choice."
+        ),
         "Turns containing more than one acquired or scrapped card are excluded in full.",
     ]
     if kind == AnalysisKind.ACQUIRE_BUCKETED:
         lines.extend(
             [
-                "Ratings were grouped after simulation from the pre-acquisition game state.",
+                "Ratings were grouped after simulation from the purchase-time or turn-end choice state.",
                 "Turn 30 includes turn 30 and later; opponent color uses the most recently acquired tied leader.",
                 "Opponent-color states before any colored opponent acquisition are reported as unbucketed.",
                 "",

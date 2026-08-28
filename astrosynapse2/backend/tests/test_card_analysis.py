@@ -35,10 +35,12 @@ def test_acquire_probe_excludes_entire_turn_when_two_cards_are_acquired():
     )
 
     assert extracted["single_card_turns"] == 1
-    assert len(extracted["decisions"]) == 1
-    decision = extracted["decisions"][0]
+    assert len(extracted["decisions"]) == 2
+    decision, no_card_match = extracted["decisions"]
     assert decision.winner.card_name == "Explorer"
     assert [option.card_name for option in decision.alternatives] == ["Battle Pod"]
+    assert no_card_match.winner.card_name == "Explorer"
+    assert [option.label for option in no_card_match.alternatives] == ["No Card"]
 
 
 def test_scrap_probe_counts_in_play_scrap_for_single_card_turn_filter():
@@ -66,7 +68,76 @@ def test_scrap_probe_counts_in_play_scrap_for_single_card_turn_filter():
     assert len(extracted["decisions"]) == 1
     decision = extracted["decisions"][0]
     assert decision.winner.label == "Scout"
-    assert [option.label for option in decision.alternatives] == ["Viper"]
+    assert [option.label for option in decision.alternatives] == ["Viper", "No Discard"]
+
+
+def test_no_card_wins_against_every_affordable_card_when_turn_ends_without_purchase():
+    explorer = Action(ActionKind.ACQUIRE, card_id=2, source_zone="explorer_supply")
+    battle_pod = Action(ActionKind.ACQUIRE, card_id=4, source_zone="trade_row")
+    end = Action(ActionKind.END_TURN)
+    end_decision = _decision(5, DecisionFamily.MAIN, (explorer, battle_pod, end))
+    end_decision = replace(
+        end_decision,
+        observation=replace(end_decision.observation, trade=2, own_authority=41),
+    )
+
+    extracted = extract_single_card_turn_decisions(
+        [(0, end_decision, end)], AnalysisKind.ACQUIRE
+    )
+
+    assert extracted["single_card_turns"] == 1
+    assert len(extracted["decisions"]) == 1
+    choice = extracted["decisions"][0]
+    assert choice.winner.label == "No Card"
+    assert [option.card_name for option in choice.alternatives] == [
+        "Explorer",
+        "Battle Pod",
+    ]
+    assert choice.context == AcquisitionContext(5, 41, 0, 50, None)
+
+
+def test_no_card_only_faces_the_card_actually_acquired_on_a_purchase_turn():
+    explorer = Action(ActionKind.ACQUIRE, card_id=2, source_zone="explorer_supply")
+    battle_pod = Action(ActionKind.ACQUIRE, card_id=4, source_zone="trade_row")
+    ram = Action(ActionKind.ACQUIRE, card_id=11, source_zone="trade_row")
+    acquire = _decision(6, DecisionFamily.MAIN, (explorer, battle_pod, ram))
+
+    extracted = extract_single_card_turn_decisions(
+        [(0, acquire, battle_pod)], AnalysisKind.ACQUIRE_BUCKETED
+    )
+
+    regular_choice, no_card_match = extracted["decisions"]
+    assert [option.card_name for option in regular_choice.alternatives] == [
+        "Explorer",
+        "Ram",
+    ]
+    assert no_card_match.winner.card_name == "Battle Pod"
+    assert [option.label for option in no_card_match.alternatives] == ["No Card"]
+
+    rated = rate_choice_decisions(extracted["decisions"], AnalysisKind.ACQUIRE)
+    entries = {entry["key"]: entry for entry in rated["leaderboard"]}
+    assert entries["no_card"]["pairwise_comparisons"] == 1
+
+
+def test_no_discard_can_win_an_optional_scrap_choice():
+    scout = Action(ActionKind.SCRAP_CARD, card_id=0, source_zone="hand")
+    viper = Action(ActionKind.SCRAP_CARD, card_id=1, source_zone="discard")
+    decline = Action(ActionKind.DECLINE, card_id=20, ability="scrap_any")
+    choice = _decision(7, DecisionFamily.SCRAP, (scout, viper, decline))
+
+    extracted = extract_single_card_turn_decisions(
+        [(0, choice, decline)], AnalysisKind.SCRAP
+    )
+
+    assert extracted["single_card_turns"] == 1
+    assert len(extracted["decisions"]) == 1
+    decision = extracted["decisions"][0]
+    assert decision.winner.label == "No Discard"
+    assert [option.card_name for option in decision.alternatives] == ["Scout", "Viper"]
+
+    rated = rate_choice_decisions(extracted["decisions"], AnalysisKind.SCRAP)
+    entries = {entry["key"]: entry for entry in rated["leaderboard"]}
+    assert entries["no_discard"]["elo"] > entries["card:0"]["elo"]
 
 
 def test_scrap_elo_uses_every_unchosen_legal_card():
@@ -145,7 +216,7 @@ def test_acquire_context_is_captured_before_the_purchase_and_tracks_opponent_col
         AnalysisKind.ACQUIRE_BUCKETED,
     )
 
-    contexts = [decision.context for decision in extracted["decisions"]]
+    contexts = [decision.context for decision in extracted["decisions"][::2]]
     assert contexts[0] == AcquisitionContext(1, 50, 0, 50, None)
     assert contexts[1] == AcquisitionContext(2, 37, 0, 24, "green")
 
