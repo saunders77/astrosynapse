@@ -123,6 +123,70 @@ def test_early_rejection_hoeffding_bound_stays_wide_for_zero_variance():
     assert tied["reject"] is False
 
 
+def test_regular_99_percent_looks_share_error_across_both_decisions():
+    config = ArenaConfig(
+        pairs=10_000,
+        confidence=0.95,
+        minimum_promotion_pairs=10_000,
+        automatic_promotion=True,
+        trainer_scheduled=True,
+        early_rejection=True,
+        early_rejection_min_pairs=2_000,
+        early_rejection_confidence=0.99,
+        early_acceptance=True,
+        early_acceptance_min_pairs=2_000,
+        early_acceptance_confidence=0.99,
+        early_look_interval_pairs=2_000,
+        extension_enabled=True,
+        extension_max_pairs=100_000,
+        extension_block_pairs=2_000,
+    )
+
+    expected_looks = tuple(range(2_000, 100_000, 2_000))
+    assert arena_module._early_rejection_looks(config) == expected_looks
+    assert arena_module._early_acceptance_looks(config) == expected_looks
+
+    strong = arena_module._early_acceptance_look(
+        [0.56] * 2_000, config=config, look_pairs=2_000
+    )
+    weak = arena_module._early_rejection_look(
+        [0.44] * 2_000, config=config, look_pairs=2_000
+    )
+    borderline = arena_module._early_acceptance_look(
+        [0.53] * 2_000, config=config, look_pairs=2_000
+    )
+
+    assert strong["method"] == "bonferroni_two_sided_hoeffding"
+    assert weak["method"] == "bonferroni_two_sided_hoeffding"
+    assert strong["accept"] is True
+    assert weak["reject"] is True
+    assert borderline["accept"] is False
+    assert strong["bonferroni_look_alpha"] == pytest.approx(0.01 / 98)
+    assert arena_module._extension_confidence(config, 98_000) == pytest.approx(
+        1.0 - 0.01 / 49
+    )
+    assert arena_module._extension_confidence(config, 100_000) == pytest.approx(0.96)
+    assert arena_module._should_extend_promotion_evaluation(
+        config=config,
+        pairs_completed=10_000,
+        estimate=0.40,
+        lower_bound=0.35,
+    ) is True
+    with pytest.raises(ValueError, match="retains an error budget"):
+        ArenaConfig(
+            pairs=10_000,
+            confidence=0.99,
+            minimum_promotion_pairs=10_000,
+            automatic_promotion=True,
+            trainer_scheduled=True,
+            early_rejection=True,
+            early_rejection_min_pairs=2_000,
+            early_rejection_confidence=0.99,
+            early_look_interval_pairs=2_000,
+            extension_max_pairs=100_000,
+        )
+
+
 def test_final_paired_interval_is_valid_for_constant_samples():
     losing = arena_module._paired_interval([0.0] * 2_000, 0.95)
     winning = arena_module._paired_interval([1.0] * 2_000, 0.95)
@@ -418,29 +482,32 @@ def test_automatic_arena_early_rejects_only_at_adjusted_safe_look(
     weak_evaluation = store.checkpoint(weak["id"])["evaluation"]["latest_arena"]
     assert weak_evaluation["early_stopped"] is True
 
-    # A strong candidate can promote at a separately planned, more stringent
-    # acceptance look without waiting for all 2,000 requested pairs.
+    # A directional-style gate can promote at its first regular 2,000-pair
+    # familywise-99% look without waiting for the 10,000-pair initial target.
     candidate_loses["value"] = False
     strong_job = manager.create_automatic(
         strong["id"],
         champion["id"],
-        **{
-            **options,
-            "pairs": 2_000,
-            "minimum_promotion_pairs": 2_000,
-            "early_acceptance": True,
-            "early_acceptance_min_pairs": 1_000,
-            "early_acceptance_confidence": 0.995,
-        },
+        pairs=10_000,
+        confidence=0.95,
+        minimum_promotion_pairs=10_000,
+        early_rejection=True,
+        early_rejection_min_pairs=2_000,
+        early_rejection_confidence=0.99,
+        early_acceptance=True,
+        early_acceptance_min_pairs=2_000,
+        early_acceptance_confidence=0.99,
+        early_look_interval_pairs=2_000,
+        extension_max_pairs=100_000,
     )
     strong_complete = _wait_for_job(manager, strong_job["id"])
     manager.shutdown()
     strong_result = strong_complete["result"]
-    assert strong_result["pairs_completed"] == 1_000
+    assert strong_result["pairs_completed"] == 2_000
     assert strong_result["early_stopped"] is True
     assert strong_result["early_stop_outcome"] == "accepted"
     assert strong_result["early_acceptance"]["latest_look"]["accept"] is True
-    assert strong_result["early_rejection"]["looks_completed"] == 7
+    assert strong_result["early_rejection"]["looks_completed"] == 1
     assert strong_result["early_rejection"]["latest_look"]["reject"] is False
     assert strong_result["promotion"]["promoted"] is True
 

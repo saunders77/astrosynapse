@@ -1080,8 +1080,11 @@ def _trainer_evaluation_outcome(job: dict[str, Any]) -> str:
         return "diagnostic_complete"
 
     if bool(result.get("early_stopped")):
+        early_outcome = result.get("early_stop_outcome")
         latest_look = (result.get("early_rejection") or {}).get("latest_look") or {}
-        if bool(latest_look.get("reject")) or result.get("early_stop_reason"):
+        if early_outcome == "accepted":
+            return "promoted" if bool(promotion.get("promoted")) else "infrastructure_invalid"
+        if early_outcome == "rejected" or bool(latest_look.get("reject")):
             return "not_promoted"
         return "infrastructure_invalid"
     if "promoted" not in promotion:
@@ -1707,13 +1710,19 @@ def _schedule_evaluation(
         # Preserve the configured statistical design exactly. A provisional
         # tier smaller than the first planned look simply has no early looks;
         # silently changing 512 to 100 would produce a different test.
+        early_look_ceiling = (
+            config.evaluation_extension_max_pairs
+            if config.evaluation_early_look_interval_pairs
+            and config.evaluation_extension_enabled
+            else plan.pairs
+        )
         early_rejection = bool(
             config.evaluation_early_rejection
-            and config.evaluation_early_rejection_min_pairs < plan.pairs
+            and config.evaluation_early_rejection_min_pairs < early_look_ceiling
         )
         early_acceptance = bool(
             config.evaluation_early_acceptance
-            and config.evaluation_early_acceptance_min_pairs < plan.pairs
+            and config.evaluation_early_acceptance_min_pairs < early_look_ceiling
         )
         job = manager.create_automatic(
             checkpoint["id"],
@@ -1732,6 +1741,7 @@ def _schedule_evaluation(
             early_acceptance=early_acceptance,
             early_acceptance_min_pairs=config.evaluation_early_acceptance_min_pairs,
             early_acceptance_confidence=config.evaluation_early_acceptance_confidence,
+            early_look_interval_pairs=config.evaluation_early_look_interval_pairs,
             extension_enabled=config.evaluation_extension_enabled,
             extension_max_pairs=config.evaluation_extension_max_pairs,
             extension_block_pairs=config.evaluation_extension_block_pairs,
@@ -2173,6 +2183,7 @@ def _train_updates(
     optimizer_updates_at_start: int,
     control: Any,
     learning_rate_multiplier: float = 1.0,
+    promotion_direction: dict[str, Any] | None = None,
 ) -> dict[str, float]:
     active_replay_size = len(policy_replay) if config.training_generation >= 4 else len(replay)
     if count <= 0 or active_replay_size < config.replay_warmup:
@@ -2296,6 +2307,26 @@ def _train_updates(
             )
             optimizer.learning_rate = learning_rate
             loss, gradients = loss_and_grad(*arrays, *preference_arrays)
+            if promotion_direction and config.promotion_direction_strength > 0:
+                from mlx.utils import tree_flatten, tree_unflatten
+
+                guided = []
+                for name, gradient in tree_flatten(gradients):
+                    direction = promotion_direction.get(name)
+                    if direction is None or tuple(direction.shape) != tuple(gradient.shape):
+                        guided.append((name, gradient))
+                        continue
+                    gradient_rms = mx.sqrt(mx.mean(mx.square(gradient)) + 1e-12)
+                    guided.append(
+                        (
+                            name,
+                            gradient
+                            - config.promotion_direction_strength
+                            * gradient_rms
+                            * direction,
+                        )
+                    )
+                gradients = tree_unflatten(guided)
             gradients, norm = optim.clip_grad_norm(gradients, config.gradient_clip)
             optimizer.update(model, gradients)
             mx.eval(model.parameters(), optimizer.state, loss, norm)
@@ -2313,6 +2344,10 @@ def _train_updates(
             "learner_updates": float(completed),
             "gradient_clip_fraction": clipped_updates / max(1, completed),
             "learning_rate_multiplier": float(learning_rate_multiplier),
+            "promotion_direction_strength": float(
+                config.promotion_direction_strength if promotion_direction else 0.0
+            ),
+            "promotion_direction_tensors": float(len(promotion_direction or {})),
         }
         if last_policy_arrays is not None:
             diagnostic_loss, diagnostics = actor_critic_policy_loss(
@@ -2732,6 +2767,44 @@ def run_training(
         0, int(restored_training_state.get("schedule_games_origin", 0))
     )
     artifacts = ((latest or {}).get("evaluation") or {}).get("artifacts") or {}
+    promotion_direction: dict[str, Any] = {}
+    promotion_direction_metadata: dict[str, Any] = {}
+    if config.promotion_direction_enabled:
+        from .promotion_direction import load_promotion_direction
+
+        direction_artifact: str | None = (
+            config.promotion_direction_path
+            if config.promotion_direction_path
+            and Path(config.promotion_direction_path).is_file()
+            else None
+        )
+        for checkpoint in store.checkpoints(run_id):
+            if direction_artifact is not None:
+                break
+            checkpoint_artifacts = (
+                (checkpoint.get("evaluation") or {}).get("artifacts") or {}
+            )
+            candidate_path = checkpoint_artifacts.get("promotion_direction_path")
+            if isinstance(candidate_path, str) and Path(candidate_path).is_file():
+                direction_artifact = candidate_path
+                break
+        if direction_artifact is None:
+            raise RuntimeError(
+                "promotion-direction mode requires its branch-root direction artifact"
+            )
+        direction_arrays, promotion_direction_metadata = load_promotion_direction(
+            direction_artifact
+        )
+        promotion_direction = {
+            name: mx.array(value) for name, value in direction_arrays.items()
+        }
+        mx.eval(*promotion_direction.values())
+        store.event(
+            run_id,
+            "promotion_direction_loaded",
+            "Loaded verified promotion-direction guidance",
+            promotion_direction_metadata,
+        )
     latest_reason = str(((latest or {}).get("evaluation") or {}).get("reason") or "")
     initial_branch_import = bool(
         latest is not None
@@ -2804,6 +2877,7 @@ def run_training(
         "branch_replay_reset": bool(
             initial_branch_import and config.reset_replay_on_branch_start
         ),
+        "promotion_direction": promotion_direction_metadata,
     }
     if latest is not None and artifacts_complete:
         try:
@@ -3806,6 +3880,7 @@ def run_training(
                 learning_rate_multiplier=float(
                     governor.get("learning_rate_multiplier", 1.0)
                 ),
+                promotion_direction=promotion_direction,
             )
             emit(
                 phase=(

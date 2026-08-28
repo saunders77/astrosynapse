@@ -8,7 +8,7 @@ All routes below are rooted at `/api`.
 
 - `GET /health` — service and active-run ID.
 - `GET /system` — CPU, memory, platform, and accelerator summary.
-- `GET /presets` — validated `astro5_mature`, `astro5_search`, earlier-generation compatibility, and `quick` configurations.
+- `GET /presets` — validated `astro5_directional`, `astro5_mature`, `astro5_search`, earlier-generation compatibility, and `quick` configurations. Directional refinement is intended for Branch Lab because it requires a source checkpoint with retained verified promotions.
 - `GET /runs` — recent persisted runs.
 - `POST /runs` — create a run with `{preset, name?, overrides?, start?}`.
 - `GET /runs/{id}` — persisted record, in-memory live snapshot, and latest metric.

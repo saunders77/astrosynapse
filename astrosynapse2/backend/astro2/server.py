@@ -120,6 +120,7 @@ def _build_config(request: CreateRunRequest) -> RunConfig:
     base.update(request.overrides)
     if request.preset not in {
         "astro5_mature",
+        "astro5_directional",
         "astro5_search",
         "astro4_m4",
         "astro3_m4",
@@ -309,6 +310,7 @@ def system() -> dict[str, Any]:
 @app.get("/api/presets")
 def presets() -> dict[str, Any]:
     return {
+        "astro5_directional": RunConfig.astro5_directional().model_dump(),
         "astro5_mature": RunConfig.astro5_mature().model_dump(),
         "astro5_search": RunConfig.astro5_search().model_dump(),
         "astro4_m4": RunConfig.astro4_m4().model_dump(),

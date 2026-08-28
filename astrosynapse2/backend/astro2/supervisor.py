@@ -397,10 +397,15 @@ class Supervisor:
                 **{key: value for key, value in variant.items() if key != "label"},
             }
             mature_refinement = overrides.get("preset") == "astro5_mature"
+            directional_refinement = overrides.get("preset") == "astro5_directional"
             recipe = (
-                RunConfig.astro5_mature(name=f"{name} · {label}").model_dump()
-                if mature_refinement
-                else RunConfig.astro5_search(name=f"{name} · {label}").model_dump()
+                RunConfig.astro5_directional(name=f"{name} · {label}").model_dump()
+                if directional_refinement
+                else (
+                    RunConfig.astro5_mature(name=f"{name} · {label}").model_dump()
+                    if mature_refinement
+                    else RunConfig.astro5_search(name=f"{name} · {label}").model_dump()
+                )
             )
             recipe.update(
                 hidden_size=actor.spec.hidden_size,
@@ -439,7 +444,7 @@ class Supervisor:
                 ("policy_replay_path", "branch-root.policy-replay.npz"),
                 ("preference_replay_path", "branch-root.preference-replay.npz"),
             ):
-                if mature_refinement:
+                if mature_refinement or directional_refinement:
                     continue
                 source_artifact = source_artifacts.get(artifact_key)
                 if (
@@ -468,8 +473,23 @@ class Supervisor:
                 "policy_replay_format",
                 "preference_replay_items",
             ):
-                if not mature_refinement and key in source_artifacts:
+                if not (mature_refinement or directional_refinement) and key in source_artifacts:
                     artifacts[key] = source_artifacts[key]
+            if directional_refinement:
+                from .promotion_direction import save_promotion_direction
+
+                direction_path, direction_metadata = save_promotion_direction(
+                    self.store,
+                    source_checkpoint_id,
+                    destination / "branch-root.promotion-direction.npz",
+                    maximum_transitions=config.promotion_direction_transitions,
+                    minimum_sign_agreement=config.promotion_direction_min_sign_agreement,
+                    recent_decay=config.promotion_direction_recent_decay,
+                )
+                artifacts["promotion_direction_path"] = direction_path
+                artifacts["promotion_direction"] = direction_metadata
+                config = config.model_copy(update={"promotion_direction_path": direction_path})
+                self.store.update_run(run["id"], config_json=config.model_dump_json())
             self.store.add_checkpoint(
                 run_id=run["id"],
                 parent_id=source_checkpoint_id,

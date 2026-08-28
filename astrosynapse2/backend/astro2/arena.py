@@ -44,7 +44,7 @@ from .storage import Store
 
 RECOMMENDED_PAIRS = 2_000
 MAX_PAIRS = 2_000
-MAX_AUTOMATIC_PAIRS = 50_000
+MAX_AUTOMATIC_PAIRS = 250_000
 PROMOTION_EXTENSION_PAIRS = 2_000
 PROMOTION_EXTENSION_LOWER_MIN = 0.48
 
@@ -71,6 +71,7 @@ class ArenaConfig:
     early_acceptance: bool = False
     early_acceptance_min_pairs: int = MINIMUM_PROMOTION_PAIRS
     early_acceptance_confidence: float = 0.995
+    early_look_interval_pairs: int = 0
     extension_enabled: bool = True
     extension_max_pairs: int = 4_000
     extension_block_pairs: int = PROMOTION_EXTENSION_PAIRS
@@ -103,8 +104,11 @@ class ArenaConfig:
             raise ValueError(
                 "promotion_tier must be diagnostic, canary, provisional, development, or full"
             )
-        if not 8 <= self.minimum_promotion_pairs <= MAX_PAIRS:
-            raise ValueError(f"minimum_promotion_pairs must be between 8 and {MAX_PAIRS:,}")
+        minimum_pair_limit = MAX_AUTOMATIC_PAIRS if self.automatic_promotion else MAX_PAIRS
+        if not 8 <= self.minimum_promotion_pairs <= minimum_pair_limit:
+            raise ValueError(
+                f"minimum_promotion_pairs must be between 8 and {minimum_pair_limit:,}"
+            )
         if self.automatic_promotion and self.pairs < self.minimum_promotion_pairs:
             raise ValueError("automatic promotion jobs must run the full minimum paired evaluation")
         if self.automatic_promotion and self.minimum_promotion_pairs < MINIMUM_PROMOTION_PAIRS:
@@ -117,8 +121,13 @@ class ArenaConfig:
             raise ValueError("early_rejection_confidence must be between 0.80 and 1.0")
         if self.early_rejection and not self.automatic_promotion:
             raise ValueError("early rejection is available only for automatic promotion jobs")
-        if self.early_rejection and self.early_rejection_min_pairs >= self.pairs:
-            raise ValueError("early_rejection_min_pairs must be smaller than requested pairs")
+        early_look_ceiling = (
+            self.extension_max_pairs
+            if self.early_look_interval_pairs and self.extension_enabled
+            else self.pairs
+        )
+        if self.early_rejection and self.early_rejection_min_pairs >= early_look_ceiling:
+            raise ValueError("early_rejection_min_pairs must be smaller than the look ceiling")
         if not MINIMUM_PROMOTION_PAIRS <= self.early_acceptance_min_pairs <= MAX_PAIRS:
             raise ValueError(
                 "early_acceptance_min_pairs must be between "
@@ -128,14 +137,34 @@ class ArenaConfig:
             raise ValueError("early_acceptance_confidence must be between 0.80 and 1.0")
         if self.early_acceptance and not self.automatic_promotion:
             raise ValueError("early acceptance is available only for automatic promotion jobs")
-        if self.early_acceptance and self.early_acceptance_min_pairs >= self.pairs:
-            raise ValueError("early_acceptance_min_pairs must be smaller than requested pairs")
+        if self.early_acceptance and self.early_acceptance_min_pairs >= early_look_ceiling:
+            raise ValueError("early_acceptance_min_pairs must be smaller than the look ceiling")
+        if self.early_look_interval_pairs and not 8 <= self.early_look_interval_pairs <= 50_000:
+            raise ValueError("early_look_interval_pairs must be zero or between 8 and 50,000")
+        if self.early_look_interval_pairs and not (
+            self.early_rejection or self.early_acceptance
+        ):
+            raise ValueError("regular early looks require early rejection or acceptance")
+        if self.early_look_interval_pairs:
+            interim_confidences = [
+                confidence
+                for enabled, confidence in (
+                    (self.early_rejection, self.early_rejection_confidence),
+                    (self.early_acceptance, self.early_acceptance_confidence),
+                )
+                if enabled
+            ]
+            if interim_confidences and self.confidence >= min(interim_confidences):
+                raise ValueError(
+                    "confidence must be lower than interim confidence so the final "
+                    "evaluation retains an error budget"
+                )
         if not self.pairs <= self.extension_max_pairs <= MAX_AUTOMATIC_PAIRS:
             raise ValueError(
                 f"extension_max_pairs must be between pairs and {MAX_AUTOMATIC_PAIRS:,}"
             )
-        if not 250 <= self.extension_block_pairs <= 10_000:
-            raise ValueError("extension_block_pairs must be between 250 and 10,000")
+        if not 250 <= self.extension_block_pairs <= 50_000:
+            raise ValueError("extension_block_pairs must be between 250 and 50,000")
         if not 0.50 <= self.extension_min_score <= 0.75:
             raise ValueError("extension_min_score must be between 0.50 and 0.75")
         if not 0.0 <= self.extension_min_lower_bound <= 0.50:
@@ -439,6 +468,46 @@ def _truncations_as_losses(
     }
 
 
+def _planned_decision_looks(config: ArenaConfig) -> frozenset[int]:
+    """All boundaries that can terminate a regularly monitored evaluation."""
+
+    if not config.early_look_interval_pairs:
+        return frozenset()
+    ceiling = (
+        config.extension_max_pairs
+        if config.extension_enabled and config.trainer_scheduled
+        else config.pairs
+    )
+    looks: set[int] = set()
+    if config.automatic_promotion and config.early_rejection:
+        looks.update(
+            range(
+                config.early_rejection_min_pairs,
+                ceiling,
+                config.early_look_interval_pairs,
+            )
+        )
+    if config.automatic_promotion and config.early_acceptance:
+        looks.update(
+            range(
+                config.early_acceptance_min_pairs,
+                ceiling,
+                config.early_look_interval_pairs,
+            )
+        )
+    target = config.pairs
+    if target < ceiling:
+        looks.add(target)
+    if config.extension_enabled and config.trainer_scheduled:
+        while target < config.extension_max_pairs:
+            target = min(
+                config.extension_max_pairs, target + config.extension_block_pairs
+            )
+            if target < ceiling:
+                looks.add(target)
+    return frozenset(looks)
+
+
 def _early_rejection_looks(config: ArenaConfig) -> tuple[int, ...]:
     """Return fixed geometric looks strictly before the full evaluation.
 
@@ -449,6 +518,19 @@ def _early_rejection_looks(config: ArenaConfig) -> tuple[int, ...]:
 
     if not config.automatic_promotion or not config.early_rejection:
         return ()
+    if config.early_look_interval_pairs:
+        ceiling = (
+            config.extension_max_pairs
+            if config.extension_enabled and config.trainer_scheduled
+            else config.pairs
+        )
+        return tuple(
+            range(
+                config.early_rejection_min_pairs,
+                ceiling,
+                config.early_look_interval_pairs,
+            )
+        )
     looks: list[int] = []
     pairs = config.early_rejection_min_pairs
     while pairs < config.pairs:
@@ -477,7 +559,18 @@ def _early_rejection_look(
         raise ValueError("early-rejection evidence must match a planned look")
     if not np.all(np.isfinite(values)) or np.any((values < 0.0) | (values > 1.0)):
         raise ValueError("early-rejection pair scores must be finite and in [0, 1]")
-    look_alpha = (1.0 - config.early_rejection_confidence) / len(looks)
+    shared_two_sided = (
+        config.early_acceptance
+        and looks == _early_acceptance_looks(config)
+        and config.early_rejection_confidence == config.early_acceptance_confidence
+    )
+    tails = 2 if shared_two_sided else 1
+    planned_count = (
+        len(_planned_decision_looks(config)) if shared_two_sided else len(looks)
+    )
+    look_alpha = (1.0 - config.early_rejection_confidence) / (
+        tails * planned_count
+    )
     adjusted_confidence = 1.0 - look_alpha
     estimate = float(values.mean())
     confidence_radius = math.sqrt(math.log(1.0 / look_alpha) / (2.0 * len(values)))
@@ -494,7 +587,11 @@ def _early_rejection_look(
         "configured_confidence": config.early_rejection_confidence,
         "bonferroni_look_alpha": look_alpha,
         "adjusted_one_sided_confidence": adjusted_confidence,
-        "method": "bonferroni_one_sided_hoeffding",
+        "method": (
+            "bonferroni_two_sided_hoeffding"
+            if shared_two_sided
+            else "bonferroni_one_sided_hoeffding"
+        ),
         "reject": upper <= threshold,
     }
 
@@ -521,6 +618,19 @@ def _early_acceptance_looks(config: ArenaConfig) -> tuple[int, ...]:
 
     if not config.automatic_promotion or not config.early_acceptance:
         return ()
+    if config.early_look_interval_pairs:
+        ceiling = (
+            config.extension_max_pairs
+            if config.extension_enabled and config.trainer_scheduled
+            else config.pairs
+        )
+        return tuple(
+            range(
+                config.early_acceptance_min_pairs,
+                ceiling,
+                config.early_look_interval_pairs,
+            )
+        )
     looks: list[int] = []
     pairs = config.early_acceptance_min_pairs
     while pairs < config.pairs:
@@ -543,7 +653,18 @@ def _early_acceptance_look(
         raise ValueError("early-acceptance evidence must match a planned look")
     if not np.all(np.isfinite(values)) or np.any((values < 0.0) | (values > 1.0)):
         raise ValueError("early-acceptance pair scores must be finite and in [0, 1]")
-    look_alpha = (1.0 - config.early_acceptance_confidence) / len(looks)
+    shared_two_sided = (
+        config.early_rejection
+        and looks == _early_rejection_looks(config)
+        and config.early_acceptance_confidence == config.early_rejection_confidence
+    )
+    tails = 2 if shared_two_sided else 1
+    planned_count = (
+        len(_planned_decision_looks(config)) if shared_two_sided else len(looks)
+    )
+    look_alpha = (1.0 - config.early_acceptance_confidence) / (
+        tails * planned_count
+    )
     estimate = float(values.mean())
     confidence_radius = math.sqrt(math.log(1.0 / look_alpha) / (2.0 * len(values)))
     lower = max(0.0, estimate - confidence_radius)
@@ -559,7 +680,11 @@ def _early_acceptance_look(
         "configured_confidence": config.early_acceptance_confidence,
         "bonferroni_look_alpha": look_alpha,
         "adjusted_one_sided_confidence": 1.0 - look_alpha,
-        "method": "bonferroni_one_sided_hoeffding",
+        "method": (
+            "bonferroni_two_sided_hoeffding"
+            if shared_two_sided
+            else "bonferroni_one_sided_hoeffding"
+        ),
         "accept": lower > threshold,
         "truncations_scored_as_losses": True,
     }
@@ -646,13 +771,20 @@ def _should_extend_promotion_evaluation(
 ) -> bool:
     """Return whether a positive but unproven gate merits another fixed block."""
 
-    return (
+    eligible = (
         config.automatic_promotion
         and config.trainer_scheduled
         and config.promotion_tier == "full"
         and config.extension_enabled
         and pairs_completed >= config.pairs
         and pairs_completed < config.extension_max_pairs
+    )
+    if config.early_look_interval_pairs:
+        # A regularly monitored gate reaches the final reserved-alpha decision
+        # unless one of its 99% interim bounds already made either outcome clear.
+        return eligible
+    return (
+        eligible
         and estimate > max(
             config.extension_min_score, 0.5 + config.promotion_margin
         )
@@ -662,9 +794,21 @@ def _should_extend_promotion_evaluation(
     )
 
 
-def _extension_confidence(config: ArenaConfig) -> float:
-    """Bonferroni-adjust confidence for every possible extension boundary."""
+def _extension_confidence(config: ArenaConfig, target_pairs: int | None = None) -> float:
+    """Return the confidence assigned to an interim or final boundary."""
 
+    if config.early_look_interval_pairs:
+        interim_looks = _planned_decision_looks(config)
+        interim_confidence = min(
+            config.early_rejection_confidence if config.early_rejection else 1.0,
+            config.early_acceptance_confidence if config.early_acceptance else 1.0,
+        )
+        interim_alpha = 1.0 - interim_confidence
+        if target_pairs is not None and target_pairs >= config.extension_max_pairs:
+            final_alpha = max(0.0, (1.0 - config.confidence) - interim_alpha)
+            return 1.0 - final_alpha
+        if interim_looks:
+            return 1.0 - interim_alpha / len(interim_looks)
     additional = max(0, config.extension_max_pairs - config.pairs)
     looks = 1 + math.ceil(additional / config.extension_block_pairs)
     return 1.0 - (1.0 - config.confidence) / looks
@@ -1026,6 +1170,7 @@ class ArenaManager:
         early_acceptance: bool = False,
         early_acceptance_min_pairs: int = MINIMUM_PROMOTION_PAIRS,
         early_acceptance_confidence: float = 0.995,
+        early_look_interval_pairs: int = 0,
         extension_enabled: bool = True,
         extension_max_pairs: int = 4_000,
         extension_block_pairs: int = PROMOTION_EXTENSION_PAIRS,
@@ -1055,6 +1200,7 @@ class ArenaManager:
                 early_acceptance=early_acceptance,
                 early_acceptance_min_pairs=early_acceptance_min_pairs,
                 early_acceptance_confidence=early_acceptance_confidence,
+                early_look_interval_pairs=early_look_interval_pairs,
                 extension_enabled=extension_enabled,
                 extension_max_pairs=extension_max_pairs,
                 extension_block_pairs=extension_block_pairs,
@@ -1170,7 +1316,11 @@ class ArenaManager:
             else config.pairs
         )
         summary_config = (
-            replace(config, pairs=target_pairs, confidence=_extension_confidence(config))
+            replace(
+                config,
+                pairs=target_pairs,
+                confidence=_extension_confidence(config, target_pairs),
+            )
             if adaptive_extension_active
             else config
         )
@@ -1180,6 +1330,9 @@ class ArenaManager:
         segment_start = time.monotonic()
         self.store.update_arena_job(job_id, status="running", error=None)
         last_update = 0.0
+        progress_update_interval = (
+            30.0 if target_pairs >= 10_000 else 5.0 if target_pairs > 4_000 else 0.25
+        )
 
         def record_pair(pair: dict[str, Any]) -> None:
             nonlocal total_turns, total_decisions, truncated_games
@@ -1189,6 +1342,7 @@ class ArenaManager:
             total_decisions += int(pair["decisions"])
             truncated_games += int(pair["truncated_games"])
             pair_records.append(pair["record"])
+            del pair_records[:-20]
 
         statistical_looks = sorted(early_looks | acceptance_looks | {target_pairs})
         executor: ProcessPoolExecutor | None = None
@@ -1294,7 +1448,7 @@ class ArenaManager:
                             second_scores,
                             truncated_games=truncated_games,
                         ),
-                        _extension_confidence(base_config),
+                        _extension_confidence(base_config, pairs_completed),
                     )
                     if _should_extend_promotion_evaluation(
                         config=base_config,
@@ -1310,14 +1464,14 @@ class ArenaManager:
                         summary_config = replace(
                             base_config,
                             pairs=target_pairs,
-                            confidence=_extension_confidence(base_config),
+                            confidence=_extension_confidence(base_config, target_pairs),
                         )
                         statistical_looks = sorted(
                             early_looks | acceptance_looks | {target_pairs}
                         )
                 now = time.monotonic()
                 if (
-                    now - last_update >= 0.25
+                    now - last_update >= progress_update_interval
                     or len(first_scores) == target_pairs
                     or early_stopped
                 ):

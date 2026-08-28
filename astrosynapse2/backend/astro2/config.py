@@ -23,6 +23,7 @@ class RunConfig(BaseModel):
     name: str = Field(default="M4 24-hour run", min_length=1, max_length=80)
     preset: Literal[
         "astro5_mature",
+        "astro5_directional",
         "astro5_search",
         "astro4_m4",
         "astro3_m4",
@@ -147,7 +148,7 @@ class RunConfig(BaseModel):
     evaluate_every_games: int = Field(default=500_000, ge=100)
     canary_every_games: int = Field(default=0, ge=0)
     canary_pairs: int = Field(default=128, ge=8, le=2_000)
-    evaluation_pairs: int = Field(default=2_000, ge=8, le=2_000)
+    evaluation_pairs: int = Field(default=2_000, ge=8, le=50_000)
     adaptive_evaluation: bool = True
     promotion_confidence: float = Field(default=0.95, ge=0.80, le=0.999)
     promotion_margin: float = Field(default=0.0, ge=0, le=0.25)
@@ -161,12 +162,15 @@ class RunConfig(BaseModel):
     evaluation_early_acceptance_confidence: float = Field(
         default=0.995, ge=0.90, le=0.9999
     )
+    # Zero preserves geometric looks. A positive value schedules fixed regular
+    # looks through the full extension ceiling.
+    evaluation_early_look_interval_pairs: int = Field(default=0, ge=0, le=50_000)
     # Promotion evaluations may continue in fixed blocks when the candidate is
     # ahead but the confidence bound still overlaps the promotion threshold.
     # Repeated looks use a Bonferroni-adjusted confidence level in the arena.
     evaluation_extension_enabled: bool = True
-    evaluation_extension_max_pairs: int = Field(default=4_000, ge=2_000, le=50_000)
-    evaluation_extension_block_pairs: int = Field(default=2_000, ge=250, le=10_000)
+    evaluation_extension_max_pairs: int = Field(default=4_000, ge=2_000, le=250_000)
+    evaluation_extension_block_pairs: int = Field(default=2_000, ge=250, le=50_000)
     evaluation_extension_min_score: float = Field(default=0.50, ge=0.50, le=0.75)
     evaluation_extension_min_lower_bound: float = Field(default=0.48, ge=0.0, le=0.50)
     keep_checkpoints: int = Field(default=12, ge=2, le=100)
@@ -195,6 +199,15 @@ class RunConfig(BaseModel):
     reset_optimizer_on_branch_start: bool = False
     reset_replay_on_branch_start: bool = False
 
+    # Optional gradient guidance distilled from actual promoted checkpoint
+    # transitions in the source lineage.
+    promotion_direction_enabled: bool = False
+    promotion_direction_strength: float = Field(default=0.0, ge=0.0, le=0.5)
+    promotion_direction_transitions: int = Field(default=5, ge=1, le=20)
+    promotion_direction_min_sign_agreement: float = Field(default=0.60, ge=0.0, le=1.0)
+    promotion_direction_recent_decay: float = Field(default=0.75, gt=0.0, le=1.0)
+    promotion_direction_path: str | None = Field(default=None, min_length=1)
+
     # Astro3 can persist enough state to resume the same optimization process.
     # Zero keeps legacy checkpoints small and weight-only.
     persist_optimizer_state: bool = False
@@ -207,8 +220,8 @@ class RunConfig(BaseModel):
     def model_validate_persisted(cls, value: object) -> RunConfig:
         """Validate a stored recipe while repairing obsolete schema limits.
 
-        Older builds allowed promotion evaluations above the dashboard/API's
-        current 2,000-pair safety cap.  Runs are durable across upgrades, so a
+        Older builds allowed promotion evaluations above the current
+        50,000-pair initial-gate cap. Runs are durable across upgrades, so a
         value that was valid when written must not make the trainer crash when
         it is resumed.  New input continues to use ``model_validate`` and is
         therefore rejected rather than silently changed.
@@ -216,13 +229,38 @@ class RunConfig(BaseModel):
 
         if isinstance(value, dict):
             value = dict(value)
+            directional_alpha_upgrade = (
+                value.get("preset") == "astro5_directional"
+                and (
+                    "evaluation_early_look_interval_pairs" not in value
+                    or float(value.get("promotion_confidence", 0.95))
+                    >= float(value.get("evaluation_early_acceptance_confidence", 0.99))
+                )
+            )
+            if directional_alpha_upgrade:
+                # Directional branches created before regular sequential looks
+                # existed inherit the new safe 99% monitoring contract.
+                value.update(
+                    promotion_confidence=0.95,
+                    evaluation_early_rejection=True,
+                    evaluation_early_rejection_min_pairs=2_000,
+                    evaluation_early_rejection_confidence=0.99,
+                    evaluation_early_acceptance=True,
+                    evaluation_early_acceptance_min_pairs=2_000,
+                    evaluation_early_acceptance_confidence=0.99,
+                    evaluation_early_look_interval_pairs=2_000,
+                    evaluation_extension_block_pairs=2_000,
+                )
             evaluation_pairs = value.get("evaluation_pairs")
             if (
                 isinstance(evaluation_pairs, (int, float))
                 and not isinstance(evaluation_pairs, bool)
-                and evaluation_pairs > 2_000
+                and evaluation_pairs > 50_000
             ):
-                value["evaluation_pairs"] = 2_000
+                value["evaluation_pairs"] = 50_000
+                value["evaluation_extension_max_pairs"] = max(
+                    50_000, int(value.get("evaluation_extension_max_pairs", 50_000))
+                )
         return cls.model_validate(value)
 
     @model_validator(mode="after")
@@ -268,21 +306,54 @@ class RunConfig(BaseModel):
             or self.reanalysis_policy_loss_weight
             or self.reanalysis_value_loss_weight
             or self.realtime_governor
+            or self.promotion_direction_enabled
         ):
             raise ValueError("search reanalysis and the realtime governor require generation 5")
+        if self.promotion_direction_enabled and self.promotion_direction_strength <= 0:
+            raise ValueError(
+                "promotion_direction_strength must be positive when guidance is enabled"
+            )
         if self.reanalysis_fraction and not self.reanalysis_max_per_game:
             raise ValueError("reanalysis_max_per_game must be positive when reanalysis is enabled")
+        early_look_ceiling = (
+            self.evaluation_extension_max_pairs
+            if self.evaluation_early_look_interval_pairs
+            and self.evaluation_extension_enabled
+            else self.evaluation_pairs
+        )
         if (
             self.evaluation_early_acceptance
-            and self.evaluation_early_acceptance_min_pairs >= self.evaluation_pairs
+            and self.evaluation_early_acceptance_min_pairs >= early_look_ceiling
         ):
             raise ValueError(
-                "evaluation_early_acceptance_min_pairs must be smaller than evaluation_pairs"
+                "evaluation_early_acceptance_min_pairs must be smaller than the planned look ceiling"
             )
         if self.evaluation_extension_max_pairs < self.evaluation_pairs:
             raise ValueError(
                 "evaluation_extension_max_pairs must be at least evaluation_pairs"
             )
+        if self.evaluation_early_look_interval_pairs:
+            interim_confidences = [
+                confidence
+                for enabled, confidence in (
+                    (
+                        self.evaluation_early_rejection,
+                        self.evaluation_early_rejection_confidence,
+                    ),
+                    (
+                        self.evaluation_early_acceptance,
+                        self.evaluation_early_acceptance_confidence,
+                    ),
+                )
+                if enabled
+            ]
+            if interim_confidences and self.promotion_confidence >= min(
+                interim_confidences
+            ):
+                raise ValueError(
+                    "promotion_confidence must be lower than interim confidence "
+                    "so the final evaluation retains an error budget"
+                )
         if self.canary_every_games and self.canary_every_games < self.checkpoint_every_games:
             raise ValueError("canary_every_games must be zero or at least checkpoint_every_games")
         if self.budget_type == "games" and self.budget_games is None:
@@ -583,6 +654,42 @@ class RunConfig(BaseModel):
         )
         return cls.model_validate(base)
 
+    @classmethod
+    def astro5_directional(
+        cls, name: str = "Astro5 promotion-direction refinement"
+    ) -> RunConfig:
+        """Mature refinement guided by verified historical promotion vectors."""
+
+        base = cls.astro5_mature(name=name).model_dump()
+        base.update(
+            preset="astro5_directional",
+            learning_rate=4e-5,
+            min_learning_rate=6e-6,
+            updates_per_iteration=16,
+            promotion_direction_enabled=True,
+            promotion_direction_strength=0.06,
+            promotion_direction_transitions=5,
+            promotion_direction_min_sign_agreement=0.60,
+            promotion_direction_recent_decay=0.75,
+            adaptive_evaluation=False,
+            evaluation_pairs=10_000,
+            promotion_confidence=0.95,
+            evaluation_early_rejection=True,
+            evaluation_early_rejection_min_pairs=2_000,
+            evaluation_early_rejection_confidence=0.99,
+            evaluation_early_acceptance=True,
+            evaluation_early_acceptance_min_pairs=2_000,
+            evaluation_early_acceptance_confidence=0.99,
+            evaluation_early_look_interval_pairs=2_000,
+            evaluation_extension_enabled=True,
+            evaluation_extension_max_pairs=100_000,
+            evaluation_extension_block_pairs=2_000,
+            evaluation_extension_min_score=0.50,
+            evaluation_extension_min_lower_bound=0.0,
+            canary_pairs=256,
+        )
+        return cls.model_validate(base)
+
 
 SAFE_LIVE_FIELDS = {
     "duration_minutes",
@@ -620,10 +727,13 @@ SAFE_LIVE_FIELDS = {
     "evaluation_extension_block_pairs",
     "evaluation_extension_min_score",
     "evaluation_extension_min_lower_bound",
+    "promotion_direction_strength",
 }
 
 
 def preset_config(preset: str) -> RunConfig:
+    if preset == "astro5_directional":
+        return RunConfig.astro5_directional()
     if preset == "astro5_mature":
         return RunConfig.astro5_mature()
     if preset == "astro5_search":

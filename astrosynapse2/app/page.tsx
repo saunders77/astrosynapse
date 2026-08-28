@@ -222,6 +222,8 @@ type MetricPoint = {
   governorReanalysisMultiplier: number;
   governorBranchRequested: boolean;
   governorReasons: string[];
+  promotionDirectionStrength: number;
+  promotionDirectionTensors: number;
 };
 
 type RunView = {
@@ -382,7 +384,7 @@ type RunChoice = {
 
 type TrainerConfig = {
   name: string;
-  preset: "astro5_mature" | "astro5_search" | "astro4_m4" | "astro3_m4" | "m4_24h" | "quick" | "custom";
+  preset: "astro5_directional" | "astro5_mature" | "astro5_search" | "astro4_m4" | "astro3_m4" | "m4_24h" | "quick" | "custom";
   seed: number;
   trainingGeneration: number;
   behaviorPolicy: string;
@@ -463,6 +465,11 @@ type TrainerConfig = {
   checkpointKlLimit: number;
   resetOptimizerOnBranchStart: boolean;
   resetReplayOnBranchStart: boolean;
+  promotionDirectionEnabled: boolean;
+  promotionDirectionStrength: number;
+  promotionDirectionTransitions: number;
+  promotionDirectionMinSignAgreement: number;
+  promotionDirectionRecentDecay: number;
 };
 
 type BranchMember = {
@@ -569,6 +576,11 @@ const arenaBaselines = [
 ];
 
 const branchVariantTemplates = [
+  {
+    id: "promotion-direction",
+    label: "Promotion-direction refinement",
+    preset: "astro5_directional",
+  },
   {
     id: "mature-refinement",
     label: "Mature champion refinement",
@@ -721,6 +733,11 @@ const initialConfig: TrainerConfig = {
   checkpointKlLimit: 0.35,
   resetOptimizerOnBranchStart: false,
   resetReplayOnBranchStart: false,
+  promotionDirectionEnabled: false,
+  promotionDirectionStrength: 0,
+  promotionDirectionTransitions: 5,
+  promotionDirectionMinSignAgreement: 0.60,
+  promotionDirectionRecentDecay: 0.75,
 };
 
 const matureConfig: TrainerConfig = {
@@ -752,6 +769,27 @@ const matureConfig: TrainerConfig = {
   evaluationExtensionMinLowerBound: 0,
   resetOptimizerOnBranchStart: true,
   resetReplayOnBranchStart: true,
+};
+
+const directionalConfig: TrainerConfig = {
+  ...matureConfig,
+  name: "Astro5 promotion-direction refinement",
+  preset: "astro5_directional",
+  learningRate: 0.00004,
+  promotionConfidence: 0.95,
+  evaluationPairs: 10_000,
+  adaptiveEvaluation: false,
+  evaluationEarlyAcceptance: true,
+  evaluationEarlyAcceptanceMinPairs: 2_000,
+  evaluationEarlyAcceptanceConfidence: 0.99,
+  evaluationExtensionMaxPairs: 100_000,
+  evaluationExtensionBlockPairs: 2_000,
+  canaryPairs: 256,
+  promotionDirectionEnabled: true,
+  promotionDirectionStrength: 0.06,
+  promotionDirectionTransitions: 5,
+  promotionDirectionMinSignAgreement: 0.60,
+  promotionDirectionRecentDecay: 0.75,
 };
 
 const astro4Config: TrainerConfig = {
@@ -1086,6 +1124,8 @@ function buildDemoMetrics(count = 48): MetricPoint[] {
       governorReanalysisMultiplier: 1,
       governorBranchRequested: false,
       governorReasons: [],
+      promotionDirectionStrength: 0,
+      promotionDirectionTensors: 0,
     };
   });
 }
@@ -1167,6 +1207,8 @@ const emptyMetric: MetricPoint = {
   governorReanalysisMultiplier: 1,
   governorBranchRequested: false,
   governorReasons: [],
+  promotionDirectionStrength: 0,
+  promotionDirectionTensors: 0,
 };
 
 const demoSnapshot: DashboardSnapshot = {
@@ -1645,6 +1687,14 @@ function normalizeMetric(raw: unknown, fallback: MetricPoint): MetricPoint {
     governorReasons: Array.isArray(governor.reasons)
       ? governor.reasons.filter((reason): reason is string => typeof reason === "string")
       : fallback.governorReasons,
+    promotionDirectionStrength: asNumber(
+      item.promotion_direction_strength,
+      fallback.promotionDirectionStrength,
+    ),
+    promotionDirectionTensors: asNumber(
+      item.promotion_direction_tensors,
+      fallback.promotionDirectionTensors,
+    ),
   };
 }
 
@@ -2352,17 +2402,24 @@ function configToApi(config: TrainerConfig): Record<string, string | number | bo
     checkpoint_kl_limit: config.checkpointKlLimit,
     reset_optimizer_on_branch_start: config.resetOptimizerOnBranchStart,
     reset_replay_on_branch_start: config.resetReplayOnBranchStart,
+    promotion_direction_enabled: config.promotionDirectionEnabled,
+    promotion_direction_strength: config.promotionDirectionStrength,
+    promotion_direction_transitions: config.promotionDirectionTransitions,
+    promotion_direction_min_sign_agreement: config.promotionDirectionMinSignAgreement,
+    promotion_direction_recent_decay: config.promotionDirectionRecentDecay,
   };
 }
 
 function configFromApi(raw: unknown, prior: TrainerConfig): TrainerConfig {
   const item = isRecord(raw) ? raw : {};
   const presetValue = String(item.preset ?? prior.preset);
-  const preset: TrainerConfig["preset"] = ["astro5_mature", "astro5_search", "astro4_m4", "astro3_m4", "m4_24h", "quick", "custom"].includes(presetValue)
+  const preset: TrainerConfig["preset"] = ["astro5_directional", "astro5_mature", "astro5_search", "astro4_m4", "astro3_m4", "m4_24h", "quick", "custom"].includes(presetValue)
     ? presetValue as TrainerConfig["preset"]
     : prior.preset;
   const requestedGeneration = asOptionalNumber(item.training_generation);
-  const previous = preset === "astro5_mature"
+  const previous = preset === "astro5_directional"
+    ? directionalConfig
+    : preset === "astro5_mature"
     ? matureConfig
     : preset === "astro5_search"
     ? initialConfig
@@ -2526,6 +2583,11 @@ function configFromApi(raw: unknown, prior: TrainerConfig): TrainerConfig {
     checkpointKlLimit: asNumber(item.checkpoint_kl_limit, previous.checkpointKlLimit),
     resetOptimizerOnBranchStart: asBoolean(item.reset_optimizer_on_branch_start, previous.resetOptimizerOnBranchStart),
     resetReplayOnBranchStart: asBoolean(item.reset_replay_on_branch_start, previous.resetReplayOnBranchStart),
+    promotionDirectionEnabled: asBoolean(item.promotion_direction_enabled, previous.promotionDirectionEnabled),
+    promotionDirectionStrength: asNumber(item.promotion_direction_strength, previous.promotionDirectionStrength),
+    promotionDirectionTransitions: asNumber(item.promotion_direction_transitions, previous.promotionDirectionTransitions),
+    promotionDirectionMinSignAgreement: asNumber(item.promotion_direction_min_sign_agreement, previous.promotionDirectionMinSignAgreement),
+    promotionDirectionRecentDecay: asNumber(item.promotion_direction_recent_decay, previous.promotionDirectionRecentDecay),
   };
 }
 
@@ -3243,7 +3305,14 @@ export default function Home() {
   const [branchSources, setBranchSources] = useState<ModelCheckpoint[]>([]);
   const [branchSourceId, setBranchSourceId] = useState("");
   const [branchName, setBranchName] = useState("Champion branch lab");
-  const [branchVariantIds, setBranchVariantIds] = useState<string[]>(["mature-refinement"]);
+  const [branchVariantIds, setBranchVariantIds] = useState<string[]>(["promotion-direction"]);
+  const [branchDirectionStrength, setBranchDirectionStrength] = useState(0.06);
+  const [branchDirectionTransitions, setBranchDirectionTransitions] = useState(5);
+  const [branchDirectionAgreement, setBranchDirectionAgreement] = useState(0.60);
+  const [branchDirectionDecay, setBranchDirectionDecay] = useState(0.75);
+  const [branchDirectionInitialPairs, setBranchDirectionInitialPairs] = useState(10_000);
+  const [branchDirectionMaximumPairs, setBranchDirectionMaximumPairs] = useState(100_000);
+  const [branchDirectionBlockPairs, setBranchDirectionBlockPairs] = useState(2_000);
   const [branchBudgetType, setBranchBudgetType] = useState<BranchBudgetType>("minutes");
   const [branchMinutes, setBranchMinutes] = useState(360);
   const [branchGames, setBranchGames] = useState(50_000);
@@ -4066,8 +4135,17 @@ export default function Home() {
     const templates = branchVariantTemplates
       .filter((template) => branchVariantIds.includes(template.id))
       .map(({ id, ...template }) => {
-        void id;
-        return template;
+        if (id !== "promotion-direction") return template;
+        return {
+          ...template,
+          promotion_direction_strength: branchDirectionStrength,
+          promotion_direction_transitions: branchDirectionTransitions,
+          promotion_direction_min_sign_agreement: branchDirectionAgreement,
+          promotion_direction_recent_decay: branchDirectionDecay,
+          evaluation_pairs: branchDirectionInitialPairs,
+          evaluation_extension_max_pairs: branchDirectionMaximumPairs,
+          evaluation_extension_block_pairs: branchDirectionBlockPairs,
+        };
       });
     if (!templates.length) {
       showToast("Select at least one branch variant");
@@ -4168,6 +4246,7 @@ export default function Home() {
       evaluation_extension_block_pairs: config.evaluationExtensionBlockPairs,
       evaluation_extension_min_score: config.evaluationExtensionMinScore,
       evaluation_extension_min_lower_bound: config.evaluationExtensionMinLowerBound,
+      promotion_direction_strength: config.promotionDirectionStrength,
     };
     try {
       if (connected) {
@@ -4897,7 +4976,7 @@ export default function Home() {
                   <label><span>Run name</span><input value={config.name} onChange={(event) => updateConfig("name", event.target.value)} /></label>
                   <label><span>Time budget</span><div className="input-suffix"><input type="number" min="1" value={config.durationMinutes} onChange={(event) => updateConfig("durationMinutes", Number(event.target.value))} /><b>min</b></div></label>
                   <label><span><Jargon term="actors">Actor processes</Jargon></span><input type="number" min="1" max="16" value={config.actorProcesses} onChange={(event) => updateConfig("actorProcesses", Number(event.target.value))} /></label>
-                  <label><span><Jargon term="evaluationPairs">Evaluation pairs</Jargon></span><input type="number" min="8" max="2000" value={config.evaluationPairs} onChange={(event) => updateConfig("evaluationPairs", Number(event.target.value))} /></label>
+                  <label><span><Jargon term="evaluationPairs">Evaluation pairs</Jargon></span><input type="number" min="8" max="50000" value={config.evaluationPairs} onChange={(event) => updateConfig("evaluationPairs", Number(event.target.value))} /></label>
                 </div>
 
                 <button type="button" className="advanced-toggle" onClick={() => setAdvancedOpen((open) => !open)} aria-expanded={advancedOpen}>
@@ -4972,12 +5051,17 @@ export default function Home() {
                           <label><span>First early-promotion look</span><input type="number" min="1000" max="2000" step="100" value={config.evaluationEarlyAcceptanceMinPairs} onChange={(event) => updateConfig("evaluationEarlyAcceptanceMinPairs", Number(event.target.value))} /></label>
                           <label><span>Early-promotion confidence</span><input type="number" min="0.9" max="0.9999" step="0.0005" value={config.evaluationEarlyAcceptanceConfidence} onChange={(event) => updateConfig("evaluationEarlyAcceptanceConfidence", Number(event.target.value))} /></label>
                           <label className="toggle-label"><input type="checkbox" checked={config.evaluationExtensionEnabled} onChange={(event) => updateConfig("evaluationExtensionEnabled", event.target.checked)} /><span />Extend positive borderline gates</label>
-                          <label title="Hard ceiling for a positive but statistically unresolved promotion evaluation."><span>Extended gate maximum pairs</span><input type="number" min={config.evaluationPairs} max="50000" step="1000" value={config.evaluationExtensionMaxPairs} onChange={(event) => updateConfig("evaluationExtensionMaxPairs", Number(event.target.value))} /></label>
-                          <label><span>Extension block pairs</span><input type="number" min="250" max="10000" step="250" value={config.evaluationExtensionBlockPairs} onChange={(event) => updateConfig("evaluationExtensionBlockPairs", Number(event.target.value))} /></label>
+                          <label title="Hard ceiling for a positive but statistically unresolved promotion evaluation."><span>Extended gate maximum pairs</span><input type="number" min={config.evaluationPairs} max="250000" step="1000" value={config.evaluationExtensionMaxPairs} onChange={(event) => updateConfig("evaluationExtensionMaxPairs", Number(event.target.value))} /></label>
+                          <label><span>Extension block pairs</span><input type="number" min="250" max="50000" step="250" value={config.evaluationExtensionBlockPairs} onChange={(event) => updateConfig("evaluationExtensionBlockPairs", Number(event.target.value))} /></label>
                           <label title="Only candidates above this observed score receive more pairs."><span>Minimum extension score</span><input type="number" min="0.5" max="0.75" step="0.001" value={config.evaluationExtensionMinScore} onChange={(event) => updateConfig("evaluationExtensionMinScore", Number(event.target.value))} /></label>
                           <label title="Set to zero to let any score-leading candidate continue; repeated-look confidence remains adjusted."><span>Minimum extension lower bound</span><input type="number" min="0" max="0.5" step="0.005" value={config.evaluationExtensionMinLowerBound} onChange={(event) => updateConfig("evaluationExtensionMinLowerBound", Number(event.target.value))} /></label>
                           <label className="toggle-label"><input type="checkbox" checked={config.resetOptimizerOnBranchStart} onChange={(event) => updateConfig("resetOptimizerOnBranchStart", event.target.checked)} /><span />Fresh optimizer at branch root</label>
                           <label className="toggle-label"><input type="checkbox" checked={config.resetReplayOnBranchStart} onChange={(event) => updateConfig("resetReplayOnBranchStart", event.target.checked)} /><span />Fresh replay at branch root</label>
+                          <label className="toggle-label"><input type="checkbox" checked={config.promotionDirectionEnabled} onChange={(event) => updateConfig("promotionDirectionEnabled", event.target.checked)} /><span />Verified promotion-direction guidance</label>
+                          <label title="Directional gradient component relative to each tensor's ordinary gradient RMS."><span>Promotion-direction strength</span><input type="number" min="0" max="0.5" step="0.01" value={config.promotionDirectionStrength} onChange={(event) => updateConfig("promotionDirectionStrength", Number(event.target.value))} /></label>
+                          <label><span>Promoted transitions used</span><input type="number" min="1" max="20" value={config.promotionDirectionTransitions} onChange={(event) => updateConfig("promotionDirectionTransitions", Number(event.target.value))} /></label>
+                          <label title="A weight coordinate is guided only when historical promoted transitions agree this strongly on its sign."><span>Minimum sign agreement</span><input type="number" min="0" max="1" step="0.05" value={config.promotionDirectionMinSignAgreement} onChange={(event) => updateConfig("promotionDirectionMinSignAgreement", Number(event.target.value))} /></label>
+                          <label><span>Older-promotion decay</span><input type="number" min="0.01" max="1" step="0.05" value={config.promotionDirectionRecentDecay} onChange={(event) => updateConfig("promotionDirectionRecentDecay", Number(event.target.value))} /></label>
                         </> : null}
                       </> : <>
                         <label><span>Terminal target weight</span><input type="number" min="0" max="1" step="0.05" value={config.terminalTargetWeight} onChange={(event) => updateConfig("terminalTargetWeight", Number(event.target.value))} /></label>
@@ -5030,7 +5114,7 @@ export default function Home() {
         {activeTab === "branches" ? (
           <section className="tab-panel branch-panel" aria-labelledby="branches-title">
             <div className="section-heading">
-              <div><span className="section-number">03 / BRANCH LAB</span><h1 id="branches-title">Search several futures from any champion.</h1><p>Each branch gets private weights, seed stream, schedules, canaries, and governor state. Mature refinement intentionally starts a clean optimizer and replay; comparative variants copy compatible lineage state.</p></div>
+              <div><span className="section-number">03 / BRANCH LAB</span><h1 id="branches-title">Search several futures from any champion.</h1><p>Promotion-direction refinement learns a consensus from retained verified promotions. It and mature refinement start a clean optimizer and replay; every branch keeps private weights, seeds, schedules, canaries, and governor state.</p></div>
               <div className="section-summary"><span>Storage policy</span><strong>Full lineage snapshots</strong><small>No disk-saving constraint · source checkpoints are pinned automatically</small></div>
             </div>
             <div className="train-layout">
@@ -5048,7 +5132,16 @@ export default function Home() {
                 <div className="branch-variant-preview">
                   <strong>Branch variants</strong>
                   <div className="branch-variant-options">{branchVariantTemplates.map((template) => <label className="branch-variant-option" key={template.id}><input type="checkbox" checked={branchVariantIds.includes(template.id)} onChange={(event) => setBranchVariantIds((current) => event.target.checked ? [...current, template.id] : current.filter((id) => id !== template.id))} /><span>{template.label}</span></label>)}</div>
-                  <small>{branchVariantIds.length} selected. Every selected recipe starts independently from the source checkpoint; architecture is inherited and only optimization/search properties vary.</small>
+                  <small>{branchVariantIds.length} selected. Every recipe starts independently from the source; promotion-direction refinement also requires retained promoted weight files in that source run.</small>
+                  {branchVariantIds.includes("promotion-direction") ? <div className="field-grid">
+                    <label title="Directional gradient RMS as a fraction of each tensor's ordinary gradient RMS."><span>Direction strength</span><input type="number" min="0.01" max="0.5" step="0.01" value={branchDirectionStrength} onChange={(event) => setBranchDirectionStrength(Number(event.target.value))} /></label>
+                    <label><span>Recent promotions used</span><input type="number" min="1" max="20" value={branchDirectionTransitions} onChange={(event) => setBranchDirectionTransitions(Number(event.target.value))} /></label>
+                    <label title="Only coordinates whose weighted historical signs agree by at least this fraction receive guidance."><span>Minimum sign agreement</span><input type="number" min="0" max="1" step="0.05" value={branchDirectionAgreement} onChange={(event) => setBranchDirectionAgreement(Number(event.target.value))} /></label>
+                    <label><span>Older-promotion weight decay</span><input type="number" min="0.01" max="1" step="0.05" value={branchDirectionDecay} onChange={(event) => setBranchDirectionDecay(Number(event.target.value))} /></label>
+                    <label><span>Initial evaluation pairs</span><input type="number" min="2000" max="50000" step="1000" value={branchDirectionInitialPairs} onChange={(event) => setBranchDirectionInitialPairs(Number(event.target.value))} /></label>
+                    <label><span>Maximum evaluation pairs</span><input type="number" min={branchDirectionInitialPairs} max="250000" step="5000" value={branchDirectionMaximumPairs} onChange={(event) => setBranchDirectionMaximumPairs(Number(event.target.value))} /></label>
+                    <label><span>Extension block pairs</span><input type="number" min="250" max="50000" step="250" value={branchDirectionBlockPairs} onChange={(event) => setBranchDirectionBlockPairs(Number(event.target.value))} /></label>
+                  </div> : null}
                 </div>
                 <div className="form-actions"><div><span className="validation-light" /> Compatible generation-4/5 policy checkpoints only</div><button type="button" className="button button-primary" disabled={!branchSourceId || !branchVariantIds.length || commandBusy !== null} onClick={launchBranchExperiment}>{commandBusy === "branch-launch" ? "Copying lineage…" : "Create & start branch system"}</button></div>
               </article>
@@ -5063,7 +5156,7 @@ export default function Home() {
                   </div>
                   {trainerActiveRun && trainerActiveRun.id !== remoteRunId ? <button type="button" className="text-button" onClick={() => selectRun(trainerActiveRun.id)}>View active branch →</button> : null}
                 </article>
-                <article className="panel"><header className="panel-header"><div><span className="panel-kicker">Why branch</span><h2>Improve without risking the champion</h2></div></header><p>Mature refinement runs clean local trials, rolls failed full gates back to the champion, and gives genuinely positive near-ties more evaluation pairs.</p><dl className="compact-dl"><div><dt>Monitoring</dt><dd>128-pair canaries every 20k games</dd></div><div><dt>Promotion</dt><dd>2,000 pairs · extendable to 12,000</dd></div><div><dt>Confidence</dt><dd>Adjusted across every extension look</dd></div></dl></article>
+                <article className="panel"><header className="panel-header"><div><span className="panel-kicker">Why branch</span><h2>Improve without risking the champion</h2></div></header><p>The default directional recipe nudges agreed historical promotion coordinates while ordinary learning explores locally, then rolls failed full gates back.</p><dl className="compact-dl"><div><dt>Direction</dt><dd>Latest 5 promotions · 60% sign agreement</dd></div><div><dt>Promotion</dt><dd>2k-pair looks · up to 100,000</dd></div><div><dt>Confidence</dt><dd>99% interim · 96% final · 95% overall</dd></div></dl></article>
               </aside>
             </div>
             <article className="panel branch-registry">
@@ -5249,6 +5342,7 @@ export default function Home() {
                 <div><dt>Gradient clipping</dt><dd>{latestMetric.gradientClipFraction === null ? "Pending" : formatPercent(latestMetric.gradientClipFraction)}</dd></div>
                 <div><dt>Actor / value / search gradients</dt><dd>{latestMetric.actorGradientNorm === null || latestMetric.valueGradientNorm === null || latestMetric.searchGradientNorm === null ? "Probe pending" : `${latestMetric.actorGradientNorm.toFixed(2)} / ${latestMetric.valueGradientNorm.toFixed(2)} / ${latestMetric.searchGradientNorm.toFixed(2)}`}</dd></div>
                 <div><dt>Governor multipliers</dt><dd>{latestMetric.governorLearningRateMultiplier.toFixed(2)}× LR · {latestMetric.governorUpdatesMultiplier.toFixed(2)}× updates · {latestMetric.governorReanalysisMultiplier.toFixed(2)}× search</dd></div>
+                <div><dt>Promotion-direction guidance</dt><dd>{latestMetric.promotionDirectionTensors > 0 ? `${latestMetric.promotionDirectionStrength.toFixed(2)}× · ${latestMetric.promotionDirectionTensors} tensors` : "Inactive"}</dd></div>
               </dl>
               <p className="panel-note">{latestMetric.governorReasons.length ? latestMetric.governorReasons.join(" · ") : "Waiting for enough natural-state, optimization, and canary evidence."}</p>
             </article> : null}

@@ -1111,7 +1111,7 @@ def test_paused_run_can_hydrate_after_backend_restart(tmp_path, monkeypatch):
 def test_start_repairs_legacy_evaluation_pairs_before_trainer_thread(tmp_path, monkeypatch):
     store = Store(tmp_path / "state.sqlite3")
     run = store.create_run(RunConfig.astro5_search())
-    legacy = run["config"] | {"evaluation_pairs": 5_000}
+    legacy = run["config"] | {"evaluation_pairs": 100_000}
     store.update_run(run["id"], config_json=json.dumps(legacy))
     supervisor = Supervisor(store, tmp_path)
     observed: dict[str, int] = {}
@@ -1124,16 +1124,37 @@ def test_start_repairs_legacy_evaluation_pairs_before_trainer_thread(tmp_path, m
     supervisor.start(run["id"])
     supervisor._handles[run["id"]].thread.join(timeout=1.0)
 
-    assert observed == {"evaluation_pairs": 2_000}
+    assert observed == {"evaluation_pairs": 50_000}
     repaired = store.get_run(run["id"])
-    assert repaired["config"]["evaluation_pairs"] == 2_000
+    assert repaired["config"]["evaluation_pairs"] == 50_000
     events = store.events(run["id"], limit=20)
     assert any(event["kind"] == "persisted_config_repaired" for event in events)
 
 
+def test_legacy_directional_config_inherits_regular_99_percent_looks():
+    legacy = RunConfig.astro5_directional().model_dump()
+    legacy.pop("evaluation_early_look_interval_pairs")
+    legacy.update(
+        promotion_confidence=0.95,
+        evaluation_early_rejection=False,
+        evaluation_early_acceptance=False,
+        evaluation_extension_block_pairs=5_000,
+    )
+
+    repaired = RunConfig.model_validate_persisted(legacy)
+
+    assert repaired.promotion_confidence == 0.95
+    assert repaired.evaluation_early_rejection is True
+    assert repaired.evaluation_early_acceptance is True
+    assert repaired.evaluation_early_rejection_min_pairs == 2_000
+    assert repaired.evaluation_early_acceptance_min_pairs == 2_000
+    assert repaired.evaluation_early_look_interval_pairs == 2_000
+    assert repaired.evaluation_extension_block_pairs == 2_000
+
+
 def test_new_evaluation_pairs_above_limit_remain_invalid():
-    with pytest.raises(ValueError, match="less than or equal to 2000"):
-        RunConfig.model_validate({"evaluation_pairs": 5_000})
+    with pytest.raises(ValueError, match="less than or equal to 50000"):
+        RunConfig.model_validate({"evaluation_pairs": 50_001})
 
 
 def test_paused_control_services_durable_requests_before_announcing_paused():
@@ -1483,6 +1504,36 @@ def test_invalid_evaluations_are_retryable_and_do_not_create_a_false_plateau(tmp
             }
         )
         == "promoted"
+    )
+    assert (
+        _trainer_evaluation_outcome(
+            {
+                **promoted,
+                "status": "complete",
+                "result": {
+                    "early_stopped": True,
+                    "early_stop_outcome": "accepted",
+                    "early_stop_reason": "promote early",
+                    "promotion": {"eligible": True, "promoted": True},
+                },
+            }
+        )
+        == "promoted"
+    )
+    assert (
+        _trainer_evaluation_outcome(
+            {
+                **rejected,
+                "status": "complete",
+                "result": {
+                    "early_stopped": True,
+                    "early_stop_outcome": "rejected",
+                    "early_stop_reason": "reject early",
+                    "promotion": {"eligible": False, "promoted": False},
+                },
+            }
+        )
+        == "not_promoted"
     )
     plateau = _plateau_status(store, run["id"], config)
     assert plateau["consecutive_non_promotions"] == 1

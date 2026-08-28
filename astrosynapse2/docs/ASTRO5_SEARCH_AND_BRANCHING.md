@@ -63,7 +63,7 @@ the trainer. Stopping a branch pauses its experiment instead of unexpectedly sta
 The GUI's Branch runner controls resolve the backend's active run ID, so pause/stop remain enabled
 and target the correct process even while the user is viewing a queued branch.
 
-The built-in GUI variants include mature champion refinement, balanced search, search-heavy,
+The built-in GUI variants include promotion-direction refinement, mature champion refinement, balanced search, search-heavy,
 entropy recovery, value-first, fast exploitation, wide belief search, low-learning-rate long
 memory, and explorer. They inherit model
 architecture from the source checkpoint so the imported weights always remain compatible. The GUI
@@ -87,8 +87,36 @@ and increase searched supervision within configured bounds. It never weakens pro
 If a full evaluation is score-positive but its adjusted lower confidence bound still overlaps the
 promotion threshold, the arena adds fixed-size blocks until the advantage is proven, the observed
 score stops leaning positive, or the configured ceiling is reached. The default mature ceiling is
-12,000 pairs and the GUI permits up to 50,000. Confidence is Bonferroni-adjusted for every possible
+12,000 pairs and the GUI permits automatic ceilings up to 250,000. Confidence is Bonferroni-adjusted for every possible
 extension boundary so optional repeated looks do not make promotion easier.
+
+## Promotion-direction refinement
+
+This branch-only mode adds a small weight-space prior to mature refinement. At branch creation it
+finds the latest retained, completed full evaluations that actually promoted a candidate in the
+source run. For each promotion it computes `candidate weights - defending champion weights`,
+normalizes every tensor's transition by its RMS, and combines up to five transitions with recent
+promotions weighted most strongly. A coordinate is guided only when at least 60% of the weighted
+historical signs agree. The resulting artifact is frozen with the branch lineage and is auditable.
+
+During learning, the ordinary minibatch gradient remains primary. The default adds a direction
+component with RMS equal to 6% of that tensor's ordinary gradient RMS; because the optimizer
+subtracts gradients, this nudges weights further along the successful consensus direction. The
+strength is safely adjustable between batches and is reported with the number of guided tensors in
+Diagnostics. Branch Lab exposes strength, history count, sign agreement, recency decay, initial
+pair count, extension block, and maximum pair count before it freezes the branch artifact. This is
+a prior, not a causal claim: a promoted checkpoint contains many correlated
+SGD changes, so the normal canaries and arena still decide whether the reuse helped.
+
+Directional full evaluations predeclare regular looks every 2,000 seed-pairs from pair 2,000 up to,
+but not including, the configured ceiling. At each interim look, a two-sided Hoeffding bound shares a
+1% familywise error budget across every look and both possible decisions: its upper bound must be
+below 50% to reject early, or its lower bound must be above 50% to promote early. Unresolved evidence
+continues to the ceiling—100,000 pairs by default—where a single final decision receives the remaining
+4% error budget and therefore uses 96% standalone confidence. The complete sequential procedure has
+at most 5% familywise decision error. The automatic ceiling can be configured as high as 250,000.
+Evaluations retain only recent human-readable
+pair diagnostics in memory and checkpoint their large resumable score arrays at a reduced cadence.
 
 ## Reading the result
 

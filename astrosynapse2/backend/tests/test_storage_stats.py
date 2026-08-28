@@ -12,6 +12,7 @@ from astro2.stats import elo_delta, wilson_interval
 from astro2.storage import Store
 from astro2.supervisor import Supervisor
 from astro2.trainer import _training_budget_reached
+from safetensors.numpy import save_file
 
 
 def test_wilson_interval_behaves_at_small_sample_sizes():
@@ -243,14 +244,25 @@ def test_supervisor_copies_compatible_branch_root_artifacts(tmp_path):
         encoder_version=2,
         objective_version=2,
     )
-    model_path = tmp_path / "source.safetensors"
-    model_path.write_bytes(b"test model placeholder")
-    model_path.with_suffix(".safetensors.json").write_text(json.dumps(spec.as_dict()))
     actor_path = tmp_path / "source.actor.npz"
     np.savez(
         actor_path,
         __spec_json__=np.frombuffer(json.dumps(spec.as_dict()).encode(), dtype=np.uint8),
     )
+    prior_path = tmp_path / "prior.safetensors"
+    save_file({"layer.weight": np.asarray([0.0, 0.0], dtype=np.float32)}, prior_path)
+    prior_path.with_suffix(".safetensors.json").write_text(json.dumps(spec.as_dict()))
+    prior = store.add_checkpoint(
+        run_id=source_run["id"],
+        label="Prior champion",
+        path=str(prior_path),
+        actor_path=str(actor_path),
+        games=400_000,
+        champion=True,
+    )
+    model_path = tmp_path / "source.safetensors"
+    save_file({"layer.weight": np.asarray([0.2, -0.1], dtype=np.float32)}, model_path)
+    model_path.with_suffix(".safetensors.json").write_text(json.dumps(spec.as_dict()))
     source = store.add_checkpoint(
         run_id=source_run["id"],
         label="Source champion",
@@ -258,6 +270,19 @@ def test_supervisor_copies_compatible_branch_root_artifacts(tmp_path):
         actor_path=str(actor_path),
         games=500_000,
         champion=True,
+    )
+    promotion = store.create_arena_job(
+        model_a=source["id"],
+        model_b=prior["id"],
+        config={
+            "automatic_promotion": True,
+            "trainer_scheduled": True,
+            "promotion_tier": "full",
+        },
+        result={"model_a_score": 0.53, "promotion": {"promoted": True}},
+    )
+    store.update_arena_job(
+        promotion["id"], status="complete", result=promotion["result"]
     )
     supervisor = Supervisor(store, tmp_path)
     experiment = supervisor.create_branch_experiment(
@@ -267,11 +292,12 @@ def test_supervisor_copies_compatible_branch_root_artifacts(tmp_path):
             {"label": "Balanced"},
             {"label": "Search", "reanalysis_fraction": 0.02},
             {"label": "Mature", "preset": "astro5_mature"},
+            {"label": "Directional", "preset": "astro5_directional"},
         ],
         base_overrides={"duration_minutes": 5},
         start=False,
     )
-    assert len(experiment["members"]) == 3
+    assert len(experiment["members"]) == 4
     for member in experiment["members"]:
         branch_run = store.get_run(member["run_id"])
         assert branch_run["config"]["initial_checkpoint_id"] == source["id"]
@@ -285,3 +311,15 @@ def test_supervisor_copies_compatible_branch_root_artifacts(tmp_path):
     assert mature_run["config"]["preset"] == "astro5_mature"
     assert mature_run["config"]["governor_strategy"] == "mature"
     assert mature_run["config"]["evaluation_extension_max_pairs"] == 12_000
+    directional_run = store.get_run(experiment["members"][3]["run_id"])
+    assert directional_run["config"]["preset"] == "astro5_directional"
+    assert directional_run["config"]["promotion_direction_enabled"] is True
+    assert directional_run["config"]["evaluation_pairs"] == 10_000
+    direction_path = Path(directional_run["config"]["promotion_direction_path"])
+    assert direction_path.is_file()
+    directional_root = store.checkpoints(directional_run["id"])[0]
+    direction_artifacts = directional_root["evaluation"]["artifacts"]
+    assert direction_artifacts["promotion_direction_path"] == str(direction_path)
+    assert direction_artifacts["promotion_direction"]["transition_count"] == 1
+    assert "optimizer_path" not in direction_artifacts
+    assert "policy_replay_path" not in direction_artifacts

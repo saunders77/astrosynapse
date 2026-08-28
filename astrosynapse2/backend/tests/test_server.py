@@ -13,6 +13,7 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         assert health.json()["ok"] is True
 
         presets = client.get("/api/presets").json()
+        directional = presets["astro5_directional"]
         mature = presets["astro5_mature"]
         astro5 = presets["astro5_search"]
         assert mature["governor_strategy"] == "mature"
@@ -20,6 +21,16 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         assert mature["reset_replay_on_branch_start"] is True
         assert mature["rejected_candidate_action"] == "restore_lineage"
         assert mature["evaluation_extension_max_pairs"] == 12_000
+        assert directional["promotion_direction_enabled"] is True
+        assert directional["promotion_direction_strength"] == 0.06
+        assert directional["evaluation_pairs"] == 10_000
+        assert directional["promotion_confidence"] == 0.95
+        assert directional["evaluation_early_rejection"] is True
+        assert directional["evaluation_early_acceptance"] is True
+        assert directional["evaluation_early_acceptance_min_pairs"] == 2_000
+        assert directional["evaluation_early_look_interval_pairs"] == 2_000
+        assert directional["evaluation_extension_block_pairs"] == 2_000
+        assert directional["evaluation_extension_max_pairs"] == 100_000
         assert astro5["games_per_actor_batch"] == 4
         assert astro5["rollout_tasks_per_actor"] == 4
         assert astro5["reanalysis_fraction"] == 0.0025
