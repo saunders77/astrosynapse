@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, stat } from "node:fs/promises";
 import test from "node:test";
 
 const projectRoot = new URL("../", import.meta.url);
@@ -75,6 +75,8 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /\/models\/\$\{encodeURIComponent\(modelId\)\}/);
   assert.match(page, /fetchJson\("\/card-analysis"/);
   assert.match(page, /Run Scrap Elo/);
+  assert.match(page, /No Card/);
+  assert.match(page, /Saved 10k result/);
   assert.match(page, /Run Acquire Elo/);
   assert.match(page, /Run 10k Bucketed Acquire Elo/);
   assert.match(page, /kind === "acquire_bucketed" \? 10_000 : 1_000/);
@@ -126,12 +128,17 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /degraded_reasons/);
   assert.match(page, /artifact_state/);
   assert.match(page, /actorAvailable/);
+  assert.match(page, /Arena actor generated/);
   assert.match(page, /availableModels/);
   assert.match(page, /availableArenaModels/);
   assert.match(page, /arenaModelGroups/);
-  assert.match(page, /Run · \$\{group\.runName\}/);
-  assert.match(page, /Arena model A from any run/);
-  assert.match(page, /checkpoint from any run/);
+  assert.match(page, /arenaSelectionRef/);
+  assert.match(page, /if \(!arenaSelectionRef\.current\)/);
+  assert.match(page, /arenaSelectionRef\.current = jobId/);
+  assert.match(page, /Arena model \$\{side\} run/);
+  assert.match(page, /Arena model \$\{side\} checkpoint/);
+  assert.match(page, /saved checkpoint from any run/);
+  assert.match(page, /models\.find\(\(model\) => model\.isChampion\) \?\? models\[0\]/);
   assert.match(page, /artifacts pruned · history retained/);
   assert.match(page, /ModelDiagnosticStrip/);
   assert.match(styles, /\.checkpoint-diagnostics/);
@@ -238,4 +245,31 @@ test("contains the editable Hard AI companion and stateless checkpoint advisor c
   assert.match(server, /@app\.post\("\/api\/advisor\/evaluate"/);
   assert.match(advisor, /class CheckpointAdvisor/);
   assert.match(advisor, /def main_phase_actions/);
+});
+
+test("ships the complete local Core Set art catalog and wires it into play and analysis", async () => {
+  const [catalog, page, companion, styles] = await Promise.all([
+    readFile(new URL("../app/card-art.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/manual-hard-ai-match.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  const files = [...catalog.matchAll(/"([A-Za-z0-9-]+\.jpg)"/g)].map((match) => match[1]);
+
+  assert.equal(files.length, 49);
+  assert.equal(new Set(files).size, 49);
+  for (const file of [...files, "Star-Realms-Back.jpg"]) {
+    const details = await stat(new URL(`../public/card-art/${file}`, import.meta.url));
+    assert.ok(details.size > 5_000, `${file} should contain a real card image`);
+  }
+
+  assert.match(page, /className=\{`game-card-art/);
+  assert.match(page, /CardArtHover name=\{entry\.cardName\}/);
+  assert.match(page, /bucketed-card-art-preview/);
+  assert.match(companion, /className="relay-card-art"/);
+  assert.match(styles, /Star-Realms-Back\.jpg/);
+  assert.match(styles, /\.game-card\.has-card-art[\s\S]*?max-width:\s*150px[\s\S]*?aspect-ratio:\s*5 \/ 7/);
+  assert.match(styles, /\.game-card\.has-card-art\.card-landscape \.game-card-art[\s\S]*?margin-left:\s*-20%[\s\S]*?transform:\s*rotate\(-90deg\)/);
+  assert.match(styles, /\.relay-card\.has-card-art[\s\S]*?max-width:\s*132px[\s\S]*?aspect-ratio:\s*5 \/ 7/);
+  assert.match(styles, /\.relay-card\.has-card-art\.card-landscape \.relay-card-art[\s\S]*?margin-left:\s*-20%[\s\S]*?transform:\s*rotate\(-90deg\)/);
 });

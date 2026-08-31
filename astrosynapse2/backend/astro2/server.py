@@ -40,6 +40,7 @@ from .card_analysis import (
 )
 from .config import RunConfig, preset_config
 from .hardware import system_snapshot
+from .model import regenerate_actor_snapshot
 from .play import PlayManager
 from .stats import elo_delta
 from .storage import Store
@@ -512,10 +513,40 @@ def models(
 
 @app.patch("/api/models/{model_id}")
 def patch_model(model_id: str, payload: ModelPatch, request: Request) -> dict[str, Any]:
+    store = _store(request)
     try:
-        return _store(request).set_checkpoint_pinned(model_id, payload.pinned)
+        checkpoint = store.checkpoint(model_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="model not found") from error
+    if payload.pinned:
+        actor_path_value = checkpoint.get("actor_path")
+        actor_path = (
+            Path(str(actor_path_value))
+            if actor_path_value
+            else Path(str(checkpoint["path"])).with_suffix(".actor.npz")
+        )
+        if not actor_path.is_file():
+            model_path = Path(str(checkpoint["path"]))
+            sidecar_path = model_path.with_suffix(model_path.suffix + ".json")
+            if not model_path.is_file() or not sidecar_path.is_file():
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "checkpoint model weights are unavailable; "
+                        "actor snapshot cannot be regenerated"
+                    ),
+                )
+            try:
+                regenerate_actor_snapshot(model_path, actor_path)
+            except Exception as error:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"actor snapshot regeneration failed: {error}",
+                ) from error
+            if not actor_path_value:
+                store.set_checkpoint_actor_path(model_id, str(actor_path))
+    updated = store.set_checkpoint_pinned(model_id, payload.pinned)
+    return _model_document(updated)
 
 
 @app.get("/api/models/{model_id}/actor")
@@ -611,16 +642,46 @@ def card_analysis_jobs(
     limit: int = Query(default=50, ge=1, le=500),
     model_id: str | None = None,
     run_id: str | None = None,
+    summary_only: bool = False,
 ) -> list[dict[str, Any]]:
+    def summarize(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not summary_only:
+            return jobs
+        summaries = []
+        for job in jobs:
+            result = job.get("result", {})
+            summaries.append(
+                {
+                    **{key: value for key, value in job.items() if key != "result"},
+                    "result": {
+                        key: result[key]
+                        for key in (
+                            "games_requested",
+                            "games_completed",
+                            "single_card_turns",
+                            "scored_decisions",
+                            "decisions_captured",
+                            "pairwise_comparisons",
+                            "truncated_games",
+                            "duration_seconds",
+                            "completed_at",
+                            "progress",
+                        )
+                        if key in result
+                    },
+                }
+            )
+        return summaries
+
     if run_id is None:
-        return _card_analysis(request).list(limit=limit, model_id=model_id)
+        return summarize(_card_analysis(request).list(limit=limit, model_id=model_id))
     try:
         checkpoint_ids = {item["id"] for item in _store(request).checkpoints(run_id)}
         _store(request).get_run(run_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="run not found") from error
     jobs = _card_analysis(request).list(limit=500, model_id=model_id)
-    return [job for job in jobs if job["model_id"] in checkpoint_ids][:limit]
+    return summarize([job for job in jobs if job["model_id"] in checkpoint_ids][:limit])
 
 
 @app.get("/api/card-analysis/{job_id}")

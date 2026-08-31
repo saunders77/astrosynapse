@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -143,9 +144,7 @@ def build_model(spec: ModelSpec):
             return mx.take_along_axis(all_logits, indices, axis=1).squeeze(axis=1)
 
         def __call__(self, states, actions, families=None):
-            return self.action_logits_from_features(
-                self.state_features(states), actions, families
-            )
+            return self.action_logits_from_features(self.state_features(states), actions, families)
 
     return ActionValueNet()
 
@@ -172,6 +171,10 @@ def actor_critic_policy_loss(
     search_policy_loss_weight: float = 0.0,
     search_value_loss_weight: float = 0.0,
     behavior_policy_loss_weight: float = 1.0,
+    search_loss_reference_positions: int = 1,
+    collection_policy_probabilities=None,
+    behavior_heads=None,
+    importance_groups: dict[str, Any] | None = None,
 ):
     """Game-balanced off-policy actor-critic loss over complete legal sets."""
 
@@ -215,21 +218,25 @@ def actor_critic_policy_loss(
     entropy_by_head = -mx.sum(probabilities * log_probs, axis=1)
     entropy = mx.sum(weights * entropy_by_head) / denominator
     legal_counts = mx.maximum(mx.sum(legal_mask, axis=1), mx.array(2.0))
-    normalized_entropy = mx.sum(
-        weights * (entropy_by_head / mx.log(legal_counts)[:, None])
-    ) / denominator
+    normalized_entropy = (
+        mx.sum(weights * (entropy_by_head / mx.log(legal_counts)[:, None])) / denominator
+    )
     search_policy_loss = mx.array(0.0)
     search_value_loss = mx.array(0.0)
     searched_fraction = mx.array(0.0)
+    search_weight_scale = mx.array(0.0)
     if search_policy_targets is not None and search_valid is not None:
         resolved_search_mask = legal_mask if search_mask is None else search_mask * legal_mask
         searched_logits = mx.where(resolved_search_mask[:, :, None] > 0, policy_logits, -1e9)
-        searched_log_probs = searched_logits - mx.logsumexp(
-            searched_logits, axis=1, keepdims=True
-        )
+        searched_log_probs = searched_logits - mx.logsumexp(searched_logits, axis=1, keepdims=True)
         target_distribution = search_policy_targets[:, :, None]
         search_weights = bootstrap_mask * search_valid[:, None] * sample_weights[:, None]
         search_denominator = mx.maximum(mx.sum(search_weights), mx.array(1.0))
+        searched_count = mx.sum(search_valid)
+        search_weight_scale = mx.minimum(
+            searched_count / mx.array(float(max(1, search_loss_reference_positions))),
+            mx.array(1.0),
+        )
         cross_entropy = -mx.sum(target_distribution * searched_log_probs, axis=1)
         search_policy_loss = mx.sum(search_weights * cross_entropy) / search_denominator
         if search_values is not None:
@@ -240,19 +247,17 @@ def actor_critic_policy_loss(
                 with_logits=True,
                 reduction="none",
             )
-            search_value_loss = (
-                mx.sum(search_weights * searched_value_losses) / search_denominator
-            )
+            search_value_loss = mx.sum(search_weights * searched_value_losses) / search_denominator
         searched_fraction = mx.mean(search_valid)
     loss = (
         float(behavior_policy_loss_weight) * policy_loss
         + float(value_loss_weight) * value_loss
         - float(entropy_weight) * entropy
-        + float(search_policy_loss_weight) * search_policy_loss
-        + float(search_value_loss_weight) * search_value_loss
+        + float(search_policy_loss_weight) * search_weight_scale * search_policy_loss
+        + float(search_value_loss_weight) * search_weight_scale * search_value_loss
     )
     prediction = mx.mean(values, axis=1)
-    return loss, {
+    diagnostics = {
         "policy_loss": policy_loss,
         "value_loss": value_loss,
         "policy_entropy": entropy,
@@ -260,16 +265,91 @@ def actor_critic_policy_loss(
         "search_policy_loss": search_policy_loss,
         "search_value_loss": search_value_loss,
         "searched_fraction": searched_fraction,
+        "searched_count": (mx.sum(search_valid) if search_valid is not None else mx.array(0.0)),
+        "search_weight_scale": search_weight_scale,
+        "weighted_policy_loss": float(behavior_policy_loss_weight) * policy_loss,
+        "weighted_value_loss": float(value_loss_weight) * value_loss,
+        "weighted_entropy_loss": -float(entropy_weight) * entropy,
+        "weighted_search_policy_loss": (
+            float(search_policy_loss_weight) * search_weight_scale * search_policy_loss
+        ),
+        "weighted_search_value_loss": (
+            float(search_value_loss_weight) * search_weight_scale * search_value_loss
+        ),
         "value_brier": mx.mean(mx.square(prediction - targets)),
         "value_accuracy": mx.mean((prediction >= 0.5) == (targets >= 0.5)),
         "mean_importance_ratio": mx.sum(weights * ratios) / denominator,
-        "importance_clip_fraction": mx.sum(
-            weights * (raw_ratios > float(importance_clip))
-        )
+        "importance_clip_fraction": mx.sum(weights * (raw_ratios > float(importance_clip)))
         / denominator,
         "uncertainty": mx.sum(mx.std(probabilities, axis=2) * legal_mask)
         / mx.maximum(mx.sum(legal_mask), mx.array(1.0)),
     }
+    collection_known = None
+    collection_ratios = None
+    collection_log_drift = None
+    if collection_policy_probabilities is not None and behavior_heads is not None:
+        resolved_heads = behavior_heads.astype(mx.int32)
+        head_indices = mx.maximum(resolved_heads, mx.array(0))[:, None]
+        owner_probabilities = mx.take_along_axis(
+            chosen_probabilities, head_indices, axis=1
+        ).squeeze(axis=1)
+        current_collection_probabilities = mx.where(
+            resolved_heads >= 0,
+            owner_probabilities,
+            mx.mean(chosen_probabilities, axis=1),
+        )
+        collection_known = collection_policy_probabilities > 0
+        collection_denominator = mx.maximum(
+            collection_policy_probabilities, mx.array(1e-6)
+        )
+        collection_ratios = current_collection_probabilities / collection_denominator
+        collection_log_drift = mx.abs(
+            mx.log(mx.maximum(current_collection_probabilities, mx.array(1e-6)))
+            - mx.log(collection_denominator)
+        )
+        known_weights = collection_known.astype(weights.dtype)
+        known_denominator = mx.maximum(mx.sum(known_weights), mx.array(1.0))
+        diagnostics["collection_policy_ratio"] = (
+            mx.sum(known_weights * collection_ratios) / known_denominator
+        )
+        diagnostics["collection_policy_abs_log_drift"] = (
+            mx.sum(known_weights * collection_log_drift) / known_denominator
+        )
+        diagnostics["collection_policy_samples"] = mx.sum(known_weights)
+    for head in range(int(values.shape[1])):
+        head_weights = weights[:, head]
+        head_denominator = mx.maximum(mx.sum(head_weights), mx.array(1.0))
+        diagnostics[f"importance_ratio_head_{head}"] = (
+            mx.sum(head_weights * ratios[:, head]) / head_denominator
+        )
+    if importance_groups:
+        for name, group_mask in importance_groups.items():
+            resolved_group = group_mask.astype(weights.dtype)
+            group_weights = weights * resolved_group[:, None]
+            group_denominator = mx.maximum(mx.sum(group_weights), mx.array(1.0))
+            diagnostics[f"importance_ratio_{name}"] = (
+                mx.sum(group_weights * ratios) / group_denominator
+            )
+            diagnostics[f"importance_samples_{name}"] = mx.sum(resolved_group)
+            if collection_known is not None:
+                collection_group_weights = resolved_group * collection_known.astype(
+                    weights.dtype
+                )
+                collection_group_denominator = mx.maximum(
+                    mx.sum(collection_group_weights), mx.array(1.0)
+                )
+                diagnostics[f"collection_policy_ratio_{name}"] = (
+                    mx.sum(collection_group_weights * collection_ratios)
+                    / collection_group_denominator
+                )
+                diagnostics[f"collection_policy_abs_log_drift_{name}"] = (
+                    mx.sum(collection_group_weights * collection_log_drift)
+                    / collection_group_denominator
+                )
+                diagnostics[f"collection_policy_samples_{name}"] = mx.sum(
+                    collection_group_weights
+                )
+    return loss, diagnostics
 
 
 def bootstrap_bce_loss(
@@ -381,6 +461,39 @@ def load_model(path: str | Path):
     model = build_model(spec)
     model.load_weights(str(target))
     return model, spec
+
+
+def regenerate_actor_snapshot(
+    model_path: str | Path,
+    actor_path: str | Path,
+) -> Path:
+    """Rebuild and validate a NumPy actor from a portable model checkpoint.
+
+    Safetensors checkpoints and NumPy actors use the same flattened parameter
+    names. Converting the arrays directly avoids initializing MLX/Metal in the
+    API process when a user pins an older checkpoint.
+    """
+
+    from safetensors.numpy import load_file
+
+    source = Path(model_path)
+    sidecar = source.with_suffix(source.suffix + ".json")
+    spec = ModelSpec.from_dict(json.loads(sidecar.read_text(encoding="utf-8")))
+    arrays = {name: np.asarray(value) for name, value in load_file(source).items()}
+    arrays["__spec_json__"] = np.frombuffer(
+        json.dumps(spec.as_dict(), sort_keys=True).encode("utf-8"), dtype=np.uint8
+    )
+
+    target = Path(actor_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.partial.npz")
+    try:
+        np.savez_compressed(temporary, **arrays)
+        NumpyActor.load(temporary)
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return target
 
 
 def save_optimizer_state(optimizer: Any, path: str | Path) -> Path:
@@ -613,9 +726,7 @@ class NumpyActor:
         groups: dict[int | None, list[int]] = {}
         for index, head in enumerate(heads):
             if head is not None and not 0 <= int(head) < self.spec.bootstrap_heads:
-                raise ValueError(
-                    f"head must be in [0, {self.spec.bootstrap_heads}), got {head}"
-                )
+                raise ValueError(f"head must be in [0, {self.spec.bootstrap_heads}), got {head}")
             groups.setdefault(None if head is None else int(head), []).append(index)
 
         for head, indices in groups.items():

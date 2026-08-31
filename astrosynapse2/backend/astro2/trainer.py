@@ -24,7 +24,7 @@ import numpy as np
 from safetensors import SafetensorError, safe_open
 
 from .config import MINIMUM_PROMOTION_PAIRS, RunConfig
-from .encoding import FAMILY_COUNT, Encoder
+from .encoding import FAMILY_COUNT, DecisionFamily, Encoder
 from .hardware import RateMeter, mlx_snapshot, system_snapshot
 from .league import League, Opponent
 from .model import (
@@ -42,6 +42,7 @@ from .model import (
 )
 from .replay import (
     NATURAL_SAMPLING_WEIGHTS,
+    POLICY_ROLLOUT_SOURCE_NAMES,
     GameBalancedPolicyReplayBuffer,
     PreferenceReplayBuffer,
     ReplayBuffer,
@@ -107,6 +108,10 @@ class _Totals:
     forced_choices: int = 0
     counterfactual_preferences: int = 0
     reanalysis_positions: int = 0
+    search_repeatability_positions: int = 0
+    search_top_action_agreements: int = 0
+    search_policy_js_sum: float = 0.0
+    search_value_abs_delta_sum: float = 0.0
     rollout_games: dict[str, int] = field(default_factory=dict)
 
 
@@ -295,8 +300,7 @@ def _swap_pressure_is_critical(
         return True
     return (
         int(system["swap_free_bytes"]) < limits["minimum_swap_free_bytes"]
-        and int(system["memory_available_bytes"])
-        < limits["critical_available_bytes"]
+        and int(system["memory_available_bytes"]) < limits["critical_available_bytes"]
     )
 
 
@@ -304,21 +308,34 @@ def _plateau_status(store: Store, run_id: str, config: RunConfig) -> dict[str, A
     """Summarize recent promotion evidence and choose a bounded response."""
 
     consecutive = 0
+    recent_scores: list[float] = []
     for job in reversed(_completed_trainer_evaluations(store, run_id)):
         promotion = (job.get("result") or {}).get("promotion") or {}
         if bool(promotion.get("promoted")):
             break
         consecutive += 1
-    level = consecutive // config.plateau_patience_evaluations if config.adaptive_training else 0
-    multiplier = min(
-        config.plateau_max_exploration_multiplier,
-        2.0**level,
+        result = job.get("result") or {}
+        if "model_a_score" in result:
+            recent_scores.append(float(result["model_a_score"]))
+    recent_scores.reverse()
+    level = consecutive // config.plateau_patience_evaluations
+    multiplier = (
+        min(config.plateau_max_exploration_multiplier, 2.0**level)
+        if config.adaptive_training
+        else 1.0
     )
+    branch_requested = consecutive >= config.governor_branch_after_failures
     return {
         "consecutive_non_promotions": consecutive,
         "level": level,
         "exploration_multiplier": multiplier,
-        "active": bool(config.adaptive_training and level > 0),
+        "active": bool(level > 0),
+        "adaptive_exploration_active": bool(config.adaptive_training and level > 0),
+        "branch_requested": branch_requested,
+        "recent_full_scores": recent_scores[-6:],
+        "recent_full_mean": (
+            sum(recent_scores[-6:]) / len(recent_scores[-6:]) if recent_scores else None
+        ),
     }
 
 
@@ -329,6 +346,7 @@ def _governor_status(
     *,
     games: int,
     diagnostics: dict[str, float],
+    plateau: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Choose bounded live controls from canaries and optimization health."""
 
@@ -359,11 +377,7 @@ def _governor_status(
     if canary_evidence_changed:
         recent_scores = canary_scores[-6:]
         consecutive_regressions = next(
-            (
-                index
-                for index, score in enumerate(reversed(recent_scores))
-                if score >= 0.5
-            ),
+            (index for index, score in enumerate(reversed(recent_scores)) if score >= 0.5),
             len(recent_scores),
         )
     else:
@@ -396,6 +410,10 @@ def _governor_status(
     clip_fraction = float(diagnostics.get("gradient_clip_fraction", 0.0))
     searched_fraction = float(diagnostics.get("searched_fraction", 0.0))
     importance_ratio = float(diagnostics.get("mean_importance_ratio", 1.0))
+    collection_policy_drift = float(
+        diagnostics.get("collection_policy_abs_log_drift", 0.0)
+    )
+    collection_policy_samples = int(diagnostics.get("collection_policy_samples", 0.0))
     lr_multiplier = 1.0
     updates_multiplier = 1.0
     reanalysis_multiplier = 1.0
@@ -405,14 +423,6 @@ def _governor_status(
         # Mature policies need small, reversible local moves. In particular,
         # do not respond to a losing canary by adding entropy: that prolonged
         # the diffuse losing regime observed in the Low-LR branch.
-        if clip_fraction > 0.80:
-            lr_multiplier *= 0.65
-            updates_multiplier *= 0.80
-            reasons.append("mature mode cooled a clipping-dominated optimizer")
-        elif clip_fraction > 0.35:
-            lr_multiplier *= 0.80
-            updates_multiplier *= 0.90
-            reasons.append("mature mode reduced elevated clipping pressure")
         if entropy < config.governor_target_normalized_entropy * 0.80:
             entropy_weight *= 1.20
             reanalysis_multiplier *= 1.15
@@ -421,10 +431,9 @@ def _governor_status(
             entropy_weight *= 0.75
             reanalysis_multiplier *= 1.20
             reasons.append("mature policy is more diffuse than its local-search band")
-        if importance_ratio < 0.65:
-            updates_multiplier *= 0.80
-            reanalysis_multiplier *= 1.25
-            reasons.append("stale-policy ratios favor fewer updates and more searched targets")
+        if collection_policy_samples >= 32 and collection_policy_drift > 0.35:
+            updates_multiplier *= 0.90
+            reasons.append("verified collection-policy drift favors fewer local updates")
         if canary_evidence_changed and len(recent_scores) >= 6:
             older_mean = sum(recent_scores[-6:-3]) / 3
             newer_mean = sum(recent_scores[-3:]) / 3
@@ -442,10 +451,6 @@ def _governor_status(
             reanalysis_multiplier *= 1.20
             reasons.append("searched supervision is below the mature-mode target")
     else:
-        if clip_fraction > 0.50:
-            lr_multiplier *= 0.50
-            updates_multiplier *= 0.75
-            reasons.append("gradient clipping is dominating updates")
         if entropy < config.governor_target_normalized_entropy * 0.80:
             lr_multiplier *= 0.75
             entropy_weight *= 1.6
@@ -472,11 +477,27 @@ def _governor_status(
         config.governor_max_learning_rate_multiplier,
         max(config.governor_min_learning_rate_multiplier, lr_multiplier),
     )
-    updates_multiplier = min(
-        config.governor_max_updates_multiplier, max(0.5, updates_multiplier)
-    )
+    updates_multiplier = min(config.governor_max_updates_multiplier, max(0.5, updates_multiplier))
     reanalysis_multiplier = min(4.0, max(0.5, reanalysis_multiplier))
-    branch_requested = consecutive_regressions >= config.governor_branch_after_failures
+    plateau = plateau or {}
+    full_non_promotions = int(plateau.get("consecutive_non_promotions", 0))
+    full_plateau_active = bool(plateau.get("active", False))
+    if full_plateau_active:
+        lr_multiplier *= 0.80
+        updates_multiplier *= 0.80
+        reanalysis_multiplier = min(1.0, reanalysis_multiplier)
+        reasons.append(
+            "full-evaluation plateau reduced local steps and blocked reanalysis expansion"
+        )
+    lr_multiplier = min(
+        config.governor_max_learning_rate_multiplier,
+        max(config.governor_min_learning_rate_multiplier, lr_multiplier),
+    )
+    updates_multiplier = min(config.governor_max_updates_multiplier, max(0.5, updates_multiplier))
+    reanalysis_multiplier = min(4.0, max(0.5, reanalysis_multiplier))
+    branch_requested = consecutive_regressions >= config.governor_branch_after_failures or bool(
+        plateau.get("branch_requested", False)
+    )
     state = {
         "enabled": True,
         "strategy": config.governor_strategy,
@@ -495,7 +516,11 @@ def _governor_status(
         "observed_normalized_entropy": entropy,
         "gradient_clip_fraction": clip_fraction,
         "mean_importance_ratio": importance_ratio,
+        "collection_policy_abs_log_drift": collection_policy_drift,
+        "collection_policy_samples": collection_policy_samples,
         "consecutive_canary_regressions": consecutive_regressions,
+        "consecutive_full_non_promotions": full_non_promotions,
+        "full_evaluation_plateau_active": full_plateau_active,
         "recent_canary_scores": recent_scores,
         "branch_requested": branch_requested,
         "reasons": reasons,
@@ -560,9 +585,7 @@ def _readable_policy_replay(path: str | Path | None, *, required: set[str]) -> b
             if not isinstance(hot, dict) or not isinstance(cold, dict):
                 return False
             cold_shards = cold.get("shards")
-            if cold.get("format") != "disk_policy_replay_v1" or not isinstance(
-                cold_shards, list
-            ):
+            if cold.get("format") != "disk_policy_replay_v1" or not isinstance(cold_shards, list):
                 return False
             if any(
                 not isinstance(item, dict)
@@ -974,9 +997,7 @@ def _repair_anomalous_deployment_anchor(store: Store, run_id: str) -> dict[str, 
         item
         for item in checkpoints
         if item["id"] != champion_id
-        and bool(
-            ((item.get("evaluation") or {}).get("latest_arena") or {}).get("promoted")
-        )
+        and bool(((item.get("evaluation") or {}).get("latest_arena") or {}).get("promoted"))
     ]
     roots = [
         item
@@ -1303,8 +1324,7 @@ def _sync_league(
     league.opponents = [
         opponent
         for opponent in league.opponents
-        if opponent.kind not in {"checkpoint", "champion"}
-        or opponent.id in eligible_local_ids
+        if opponent.kind not in {"checkpoint", "champion"} or opponent.id in eligible_local_ids
     ]
 
     if not include_external_anchors:
@@ -1619,6 +1639,10 @@ def _restore_totals(
         forced_choices=max(0, int(latest.get("forced_choices", 0))),
         counterfactual_preferences=max(0, int(latest.get("counterfactual_preferences", 0))),
         reanalysis_positions=max(0, int(latest.get("reanalysis_positions", 0))),
+        search_repeatability_positions=max(0, int(latest.get("search_repeatability_positions", 0))),
+        search_top_action_agreements=max(0, int(latest.get("search_top_action_agreements", 0))),
+        search_policy_js_sum=max(0.0, float(latest.get("search_policy_js_sum", 0.0))),
+        search_value_abs_delta_sum=max(0.0, float(latest.get("search_value_abs_delta_sum", 0.0))),
         rollout_games={
             str(key): max(0, int(value))
             for key, value in (latest.get("rollout_games") or {}).items()
@@ -1652,6 +1676,10 @@ def _training_state(
         "forced_choices": totals.forced_choices,
         "counterfactual_preferences": totals.counterfactual_preferences,
         "reanalysis_positions": totals.reanalysis_positions,
+        "search_repeatability_positions": totals.search_repeatability_positions,
+        "search_top_action_agreements": totals.search_top_action_agreements,
+        "search_policy_js_sum": totals.search_policy_js_sum,
+        "search_value_abs_delta_sum": totals.search_value_abs_delta_sum,
         "rollout_games": dict(totals.rollout_games),
         "seed_cursor": int(seed_cursor),
         "optimizer_updates_at_start": max(0, int(optimizer_updates_at_start)),
@@ -1712,8 +1740,7 @@ def _schedule_evaluation(
         # silently changing 512 to 100 would produce a different test.
         early_look_ceiling = (
             config.evaluation_extension_max_pairs
-            if config.evaluation_early_look_interval_pairs
-            and config.evaluation_extension_enabled
+            if config.evaluation_early_look_interval_pairs and config.evaluation_extension_enabled
             else plan.pairs
         )
         early_rejection = bool(
@@ -1969,6 +1996,11 @@ def _checkpoint_quality_gate(
         > config.heldout_brier_regression_tolerance
     )
     reasons: list[str] = []
+    if bool(ensemble.get("natural_diagnostics_fallback")):
+        reasons.append(
+            "natural-state diagnostics failed: "
+            f"{ensemble.get('natural_diagnostics_error', 'unknown error')}"
+        )
     if (
         config.minimum_head_disagreement_rate > 0
         and float(ensemble.get("head_argmax_disagreement_rate", 0.0))
@@ -2162,9 +2194,7 @@ def _submit_rollout(
         reanalysis_horizon_turns=config.reanalysis_horizon_turns,
         reanalysis_policy_temperature=config.reanalysis_policy_temperature,
         policy_replay_decisions_per_player_game=(
-            config.policy_replay_decisions_per_player_game
-            if config.training_generation >= 5
-            else 0
+            config.policy_replay_decisions_per_player_game if config.training_generation >= 5 else 0
         ),
         encoder_version=2 if config.training_generation >= 3 else 1,
     )
@@ -2236,6 +2266,7 @@ def _train_updates(
                 search_valid=search_valid,
                 search_policy_loss_weight=config.reanalysis_policy_loss_weight,
                 search_value_loss_weight=config.reanalysis_value_loss_weight,
+                search_loss_reference_positions=config.reanalysis_loss_reference_positions,
             )[0]
             counterfactual = preference_ranking_loss(
                 model,
@@ -2250,10 +2281,13 @@ def _train_updates(
 
         loss_and_grad = nn.value_and_grad(model, policy_loss_function)
         last_policy_arrays: tuple[Any, ...] | None = None
+        last_policy_batch: Any | None = None
         last_preference_arrays: tuple[Any, ...] | None = None
         loss_value = gradient_norm = learning_rate = 0.0
         completed = 0
         clipped_updates = 0
+        gradient_norms: list[float] = []
+        clipping_scales: list[float] = []
         for _ in range(count):
             if control.should_stop() or control.pause_requested.is_set():
                 break
@@ -2321,9 +2355,7 @@ def _train_updates(
                         (
                             name,
                             gradient
-                            - config.promotion_direction_strength
-                            * gradient_rms
-                            * direction,
+                            - config.promotion_direction_strength * gradient_rms * direction,
                         )
                     )
                 gradients = tree_unflatten(guided)
@@ -2333,9 +2365,12 @@ def _train_updates(
             loss_value = float(loss.item())
             gradient_norm = float(norm.item())
             clipped_updates += int(gradient_norm > config.gradient_clip)
+            gradient_norms.append(gradient_norm)
+            clipping_scales.append(min(1.0, config.gradient_clip / max(gradient_norm, 1e-12)))
             totals.updates += 1
             completed += 1
             last_policy_arrays = arrays
+            last_policy_batch = batch
             last_preference_arrays = preference_arrays
         metrics: dict[str, float] = {
             "loss": loss_value,
@@ -2343,6 +2378,13 @@ def _train_updates(
             "learning_rate": learning_rate,
             "learner_updates": float(completed),
             "gradient_clip_fraction": clipped_updates / max(1, completed),
+            "gradient_norm_p50": float(np.median(gradient_norms)) if gradient_norms else 0.0,
+            "gradient_norm_p90": (
+                float(np.percentile(gradient_norms, 90)) if gradient_norms else 0.0
+            ),
+            "gradient_clipping_scale_mean": (
+                float(np.mean(clipping_scales)) if clipping_scales else 1.0
+            ),
             "learning_rate_multiplier": float(learning_rate_multiplier),
             "promotion_direction_strength": float(
                 config.promotion_direction_strength if promotion_direction else 0.0
@@ -2350,6 +2392,39 @@ def _train_updates(
             "promotion_direction_tensors": float(len(promotion_direction or {})),
         }
         if last_policy_arrays is not None:
+            assert last_policy_batch is not None
+            collection_games = np.asarray(last_policy_batch.collected_at_games, dtype=np.int64)
+            known_age = collection_games > 0
+            sample_ages = np.maximum(0, int(totals.games) - collection_games)
+            importance_groups: dict[str, Any] = {
+                "tier_hot": mx.array(last_policy_batch.sample_tiers == 0),
+                "tier_cold": mx.array(last_policy_batch.sample_tiers == 1),
+                "age_unknown": mx.array(~known_age),
+                "age_0_50k": mx.array(known_age & (sample_ages <= 50_000)),
+                "age_50k_250k": mx.array(
+                    known_age & (sample_ages > 50_000) & (sample_ages <= 250_000)
+                ),
+                "age_over_250k": mx.array(known_age & (sample_ages > 250_000)),
+                "searched": mx.array(last_policy_batch.search_valid > 0),
+                "unsearched": mx.array(last_policy_batch.search_valid <= 0),
+                "behavior_deployment": mx.array(last_policy_batch.deployment_policy > 0),
+                "behavior_exploration": mx.array(last_policy_batch.behavior_heads >= 0),
+                "behavior_metadata_unknown": mx.array(
+                    last_policy_batch.collection_policy_probabilities <= 0
+                ),
+            }
+            for head in range(config.bootstrap_heads):
+                importance_groups[f"behavior_head_{head}"] = mx.array(
+                    last_policy_batch.behavior_heads == head
+                )
+            for source_id, source_name in POLICY_ROLLOUT_SOURCE_NAMES.items():
+                importance_groups[f"source_{source_name}"] = mx.array(
+                    last_policy_batch.rollout_sources == source_id
+                )
+            for family in DecisionFamily:
+                importance_groups[f"family_{family.name.lower()}"] = mx.array(
+                    last_policy_batch.families == int(family)
+                )
             diagnostic_loss, diagnostics = actor_critic_policy_loss(
                 model,
                 *last_policy_arrays[:9],
@@ -2362,6 +2437,12 @@ def _train_updates(
                 search_valid=last_policy_arrays[12],
                 search_policy_loss_weight=config.reanalysis_policy_loss_weight,
                 search_value_loss_weight=config.reanalysis_value_loss_weight,
+                search_loss_reference_positions=config.reanalysis_loss_reference_positions,
+                collection_policy_probabilities=mx.array(
+                    last_policy_batch.collection_policy_probabilities
+                ),
+                behavior_heads=mx.array(last_policy_batch.behavior_heads),
+                importance_groups=importance_groups,
             )
             mx.eval(diagnostic_loss, *diagnostics.values())
             metrics.update(
@@ -2401,11 +2482,12 @@ def _train_updates(
             # the shared trunk when the aggregate gradient is clipped.
             crossed_gradient_probe = (
                 completed > 0
-                and totals.updates // 1_024
-                != max(0, totals.updates - completed) // 1_024
+                and totals.updates // 1_024 != max(0, totals.updates - completed) // 1_024
             )
             if crossed_gradient_probe:
-                def component_norm(kind: str) -> float:
+                from mlx.utils import tree_flatten
+
+                def component_gradients(kind: str) -> tuple[list[Any], Any]:
                     def component_loss(
                         states,
                         legal_actions,
@@ -2433,29 +2515,114 @@ def _train_updates(
                             masks,
                             weights,
                             value_loss_weight=1.0 if kind == "value" else 0.0,
-                            entropy_weight=0.0,
+                            entropy_weight=1.0 if kind == "entropy" else 0.0,
                             importance_clip=config.policy_importance_clip,
                             search_policy_targets=search_policy,
                             search_mask=search_mask,
                             search_values=search_values,
                             search_valid=search_valid,
-                            search_policy_loss_weight=1.0 if kind == "search" else 0.0,
-                            search_value_loss_weight=1.0 if kind == "search" else 0.0,
+                            search_policy_loss_weight=(1.0 if kind == "search_policy" else 0.0),
+                            search_value_loss_weight=(1.0 if kind == "search_value" else 0.0),
                             behavior_policy_loss_weight=1.0 if kind == "actor" else 0.0,
+                            search_loss_reference_positions=(
+                                config.reanalysis_loss_reference_positions
+                            ),
                         )[0]
 
                     _value, gradients = nn.value_and_grad(model, component_loss)(
                         *last_policy_arrays
                     )
-                    _unchanged, norm = optim.clip_grad_norm(gradients, 1e30)
-                    mx.eval(norm)
-                    return float(norm.item())
+                    flattened = [gradient for _name, gradient in tree_flatten(gradients)]
+                    norm = mx.sqrt(sum(mx.sum(mx.square(gradient)) for gradient in flattened))
+                    return flattened, norm
+
+                component_weights = {
+                    "actor": 1.0,
+                    "value": float(config.policy_value_loss_weight),
+                    "search_policy": float(config.reanalysis_policy_loss_weight),
+                    "search_value": float(config.reanalysis_value_loss_weight),
+                    # actor_critic_policy_loss differentiates -entropy when
+                    # entropy_weight is positive, matching the applied sign.
+                    "entropy": float(config.policy_entropy_weight),
+                }
+                component_results = {kind: component_gradients(kind) for kind in component_weights}
+                raw_norms = {kind: result[1] for kind, result in component_results.items()}
+                search_gradients = [
+                    policy_gradient + value_gradient
+                    for policy_gradient, value_gradient in zip(
+                        component_results["search_policy"][0],
+                        component_results["search_value"][0],
+                        strict=True,
+                    )
+                ]
+                search_norm = mx.sqrt(
+                    sum(mx.sum(mx.square(gradient)) for gradient in search_gradients)
+                )
+                weighted_search_gradients = [
+                    component_weights["search_policy"] * policy_gradient
+                    + component_weights["search_value"] * value_gradient
+                    for policy_gradient, value_gradient in zip(
+                        component_results["search_policy"][0],
+                        component_results["search_value"][0],
+                        strict=True,
+                    )
+                ]
+                weighted_search_norm = mx.sqrt(
+                    sum(
+                        mx.sum(mx.square(gradient))
+                        for gradient in weighted_search_gradients
+                    )
+                )
+
+                def cosine(left: str, right: str) -> Any:
+                    left_gradients, left_norm = component_results[left]
+                    right_gradients, right_norm = component_results[right]
+                    dot = sum(
+                        mx.sum(left_gradient * right_gradient)
+                        for left_gradient, right_gradient in zip(
+                            left_gradients, right_gradients, strict=True
+                        )
+                    )
+                    return dot / mx.maximum(left_norm * right_norm, mx.array(1e-12))
+
+                cosine_pairs = (
+                    ("actor", "value"),
+                    ("actor", "search_policy"),
+                    ("actor", "search_value"),
+                    ("value", "search_policy"),
+                    ("value", "search_value"),
+                    ("search_policy", "search_value"),
+                    ("actor", "entropy"),
+                )
+                cosines = {
+                    f"objective_{left}_{right}_gradient_cosine": cosine(left, right)
+                    for left, right in cosine_pairs
+                }
+                mx.eval(
+                    search_norm,
+                    weighted_search_norm,
+                    *raw_norms.values(),
+                    *cosines.values(),
+                )
 
                 metrics.update(
-                    objective_actor_gradient_norm=component_norm("actor"),
-                    objective_value_gradient_norm=component_norm("value"),
-                    objective_search_gradient_norm=component_norm("search"),
+                    objective_actor_gradient_norm=float(raw_norms["actor"].item()),
+                    objective_value_gradient_norm=float(raw_norms["value"].item()),
+                    objective_search_policy_gradient_norm=float(raw_norms["search_policy"].item()),
+                    objective_search_value_gradient_norm=float(raw_norms["search_value"].item()),
+                    objective_entropy_gradient_norm=float(raw_norms["entropy"].item()),
+                    objective_search_gradient_norm=float(search_norm.item()),
+                    objective_search_weighted_gradient_norm=float(
+                        weighted_search_norm.item()
+                    ),
                     objective_gradient_probe_update=float(totals.updates),
+                    **{
+                        f"objective_{kind}_weighted_gradient_norm": (
+                            float(raw_norm.item()) * abs(component_weights[kind])
+                        )
+                        for kind, raw_norm in raw_norms.items()
+                    },
+                    **{name: float(value.item()) for name, value in cosines.items()},
                 )
         return metrics
 
@@ -2738,6 +2905,7 @@ def run_training(
         bootstrap_heads=config.bootstrap_heads,
         max_decisions_per_player_game=config.policy_replay_decisions_per_player_game,
         family_balanced=config.policy_replay_family_balanced,
+        family_balanced_fraction=config.policy_replay_family_balanced_fraction,
         disk_directory=policy_replay_cold,
         disk_capacity=(
             config.policy_replay_disk_capacity if config.training_generation >= 5 else 0
@@ -2763,9 +2931,7 @@ def run_training(
     )
     totals = _restore_totals(store, run, latest)
     restored_training_state = _checkpoint_training_state(latest)
-    schedule_games_origin = max(
-        0, int(restored_training_state.get("schedule_games_origin", 0))
-    )
+    schedule_games_origin = max(0, int(restored_training_state.get("schedule_games_origin", 0)))
     artifacts = ((latest or {}).get("evaluation") or {}).get("artifacts") or {}
     promotion_direction: dict[str, Any] = {}
     promotion_direction_metadata: dict[str, Any] = {}
@@ -2774,16 +2940,13 @@ def run_training(
 
         direction_artifact: str | None = (
             config.promotion_direction_path
-            if config.promotion_direction_path
-            and Path(config.promotion_direction_path).is_file()
+            if config.promotion_direction_path and Path(config.promotion_direction_path).is_file()
             else None
         )
         for checkpoint in store.checkpoints(run_id):
             if direction_artifact is not None:
                 break
-            checkpoint_artifacts = (
-                (checkpoint.get("evaluation") or {}).get("artifacts") or {}
-            )
+            checkpoint_artifacts = (checkpoint.get("evaluation") or {}).get("artifacts") or {}
             candidate_path = checkpoint_artifacts.get("promotion_direction_path")
             if isinstance(candidate_path, str) and Path(candidate_path).is_file():
                 direction_artifact = candidate_path
@@ -2795,9 +2958,7 @@ def run_training(
         direction_arrays, promotion_direction_metadata = load_promotion_direction(
             direction_artifact
         )
-        promotion_direction = {
-            name: mx.array(value) for name, value in direction_arrays.items()
-        }
+        promotion_direction = {name: mx.array(value) for name, value in direction_arrays.items()}
         mx.eval(*promotion_direction.values())
         store.event(
             run_id,
@@ -2807,9 +2968,7 @@ def run_training(
         )
     latest_reason = str(((latest or {}).get("evaluation") or {}).get("reason") or "")
     initial_branch_import = bool(
-        latest is not None
-        and int(latest.get("games", 0)) == 0
-        and latest_reason == "branch import"
+        latest is not None and int(latest.get("games", 0)) == 0 and latest_reason == "branch import"
     )
     try:
         replay_items_persisted = max(
@@ -2857,9 +3016,7 @@ def run_training(
         ),
         "replay_snapshot_mode": str(
             artifacts.get(
-                "policy_replay_format"
-                if config.training_generation >= 4
-                else "replay_format"
+                "policy_replay_format" if config.training_generation >= 4 else "replay_format"
             )
             or "none"
         ),
@@ -2874,9 +3031,7 @@ def run_training(
         "branch_optimizer_reset": bool(
             initial_branch_import and config.reset_optimizer_on_branch_start
         ),
-        "branch_replay_reset": bool(
-            initial_branch_import and config.reset_replay_on_branch_start
-        ),
+        "branch_replay_reset": bool(initial_branch_import and config.reset_replay_on_branch_start),
         "promotion_direction": promotion_direction_metadata,
     }
     if latest is not None and artifacts_complete:
@@ -2884,9 +3039,7 @@ def run_training(
             if (
                 config.training_generation >= 4
                 and config.resume_replay_items
-                and not (
-                    initial_branch_import and config.reset_replay_on_branch_start
-                )
+                and not (initial_branch_import and config.reset_replay_on_branch_start)
                 and artifacts.get("policy_replay_path")
             ):
                 durable_resume["policy_replay_items_restored"] = policy_replay.restore(
@@ -2894,17 +3047,13 @@ def run_training(
                 )
             elif (
                 config.resume_replay_items
-                and not (
-                    initial_branch_import and config.reset_replay_on_branch_start
-                )
+                and not (initial_branch_import and config.reset_replay_on_branch_start)
                 and artifacts.get("replay_path")
             ):
                 durable_resume["replay_items_restored"] = replay.restore(artifacts["replay_path"])
             if (
                 config.resume_replay_items
-                and not (
-                    initial_branch_import and config.reset_replay_on_branch_start
-                )
+                and not (initial_branch_import and config.reset_replay_on_branch_start)
                 and artifacts.get("preference_replay_path")
             ):
                 durable_resume["preference_replay_items_restored"] = preference_replay.restore(
@@ -2923,9 +3072,7 @@ def run_training(
             if (
                 artifacts_complete
                 and config.persist_optimizer_state
-                and not (
-                    initial_branch_import and config.reset_optimizer_on_branch_start
-                )
+                and not (initial_branch_import and config.reset_optimizer_on_branch_start)
                 and artifacts.get("optimizer_path")
             ):
                 durable_resume["optimizer_restored"] = load_optimizer_state(
@@ -3358,8 +3505,7 @@ def run_training(
         }
         swap_unsafe = _swap_pressure_is_critical(full_system, memory_limits)
         if (
-            full_system["memory_available_bytes"]
-            < memory_limits["minimum_available_bytes"]
+            full_system["memory_available_bytes"] < memory_limits["minimum_available_bytes"]
             or swap_unsafe
         ):
             # Cached Metal pages are the cheapest memory to return.  Do this at
@@ -3383,17 +3529,11 @@ def run_training(
                         {
                             **pressure_release,
                             "memory_available_bytes": full_system["memory_available_bytes"],
-                            "minimum_available_bytes": memory_limits[
-                                "minimum_available_bytes"
-                            ],
+                            "minimum_available_bytes": memory_limits["minimum_available_bytes"],
                             "swap_used_bytes": full_system["swap_used_bytes"],
                             "swap_free_bytes": full_system["swap_free_bytes"],
-                            "maximum_swap_used_bytes": memory_limits[
-                                "maximum_swap_used_bytes"
-                            ],
-                            "minimum_swap_free_bytes": memory_limits[
-                                "minimum_swap_free_bytes"
-                            ],
+                            "maximum_swap_used_bytes": memory_limits["maximum_swap_used_bytes"],
+                            "minimum_swap_free_bytes": memory_limits["minimum_swap_free_bytes"],
                         },
                     )
                     last_memory_pressure_event_at = now
@@ -3406,8 +3546,7 @@ def run_training(
                     "cache_released_bytes": 0,
                 }
         if (
-            full_system["memory_available_bytes"]
-            < memory_limits["critical_available_bytes"]
+            full_system["memory_available_bytes"] < memory_limits["critical_available_bytes"]
             or swap_unsafe
         ):
             consecutive_critical_memory_samples += 1
@@ -3425,17 +3564,11 @@ def run_training(
                 "Automatically paused training after sustained critical memory pressure",
                 {
                     "memory_available_bytes": full_system["memory_available_bytes"],
-                    "critical_available_bytes": memory_limits[
-                        "critical_available_bytes"
-                    ],
+                    "critical_available_bytes": memory_limits["critical_available_bytes"],
                     "swap_used_bytes": full_system["swap_used_bytes"],
                     "swap_free_bytes": full_system["swap_free_bytes"],
-                    "maximum_swap_used_bytes": memory_limits[
-                        "maximum_swap_used_bytes"
-                    ],
-                    "minimum_swap_free_bytes": memory_limits[
-                        "minimum_swap_free_bytes"
-                    ],
+                    "maximum_swap_used_bytes": memory_limits["maximum_swap_used_bytes"],
+                    "minimum_swap_free_bytes": memory_limits["minimum_swap_free_bytes"],
                     "consecutive_samples": consecutive_critical_memory_samples,
                 },
             )
@@ -3490,10 +3623,9 @@ def run_training(
                 max(0, totals.games - schedule_games_origin),
                 float(plateau["exploration_multiplier"]),
             ),
-            "epsilon_scheduled": _epsilon(
-                config, max(0, totals.games - schedule_games_origin)
-            ),
+            "epsilon_scheduled": _epsilon(config, max(0, totals.games - schedule_games_origin)),
             "schedule_games_origin": schedule_games_origin,
+            "learner_games_since_reset": max(0, totals.games - schedule_games_origin),
             "training_generation": config.training_generation,
             "behavior_policy": config.behavior_policy,
             "deployment_policy_selfplay_fraction": (config.deployment_policy_selfplay_fraction),
@@ -3535,6 +3667,20 @@ def run_training(
             "forced_choices": totals.forced_choices,
             "counterfactual_preferences": totals.counterfactual_preferences,
             "reanalysis_positions": totals.reanalysis_positions,
+            "search_repeatability": {
+                "positions": totals.search_repeatability_positions,
+                "top_action_agreement": (
+                    totals.search_top_action_agreements
+                    / max(1, totals.search_repeatability_positions)
+                ),
+                "mean_policy_js": (
+                    totals.search_policy_js_sum / max(1, totals.search_repeatability_positions)
+                ),
+                "mean_value_abs_delta": (
+                    totals.search_value_abs_delta_sum
+                    / max(1, totals.search_repeatability_positions)
+                ),
+            },
             "replay": replay_metrics,
             "system": snapshot,
             "metal": metal,
@@ -3799,6 +3945,7 @@ def run_training(
                 config,
                 games=totals.games,
                 diagnostics=last_diagnostics,
+                plateau=plateau,
             )
             effective_config = config.model_copy(
                 update={
@@ -3842,9 +3989,7 @@ def run_training(
                     config.training_generation < 4 and active_replay_size < config.replay_warmup
                 )
                 if needs_labeled_warmup or totals.updates < config.heuristic_bootstrap_updates:
-                    plan = _make_bootstrap_plan(
-                        config=effective_config, rng=rng, seed=seed_cursor
-                    )
+                    plan = _make_bootstrap_plan(config=effective_config, rng=rng, seed=seed_cursor)
                 else:
                     plan = _make_plan(
                         config=effective_config,
@@ -3877,9 +4022,7 @@ def run_training(
                 totals=totals,
                 optimizer_updates_at_start=optimizer_updates_at_start,
                 control=control,
-                learning_rate_multiplier=float(
-                    governor.get("learning_rate_multiplier", 1.0)
-                ),
+                learning_rate_multiplier=float(governor.get("learning_rate_multiplier", 1.0)),
                 promotion_direction=promotion_direction,
             )
             emit(
@@ -3901,7 +4044,11 @@ def run_training(
                     plan = futures.pop(future)
                     result = future.result()
                     replay.extend_compact(result.samples)
-                    policy_replay.extend_compact(result.policy_samples)
+                    policy_replay.extend_compact(
+                        result.policy_samples,
+                        rollout_source=plan.kind,
+                        collected_at_game=totals.games + result.games,
+                    )
                     preference_replay.extend_compact(result.preferences)
                     totals.games += result.games
                     totals.decisions += result.decisions
@@ -3920,6 +4067,10 @@ def run_training(
                     totals.forced_choices += result.forced_choices
                     totals.counterfactual_preferences += result.counterfactual_preferences
                     totals.reanalysis_positions += result.reanalysis_positions
+                    totals.search_repeatability_positions += result.search_repeatability_positions
+                    totals.search_top_action_agreements += result.search_top_action_agreements
+                    totals.search_policy_js_sum += result.search_policy_js_sum
+                    totals.search_value_abs_delta_sum += result.search_value_abs_delta_sum
                     totals.rollout_games[plan.kind] = (
                         totals.rollout_games.get(plan.kind, 0) + result.games
                     )

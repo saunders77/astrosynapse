@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 
 import pytest
@@ -5,6 +6,7 @@ from astro2 import card_analysis
 from astro2.card_analysis import (
     AcquisitionContext,
     AnalysisKind,
+    CardAnalysisManager,
     ChoiceDecision,
     ChoiceOption,
     extract_single_card_turn_decisions,
@@ -13,11 +15,39 @@ from astro2.card_analysis import (
 )
 from astro2.cards import CARD_BY_ID
 from astro2.engine import Action, ActionKind, Decision, DecisionFamily, Game, GameConfig
+from astro2.storage import Store
 
 
 def _decision(turn, family, actions):
     observation = replace(Game(config=GameConfig(seed=turn)).observation(0), turn=turn)
     return Decision(family, observation, tuple(actions))
+
+
+def test_manager_restores_completed_json_reports_for_gui_history(tmp_path):
+    output_dir = tmp_path / "analysis"
+    output_dir.mkdir()
+    report = {
+        "kind": "acquire_bucketed",
+        "model": {"id": "candidate-42", "label": "Candidate 42"},
+        "games_requested": 10_000,
+        "games_completed": 10_000,
+        "completed_at": "2026-08-28T12:34:56+00:00",
+        "config": {"games": 10_000},
+        "leaderboard": [],
+        "bucketed_charts": [],
+    }
+    path = output_dir / "card_acquire_bucketed_elo_candidate-42_20260828-123456.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+
+    manager = CardAnalysisManager(Store(tmp_path / "astro2.sqlite3"), output_dir)
+    try:
+        jobs = manager.list()
+        assert len(jobs) == 1
+        assert jobs[0]["saved_report"] is True
+        assert jobs[0]["model_id"] == "candidate-42"
+        assert manager.get(jobs[0]["id"])["result"]["games_completed"] == 10_000
+    finally:
+        manager.shutdown()
 
 
 def test_acquire_probe_excludes_entire_turn_when_two_cards_are_acquired():

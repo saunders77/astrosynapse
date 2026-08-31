@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- Local card art has mixed portrait and landscape aspect ratios. */
+
 import ManualHardAiMatch from "./manual-hard-ai-match";
 import {
   useEffect,
@@ -11,6 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { cardArtUrl } from "./card-art";
 
 /**
  * Local trainer API contract (all routes are rooted at API_BASE):
@@ -352,6 +355,7 @@ type CardAnalysisView = {
   comparisons: number;
   truncatedGames: number;
   durationSeconds: number;
+  completedAt: string;
   leaderboard: CardEloEntry[];
   bucketedCharts: CardEloChart[];
   error: string;
@@ -380,6 +384,12 @@ type RunChoice = {
   games: number;
   latestModel: { id: string; label: string; games: number } | null;
   deploymentModel: { id: string; label: string; games: number; evaluated: boolean } | null;
+};
+
+type ArenaModelGroup = {
+  runId: string;
+  runName: string;
+  models: ModelCheckpoint[];
 };
 
 type TrainerConfig = {
@@ -725,7 +735,7 @@ const initialConfig: TrainerConfig = {
   evaluationEarlyAcceptanceMinPairs: 1_000,
   evaluationEarlyAcceptanceConfidence: 0.995,
   evaluationExtensionEnabled: true,
-  evaluationExtensionMaxPairs: 50_000,
+  evaluationExtensionMaxPairs: 100_000,
   evaluationExtensionBlockPairs: 2_000,
   evaluationExtensionMinScore: 0.50,
   evaluationExtensionMinLowerBound: 0,
@@ -765,7 +775,7 @@ const matureConfig: TrainerConfig = {
   evaluateEveryGames: 100_000,
   governorStrategy: "mature",
   governorTargetNormalizedEntropy: 0.72,
-  evaluationExtensionMaxPairs: 50_000,
+  evaluationExtensionMaxPairs: 100_000,
   evaluationExtensionMinLowerBound: 0,
   resetOptimizerOnBranchStart: true,
   resetReplayOnBranchStart: true,
@@ -782,7 +792,7 @@ const directionalConfig: TrainerConfig = {
   evaluationEarlyAcceptance: true,
   evaluationEarlyAcceptanceMinPairs: 2_000,
   evaluationEarlyAcceptanceConfidence: 0.99,
-  evaluationExtensionMaxPairs: 50_000,
+  evaluationExtensionMaxPairs: 100_000,
   evaluationExtensionBlockPairs: 2_000,
   canaryPairs: 256,
   promotionDirectionEnabled: true,
@@ -2101,6 +2111,7 @@ function normalizeCardAnalysis(raw: unknown): CardAnalysisView | null {
     comparisons: asNumber(result.pairwise_comparisons, 0),
     truncatedGames: asNumber(result.truncated_games, 0),
     durationSeconds: asNumber(result.duration_seconds, 0),
+    completedAt: asString(result.completed_at ?? raw.updated_at ?? raw.created_at, ""),
     leaderboard: rawLeaderboard.map((entry, index) => normalizeEloEntry(entry, index)),
     bucketedCharts: rawCharts.map((chart, chartIndex): CardEloChart => {
       const item = isRecord(chart) ? chart : {};
@@ -2866,6 +2877,28 @@ function Gauge({ value, label }: { value: number; label: string }) {
   );
 }
 
+function CardArtHover({
+  cardId,
+  name,
+  children,
+}: {
+  cardId?: number | null;
+  name: string;
+  children: ReactNode;
+}) {
+  const artUrl = cardArtUrl(cardId, name);
+  if (!artUrl) return <>{children}</>;
+  return (
+    <span className="card-art-hover" tabIndex={0} aria-label={`${name}; focus or hover to preview card art`}>
+      <img className="card-art-hover-thumb" src={artUrl} alt="" aria-hidden="true" loading="lazy" />
+      <span className="card-art-hover-label">{children}</span>
+      <span className="card-art-hover-preview" role="tooltip">
+        <img src={artUrl} alt={`${name} card`} loading="lazy" />
+      </span>
+    </span>
+  );
+}
+
 function CardTile({
   card,
   compact = false,
@@ -2887,8 +2920,9 @@ function CardTile({
   scrapDisabled?: boolean;
   onClick?: () => void;
 }) {
+  const artUrl = cardArtUrl(card.catalogId, card.name);
   const scrapParts = card.text.split(/(Scrap:[^·]*)/i);
-  const content = (
+  const fallbackContent = (
     <>
       <span className="card-cost" aria-label={`Cost ${card.cost}`}>{card.cost}</span>
       {count > 1 ? <span className="card-count" aria-label={`${count} copies`}>{count}×</span> : null}
@@ -2905,7 +2939,19 @@ function CardTile({
       </span>
     </>
   );
-  const className = `game-card faction-${card.faction}${compact ? " card-compact" : ""}${selected ? " is-selected" : ""}`;
+  const content = artUrl ? (
+    <>
+      <img
+        className={`game-card-art${card.kind === "ship" ? "" : " is-landscape"}`}
+        src={artUrl}
+        alt={`${card.name} card`}
+        draggable={false}
+      />
+      {count > 1 ? <span className="card-count card-art-count" aria-label={`${count} copies`}>{count}×</span> : null}
+      {onScrap ? <button type="button" className="card-art-scrap-action" onClick={onScrap} disabled={scrapDisabled} aria-label={`Scrap ${card.name}`}>Scrap {card.name}</button> : null}
+    </>
+  ) : fallbackContent;
+  const className = `game-card faction-${card.faction}${artUrl ? " has-card-art" : ""}${card.kind === "ship" ? "" : " card-landscape"}${compact ? " card-compact" : ""}${selected ? " is-selected" : ""}`;
   if (onClick) {
     return (
       <button type="button" className={className} onClick={onClick} disabled={disabled} aria-pressed={selected} aria-label={ariaLabel ?? `Play or select ${card.name}`}>
@@ -2960,7 +3006,7 @@ function CardCollection({ label, cards }: { label: string; cards: GameCard[] }) 
       <div>
         {groups.map(({ card, count }) => (
           <span className={`card-chip faction-${card.faction}`} key={card.name}>
-            <b>{count}×</b><span>{card.name}</span><small>{card.kind} · cost {card.cost}</small>
+            <b>{count}×</b><CardArtHover cardId={card.catalogId} name={card.name}><span>{card.name}</span></CardArtHover><small>{card.kind} · cost {card.cost}</small>
           </span>
         ))}
         {!cards.length ? <span className="empty-card-zone">No cards</span> : null}
@@ -3012,7 +3058,7 @@ type CardPercentilePoint = {
   upperPercentile: number;
 };
 
-const chartCostOptions = [1, 2, 3, 4, 5, 6, 7, 8];
+const chartCostOptions = [0, 1, 2, 3, 4, 5, 6, 7, 8];
 const chartColorOptions: Array<{
   key: CardEloEntry["cardColor"];
   label: string;
@@ -3094,6 +3140,8 @@ function BucketedEloChart({
       .map((card) => ({
         key: card.key,
         label: card.label,
+        cardName: card.cardName,
+        artUrl: cardArtUrl(null, card.cardName),
         color: cardLineColors[card.cardColor],
         cardColor: card.cardColor,
         cost: card.cost,
@@ -3127,6 +3175,7 @@ function BucketedEloChart({
   return (
     <article className="bucketed-chart-card">
       <div className="bucketed-chart-frame">
+        {activeSeries?.artUrl ? <aside className="bucketed-card-art-preview" aria-live="polite"><img src={activeSeries.artUrl} alt={`${activeSeries.cardName} card`} /><span>{activeSeries.label}</span></aside> : null}
         <svg
           className="bucketed-elo-svg"
           viewBox={`0 0 ${width} ${height}`}
@@ -3167,7 +3216,7 @@ function BucketedEloChart({
               {active ? item.points.map((point, index) => point ? <circle key={`${item.key}-point-${index}`} cx={xAt(index)} cy={yAt(point.percentile)} r="5" fill={item.color}><title>{`${item.label} · ${chart.buckets[index].label}: ${point.percentile.toFixed(1)}th percentile (${numberFormatter.format(point.entry.decisions)} decisions)`}</title></circle> : null) : null}
             </g>;
           })}
-          <text x={plot.left} y="792" className="bucketed-chart-legend-title">Cards · faction color</text>
+          <text x={plot.left} y="792" className="bucketed-chart-legend-title">Options · faction color</text>
           {series.map((item, index) => {
             const column = index % legendColumns;
             const row = Math.floor(index / legendColumns);
@@ -3214,11 +3263,11 @@ function BucketedEloCharts({ charts }: { charts: CardEloChart[] }) {
   return <div className="bucketed-elo-results">
     <p>Five independent post-hoc views of the same acquisition choices. Each 1920×1080 view scales to the full available window width and ranks cards independently within every bucket.</p>
     <section className="bucketed-chart-filters" aria-label="Filter cards shown in bucketed charts">
-      <header><div><span>Chart filters</span><strong>{visibleCardCount} of {availableCards.length} cards visible</strong></div><button type="button" onClick={resetFilters}>Reset filters</button></header>
-      <fieldset><legend>Cost</legend><div>{chartCostOptions.map((cost) => <button type="button" key={cost} aria-pressed={selectedCosts.includes(cost)} onClick={() => toggleCost(cost)}>Cost {cost}</button>)}</div></fieldset>
+      <header><div><span>Chart filters</span><strong>{visibleCardCount} of {availableCards.length} options visible</strong></div><button type="button" onClick={resetFilters}>Reset filters</button></header>
+      <fieldset><legend>Cost / special choice</legend><div>{chartCostOptions.map((cost) => <button type="button" key={cost} aria-pressed={selectedCosts.includes(cost)} onClick={() => toggleCost(cost)}>{cost === 0 ? "No Card" : `Cost ${cost}`}</button>)}</div></fieldset>
       <fieldset><legend>Colour</legend><div>{chartColorOptions.map((option) => <button type="button" key={option.key} className={`filter-color-${option.key}`} aria-pressed={selectedColors.includes(option.key)} onClick={() => toggleColor(option.key)}><i style={{ background: cardLineColors[option.key] }} />{option.label}</button>)}</div></fieldset>
     </section>
-    {visibleCardCount ? charts.map((chart) => <BucketedEloChart key={chart.key} chart={chart} selectedCosts={selectedCosts} selectedColors={selectedColors} />) : <EmptyState title="No cards match these filters" detail="Select at least one cost and one colour to restore chart lines." />}
+    {visibleCardCount ? charts.map((chart) => <BucketedEloChart key={chart.key} chart={chart} selectedCosts={selectedCosts} selectedColors={selectedColors} />) : <EmptyState title="No options match these filters" detail="Select at least one cost or special choice and one colour to restore chart lines." />}
   </div>;
 }
 
@@ -3269,6 +3318,43 @@ function ModelDiagnosticStrip({ model }: { model: ModelCheckpoint }) {
   );
 }
 
+function ArenaModelPicker({
+  side,
+  value,
+  groups,
+  onChange,
+}: {
+  side: "A" | "B";
+  value: string;
+  groups: ArenaModelGroup[];
+  onChange: (modelId: string) => void;
+}) {
+  const baselineSelected = arenaBaselines.some((model) => model.id === value);
+  const selectedModel = groups.flatMap((group) => group.models).find((model) => model.id === value);
+  const selectedRunId = baselineSelected ? "baseline" : selectedModel?.runId ?? groups[0]?.runId ?? "baseline";
+  const checkpoints = selectedRunId === "baseline"
+    ? arenaBaselines
+    : groups.find((group) => group.runId === selectedRunId)?.models ?? [];
+
+  const selectRun = (runId: string) => {
+    if (runId === "baseline") {
+      onChange("baseline:balanced");
+      return;
+    }
+    const models = groups.find((group) => group.runId === runId)?.models ?? [];
+    onChange((models.find((model) => model.isChampion) ?? models[0])?.id ?? "baseline:balanced");
+  };
+
+  return <label className="arena-model-picker">
+    <span>Model {side}</span>
+    <span className="arena-model-picker-fields">
+      <span><small>Run</small><select aria-label={`Arena model ${side} run`} value={selectedRunId} onChange={(event) => selectRun(event.target.value)}>{groups.map((group) => <option key={group.runId} value={group.runId}>{group.runName}</option>)}<option value="baseline">Reference baselines</option></select></span>
+      <span><small>Checkpoint</small><select aria-label={`Arena model ${side} checkpoint`} value={value} onChange={(event) => onChange(event.target.value)}>{checkpoints.map((model) => <option key={model.id} value={model.id}>{model.label}{"games" in model ? ` · ${gameCountFormatter.format(model.games)} games${model.isChampion ? " · champion" : ""}` : ""}</option>)}</select></span>
+    </span>
+    <small>saved checkpoint from any run</small>
+  </label>;
+}
+
 export default function Home() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [snapshot, setSnapshot] = useState<DashboardSnapshot>(demoSnapshot);
@@ -3290,6 +3376,7 @@ export default function Home() {
   const [analysisRunning, setAnalysisRunning] = useState(false);
   const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<CardAnalysisView | null>(null);
+  const [analysisHistory, setAnalysisHistory] = useState<CardAnalysisView[]>([]);
   const [game, setGame] = useState<GameState>(initialGame);
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
   const [playModel, setPlayModel] = useState("champion-042");
@@ -3326,6 +3413,8 @@ export default function Home() {
   const gameRef = useRef(game);
   const basePresetRef = useRef<LaunchPreset>("astro5_search");
   const presetCatalogRef = useRef<Record<string, unknown>>({});
+  const arenaSelectionRef = useRef<string | null>(null);
+  const analysisSelectionRef = useRef<string | null>(null);
 
   const latestMetric = snapshot.metrics.at(-1) ?? (connected ? emptyMetric : buildDemoMetrics(1)[0]);
   const displayRate = useMemo(() => {
@@ -3367,7 +3456,7 @@ export default function Home() {
   );
   const arenaModelGroups = useMemo(() => {
     const runNames = new Map(runChoices.map((run) => [run.id, run.name]));
-    const groups = new Map<string, { runId: string; runName: string; models: ModelCheckpoint[] }>();
+    const groups = new Map<string, ArenaModelGroup>();
     for (const model of availableArenaModels) {
       const runId = model.runId || "unknown";
       const group = groups.get(runId) ?? {
@@ -3669,6 +3758,7 @@ export default function Home() {
         if (!runId) {
           setRemoteRunId(null);
           activeRunIdRef.current = null;
+          arenaSelectionRef.current = null;
           metricsSeqRef.current = -1;
           setArenaResult(null);
           setArenaProgress(0);
@@ -3677,6 +3767,8 @@ export default function Home() {
           setAnalysisRunning(false);
           setAnalysisJobId(null);
           setAnalysisResult(null);
+          setAnalysisHistory([]);
+          analysisSelectionRef.current = null;
           setSnapshot((current) => {
             const next = normalizeSnapshot({ system: systemRaw }, current);
             return {
@@ -3701,6 +3793,7 @@ export default function Home() {
           });
         } else {
           const changedRun = activeRunIdRef.current !== runId;
+          if (changedRun) arenaSelectionRef.current = null;
           const after = changedRun ? -1 : metricsSeqRef.current;
           const [detailRaw, metricsRaw, modelsRaw, eventsRaw, arenaJobsRaw, analysisJobsRaw] = await Promise.all([
             fetchJson(`/runs/${encodeURIComponent(runId)}`),
@@ -3708,32 +3801,61 @@ export default function Home() {
             fetchJson(`/models?run_id=${encodeURIComponent(runId)}`),
             fetchJson(`/runs/${encodeURIComponent(runId)}/events?limit=100`),
             fetchJson(`/arena?limit=1&run_id=${encodeURIComponent(runId)}`).catch(() => []),
-            fetchJson(`/card-analysis?limit=1&run_id=${encodeURIComponent(runId)}`).catch(() => []),
+            fetchJson("/card-analysis?limit=100&summary_only=true").catch(() => []),
           ]);
           if (cancelled) return;
           const latestArenaRaw = Array.isArray(arenaJobsRaw) ? arenaJobsRaw[0] : null;
           const latestArena = latestArenaRaw ? normalizeArenaJob(latestArenaRaw) : null;
-          setArenaResult(latestArena);
-          if (latestArena) {
-            setArenaProgress(latestArena.progress);
-            const isActiveArena = ["queued", "running"].includes(latestArena.status.toLowerCase());
-            setArenaRunning(isActiveArena);
-            setArenaJobId(isActiveArena ? latestArena.id : null);
-          } else {
-            setArenaProgress(0);
-            setArenaRunning(false);
-            setArenaJobId(null);
+          // A trainer can schedule a canary while a manually launched arena is
+          // running. Keep the explicit manual selection stable; its dedicated
+          // poll below owns progress and completion updates for that job.
+          if (!arenaSelectionRef.current) {
+            setArenaResult(latestArena);
+            if (latestArena) {
+              setArenaProgress(latestArena.progress);
+              const isActiveArena = ["queued", "running"].includes(latestArena.status.toLowerCase());
+              setArenaRunning(isActiveArena);
+              setArenaJobId(isActiveArena ? latestArena.id : null);
+            } else {
+              setArenaProgress(0);
+              setArenaRunning(false);
+              setArenaJobId(null);
+            }
           }
-          const latestAnalysisRaw = Array.isArray(analysisJobsRaw) ? analysisJobsRaw[0] : null;
-          const latestAnalysis = latestAnalysisRaw ? normalizeCardAnalysis(latestAnalysisRaw) : null;
-          setAnalysisResult(latestAnalysis);
-          if (latestAnalysis) {
-            const activeAnalysis = ["queued", "running"].includes(latestAnalysis.status.toLowerCase());
-            setAnalysisRunning(activeAnalysis);
-            setAnalysisJobId(activeAnalysis ? latestAnalysis.id : null);
+          const analyses = Array.isArray(analysisJobsRaw)
+            ? analysisJobsRaw.map(normalizeCardAnalysis).filter((item): item is CardAnalysisView => item !== null)
+            : [];
+          setAnalysisHistory(analyses.filter((item) => (
+            item.kind === "acquire_bucketed"
+            && item.status.toLowerCase() === "complete"
+            && item.gamesRequested === 10_000
+            && item.gamesCompleted === 10_000
+          )));
+          const activeAnalysis = analyses.find((item) => (
+            ["queued", "running"].includes(item.status.toLowerCase())
+          ));
+          const selectedAnalysis = activeAnalysis
+            ?? analyses.find((item) => item.id === analysisSelectionRef.current)
+            ?? analyses[0]
+            ?? null;
+          if (selectedAnalysis) {
+            const isActiveAnalysis = ["queued", "running"].includes(selectedAnalysis.status.toLowerCase());
+            setAnalysisRunning(isActiveAnalysis);
+            setAnalysisJobId(isActiveAnalysis ? selectedAnalysis.id : null);
+            if (analysisSelectionRef.current !== selectedAnalysis.id) {
+              analysisSelectionRef.current = selectedAnalysis.id;
+              if (isActiveAnalysis) {
+                setAnalysisResult(selectedAnalysis);
+              } else {
+                const detailRaw = await fetchJson(`/card-analysis/${encodeURIComponent(selectedAnalysis.id)}`);
+                if (!cancelled) setAnalysisResult(normalizeCardAnalysis(detailRaw));
+              }
+            }
           } else {
             setAnalysisRunning(false);
             setAnalysisJobId(null);
+            setAnalysisResult(null);
+            analysisSelectionRef.current = null;
           }
           const detail = isRecord(detailRaw) ? detailRaw : { run: detailRaw };
           const detailedRun = isRecord(detail.run) ? detail.run : {};
@@ -4310,6 +4432,7 @@ export default function Home() {
     setArenaProgress(3);
     setArenaRunning(true);
     setArenaJobId(null);
+    arenaSelectionRef.current = null;
     if (connected) setArenaResult(null);
     if (connected) {
       try {
@@ -4318,7 +4441,9 @@ export default function Home() {
           body: JSON.stringify({ model_a: arenaA, model_b: arenaB, pairs: arenaPairs }),
         });
         if (isRecord(result)) {
-          setArenaJobId(asString(result.id ?? result.job_id, "") || null);
+          const jobId = asString(result.id ?? result.job_id, "") || null;
+          arenaSelectionRef.current = jobId;
+          setArenaJobId(jobId);
           const normalized = normalizeArenaJob(result);
           if (normalized) setArenaResult(normalized);
         }
@@ -4349,12 +4474,27 @@ export default function Home() {
       });
       const normalized = normalizeCardAnalysis(raw);
       if (!normalized?.id) throw new Error("service did not return a job ID");
+      analysisSelectionRef.current = normalized.id;
       setAnalysisJobId(normalized.id);
       setAnalysisResult(normalized);
       showToast(`${kind === "acquire_bucketed" ? "Bucketed Acquire" : titleCase(kind)} Elo test queued for ${numberFormatter.format(games)} games`);
     } catch (error) {
       setAnalysisRunning(false);
       showToast(`Card Elo test could not start: ${error instanceof Error ? error.message : "unknown error"}`);
+    }
+  };
+
+  const loadSavedAnalysis = async (jobId: string) => {
+    if (!jobId || analysisRunning) return;
+    analysisSelectionRef.current = jobId;
+    try {
+      const raw = await fetchJson(`/card-analysis/${encodeURIComponent(jobId)}`);
+      const normalized = normalizeCardAnalysis(raw);
+      if (!normalized) throw new Error("saved result was not readable");
+      setAnalysisResult(normalized);
+      setAnalysisModel(normalized.modelId);
+    } catch (error) {
+      showToast(`Saved analysis could not be loaded: ${error instanceof Error ? error.message : "unknown error"}`);
     }
   };
 
@@ -4387,14 +4527,17 @@ export default function Home() {
     const pinned = !model.isPinned;
     setCommandBusy(`pin-${modelId}`);
     try {
+      let actorRegenerated = false;
       if (connected) {
         const raw = await fetchJson(`/models/${encodeURIComponent(modelId)}`, {
           method: "PATCH",
           body: JSON.stringify({ pinned }),
         });
+        const updated = normalizeModel(raw, model);
+        actorRegenerated = pinned && !model.actorAvailable && updated.actorAvailable;
         setSnapshot((current) => ({
           ...current,
-          models: current.models.map((item) => item.id === modelId ? normalizeModel(raw, item) : item),
+          models: current.models.map((item) => item.id === modelId ? updated : item),
         }));
       } else {
         setSnapshot((current) => ({
@@ -4402,7 +4545,11 @@ export default function Home() {
           models: current.models.map((item) => item.id === modelId ? { ...item, isPinned: pinned } : item),
         }));
       }
-      showToast(`${model.label} ${pinned ? "pinned" : "unpinned"}${connected ? "" : " in demo mode"}`);
+      showToast(
+        `${model.label} ${pinned ? "pinned" : "unpinned"}`
+        + `${actorRegenerated ? " · Arena actor generated" : ""}`
+        + `${connected ? "" : " in demo mode"}`,
+      );
     } catch (error) {
       showToast(`Pin update failed: ${error instanceof Error ? error.message : "unknown error"}`);
     } finally {
@@ -5178,9 +5325,9 @@ export default function Home() {
               <article className="panel arena-console">
                 <header className="panel-header"><div><span className="panel-kicker">Head-to-head laboratory</span><h2>Arena match</h2></div><span className="paired-chip"><Jargon term="pairedSeeds">Paired randomness</Jargon></span></header>
                 <div className="versus-row">
-                  <label><span>Model A</span><select aria-label="Arena model A from any run" value={availableArenaModels.some((model) => model.id === arenaA) || arenaBaselines.some((model) => model.id === arenaA) ? arenaA : "baseline:balanced"} onChange={(event) => setArenaA(event.target.value)}>{arenaModelGroups.map((group) => <optgroup key={group.runId} label={`Run · ${group.runName}`}>{group.models.map((model) => <option key={model.id} value={model.id}>{model.label} · {gameCountFormatter.format(model.games)} games{model.isChampion ? " · champion" : ""}</option>)}</optgroup>)}<optgroup label="Reference baselines">{arenaBaselines.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup></select><small>checkpoint from any run</small></label>
+                  <ArenaModelPicker side="A" value={arenaA} groups={arenaModelGroups} onChange={setArenaA} />
                   <div className="versus-mark"><span>VS</span><i /></div>
-                  <label><span>Model B</span><select aria-label="Arena model B from any run" value={availableArenaModels.some((model) => model.id === arenaB) || arenaBaselines.some((model) => model.id === arenaB) ? arenaB : "baseline:balanced"} onChange={(event) => setArenaB(event.target.value)}>{arenaModelGroups.map((group) => <optgroup key={group.runId} label={`Run · ${group.runName}`}>{group.models.map((model) => <option key={model.id} value={model.id}>{model.label} · {gameCountFormatter.format(model.games)} games{model.isChampion ? " · champion" : ""}</option>)}</optgroup>)}<optgroup label="Reference baselines">{arenaBaselines.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup></select><small>checkpoint from any run</small></label>
+                  <ArenaModelPicker side="B" value={arenaB} groups={arenaModelGroups} onChange={setArenaB} />
                 </div>
                 <div className="arena-settings"><label><span><Jargon term="pairedSeeds">Seed pairs</Jargon></span><input type="number" min="1" max="2000" value={arenaPairs} onChange={(event) => setArenaPairs(Math.min(2_000, Math.max(1, Number(event.target.value) || 1)))} /></label><div><span>Games</span><strong>{numberFormatter.format(arenaPairs * 2)}</strong></div><div><span><Jargon term="confidenceInterval">Interval confidence</Jargon></span><strong>95%</strong></div><button type="button" className="button button-primary" onClick={runArena} disabled={arenaRunning || availableArenaModels.length < 1 || arenaA === arenaB}>{arenaRunning ? "Evaluating…" : availableArenaModels.length < 1 ? "Need an available checkpoint" : arenaA === arenaB ? "Choose two rivals" : "Run arena"}</button></div>
                 {arenaRunning || arenaProgress > 0 ? <div className="arena-progress" aria-live="polite"><div><span>Evaluation progress</span><strong>{Math.round(arenaProgress)}%</strong></div><i><b style={{ width: `${arenaProgress}%` }} /></i><p>{arenaRunning ? `${numberFormatter.format((arenaResult?.pairsCompleted ?? Math.round(arenaPairs * arenaProgress / 100)) * 2)} of ${numberFormatter.format((arenaResult?.pairsRequested ?? arenaPairs) * 2)} games · exact seats reversed` : "Complete · paired result persisted with both checkpoints"}</p></div> : null}
@@ -5205,6 +5352,7 @@ export default function Home() {
               <p className="card-analysis-intro">Choose one immutable candidate, then rank the card choices its greedy deployment policy actually makes. Acquire trials include No Card, compared only with the card actually bought or, when nothing was bought, cards affordable at turn end. Scrap trials include No Discard. Turns with multiple scraps or acquisitions are excluded. The bucketed Acquire test records choice state during 10,000 games, then groups and rates the choices after simulation.</p>
               <div className="card-analysis-controls">
                 <label><span>Candidate checkpoint</span><select value={availableModels.some((model) => model.id === analysisModel) ? analysisModel : ""} onChange={(event) => setAnalysisModel(event.target.value)} disabled={analysisRunning}>{availableModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</select></label>
+                <label><span>Saved 10k result</span><select value={analysisResult?.kind === "acquire_bucketed" ? analysisResult.id : ""} onChange={(event) => loadSavedAnalysis(event.target.value)} disabled={analysisRunning || !analysisHistory.length}><option value="">{analysisHistory.length ? "Select a completed test…" : "No saved tests found"}</option>{analysisHistory.map((item) => <option key={item.id} value={item.id}>{item.modelLabel} · {item.completedAt ? new Date(item.completedAt).toLocaleString() : `${numberFormatter.format(item.gamesCompleted)} games`}</option>)}</select></label>
                 <div><span>Fixed samples</span><strong>1,000 / 10,000 games</strong><small>candidate vs itself · greedy mean heads</small></div>
                 <button type="button" className="button" onClick={() => runCardAnalysis("scrap")} disabled={analysisRunning || !availableModels.length}>{analysisRunning && analysisResult?.kind === "scrap" ? "Running Scrap Elo…" : "Run Scrap Elo"}</button>
                 <button type="button" className="button" onClick={() => runCardAnalysis("acquire")} disabled={analysisRunning || !availableModels.length}>{analysisRunning && analysisResult?.kind === "acquire" ? "Running Acquire Elo…" : "Run Acquire Elo"}</button>
@@ -5215,7 +5363,7 @@ export default function Home() {
                 {analysisResult.error ? <p className="card-analysis-error">{analysisResult.error}</p> : null}
                 {analysisResult.leaderboard.length ? <div className="card-elo-results">
                   <div className="card-elo-summary"><span><small>Scored choices</small><strong>{numberFormatter.format(analysisResult.scoredDecisions)}</strong></span><span><small>Comparisons</small><strong>{numberFormatter.format(analysisResult.comparisons)}</strong></span><span><small>Truncations</small><strong>{numberFormatter.format(analysisResult.truncatedGames)}</strong></span><span><small>Duration</small><strong>{formatDuration(analysisResult.durationSeconds)}</strong></span></div>
-                  {analysisResult.bucketedCharts.length ? <BucketedEloCharts charts={analysisResult.bucketedCharts} /> : <div className="card-elo-table" role="table" aria-label={`${analysisResult.kind} card Elo rankings`}><div className="card-elo-row card-elo-header" role="row"><span role="columnheader">Rank / card</span><span role="columnheader">Elo</span><span role="columnheader">± uncertainty</span><span role="columnheader">Decisions</span><span role="columnheader">Comparisons</span></div>{analysisResult.leaderboard.map((entry, index) => <div className="card-elo-row" role="row" key={entry.key}><span role="cell"><b>{index + 1}</b><strong>{entry.label}</strong></span><span role="cell">{entry.elo.toFixed(2)}</span><span role="cell">{entry.uncertainty === null ? "—" : entry.uncertainty.toFixed(2)}</span><span role="cell">{numberFormatter.format(entry.decisions)}</span><span role="cell">{numberFormatter.format(entry.comparisons)}</span></div>)}</div>}
+                  {analysisResult.bucketedCharts.length ? <BucketedEloCharts charts={analysisResult.bucketedCharts} /> : <div className="card-elo-table" role="table" aria-label={`${analysisResult.kind} card Elo rankings`}><div className="card-elo-row card-elo-header" role="row"><span role="columnheader">Rank / card</span><span role="columnheader">Elo</span><span role="columnheader">± uncertainty</span><span role="columnheader">Decisions</span><span role="columnheader">Comparisons</span></div>{analysisResult.leaderboard.map((entry, index) => <div className="card-elo-row" role="row" key={entry.key}><span role="cell"><b>{index + 1}</b><CardArtHover name={entry.cardName}><strong>{entry.label}</strong></CardArtHover></span><span role="cell">{entry.elo.toFixed(2)}</span><span role="cell">{entry.uncertainty === null ? "—" : entry.uncertainty.toFixed(2)}</span><span role="cell">{numberFormatter.format(entry.decisions)}</span><span role="cell">{numberFormatter.format(entry.comparisons)}</span></div>)}</div>}
                 </div> : analysisRunning ? null : <EmptyState title="No comparable choices observed" detail="The candidate completed the sample without a single-card turn containing at least one alternate card choice." />}
               </> : <EmptyState title="Choose a candidate and a probe" detail="Scrap Elo combines hand and discard evidence with No Discard. Acquire Elo includes No Card while keeping its comparisons limited to actual purchases or affordable turn-end choices." />}
             </article>

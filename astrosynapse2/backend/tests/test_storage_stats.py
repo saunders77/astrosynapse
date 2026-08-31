@@ -310,7 +310,7 @@ def test_supervisor_copies_compatible_branch_root_artifacts(tmp_path):
     mature_run = store.get_run(experiment["members"][2]["run_id"])
     assert mature_run["config"]["preset"] == "astro5_mature"
     assert mature_run["config"]["governor_strategy"] == "mature"
-    assert mature_run["config"]["evaluation_extension_max_pairs"] == 50_000
+    assert mature_run["config"]["evaluation_extension_max_pairs"] == 100_000
     directional_run = store.get_run(experiment["members"][3]["run_id"])
     assert directional_run["config"]["preset"] == "astro5_directional"
     assert directional_run["config"]["promotion_direction_enabled"] is True

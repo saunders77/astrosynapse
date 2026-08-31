@@ -2027,6 +2027,30 @@ textarea:focus {
   min-height: 53px;
 }
 
+.arena-model-picker-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 8px;
+}
+
+.arena-model-picker-fields > span {
+  display: grid;
+  gap: 5px;
+  text-align: left;
+}
+
+.arena-model-picker-fields small {
+  color: var(--faint);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.arena-model-picker-fields select {
+  min-width: 0;
+  width: 100%;
+}
+
 .versus-mark {
   position: relative;
   display: grid;
@@ -3810,6 +3834,7 @@ button.game-card:hover:not(:disabled) {
   .chart-legend { display: none; }
   .resource-rings { grid-template-columns: 1fr; }
   .versus-row { grid-template-columns: 1fr; }
+  .arena-model-picker-fields { grid-template-columns: 1fr; }
   .versus-row label:last-child { text-align: left; }
   .versus-mark { height: 28px; }
   .versus-mark span { width: 30px; height: 30px; }
@@ -4641,6 +4666,298 @@ button.game-card:hover:not(:disabled) {
 .relay-faction-dot.faction-blob { background: #5ab8ff; }
 .relay-faction-dot.faction-machine { background: #f36d72; }
 .relay-faction-dot.faction-star { background: #e7c25e; }
+
+/* Official Core Set card artwork ------------------------------------------------ */
+.game-card.has-card-art,
+.play-panel .game-card.has-card-art,
+.play-panel .card-compact.has-card-art {
+  align-self: start;
+  justify-self: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 150px;
+  height: auto;
+  min-height: 0;
+  aspect-ratio: 5 / 7;
+  padding: 5px;
+  overflow: hidden;
+  border-color: rgba(232, 242, 251, 0.28);
+  background: #020406;
+}
+
+.game-card-art {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  object-fit: contain;
+  user-select: none;
+}
+
+.game-card.card-compact.has-card-art {
+  max-width: 112px;
+}
+
+.game-card.has-card-art.card-landscape .game-card-art {
+  width: 140%;
+  max-width: none;
+  margin-left: -20%;
+  transform: rotate(-90deg);
+  transform-origin: center;
+}
+
+.game-card.has-card-art:hover .game-card-art,
+.game-card.has-card-art:focus-visible .game-card-art {
+  filter: saturate(1.08) brightness(1.04);
+}
+
+.card-art-count {
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(2, 5, 9, 0.9);
+  color: #fff;
+}
+
+.card-art-scrap-action {
+  position: absolute;
+  right: 9px;
+  bottom: 9px;
+  left: 9px;
+  z-index: 2;
+  min-height: 31px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 119, 127, 0.6);
+  border-radius: 6px;
+  background: rgba(29, 4, 7, 0.9);
+  color: #ffafb4;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.card-art-scrap-action:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: rgba(72, 12, 18, 0.94);
+}
+
+.deck-display {
+  background:
+    linear-gradient(rgba(3, 8, 13, 0.64), rgba(3, 8, 13, 0.86)),
+    url("/card-art/Star-Realms-Back.jpg") center / cover no-repeat;
+  box-shadow: 0 7px 18px rgba(0, 0, 0, 0.35);
+  text-shadow: 0 1px 3px #000;
+}
+
+.card-art-hover {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  outline: none;
+}
+
+.card-art-hover-thumb {
+  width: 24px;
+  height: 33px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+  background: #03070b;
+  object-fit: contain;
+}
+
+.card-art-hover-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-art-hover-preview {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 220;
+  width: min(240px, calc(100vw - 32px));
+  padding: 7px;
+  border: 1px solid rgba(112, 169, 255, 0.42);
+  border-radius: 11px;
+  background: #03070b;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.72);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px) scale(0.98);
+  transition: opacity 130ms ease, transform 130ms ease;
+}
+
+.card-art-hover-preview img {
+  display: block;
+  width: 100%;
+  max-height: min(72vh, 430px);
+  border-radius: 7px;
+  object-fit: contain;
+}
+
+.card-art-hover:hover .card-art-hover-preview,
+.card-art-hover:focus-visible .card-art-hover-preview,
+.card-art-hover:focus-within .card-art-hover-preview {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.card-art-hover:focus-visible .card-art-hover-thumb {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+.card-chip > .card-art-hover {
+  grid-column: 2;
+}
+
+.card-chip > .card-art-hover .card-art-hover-thumb {
+  width: 20px;
+  height: 28px;
+}
+
+.card-chip > small {
+  grid-column: 2;
+}
+
+.bucketed-chart-frame {
+  position: relative;
+}
+
+.bucketed-card-art-preview {
+  position: absolute;
+  top: 88px;
+  right: 42px;
+  z-index: 3;
+  width: 190px;
+  padding: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 10px;
+  background: rgba(2, 6, 10, 0.94);
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.68);
+  pointer-events: none;
+}
+
+.bucketed-card-art-preview img {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
+.bucketed-card-art-preview span {
+  display: block;
+  padding: 7px 3px 2px;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relay-card.has-card-art {
+  justify-self: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 132px;
+  min-height: 0;
+  aspect-ratio: 5 / 7;
+  padding: 5px 5px 9px;
+  overflow: hidden;
+  background: #020609;
+}
+
+.relay-card-art {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 5px;
+  object-fit: contain;
+  user-select: none;
+}
+
+.relay-card.has-card-art.card-landscape .relay-card-art {
+  width: 140%;
+  max-width: none;
+  margin-left: -20%;
+  transform: rotate(-90deg);
+  transform-origin: center;
+}
+
+.relay-card.has-card-art .relay-card-kind,
+.relay-card.has-card-art > strong,
+.relay-card.has-card-art > p,
+.relay-card.has-card-art .relay-card-stats,
+.relay-card.has-card-art .relay-card-cost {
+  display: none;
+}
+
+.relay-card.has-card-art .relay-top-label {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  z-index: 2;
+  margin: 0;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: rgba(3, 8, 13, 0.86);
+  color: #d5e8fb;
+}
+
+.relay-card.has-card-art .relay-card-state {
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: rgba(3, 8, 13, 0.88);
+}
+
+.relay-card-options button {
+  grid-template-columns: 28px 7px 1fr;
+}
+
+.relay-option-art {
+  grid-row: 1 / span 2;
+  width: 27px;
+  height: 37px;
+  border-radius: 3px;
+  background: #03070b;
+  object-fit: contain;
+}
+
+.relay-card-options strong {
+  grid-column: 3;
+}
+
+.relay-card-options small {
+  grid-column: 3;
+}
+
+@media (max-width: 720px) {
+  .card-art-hover-preview {
+    right: 16px;
+    bottom: 16px;
+    width: min(240px, calc(100vw - 32px));
+  }
+
+  .bucketed-card-art-preview {
+    top: 50px;
+    right: 14px;
+    width: 120px;
+    padding: 4px;
+  }
+
+  .bucketed-card-art-preview img { max-height: 155px; }
+  .bucketed-card-art-preview span { font-size: 8px; }
+}
 .relay-faction-dot.faction-trade { background: #63e0c6; }
 .relay-card-editor footer { display: flex; justify-content: space-between; gap: 5px; }
 .relay-card-editor footer button { min-height: 27px; padding: 0 6px; border: 0; background: transparent; color: var(--faint); font-size: 8px; }

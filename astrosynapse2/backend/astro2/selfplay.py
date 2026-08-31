@@ -272,6 +272,10 @@ class CollectedGame:
     heads: tuple[int, int]
     epsilons: tuple[float, float]
     bootstrap_masks: tuple[np.ndarray, np.ndarray]
+    search_repeatability_positions: int = 0
+    search_top_action_agreements: int = 0
+    search_policy_js_sum: float = 0.0
+    search_value_abs_delta_sum: float = 0.0
 
     @property
     def target_by_player(self) -> tuple[float, float]:
@@ -411,6 +415,10 @@ class CompactPolicySamples:
     families: np.ndarray
     targets: np.ndarray
     behavior_probabilities: np.ndarray
+    collection_policy_probabilities: np.ndarray
+    behavior_heads: np.ndarray
+    behavior_epsilons: np.ndarray
+    deployment_policy: np.ndarray
     bootstrap_masks: np.ndarray
     game_ids: np.ndarray
     players: np.ndarray
@@ -441,6 +449,10 @@ class CompactPolicySamples:
                 families=np.empty(0, dtype=np.uint8),
                 targets=np.empty(0, dtype=np.float16),
                 behavior_probabilities=np.empty(0, dtype=np.float16),
+                collection_policy_probabilities=np.empty(0, dtype=np.float16),
+                behavior_heads=np.empty(0, dtype=np.int16),
+                behavior_epsilons=np.empty(0, dtype=np.float16),
+                deployment_policy=np.empty(0, dtype=np.uint8),
                 bootstrap_masks=np.empty((0, bootstrap_heads), dtype=np.uint8),
                 game_ids=np.empty(0, dtype=np.uint64),
                 players=np.empty(0, dtype=np.uint8),
@@ -461,6 +473,16 @@ class CompactPolicySamples:
             targets=np.asarray([item.target for item in items], dtype=np.float16),
             behavior_probabilities=np.asarray(
                 [item.behavior_probability for item in items], dtype=np.float16
+            ),
+            collection_policy_probabilities=np.asarray(
+                [item.collection_policy_probability for item in items], dtype=np.float16
+            ),
+            behavior_heads=np.asarray([item.behavior_head for item in items], dtype=np.int16),
+            behavior_epsilons=np.asarray(
+                [item.behavior_epsilon for item in items], dtype=np.float16
+            ),
+            deployment_policy=np.asarray(
+                [item.deployment_policy for item in items], dtype=np.uint8
             ),
             bootstrap_masks=np.stack([item.bootstrap_mask for item in items]).astype(np.uint8),
             game_ids=np.asarray([int(item.game_id) % (1 << 64) for item in items], dtype=np.uint64),
@@ -507,6 +529,10 @@ class WorkerResult:
     forced_choices: int
     counterfactual_preferences: int = 0
     reanalysis_positions: int = 0
+    search_repeatability_positions: int = 0
+    search_top_action_agreements: int = 0
+    search_policy_js_sum: float = 0.0
+    search_value_abs_delta_sum: float = 0.0
 
 
 @dataclass(slots=True)
@@ -526,6 +552,10 @@ class _PendingPolicySample:
     legal_actions: np.ndarray
     selected_index: int
     behavior_probability: float
+    collection_policy_probability: float
+    behavior_head: int
+    behavior_epsilon: float
+    deployment_policy: bool
     family: DecisionFamily
     player: int
     step: int
@@ -720,6 +750,10 @@ def collect_game(
     previous_actor_sample: list[int | None] = [None, None]
     counterfactual_count = 0
     reanalysis_count = 0
+    search_repeatability_positions = 0
+    search_top_action_agreements = 0
+    search_policy_js_sum = 0.0
+    search_value_abs_delta_sum = 0.0
     game_ref: list[Game] = []
 
     def continuation_chooser(
@@ -769,12 +803,8 @@ def collect_game(
             branch.resample_public_belief(player, belief_seed)
         leaf_turn = game.turns + horizon_turns if horizon_turns is not None else None
         branch.choosers = {
-            0: continuation_chooser(
-                0, branch_seed, leaf_player=player, leaf_turn=leaf_turn
-            ),
-            1: continuation_chooser(
-                1, branch_seed, leaf_player=player, leaf_turn=leaf_turn
-            ),
+            0: continuation_chooser(0, branch_seed, leaf_player=player, leaf_turn=leaf_turn),
+            1: continuation_chooser(1, branch_seed, leaf_player=player, leaf_turn=leaf_turn),
         }
         try:
             result = branch.continue_from_main_action(action)
@@ -801,6 +831,8 @@ def collect_game(
 
     def reanalysis_hook(player: int, decision: Decision, selected: Action) -> None:
         nonlocal reanalysis_count
+        nonlocal search_repeatability_positions, search_top_action_agreements
+        nonlocal search_policy_js_sum, search_value_abs_delta_sum
         if (
             reanalysis_count >= reanalysis_max_per_game
             or decision.family != EngineDecisionFamily.MAIN
@@ -821,11 +853,15 @@ def collect_game(
         selected_index = int(selected_matches[0])
         count = min(reanalysis_max_actions, len(eligible))
         if isinstance(policies[player], ActorPolicy):
-            logits = policies[player].actor.predict_options(
-                pending_item.state,
-                pending_item.legal_actions,
-                int(pending_item.family),
-            ).mean(axis=1)
+            logits = (
+                policies[player]
+                .actor.predict_options(
+                    pending_item.state,
+                    pending_item.legal_actions,
+                    int(pending_item.family),
+                )
+                .mean(axis=1)
+            )
             ranked = list(np.argsort(logits)[::-1].astype(int))
         else:
             ranked = list(rngs[player].permutation(len(eligible)).astype(int))
@@ -834,6 +870,7 @@ def collect_game(
         candidates = candidates[:count]
         scores = np.zeros(len(eligible), dtype=np.float32)
         searched = np.zeros(len(eligible), dtype=np.uint8)
+        rollout_scores: dict[int, list[tuple[int, float]]] = {}
         branch_seed = player_steps[player] + 1_000 * decision.observation.turn
         for local_index in candidates:
             action_scores: list[float] = []
@@ -851,6 +888,7 @@ def collect_game(
                 )
                 if score is not None:
                     action_scores.append(score)
+                    rollout_scores.setdefault(local_index, []).append((rollout, score))
             if action_scores:
                 scores[local_index] = float(np.mean(action_scores))
                 searched[local_index] = 1
@@ -867,6 +905,53 @@ def collect_game(
         pending_item.search_mask = searched
         pending_item.search_value = float(np.sum(probabilities * scores[valid_indices]))
         pending_item.search_valid = True
+        if reanalysis_rollouts_per_action >= 2:
+            split_indices = [
+                index
+                for index in valid_indices
+                if any(rollout % 2 == 0 for rollout, _score in rollout_scores.get(index, ()))
+                and any(rollout % 2 == 1 for rollout, _score in rollout_scores.get(index, ()))
+            ]
+            if len(split_indices) >= 2:
+                split_distributions: list[np.ndarray] = []
+                split_values: list[float] = []
+                for parity in (0, 1):
+                    split_scores = np.asarray(
+                        [
+                            np.mean(
+                                [
+                                    score
+                                    for rollout, score in rollout_scores[index]
+                                    if rollout % 2 == parity
+                                ]
+                            )
+                            for index in split_indices
+                        ],
+                        dtype=np.float64,
+                    )
+                    split_scaled = split_scores / float(reanalysis_policy_temperature)
+                    split_scaled -= float(np.max(split_scaled))
+                    split_probability = np.exp(split_scaled)
+                    split_probability /= float(np.sum(split_probability))
+                    split_distributions.append(split_probability)
+                    split_values.append(float(np.sum(split_probability * split_scores)))
+                left, right = split_distributions
+                midpoint = 0.5 * (left + right)
+                epsilon_floor = 1e-12
+                js = max(
+                    0.0,
+                    0.5
+                    * float(
+                        np.sum(left * np.log((left + epsilon_floor) / (midpoint + epsilon_floor)))
+                        + np.sum(
+                            right * np.log((right + epsilon_floor) / (midpoint + epsilon_floor))
+                        )
+                    ),
+                )
+                search_repeatability_positions += 1
+                search_top_action_agreements += int(int(np.argmax(left)) == int(np.argmax(right)))
+                search_policy_js_sum += js
+                search_value_abs_delta_sum += abs(split_values[0] - split_values[1])
         reanalysis_count += 1
 
     def counterfactual_hook(player: int, decision: Decision, selected: Action) -> None:
@@ -931,6 +1016,7 @@ def collect_game(
             else:
                 selected = _selected_action(policy(player_id, decision), decision)
                 behavior_probability = 1.0
+                next_value = 0.0
             if collect_players[player]:
                 if not isinstance(policy, ActorPolicy):
                     encoded = encoder.encode_decision(decision.observation, decision)
@@ -949,6 +1035,23 @@ def collect_game(
                                 legal_actions=encoded.actions[eligible],
                                 selected_index=policy_selected,
                                 behavior_probability=behavior_probability,
+                                collection_policy_probability=next_value,
+                                behavior_head=(
+                                    explorations[player].head
+                                    if isinstance(policy, ActorPolicy)
+                                    and not explorations[player].deployment_policy
+                                    else -1
+                                ),
+                                behavior_epsilon=(
+                                    explorations[player].epsilon
+                                    if isinstance(policy, ActorPolicy)
+                                    and not explorations[player].deployment_policy
+                                    else 0.0
+                                ),
+                                deployment_policy=(
+                                    isinstance(policy, ActorPolicy)
+                                    and explorations[player].deployment_policy
+                                ),
                                 family=encoded.family,
                                 player=player,
                                 step=player_steps[player],
@@ -1028,6 +1131,10 @@ def collect_game(
                 target=targets[item.player],
                 behavior_probability=item.behavior_probability,
                 bootstrap_mask=explorations[item.player].bootstrap_mask.copy(),
+                collection_policy_probability=item.collection_policy_probability,
+                behavior_head=item.behavior_head,
+                behavior_epsilon=item.behavior_epsilon,
+                deployment_policy=item.deployment_policy,
                 game_id=resolved_game_id,
                 player=item.player,
                 step=item.step,
@@ -1049,6 +1156,10 @@ def collect_game(
             explorations[0].bootstrap_mask.copy(),
             explorations[1].bootstrap_mask.copy(),
         ),
+        search_repeatability_positions=search_repeatability_positions,
+        search_top_action_agreements=search_top_action_agreements,
+        search_policy_js_sum=search_policy_js_sum,
+        search_value_abs_delta_sum=search_value_abs_delta_sum,
     )
 
 
@@ -1304,10 +1415,18 @@ def collect_worker_batch(
     draws = truncated = turns = decisions = forced_choices = 0
     counterfactual_preferences = 0
     reanalysis_positions = 0
+    search_repeatability_positions = 0
+    search_top_action_agreements = 0
+    search_policy_js_sum = 0.0
+    search_value_abs_delta_sum = 0.0
     for collected in collected_games:
         all_items.extend(collected.samples)
         all_policy_items.extend(collected.policy_samples)
         reanalysis_positions += sum(int(item.search_valid) for item in collected.policy_samples)
+        search_repeatability_positions += collected.search_repeatability_positions
+        search_top_action_agreements += collected.search_top_action_agreements
+        search_policy_js_sum += collected.search_policy_js_sum
+        search_value_abs_delta_sum += collected.search_value_abs_delta_sum
         all_preferences.extend(collected.preferences)
         if counterfactual_fraction > 0:
             # Tactical preference collection is disabled for generation 4, so
@@ -1357,6 +1476,10 @@ def collect_worker_batch(
         forced_choices=forced_choices,
         counterfactual_preferences=counterfactual_preferences,
         reanalysis_positions=reanalysis_positions,
+        search_repeatability_positions=search_repeatability_positions,
+        search_top_action_agreements=search_top_action_agreements,
+        search_policy_js_sum=search_policy_js_sum,
+        search_value_abs_delta_sum=search_value_abs_delta_sum,
     )
 
 

@@ -288,9 +288,7 @@ def test_preference_replay_is_bounded_and_round_trips_compact_rows():
         )
         for step in range(12)
     ]
-    compact = CompactPreferences.from_items(
-        entries, state_size=5, action_size=4, bootstrap_heads=3
-    )
+    compact = CompactPreferences.from_items(entries, state_size=5, action_size=4, bootstrap_heads=3)
     replay = PreferenceReplayBuffer(
         capacity=8, state_size=5, action_size=4, bootstrap_heads=3, seed=3
     )
@@ -334,7 +332,9 @@ def test_policy_replay_samples_player_games_before_decisions():
     assert 0.45 < np.mean(batch.game_ids == 10) < 0.55
     assert batch.legal_actions.shape == (2_000, 2, 4)
     assert batch.legal_mask.shape == (2_000, 2)
-    assert replay.metrics()["sampling"] == "uniform_player_game_then_turn_phase_then_decision"
+    assert replay.metrics()["sampling"] == (
+        "uniform_player_game_then_mixed_natural_and_stratified_decision"
+    )
 
 
 def test_policy_replay_pads_only_to_the_largest_sampled_legal_set():
@@ -365,9 +365,7 @@ def test_policy_replay_pads_only_to_the_largest_sampled_legal_set():
 
     assert set(batch.game_ids.tolist()) == {10, 20}
     assert batch.legal_actions.shape == (2, 5, 4)
-    np.testing.assert_array_equal(
-        np.sort(batch.legal_mask.sum(axis=1)), np.asarray([2.0, 5.0])
-    )
+    np.testing.assert_array_equal(np.sort(batch.legal_mask.sum(axis=1)), np.asarray([2.0, 5.0]))
 
 
 def test_astro5_policy_reservoir_preserves_search_and_round_trips(tmp_path):
@@ -402,6 +400,12 @@ def test_astro5_policy_reservoir_preserves_search_and_round_trips(tmp_path):
                 search_mask=np.asarray([1, 1] if searched else [0, 0]),
                 search_value=0.7,
                 search_valid=searched,
+                rollout_source=3,
+                collected_at_game=123_456,
+                collection_policy_probability=0.42,
+                behavior_head=2,
+                behavior_epsilon=0.03,
+                deployment_policy=False,
             )
         )
     assert replay.extend(entries) == 10
@@ -423,6 +427,49 @@ def test_astro5_policy_reservoir_preserves_search_and_round_trips(tmp_path):
     assert restored.restore(path) == 3
     assert restored.metrics()["searched_decisions"] == 1
     assert restored.metrics()["player_games"] == 1
+    restored_batch = restored.sample(3)
+    assert set(restored_batch.rollout_sources.tolist()) == {3}
+    assert set(restored_batch.collected_at_games.tolist()) == {123_456}
+    np.testing.assert_allclose(restored_batch.collection_policy_probabilities, 0.42, atol=1e-3)
+    assert set(restored_batch.behavior_heads.tolist()) == {2}
+    np.testing.assert_allclose(restored_batch.behavior_epsilons, 0.03, atol=1e-3)
+    assert set(restored_batch.sample_tiers.tolist()) == {0}
+
+
+def test_policy_replay_mixes_natural_and_family_balanced_sampling():
+    replay = GameBalancedPolicyReplayBuffer(
+        capacity=128,
+        state_size=12,
+        action_size=4,
+        bootstrap_heads=3,
+        max_decisions_per_player_game=100,
+        family_balanced=True,
+        family_balanced_fraction=0.2,
+        seed=53,
+    )
+    entries = []
+    for step in range(100):
+        entries.append(
+            PolicyItem(
+                state=np.full(12, step / 50, dtype=np.float32),
+                legal_actions=np.stack((np.zeros(4), np.ones(4))).astype(np.float32),
+                selected_index=0,
+                family=(DecisionFamily.DISCARD if step < 10 else DecisionFamily.MAIN),
+                target=1.0,
+                behavior_probability=0.5,
+                bootstrap_mask=np.ones(3, dtype=np.uint8),
+                game_id=77,
+                player=0,
+                step=step,
+            )
+        )
+    replay.extend(entries)
+    batch = replay.sample(4_000)
+    discard_fraction = np.mean(batch.families == int(DecisionFamily.DISCARD))
+    assert 0.12 < discard_fraction < 0.22
+    metrics = replay.metrics()
+    assert metrics["family_balanced_fraction"] == 0.2
+    assert sum(metrics["decision_distribution"]["sampled_by_family"]) == 4_000
 
 
 def test_policy_replay_incremental_manifest_restores_latest_window(tmp_path):
@@ -511,10 +558,7 @@ def test_policy_replay_moves_old_episodes_to_bounded_mmap_disk_tier(tmp_path):
     batch = replay.sample(100)
     assert set(batch.game_ids.tolist()) == {2, 3}
     assert len(replay._cold._mapped) <= 4
-    assert all(
-        isinstance(arrays["states"], np.memmap)
-        for arrays in replay._cold._mapped.values()
-    )
+    assert all(isinstance(arrays["states"], np.memmap) for arrays in replay._cold._mapped.values())
 
 
 def test_hybrid_policy_replay_checkpoint_restores_hot_and_cold_tiers(tmp_path):
@@ -572,9 +616,7 @@ def test_hybrid_policy_replay_checkpoint_restores_hot_and_cold_tiers(tmp_path):
     assert restored_metrics["hot"]["size"] == 4
     assert restored_metrics["cold"]["size"] == 6
     sampled_game_ids = {
-        int(game_id)
-        for _ in range(8)
-        for game_id in restored.sample(50).game_ids.tolist()
+        int(game_id) for _ in range(8) for game_id in restored.sample(50).game_ids.tolist()
     }
     assert sampled_game_ids == {1, 2, 3, 4, 5}
     assert all(
@@ -590,17 +632,13 @@ def test_hybrid_policy_replay_checkpoint_restores_hot_and_cold_tiers(tmp_path):
     restored._cold.commit_snapshot()
     assert all(shard.path.is_dir() for shard in restored._cold._shards)
 
-    first_cold_paths = {
-        Path(value["path"]) for value in payload["cold"]["shards"]
-    }
+    first_cold_paths = {Path(value["path"]) for value in payload["cold"]["shards"]}
     replay.extend(episode(6))
     replay.extend(episode(7))
     second_manifest = tmp_path / "next.policy-replay.json"
     replay.snapshot_incremental(second_manifest, max_items=4)
     second_payload = json.loads(second_manifest.read_text())
-    second_cold_paths = {
-        Path(value["path"]) for value in second_payload["cold"]["shards"]
-    }
+    second_cold_paths = {Path(value["path"]) for value in second_payload["cold"]["shards"]}
     retired_paths = first_cold_paths - second_cold_paths
     assert retired_paths
     replay.commit_incremental_snapshot()

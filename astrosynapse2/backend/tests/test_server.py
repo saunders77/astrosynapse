@@ -20,7 +20,7 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         assert mature["reset_optimizer_on_branch_start"] is True
         assert mature["reset_replay_on_branch_start"] is True
         assert mature["rejected_candidate_action"] == "restore_lineage"
-        assert mature["evaluation_extension_max_pairs"] == 50_000
+        assert mature["evaluation_extension_max_pairs"] == 100_000
         assert directional["promotion_direction_enabled"] is True
         assert directional["promotion_direction_strength"] == 0.06
         assert directional["evaluation_pairs"] == 10_000
@@ -30,7 +30,7 @@ def test_run_lifecycle_api(tmp_path, monkeypatch):
         assert directional["evaluation_early_acceptance_min_pairs"] == 2_000
         assert directional["evaluation_early_look_interval_pairs"] == 2_000
         assert directional["evaluation_extension_block_pairs"] == 2_000
-        assert directional["evaluation_extension_max_pairs"] == 50_000
+        assert directional["evaluation_extension_max_pairs"] == 100_000
         assert astro5["games_per_actor_batch"] == 4
         assert astro5["rollout_tasks_per_actor"] == 4
         assert astro5["reanalysis_fraction"] == 0.0025
@@ -265,6 +265,10 @@ def test_card_analysis_api_queues_and_polls_a_fixed_thousand_game_candidate_job(
             "/api/card-analysis?limit=3&model_id=candidate-42"
         ).json()
         assert listing == [{"id": "analysis-1", "model_id": "candidate-42", "limit": 3}]
+        summary = client.get(
+            "/api/card-analysis?limit=3&model_id=candidate-42&summary_only=true"
+        ).json()
+        assert summary == [{"id": "analysis-1", "model_id": "candidate-42", "limit": 3, "result": {}}]
         assert client.get("/api/card-analysis?run_id=missing").status_code == 404
 
 
@@ -376,3 +380,105 @@ def test_pruned_checkpoint_history_is_explicitly_unavailable(tmp_path, monkeypat
         )
         assert game_response.status_code == 409
         assert "pruned by checkpoint retention" in game_response.json()["detail"]
+
+
+def test_pinning_regenerates_a_missing_actor_snapshot(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    with TestClient(server.app) as client:
+        run = client.post(
+            "/api/runs",
+            json={"preset": "quick", "name": "Pin recovery", "start": False},
+        ).json()
+        root = tmp_path / "checkpoints" / run["id"]
+        root.mkdir(parents=True)
+        model_path = root / "candidate.safetensors"
+        actor_path = root / "candidate.actor.npz"
+        model_path.write_bytes(b"portable weights")
+        Path(f"{model_path}.json").write_text("{}")
+        checkpoint = client.app.state.store.add_checkpoint(
+            run_id=run["id"],
+            label="Recoverable candidate",
+            path=str(model_path),
+            actor_path=None,
+            games=10_000,
+        )
+        calls = []
+
+        def regenerate(source, target):
+            calls.append((Path(source), Path(target)))
+            Path(target).write_bytes(b"regenerated actor")
+            return Path(target)
+
+        monkeypatch.setattr(server, "regenerate_actor_snapshot", regenerate)
+        response = client.patch(
+            f"/api/models/{checkpoint['id']}", json={"pinned": True}
+        )
+
+        assert response.status_code == 200
+        assert calls == [(model_path, actor_path)]
+        assert actor_path.read_bytes() == b"regenerated actor"
+        assert response.json()["is_pinned"] is True
+        assert response.json()["actor_available"] is True
+        assert client.app.state.store.checkpoint(checkpoint["id"])["actor_path"] == str(
+            actor_path
+        )
+
+
+def test_pinning_does_not_rebuild_an_existing_actor(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    with TestClient(server.app) as client:
+        run = client.post(
+            "/api/runs",
+            json={"preset": "quick", "name": "Existing actor", "start": False},
+        ).json()
+        root = tmp_path / "checkpoints" / run["id"]
+        root.mkdir(parents=True)
+        model_path = root / "candidate.safetensors"
+        actor_path = root / "candidate.actor.npz"
+        model_path.write_bytes(b"portable weights")
+        Path(f"{model_path}.json").write_text("{}")
+        actor_path.write_bytes(b"existing actor")
+        checkpoint = client.app.state.store.add_checkpoint(
+            run_id=run["id"],
+            label="Existing candidate",
+            path=str(model_path),
+            actor_path=str(actor_path),
+            games=20_000,
+        )
+
+        def unexpected_regeneration(*_args):
+            raise AssertionError("existing actors must not be regenerated")
+
+        monkeypatch.setattr(server, "regenerate_actor_snapshot", unexpected_regeneration)
+        response = client.patch(
+            f"/api/models/{checkpoint['id']}", json={"pinned": True}
+        )
+
+        assert response.status_code == 200
+        assert actor_path.read_bytes() == b"existing actor"
+        assert response.json()["is_pinned"] is True
+
+
+def test_pinning_without_portable_weights_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    with TestClient(server.app) as client:
+        run = client.post(
+            "/api/runs",
+            json={"preset": "quick", "name": "Missing weights", "start": False},
+        ).json()
+        root = tmp_path / "checkpoints" / run["id"]
+        checkpoint = client.app.state.store.add_checkpoint(
+            run_id=run["id"],
+            label="Unrecoverable candidate",
+            path=str(root / "missing.safetensors"),
+            actor_path=str(root / "missing.actor.npz"),
+            games=30_000,
+        )
+
+        response = client.patch(
+            f"/api/models/{checkpoint['id']}", json={"pinned": True}
+        )
+
+        assert response.status_code == 409
+        assert "weights are unavailable" in response.json()["detail"]
+        assert client.app.state.store.checkpoint(checkpoint["id"])["is_pinned"] is False

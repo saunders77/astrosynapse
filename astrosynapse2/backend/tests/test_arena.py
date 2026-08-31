@@ -71,7 +71,7 @@ def test_existing_automatic_job_config_inherits_universal_extension_policy():
 
     assert config.confidence == 0.95
     assert config.extension_enabled is True
-    assert config.extension_max_pairs == 50_000
+    assert config.extension_max_pairs == 100_000
     assert config.extension_block_pairs == 2_000
     assert config.extension_min_score == 0.50
     assert config.extension_min_lower_bound == 0.0
@@ -163,8 +163,8 @@ def test_regular_99_percent_looks_share_error_across_both_decisions():
     )
 
     # Automatic jobs normalize legacy/preset-specific ceilings to the current
-    # system-wide 50,000-pair contract.
-    expected_looks = tuple(range(2_000, 50_000, 2_000))
+    # system-wide 100,000-pair contract.
+    expected_looks = tuple(range(2_000, 100_000, 2_000))
     assert arena_module._early_rejection_looks(config) == expected_looks
     assert arena_module._early_acceptance_looks(config) == expected_looks
 
@@ -183,7 +183,7 @@ def test_regular_99_percent_looks_share_error_across_both_decisions():
     assert strong["accept"] is True
     assert weak["reject"] is True
     assert borderline["accept"] is False
-    assert strong["bonferroni_look_alpha"] == pytest.approx(0.01 / 48)
+    assert strong["bonferroni_look_alpha"] == pytest.approx(0.01 / 98)
     assert arena_module._extension_confidence(config, 48_000) == pytest.approx(0.95)
     assert arena_module._extension_confidence(config, 50_000) == pytest.approx(0.95)
     assert arena_module._should_extend_promotion_evaluation(
@@ -349,7 +349,7 @@ def test_marginal_positive_full_evaluation_runs_one_more_2000_pair_block(
         "initial_pairs": 2_000,
         "additional_pairs": 4_000,
         "block_pairs": 2_000,
-        "maximum_pairs": 50_000,
+        "maximum_pairs": 100_000,
         "look_adjusted_confidence": pytest.approx(0.95),
     }
     assert result["paired_interval"]["estimate"] == pytest.approx(0.52)
@@ -407,14 +407,14 @@ def test_mature_evaluation_can_extend_across_multiple_blocks(tmp_path, monkeypat
     result = complete["result"]
     assert result["pairs_completed"] == 20_000
     assert result["adaptive_extension"]["additional_pairs"] == 18_000
-    assert result["adaptive_extension"]["maximum_pairs"] == 50_000
+    assert result["adaptive_extension"]["maximum_pairs"] == 100_000
     assert result["adaptive_extension"]["look_adjusted_confidence"] == pytest.approx(
         0.95
     )
     assert result["promotion"]["promoted"] is True
 
 
-def test_promotion_extension_stops_at_50000_pairs_when_still_unresolved(
+def test_promotion_extension_stops_at_100000_pairs_when_still_unresolved(
     tmp_path,
     monkeypatch,
 ):
@@ -460,7 +460,7 @@ def test_promotion_extension_stops_at_50000_pairs_when_still_unresolved(
 
     assert complete["status"] == "complete", complete.get("error")
     result = complete["result"]
-    assert result["pairs_completed"] == 50_000
+    assert result["pairs_completed"] == 100_000
     assert result["paired_interval"]["estimate"] == pytest.approx(0.501)
     assert result["paired_interval"]["low"] <= 0.50
     assert result["promotion"]["promoted"] is False

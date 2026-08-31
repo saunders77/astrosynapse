@@ -1000,9 +1000,46 @@ class CardAnalysisManager:
         self.output_dir = output_dir
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="card-analysis")
         self._lock = threading.RLock()
-        self._jobs: dict[str, dict[str, Any]] = {}
+        self._jobs: dict[str, dict[str, Any]] = self._load_completed_reports()
         self._futures: dict[str, Future[Any]] = {}
         self._cancel = threading.Event()
+
+    def _load_completed_reports(self) -> dict[str, dict[str, Any]]:
+        """Restore completed analyses from their durable JSON report files."""
+
+        jobs: dict[str, dict[str, Any]] = {}
+        if not self.output_dir.is_dir():
+            return jobs
+        for path in sorted(self.output_dir.glob("card_*_elo_*.json")):
+            try:
+                result = json.loads(path.read_text(encoding="utf-8"))
+                kind = AnalysisKind(result["kind"])
+                model = result["model"]
+                model_id = str(model["id"])
+                completed_at = str(
+                    result.get("completed_at")
+                    or datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat()
+                )
+                config = result.get("config", {})
+                if not isinstance(config, dict):
+                    config = {}
+            except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+                continue
+            job_id = f"saved-{path.stem}"
+            jobs[job_id] = {
+                "id": job_id,
+                "status": "complete",
+                "model_id": model_id,
+                "model_label": str(model.get("label", model_id)),
+                "kind": kind.value,
+                "config": config,
+                "created_at": completed_at,
+                "updated_at": completed_at,
+                "result": result,
+                "error": None,
+                "saved_report": True,
+            }
+        return jobs
 
     def create(
         self,
@@ -1097,7 +1134,11 @@ class CardAnalysisManager:
 
     def list(self, *, limit: int = 50, model_id: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
-            jobs = list(reversed(self._jobs.values()))
+            jobs = sorted(
+                self._jobs.values(),
+                key=lambda job: str(job.get("updated_at", "")),
+                reverse=True,
+            )
             if model_id is not None:
                 jobs = [job for job in jobs if job["model_id"] == model_id]
             return json.loads(json.dumps(jobs[:limit]))

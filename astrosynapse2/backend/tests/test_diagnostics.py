@@ -52,5 +52,7 @@ def test_checkpoint_diagnostics_contains_only_general_quality_groups(monkeypatch
 
     assert set(result) == {"ensemble", "heldout", "baselines"}
     assert result["ensemble"]["families"] == len(DecisionFamily)
+    assert result["ensemble"]["natural_diagnostics_fallback"] is True
+    assert "AttributeError" in result["ensemble"]["natural_diagnostics_error"]
     assert result["heldout"]["game_grouped_brier"] == 0.2
     assert result["baselines"]["mean_score"] == 0.5

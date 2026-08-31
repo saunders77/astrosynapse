@@ -11,6 +11,7 @@ import numpy as np
 
 from .baselines import make_baseline
 from .cards import CARD_BY_ID
+from .encoding import DecisionFamily as ModelDecisionFamily
 from .encoding import Encoder
 from .engine import (
     Action,
@@ -348,12 +349,19 @@ def natural_policy_metrics(
     positions: int,
     reference_actor: NumpyActor | None = None,
 ) -> dict[str, Any]:
-    items = _natural_policy_items(actor, seed=seed, positions=positions)
+    # When comparing with a champion, collect the deterministic state bank
+    # with that reference policy. Every candidate is then measured on the same
+    # natural positions rather than on a candidate-dependent distribution.
+    collection_actor = reference_actor if reference_actor is not None else actor
+    items = _natural_policy_items(collection_actor, seed=seed, positions=positions)
     disagreements = 0
     entropy_values: list[float] = []
     probability_stds: list[float] = []
     kl_values: list[float] = []
-    family_positions = {family.value: 0 for family in DecisionFamily}
+    action_flips = 0
+    value_absolute_deltas: list[float] = []
+    value_signed_deltas: list[float] = []
+    family_positions = {family.name.lower(): 0 for family in ModelDecisionFamily}
     for item in items:
         logits = actor.predict_options(item.state, item.legal_actions, int(item.family))
         shifted = logits - logits.max(axis=0, keepdims=True)
@@ -366,7 +374,7 @@ def natural_policy_metrics(
             float(-np.sum(deployed * np.log(np.clip(deployed, 1e-9, 1.0))))
             / max(1e-9, math.log(len(deployed)))
         )
-        family_positions[DecisionFamily(int(item.family)).value] += 1
+        family_positions[ModelDecisionFamily(int(item.family)).name.lower()] += 1
         if reference_actor is not None:
             reference_logits = reference_actor.predict_options(
                 item.state, item.legal_actions, int(item.family)
@@ -384,6 +392,45 @@ def natural_policy_metrics(
                     )
                 )
             )
+            action_flips += int(int(np.argmax(deployed)) != int(np.argmax(reference_probabilities)))
+            candidate_value = float(
+                np.mean(
+                    1.0
+                    / (
+                        1.0
+                        + np.exp(
+                            -np.clip(
+                                actor.predict_values(
+                                    item.state,
+                                    np.asarray([int(item.family)], dtype=np.int64),
+                                ),
+                                -40.0,
+                                40.0,
+                            )
+                        )
+                    )
+                )
+            )
+            reference_value = float(
+                np.mean(
+                    1.0
+                    / (
+                        1.0
+                        + np.exp(
+                            -np.clip(
+                                reference_actor.predict_values(
+                                    item.state,
+                                    np.asarray([int(item.family)], dtype=np.int64),
+                                ),
+                                -40.0,
+                                40.0,
+                            )
+                        )
+                    )
+                )
+            )
+            value_signed_deltas.append(candidate_value - reference_value)
+            value_absolute_deltas.append(abs(candidate_value - reference_value))
     return {
         "positions": len(items),
         "family_positions": family_positions,
@@ -393,6 +440,14 @@ def natural_policy_metrics(
         "mean_probability_std": float(np.mean(probability_stds)) if probability_stds else 0.0,
         "mean_normalized_entropy": float(np.mean(entropy_values)) if entropy_values else 0.0,
         "reference_policy_kl": float(np.mean(kl_values)) if kl_values else None,
+        "reference_action_flips": action_flips if kl_values else None,
+        "reference_action_flip_rate": (action_flips / len(kl_values) if kl_values else None),
+        "reference_value_mean_absolute_delta": (
+            float(np.mean(value_absolute_deltas)) if value_absolute_deltas else None
+        ),
+        "reference_value_mean_signed_delta": (
+            float(np.mean(value_signed_deltas)) if value_signed_deltas else None
+        ),
     }
 
 
@@ -475,11 +530,16 @@ def checkpoint_diagnostics(
             positions=natural_positions,
             reference_actor=reference_actor,
         )
-    except (AttributeError, ValueError):
+    except (AttributeError, ValueError) as error:
         # Lightweight diagnostic doubles and legacy actors may not satisfy the
         # current self-play contract. Keep the all-family suite useful without
         # weakening real checkpoint diagnostics.
         ensemble = dict(synthetic_ensemble)
+        ensemble["natural_diagnostics_error"] = f"{type(error).__name__}: {error}"
+        ensemble["natural_diagnostics_fallback"] = True
+    else:
+        ensemble["natural_diagnostics_error"] = None
+        ensemble["natural_diagnostics_fallback"] = False
     ensemble["synthetic_suite"] = synthetic_ensemble
     heldout = heldout_outcome_metrics(actor, seed=seed + 800_000, games=games)
     baselines = baseline_metrics(actor_path, seed=seed + 900_000, pairs=baseline_pairs)

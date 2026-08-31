@@ -21,6 +21,15 @@ from .encoding import FAMILY_COUNT, DecisionFamily
 
 MAX_POLICY_ACTIONS = 64
 
+POLICY_ROLLOUT_SOURCE_IDS = {
+    "unknown": 0,
+    "self_play": 1,
+    "deployment_self_play": 2,
+    "league": 3,
+    "baseline": 4,
+}
+POLICY_ROLLOUT_SOURCE_NAMES = {value: key for key, value in POLICY_ROLLOUT_SOURCE_IDS.items()}
+
 DEFAULT_CAPACITY_WEIGHTS: dict[DecisionFamily, float] = {
     DecisionFamily.MAIN: 0.82,
     DecisionFamily.DISCARD: 0.03,
@@ -140,6 +149,10 @@ class PolicyItem:
     target: float
     behavior_probability: float
     bootstrap_mask: np.ndarray
+    collection_policy_probability: float = 0.0
+    behavior_head: int = -1
+    behavior_epsilon: float = 0.0
+    deployment_policy: bool = False
     game_id: int | str = 0
     player: int = 0
     step: int = 0
@@ -147,6 +160,8 @@ class PolicyItem:
     search_mask: np.ndarray | None = None
     search_value: float = 0.5
     search_valid: bool = False
+    rollout_source: int = 0
+    collected_at_game: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +173,10 @@ class PolicyBatch:
     families: np.ndarray
     targets: np.ndarray
     behavior_probabilities: np.ndarray
+    collection_policy_probabilities: np.ndarray
+    behavior_heads: np.ndarray
+    behavior_epsilons: np.ndarray
+    deployment_policy: np.ndarray
     bootstrap_mask: np.ndarray
     sample_weights: np.ndarray
     game_ids: np.ndarray
@@ -167,6 +186,9 @@ class PolicyBatch:
     search_mask: np.ndarray
     search_values: np.ndarray
     search_valid: np.ndarray
+    sample_tiers: np.ndarray
+    rollout_sources: np.ndarray
+    collected_at_games: np.ndarray
 
     def __len__(self) -> int:
         return int(self.targets.shape[0])
@@ -1444,6 +1466,14 @@ class _DiskPolicyReplayStore:
         "search_values",
         "search_valid",
     )
+    _OPTIONAL_ARRAY_NAMES = (
+        "rollout_sources",
+        "collected_at_games",
+        "collection_policy_probabilities",
+        "behavior_heads",
+        "behavior_epsilons",
+        "deployment_policy",
+    )
 
     def __init__(
         self,
@@ -1598,6 +1628,13 @@ class _DiskPolicyReplayStore:
                 name: np.load(shard.path / f"{name}.npy", mmap_mode="r", allow_pickle=False)
                 for name in self._ARRAY_NAMES
             }
+            arrays.update(
+                {
+                    name: np.load(shard.path / f"{name}.npy", mmap_mode="r", allow_pickle=False)
+                    for name in self._OPTIONAL_ARRAY_NAMES
+                    if (shard.path / f"{name}.npy").is_file()
+                }
+            )
         self._mapped[key] = arrays
         while len(self._mapped) > self.mapped_shards:
             oldest = next(iter(self._mapped))
@@ -1671,16 +1708,28 @@ class _DiskPolicyReplayStore:
             "behavior_probabilities": np.asarray(
                 [item.behavior_probability for item in items], dtype=np.float16
             ),
+            "collection_policy_probabilities": np.asarray(
+                [item.collection_policy_probability for item in items], dtype=np.float16
+            ),
+            "behavior_heads": np.asarray([item.behavior_head for item in items], dtype=np.int16),
+            "behavior_epsilons": np.asarray(
+                [item.behavior_epsilon for item in items], dtype=np.float16
+            ),
+            "deployment_policy": np.asarray(
+                [item.deployment_policy for item in items], dtype=np.uint8
+            ),
             "bootstrap_masks": np.stack([item.bootstrap_mask for item in items]).astype(np.uint8),
             "steps": np.asarray([item.step for item in items], dtype=np.uint32),
             "search_policy": np.concatenate([item.search_policy for item in items]).astype(
                 np.float16
             ),
             "search_mask": np.concatenate([item.search_mask for item in items]).astype(np.uint8),
-            "search_values": np.asarray(
-                [item.search_value for item in items], dtype=np.float16
-            ),
+            "search_values": np.asarray([item.search_value for item in items], dtype=np.float16),
             "search_valid": np.asarray([item.search_valid for item in items], dtype=np.uint8),
+            "rollout_sources": np.asarray([item.rollout_source for item in items], dtype=np.uint8),
+            "collected_at_games": np.asarray(
+                [item.collected_at_game for item in items], dtype=np.uint64
+            ),
         }
         for name, array in arrays.items():
             np.save(temporary / f"{name}.npy", array, allow_pickle=False)
@@ -1749,9 +1798,7 @@ class _DiskPolicyReplayStore:
                 if source.path.parent == self.directory:
                     destination = source.path
                 else:
-                    destination = self.directory / (
-                        f"import-{self._generation:08d}-{ordinal:05d}"
-                    )
+                    destination = self.directory / (f"import-{self._generation:08d}-{ordinal:05d}")
                     self._generation += 1
                     if not destination.exists():
                         try:
@@ -1776,7 +1823,7 @@ class _DiskPolicyReplayStore:
         count: int,
         rng: np.random.Generator,
         *,
-        family_balanced: bool,
+        family_balanced_fraction: float,
     ) -> list[PolicyItem]:
         if count < 1:
             return []
@@ -1799,16 +1846,17 @@ class _DiskPolicyReplayStore:
                     start = int(arrays["episode_offsets"][episode_index])
                     stop = int(arrays["episode_offsets"][episode_index + 1])
                     rows = np.arange(start, stop, dtype=np.int64)
-                    turns = (
-                        arrays["states"][rows, 11].astype(np.float32) * 50.0
-                        if self.state_size > 11
-                        else np.zeros(len(rows), dtype=np.float32)
-                    )
-                    phases = np.where(turns <= 6, 0, np.where(turns <= 16, 1, 2))
-                    phase_values = np.unique(phases)
-                    phase = phase_values[int(rng.integers(0, len(phase_values)))]
-                    candidates = rows[phases == phase]
-                    if family_balanced:
+                    candidates = rows
+                    if rng.random() < family_balanced_fraction:
+                        turns = (
+                            arrays["states"][rows, 11].astype(np.float32) * 50.0
+                            if self.state_size > 11
+                            else np.zeros(len(rows), dtype=np.float32)
+                        )
+                        phases = np.where(turns <= 6, 0, np.where(turns <= 16, 1, 2))
+                        phase_values = np.unique(phases)
+                        phase = phase_values[int(rng.integers(0, len(phase_values)))]
+                        candidates = rows[phases == phase]
                         family_values = np.unique(arrays["families"][candidates])
                         family = family_values[int(rng.integers(0, len(family_values)))]
                         candidates = candidates[arrays["families"][candidates] == family]
@@ -1822,10 +1870,28 @@ class _DiskPolicyReplayStore:
                             selected_index=int(arrays["selected_indices"][row]),
                             family=int(arrays["families"][row]),
                             target=float(arrays["targets"][row]),
-                            behavior_probability=float(
-                                arrays["behavior_probabilities"][row]
-                            ),
+                            behavior_probability=float(arrays["behavior_probabilities"][row]),
                             bootstrap_mask=arrays["bootstrap_masks"][row],
+                            collection_policy_probability=(
+                                float(arrays["collection_policy_probabilities"][row])
+                                if "collection_policy_probabilities" in arrays
+                                else 0.0
+                            ),
+                            behavior_head=(
+                                int(arrays["behavior_heads"][row])
+                                if "behavior_heads" in arrays
+                                else -1
+                            ),
+                            behavior_epsilon=(
+                                float(arrays["behavior_epsilons"][row])
+                                if "behavior_epsilons" in arrays
+                                else 0.0
+                            ),
+                            deployment_policy=(
+                                bool(arrays["deployment_policy"][row])
+                                if "deployment_policy" in arrays
+                                else False
+                            ),
                             game_id=int(arrays["episode_game_ids"][episode_index]),
                             player=int(arrays["episode_players"][episode_index]),
                             step=int(arrays["steps"][row]),
@@ -1833,6 +1899,16 @@ class _DiskPolicyReplayStore:
                             search_mask=arrays["search_mask"][action_start:action_stop],
                             search_value=float(arrays["search_values"][row]),
                             search_valid=bool(arrays["search_valid"][row]),
+                            rollout_source=(
+                                int(arrays["rollout_sources"][row])
+                                if "rollout_sources" in arrays
+                                else 0
+                            ),
+                            collected_at_game=(
+                                int(arrays["collected_at_games"][row])
+                                if "collected_at_games" in arrays
+                                else 0
+                            ),
                         )
                     )
             self._samples_drawn += len(items)
@@ -1850,9 +1926,7 @@ class _DiskPolicyReplayStore:
                 "shards": len(self._shards),
                 "pending_decisions": self._pending_decisions,
                 "storage_bytes": sum(shard.size_bytes for shard in self._shards),
-                "searched_decisions": sum(
-                    shard.searched_decisions for shard in self._shards
-                ),
+                "searched_decisions": sum(shard.searched_decisions for shard in self._shards),
                 "writes": self._writes,
                 "evicted_decisions": self._evicted_decisions,
                 "samples_drawn": self._samples_drawn,
@@ -1879,6 +1953,7 @@ class GameBalancedPolicyReplayBuffer:
         max_actions: int = MAX_POLICY_ACTIONS,
         max_decisions_per_player_game: int = 0,
         family_balanced: bool = False,
+        family_balanced_fraction: float = 1.0,
         disk_directory: str | Path | None = None,
         disk_capacity: int = 0,
         disk_sample_fraction: float = 0.30,
@@ -1889,6 +1964,8 @@ class GameBalancedPolicyReplayBuffer:
             raise ValueError("capacity must be positive")
         if not 0 <= disk_sample_fraction <= 1:
             raise ValueError("disk_sample_fraction must be in [0, 1]")
+        if not 0 <= family_balanced_fraction <= 1:
+            raise ValueError("family_balanced_fraction must be in [0, 1]")
         if disk_capacity and disk_directory is None:
             raise ValueError("disk_directory is required when disk replay is enabled")
         self.capacity = int(capacity)
@@ -1898,6 +1975,9 @@ class GameBalancedPolicyReplayBuffer:
         self.max_actions = int(max_actions)
         self.max_decisions_per_player_game = max(0, int(max_decisions_per_player_game))
         self.family_balanced = bool(family_balanced)
+        self.family_balanced_fraction = (
+            float(family_balanced_fraction) if self.family_balanced else 0.0
+        )
         self.disk_sample_fraction = float(disk_sample_fraction)
         self._episodes: OrderedDict[tuple[int, int], list[PolicyItem]] = OrderedDict()
         # OrderedDict supplies FIFO eviction, while this dense side index makes
@@ -1909,6 +1989,12 @@ class GameBalancedPolicyReplayBuffer:
         self._writes = 0
         self._evicted_decisions = 0
         self._searched_decisions = 0
+        self._written_family_counts = np.zeros(FAMILY_COUNT, dtype=np.uint64)
+        self._retained_family_counts = np.zeros(FAMILY_COUNT, dtype=np.uint64)
+        self._sampled_family_counts = np.zeros(FAMILY_COUNT, dtype=np.uint64)
+        self._written_phase_counts = np.zeros(3, dtype=np.uint64)
+        self._retained_phase_counts = np.zeros(3, dtype=np.uint64)
+        self._sampled_phase_counts = np.zeros(3, dtype=np.uint64)
         self._incremental_directory: Path | None = None
         self._incremental_segments: list[Path] = []
         self._incremental_persisted_decisions = 0
@@ -1989,6 +2075,14 @@ class GameBalancedPolicyReplayBuffer:
             raise ValueError("policy target must be in [0, 1]")
         if not 0 < float(item.behavior_probability) <= 1:
             raise ValueError("behavior probability must be in (0, 1]")
+        if not 0 <= float(item.collection_policy_probability) <= 1:
+            raise ValueError("collection policy probability must be in [0, 1]")
+        if not -1 <= int(item.behavior_head) < self.bootstrap_heads:
+            raise ValueError("behavior head is outside the bootstrap head range")
+        if not 0 <= float(item.behavior_epsilon) <= 1:
+            raise ValueError("behavior epsilon must be in [0, 1]")
+        if int(item.rollout_source) not in POLICY_ROLLOUT_SOURCE_NAMES:
+            raise ValueError("unknown policy rollout source")
         if search_policy.shape != (len(actions),) or search_mask.shape != (len(actions),):
             raise ValueError("search targets must align with the legal action set")
         if not np.isfinite(search_policy).all() or np.any(search_policy < 0):
@@ -2012,6 +2106,10 @@ class GameBalancedPolicyReplayBuffer:
             target=float(item.target),
             behavior_probability=float(item.behavior_probability),
             bootstrap_mask=mask,
+            collection_policy_probability=float(item.collection_policy_probability),
+            behavior_head=int(item.behavior_head),
+            behavior_epsilon=float(item.behavior_epsilon),
+            deployment_policy=bool(item.deployment_policy),
             game_id=item.game_id,
             player=int(item.player),
             step=int(item.step),
@@ -2019,33 +2117,51 @@ class GameBalancedPolicyReplayBuffer:
             search_mask=search_mask,
             search_value=float(item.search_value),
             search_valid=search_valid,
+            rollout_source=int(item.rollout_source),
+            collected_at_game=max(0, int(item.collected_at_game)),
         )
 
     def _compact_episode(self, episode: list[PolicyItem]) -> list[PolicyItem]:
         limit = self.max_decisions_per_player_game
         if not limit or len(episode) <= limit:
             return episode
+        searched = [item for item in episode if item.search_valid]
+        if len(searched) >= limit:
+            return sorted(searched[:limit], key=lambda item: item.step)
+        selected: list[PolicyItem] = list(searched)
+        selected_ids = {id(item) for item in selected}
+        remaining = [item for item in episode if id(item) not in selected_ids]
+        open_slots = limit - len(selected)
+        balanced_slots = int(round(open_slots * self.family_balanced_fraction))
+        natural_slots = open_slots - balanced_slots
+        if natural_slots and remaining:
+            indices = self._rng.choice(
+                len(remaining), size=min(natural_slots, len(remaining)), replace=False
+            )
+            natural = [remaining[int(index)] for index in np.atleast_1d(indices)]
+            selected.extend(natural)
+            selected_ids.update(id(item) for item in natural)
         strata: dict[tuple[int, int], list[PolicyItem]] = {}
         for item in episode:
+            if id(item) in selected_ids:
+                continue
             turn = float(item.state[11]) * 50.0 if len(item.state) > 11 else 0.0
             phase = 0 if turn <= 6 else 1 if turn <= 16 else 2
-            family = int(item.family) if self.family_balanced else 0
-            strata.setdefault((family, phase), []).append(item)
-        # Round-robin strata prevent common main-phase decisions from erasing
-        # rare tactical families. Random selection within each stratum is a
-        # true per-game reservoir rather than a fixed early-turn slice.
-        selected: list[PolicyItem] = [item for item in episode if item.search_valid][:limit]
-        selected_ids = {id(item) for item in selected}
-        pools = [
-            [item for item in rows if id(item) not in selected_ids]
-            for _key, rows in sorted(strata.items())
-        ]
+            strata.setdefault((int(item.family), phase), []).append(item)
+        pools = [list(rows) for _key, rows in sorted(strata.items())]
         while len(selected) < limit and any(pools):
             for pool in pools:
                 if not pool or len(selected) >= limit:
                     continue
                 index = int(self._rng.integers(0, len(pool)))
                 selected.append(pool.pop(index))
+        if len(selected) < limit:
+            leftovers = [item for item in episode if id(item) not in {id(row) for row in selected}]
+            if leftovers:
+                indices = self._rng.choice(
+                    len(leftovers), size=min(limit - len(selected), len(leftovers)), replace=False
+                )
+                selected.extend(leftovers[int(index)] for index in np.atleast_1d(indices))
         return sorted(selected, key=lambda item: item.step)
 
     def extend(self, items: list[PolicyItem] | tuple[PolicyItem, ...]) -> int:
@@ -2057,7 +2173,19 @@ class GameBalancedPolicyReplayBuffer:
         evicted: list[tuple[tuple[int, int], list[PolicyItem]]] = []
         with self._lock:
             for key, episode in grouped.items():
+                for item in episode:
+                    family = int(item.family)
+                    turn = float(item.state[11]) * 50.0 if len(item.state) > 11 else 0.0
+                    phase = 0 if turn <= 6 else 1 if turn <= 16 else 2
+                    self._written_family_counts[family] += 1
+                    self._written_phase_counts[phase] += 1
                 episode = self._compact_episode(episode)
+                for item in episode:
+                    family = int(item.family)
+                    turn = float(item.state[11]) * 50.0 if len(item.state) > 11 else 0.0
+                    phase = 0 if turn <= 6 else 1 if turn <= 16 else 2
+                    self._retained_family_counts[family] += 1
+                    self._retained_phase_counts[phase] += 1
                 previous = self._episodes.pop(key, None)
                 if previous is not None:
                     self._size -= len(previous)
@@ -2083,7 +2211,13 @@ class GameBalancedPolicyReplayBuffer:
         self._cold.append_episodes(evicted)
         return len(validated)
 
-    def extend_compact(self, compact: Any) -> int:
+    def extend_compact(
+        self,
+        compact: Any,
+        *,
+        rollout_source: str | int = "unknown",
+        collected_at_game: int = 0,
+    ) -> int:
         offsets = np.asarray(compact.action_offsets, dtype=np.int64)
         count = int(len(compact.targets))
         if offsets.shape != (count + 1,) or offsets[0] != 0:
@@ -2091,6 +2225,13 @@ class GameBalancedPolicyReplayBuffer:
         actions = np.asarray(compact.legal_actions)
         if offsets[-1] != len(actions):
             raise ValueError("compact policy offsets do not cover legal actions")
+        source_id = (
+            POLICY_ROLLOUT_SOURCE_IDS.get(rollout_source, 0)
+            if isinstance(rollout_source, str)
+            else int(rollout_source)
+        )
+        compact_sources = getattr(compact, "rollout_sources", None)
+        compact_collection_games = getattr(compact, "collected_at_games", None)
         items = [
             PolicyItem(
                 state=np.asarray(compact.states[index], dtype=np.float32),
@@ -2102,6 +2243,26 @@ class GameBalancedPolicyReplayBuffer:
                 target=float(compact.targets[index]),
                 behavior_probability=float(compact.behavior_probabilities[index]),
                 bootstrap_mask=np.asarray(compact.bootstrap_masks[index], dtype=np.uint8),
+                collection_policy_probability=(
+                    float(compact.collection_policy_probabilities[index])
+                    if hasattr(compact, "collection_policy_probabilities")
+                    else 0.0
+                ),
+                behavior_head=(
+                    int(compact.behavior_heads[index])
+                    if hasattr(compact, "behavior_heads")
+                    else -1
+                ),
+                behavior_epsilon=(
+                    float(compact.behavior_epsilons[index])
+                    if hasattr(compact, "behavior_epsilons")
+                    else 0.0
+                ),
+                deployment_policy=(
+                    bool(compact.deployment_policy[index])
+                    if hasattr(compact, "deployment_policy")
+                    else False
+                ),
                 game_id=int(compact.game_ids[index]),
                 player=int(compact.players[index]),
                 step=int(compact.steps[index]),
@@ -2115,6 +2276,14 @@ class GameBalancedPolicyReplayBuffer:
                 ),
                 search_value=float(compact.search_values[index]),
                 search_valid=bool(compact.search_valid[index]),
+                rollout_source=(
+                    int(compact_sources[index]) if compact_sources is not None else source_id
+                ),
+                collected_at_game=(
+                    int(compact_collection_games[index])
+                    if compact_collection_games is not None
+                    else max(0, int(collected_at_game))
+                ),
             )
             for index in range(count)
         ]
@@ -2134,22 +2303,28 @@ class GameBalancedPolicyReplayBuffer:
             items: list[PolicyItem] = []
             for key_index in chosen_keys:
                 episode = self._episodes[self._episode_keys[int(key_index)]]
-                phases = ([], [], [])
-                for item in episode:
-                    turn = float(item.state[11]) * 50.0 if len(item.state) > 11 else 0.0
-                    phase = 0 if turn <= 6 else 1 if turn <= 16 else 2
-                    phases[phase].append(item)
-                available_phases = [phase for phase, rows in enumerate(phases) if rows]
-                phase = available_phases[int(self._rng.integers(0, len(available_phases)))]
-                rows = phases[phase]
-                if self.family_balanced:
+                rows = episode
+                if self._rng.random() < self.family_balanced_fraction:
+                    phases = ([], [], [])
+                    for item in episode:
+                        turn = float(item.state[11]) * 50.0 if len(item.state) > 11 else 0.0
+                        phase = 0 if turn <= 6 else 1 if turn <= 16 else 2
+                        phases[phase].append(item)
+                    available_phases = [phase for phase, values in enumerate(phases) if values]
+                    phase = available_phases[int(self._rng.integers(0, len(available_phases)))]
+                    rows = phases[phase]
                     families = sorted({int(item.family) for item in rows})
                     family = families[int(self._rng.integers(0, len(families)))]
                     rows = [item for item in rows if int(item.family) == family]
                 items.append(rows[int(self._rng.integers(0, len(rows)))])
             return items
 
-    def _batch_from_items(self, items: list[PolicyItem]) -> PolicyBatch:
+    def _batch_from_items(
+        self,
+        items: list[PolicyItem],
+        *,
+        sample_tiers: np.ndarray | None = None,
+    ) -> PolicyBatch:
         batch_size = len(items)
         # max_actions is the validation ceiling, not a reason to execute every
         # batch at that width. Sampling is unchanged; only omit padding beyond
@@ -2175,6 +2350,16 @@ class GameBalancedPolicyReplayBuffer:
             behavior_probabilities=np.asarray(
                 [item.behavior_probability for item in items], dtype=np.float32
             ),
+            collection_policy_probabilities=np.asarray(
+                [item.collection_policy_probability for item in items], dtype=np.float32
+            ),
+            behavior_heads=np.asarray([item.behavior_head for item in items], dtype=np.int16),
+            behavior_epsilons=np.asarray(
+                [item.behavior_epsilon for item in items], dtype=np.float32
+            ),
+            deployment_policy=np.asarray(
+                [item.deployment_policy for item in items], dtype=np.uint8
+            ),
             bootstrap_mask=np.stack([item.bootstrap_mask for item in items]).astype(np.float32),
             sample_weights=np.ones(batch_size, dtype=np.float32),
             game_ids=np.asarray(
@@ -2186,6 +2371,15 @@ class GameBalancedPolicyReplayBuffer:
             search_mask=search_mask,
             search_values=np.asarray([item.search_value for item in items], dtype=np.float32),
             search_valid=np.asarray([item.search_valid for item in items], dtype=np.float32),
+            sample_tiers=(
+                np.zeros(batch_size, dtype=np.uint8)
+                if sample_tiers is None
+                else np.asarray(sample_tiers, dtype=np.uint8)
+            ),
+            rollout_sources=np.asarray([item.rollout_source for item in items], dtype=np.uint8),
+            collected_at_games=np.asarray(
+                [item.collected_at_game for item in items], dtype=np.uint64
+            ),
         )
 
     def sample(self, batch_size: int) -> PolicyBatch:
@@ -2201,22 +2395,33 @@ class GameBalancedPolicyReplayBuffer:
         else:
             cold_count = batch_size if cold_available else 0
         hot_count = batch_size - cold_count
-        items = self._sample_hot_items(hot_count)
-        items.extend(
-            self._cold.sample_items(
-                cold_count,
-                self._rng,
-                family_balanced=self.family_balanced,
-            )
+        hot_items = self._sample_hot_items(hot_count)
+        cold_items = self._cold.sample_items(
+            cold_count,
+            self._rng,
+            family_balanced_fraction=self.family_balanced_fraction,
         )
+        items = [*hot_items, *cold_items]
+        sample_tiers = [0] * len(hot_items) + [1] * len(cold_items)
         # A cold store can have only a not-yet-flushed write buffer. Fall back
         # to hot replay so every requested learner batch remains full.
         if len(items) < batch_size:
-            items.extend(self._sample_hot_items(batch_size - len(items)))
+            fallback = self._sample_hot_items(batch_size - len(items))
+            items.extend(fallback)
+            sample_tiers.extend([0] * len(fallback))
         if len(items) != batch_size:
             raise ValueError("policy replay could not assemble a complete batch")
         order = self._rng.permutation(batch_size)
-        return self._batch_from_items([items[int(index)] for index in order])
+        for item in items:
+            family = int(item.family)
+            turn = float(item.state[11]) * 50.0 if len(item.state) > 11 else 0.0
+            phase = 0 if turn <= 6 else 1 if turn <= 16 else 2
+            self._sampled_family_counts[family] += 1
+            self._sampled_phase_counts[phase] += 1
+        return self._batch_from_items(
+            [items[int(index)] for index in order],
+            sample_tiers=np.asarray([sample_tiers[int(index)] for index in order], dtype=np.uint8),
+        )
 
     def metrics(self) -> dict[str, Any]:
         with self._lock:
@@ -2235,12 +2440,20 @@ class GameBalancedPolicyReplayBuffer:
                 ),
                 "writes": self._writes,
                 "evicted_decisions": self._evicted_decisions,
-                "sampling": "uniform_player_game_then_turn_phase_then_decision",
+                "sampling": "uniform_player_game_then_mixed_natural_and_stratified_decision",
                 "sampling_tiers": "mixed_hot_memory_and_cold_mmap_disk",
                 "max_decisions_per_player_game": self.max_decisions_per_player_game,
                 "family_balanced": self.family_balanced,
-                "searched_decisions": self._searched_decisions
-                + int(cold["searched_decisions"]),
+                "family_balanced_fraction": self.family_balanced_fraction,
+                "decision_distribution": {
+                    "written_by_family": self._written_family_counts.tolist(),
+                    "retained_by_family": self._retained_family_counts.tolist(),
+                    "sampled_by_family": self._sampled_family_counts.tolist(),
+                    "written_by_phase": self._written_phase_counts.tolist(),
+                    "retained_by_phase": self._retained_phase_counts.tolist(),
+                    "sampled_by_phase": self._sampled_phase_counts.tolist(),
+                },
+                "searched_decisions": self._searched_decisions + int(cold["searched_decisions"]),
                 "hot": {
                     "size": self._size,
                     "capacity": self.capacity,
@@ -2271,11 +2484,7 @@ class GameBalancedPolicyReplayBuffer:
 
         with self._lock:
             episodes = (
-                [
-                    (key, self._episodes[key])
-                    for key in _episode_keys
-                    if key in self._episodes
-                ]
+                [(key, self._episodes[key]) for key in _episode_keys if key in self._episodes]
                 if _episode_keys is not None
                 else list(self._episodes.items())
             )
@@ -2323,11 +2532,23 @@ class GameBalancedPolicyReplayBuffer:
                 ),
                 legal_actions=legal_actions.astype(np.float16),
                 action_offsets=offsets,
-                selected_indices=np.asarray([item.selected_index for item in items], dtype=np.uint16),
+                selected_indices=np.asarray(
+                    [item.selected_index for item in items], dtype=np.uint16
+                ),
                 families=np.asarray([int(item.family) for item in items], dtype=np.uint8),
                 targets=np.asarray([item.target for item in items], dtype=np.float16),
                 behavior_probabilities=np.asarray(
                     [item.behavior_probability for item in items], dtype=np.float16
+                ),
+                collection_policy_probabilities=np.asarray(
+                    [item.collection_policy_probability for item in items], dtype=np.float16
+                ),
+                behavior_heads=np.asarray([item.behavior_head for item in items], dtype=np.int16),
+                behavior_epsilons=np.asarray(
+                    [item.behavior_epsilon for item in items], dtype=np.float16
+                ),
+                deployment_policy=np.asarray(
+                    [item.deployment_policy for item in items], dtype=np.uint8
                 ),
                 bootstrap_masks=(
                     np.stack([item.bootstrap_mask for item in items]).astype(np.uint8)
@@ -2339,6 +2560,10 @@ class GameBalancedPolicyReplayBuffer:
                 search_mask=search_mask.astype(np.uint8),
                 search_values=np.asarray([item.search_value for item in items], dtype=np.float16),
                 search_valid=np.asarray([item.search_valid for item in items], dtype=np.uint8),
+                rollout_sources=np.asarray([item.rollout_source for item in items], dtype=np.uint8),
+                collected_at_games=np.asarray(
+                    [item.collected_at_game for item in items], dtype=np.uint64
+                ),
             )
             return len(items)
 
@@ -2420,8 +2645,7 @@ class GameBalancedPolicyReplayBuffer:
             self._checkpoint_manifest_directory = manifest_path.parent.resolve()
             retained_limit = self.capacity if max_items <= 0 else min(self.capacity, max_items)
             compact = bool(self._incremental_segments) and (
-                force_compact
-                or self._incremental_persisted_decisions >= 2 * retained_limit
+                force_compact or self._incremental_persisted_decisions >= 2 * retained_limit
             )
             if compact:
                 base = self._next_incremental_path("base")
@@ -2506,8 +2730,7 @@ class GameBalancedPolicyReplayBuffer:
                         referenced_shards.update(
                             Path(value["path"]).expanduser().resolve()
                             for value in cold["shards"]
-                            if isinstance(value, dict)
-                            and isinstance(value.get("path"), str)
+                            if isinstance(value, dict) and isinstance(value.get("path"), str)
                         )
                 except (OSError, ValueError, TypeError, json.JSONDecodeError):
                     # A partial/unrelated manifest cannot authorize deletion.
@@ -2517,9 +2740,7 @@ class GameBalancedPolicyReplayBuffer:
             self._incremental_obsolete = [
                 path for path in obsolete if path.resolve() in referenced_segments
             ]
-        for path in (
-            path for path in obsolete if path.resolve() not in referenced_segments
-        ):
+        for path in (path for path in obsolete if path.resolve() not in referenced_segments):
             with suppress(OSError):
                 path.unlink(missing_ok=True)
         self._cold.commit_snapshot(protected_paths=referenced_shards)
@@ -2531,9 +2752,7 @@ class GameBalancedPolicyReplayBuffer:
             if manifest.get("format") == "hybrid_game_reservoir_v3":
                 hot_manifest = manifest.get("hot")
                 cold_manifest = manifest.get("cold")
-                if not isinstance(hot_manifest, dict) or not isinstance(
-                    cold_manifest, dict
-                ):
+                if not isinstance(hot_manifest, dict) or not isinstance(cold_manifest, dict):
                     raise ValueError("hybrid policy replay manifest is incomplete")
             else:
                 hot_manifest = manifest
@@ -2541,7 +2760,9 @@ class GameBalancedPolicyReplayBuffer:
             if hot_manifest.get("format") != "game_reservoir_incremental_v2":
                 raise ValueError("unsupported policy replay manifest")
             segments = hot_manifest.get("segments")
-            if not isinstance(segments, list) or not all(isinstance(item, str) for item in segments):
+            if not isinstance(segments, list) or not all(
+                isinstance(item, str) for item in segments
+            ):
                 raise ValueError("invalid policy replay segment manifest")
             self.clear()
             for segment in segments:
@@ -2555,9 +2776,7 @@ class GameBalancedPolicyReplayBuffer:
                         evicted.append((removed_key, removed))
                         self._remove_episode_key(removed_key)
                         self._size -= len(removed)
-                        self._searched_decisions -= sum(
-                            int(item.search_valid) for item in removed
-                        )
+                        self._searched_decisions -= sum(int(item.search_valid) for item in removed)
                 self._cold.append_episodes(evicted)
             if cold_manifest is not None:
                 self._cold.import_payload(cold_manifest)
@@ -2566,7 +2785,10 @@ class GameBalancedPolicyReplayBuffer:
 
     def _restore_npz(self, path: Path, *, clear: bool) -> int:
         with np.load(path, allow_pickle=False) as archive:
-            if int(archive["state_size"]) != self.state_size or int(archive["action_size"]) != self.action_size:
+            if (
+                int(archive["state_size"]) != self.state_size
+                or int(archive["action_size"]) != self.action_size
+            ):
                 raise ValueError("policy replay snapshot dimensions do not match")
             lengths = np.asarray(archive["episode_lengths"], dtype=np.int64)
             game_ids = np.asarray(archive["episode_game_ids"], dtype=np.uint64)
@@ -2589,6 +2811,36 @@ class GameBalancedPolicyReplayBuffer:
                     "search_valid",
                 )
             }
+            columns["rollout_sources"] = (
+                archive["rollout_sources"]
+                if "rollout_sources" in archive
+                else np.zeros(len(columns["targets"]), dtype=np.uint8)
+            )
+            columns["collected_at_games"] = (
+                archive["collected_at_games"]
+                if "collected_at_games" in archive
+                else np.zeros(len(columns["targets"]), dtype=np.uint64)
+            )
+            columns["collection_policy_probabilities"] = (
+                archive["collection_policy_probabilities"]
+                if "collection_policy_probabilities" in archive
+                else np.zeros(len(columns["targets"]), dtype=np.float16)
+            )
+            columns["behavior_heads"] = (
+                archive["behavior_heads"]
+                if "behavior_heads" in archive
+                else np.full(len(columns["targets"]), -1, dtype=np.int16)
+            )
+            columns["behavior_epsilons"] = (
+                archive["behavior_epsilons"]
+                if "behavior_epsilons" in archive
+                else np.zeros(len(columns["targets"]), dtype=np.float16)
+            )
+            columns["deployment_policy"] = (
+                archive["deployment_policy"]
+                if "deployment_policy" in archive
+                else np.zeros(len(columns["targets"]), dtype=np.uint8)
+            )
             if clear:
                 self.clear()
             restored = 0
@@ -2627,22 +2879,28 @@ class GameBalancedPolicyReplayBuffer:
                         "behavior_probabilities": columns["behavior_probabilities"][
                             decision_start:decision_stop
                         ],
-                        "bootstrap_masks": columns["bootstrap_masks"][
+                        "collection_policy_probabilities": columns[
+                            "collection_policy_probabilities"
+                        ][decision_start:decision_stop],
+                        "behavior_heads": columns["behavior_heads"][
                             decision_start:decision_stop
                         ],
-                        "game_ids": np.repeat(
-                            game_ids[episode_start:episode_stop], chunk_lengths
-                        ),
-                        "players": np.repeat(
-                            players[episode_start:episode_stop], chunk_lengths
-                        ),
+                        "behavior_epsilons": columns["behavior_epsilons"][
+                            decision_start:decision_stop
+                        ],
+                        "deployment_policy": columns["deployment_policy"][
+                            decision_start:decision_stop
+                        ],
+                        "bootstrap_masks": columns["bootstrap_masks"][decision_start:decision_stop],
+                        "game_ids": np.repeat(game_ids[episode_start:episode_stop], chunk_lengths),
+                        "players": np.repeat(players[episode_start:episode_stop], chunk_lengths),
                         "steps": columns["steps"][decision_start:decision_stop],
                         "search_policy": columns["search_policy"][action_start:action_stop],
                         "search_mask": columns["search_mask"][action_start:action_stop],
-                        "search_values": columns["search_values"][
-                            decision_start:decision_stop
-                        ],
-                        "search_valid": columns["search_valid"][
+                        "search_values": columns["search_values"][decision_start:decision_stop],
+                        "search_valid": columns["search_valid"][decision_start:decision_stop],
+                        "rollout_sources": columns["rollout_sources"][decision_start:decision_stop],
+                        "collected_at_games": columns["collected_at_games"][
                             decision_start:decision_stop
                         ],
                     },

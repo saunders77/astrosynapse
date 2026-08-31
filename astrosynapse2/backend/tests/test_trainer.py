@@ -2,6 +2,7 @@ import json
 import threading
 from pathlib import Path
 
+import astro2.trainer as trainer_module
 import numpy as np
 import pytest
 from astro2.config import RunConfig
@@ -44,7 +45,7 @@ from astro2.trainer import (
 from safetensors.numpy import save_file
 
 
-def test_mature_governor_cools_stale_clipped_updates_without_adding_entropy(tmp_path):
+def test_mature_governor_ignores_unverified_clip_and_importance_staleness(tmp_path):
     store = Store(tmp_path / "state.sqlite3")
     config = RunConfig.astro5_mature()
     run = store.create_run(config)
@@ -63,11 +64,74 @@ def test_mature_governor_cools_stale_clipped_updates_without_adding_entropy(tmp_
     )
 
     assert state["strategy"] == "mature"
-    assert state["learning_rate_multiplier"] < 1.0
-    assert state["updates_multiplier"] < 1.0
+    assert state["learning_rate_multiplier"] == 1.0
+    assert state["updates_multiplier"] == 1.0
     assert state["reanalysis_multiplier"] > 1.0
     assert state["entropy_weight"] < config.policy_entropy_weight
-    assert any("stale-policy" in reason for reason in state["reasons"])
+    assert not any("stale" in reason for reason in state["reasons"])
+
+
+def test_mature_governor_responds_to_verified_collection_policy_drift(tmp_path):
+    store = Store(tmp_path / "state.sqlite3")
+    config = RunConfig.astro5_mature()
+    run = store.create_run(config)
+    state = _governor_status(
+        store,
+        run["id"],
+        config,
+        games=1_000,
+        diagnostics={
+            "normalized_policy_entropy": config.governor_target_normalized_entropy,
+            "searched_fraction": config.reanalysis_fraction,
+            "collection_policy_abs_log_drift": 0.5,
+            "collection_policy_samples": 64,
+        },
+    )
+    assert state["updates_multiplier"] < 1.0
+    assert any("verified collection-policy drift" in reason for reason in state["reasons"])
+
+
+def test_full_evaluation_plateau_requests_branch_even_without_adaptive_exploration(
+    tmp_path, monkeypatch
+):
+    store = Store(tmp_path / "state.sqlite3")
+    config = RunConfig.astro5_mature().model_copy(
+        update={"adaptive_training": False, "governor_branch_after_failures": 3}
+    )
+    run = store.create_run(config)
+    jobs = [
+        {
+            "result": {
+                "model_a_score": score,
+                "promotion": {"promoted": False},
+            }
+        }
+        for score in (0.49, 0.48, 0.47)
+    ]
+    monkeypatch.setattr(trainer_module, "_completed_trainer_evaluations", lambda *_: jobs)
+
+    plateau = _plateau_status(store, run["id"], config)
+    state = _governor_status(
+        store,
+        run["id"],
+        config,
+        games=1_000,
+        diagnostics={
+            "normalized_policy_entropy": 0.72,
+            "gradient_clip_fraction": 0.0,
+            "searched_fraction": 0.01,
+            "mean_importance_ratio": 1.0,
+        },
+        plateau=plateau,
+    )
+
+    assert plateau["active"] is True
+    assert plateau["adaptive_exploration_active"] is False
+    assert plateau["exploration_multiplier"] == 1.0
+    assert plateau["branch_requested"] is True
+    assert state["branch_requested"] is True
+    assert state["reanalysis_multiplier"] <= 1.0
+    assert state["consecutive_full_non_promotions"] == 3
 
 
 def _write_test_model(path: Path, config: RunConfig) -> Path:
@@ -134,21 +198,39 @@ def test_resume_skips_and_repairs_nonzero_random_anchor(tmp_path):
     candidate_path = _write_test_model(tmp_path / "candidate.safetensors", config)
     invalid_path = _write_test_model(tmp_path / "invalid.safetensors", config)
     root = store.add_checkpoint(
-        run_id=run["id"], label="Initial anchor", path=str(root_path), actor_path=None,
-        games=0, champion=True, evaluation={"reason": "initial random model"},
+        run_id=run["id"],
+        label="Initial anchor",
+        path=str(root_path),
+        actor_path=None,
+        games=0,
+        champion=True,
+        evaluation={"reason": "initial random model"},
     )
     candidate = store.add_checkpoint(
-        run_id=run["id"], label="Candidate 98k", path=str(candidate_path), actor_path=None,
-        games=98_176, evaluation={"reason": "pause"},
+        run_id=run["id"],
+        label="Candidate 98k",
+        path=str(candidate_path),
+        actor_path=None,
+        games=98_176,
+        evaluation={"reason": "pause"},
     )
     invalid = store.add_checkpoint(
-        run_id=run["id"], label="Bad anchor 98k", path=str(invalid_path), actor_path=None,
-        games=98_176, champion=True, evaluation={"reason": "initial random model"},
+        run_id=run["id"],
+        label="Bad anchor 98k",
+        path=str(invalid_path),
+        actor_path=None,
+        games=98_176,
+        champion=True,
+        evaluation={"reason": "initial random model"},
     )
     tainted_path = _write_test_model(tmp_path / "tainted.safetensors", config)
     store.add_checkpoint(
-        run_id=run["id"], label="Tainted candidate 126k", path=str(tainted_path),
-        actor_path=None, games=126_848, parent_id=invalid["id"],
+        run_id=run["id"],
+        label="Tainted candidate 126k",
+        path=str(tainted_path),
+        actor_path=None,
+        games=126_848,
+        parent_id=invalid["id"],
         evaluation={"reason": "pause"},
     )
 
@@ -185,9 +267,12 @@ def test_only_active_full_promotion_jobs_are_exclusive():
         },
     }
     assert _is_exclusive_full_promotion_job(full) is True
-    assert _is_exclusive_full_promotion_job(
-        {**full, "config": {**full["config"], "promotion_tier": "canary"}}
-    ) is False
+    assert (
+        _is_exclusive_full_promotion_job(
+            {**full, "config": {**full["config"], "promotion_tier": "canary"}}
+        )
+        is False
+    )
     assert _is_exclusive_full_promotion_job({**full, "status": "complete"}) is False
 
 
@@ -1137,7 +1222,7 @@ def test_start_repairs_legacy_evaluation_pairs_before_trainer_thread(tmp_path, m
     assert repaired["config"]["evaluation_pairs"] == 50_000
     assert repaired["config"]["promotion_confidence"] == 0.95
     assert repaired["config"]["evaluation_extension_enabled"] is True
-    assert repaired["config"]["evaluation_extension_max_pairs"] == 50_000
+    assert repaired["config"]["evaluation_extension_max_pairs"] == 100_000
     assert repaired["config"]["evaluation_extension_block_pairs"] == 2_000
     assert repaired["config"]["evaluation_extension_min_score"] == 0.50
     assert repaired["config"]["evaluation_extension_min_lower_bound"] == 0.0

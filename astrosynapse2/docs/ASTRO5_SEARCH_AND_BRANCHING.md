@@ -86,7 +86,7 @@ and increase searched supervision within configured bounds. It never weakens pro
 
 After any promotion evaluation reaches its initial target, the arena adds 2,000-pair blocks while
 the score is above 50% and its 95% paired interval still overlaps 50%. It stops when that interval is
-wholly above 50%, the score is no longer above 50%, or 50,000 total pairs are complete. This policy is
+wholly above 50%, the score is no longer above 50%, or 100,000 total pairs are complete. This policy is
 fixed across presets and is also applied when persisted runs and interrupted arena jobs resume.
 
 ## Promotion-direction refinement

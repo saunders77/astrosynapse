@@ -296,7 +296,7 @@ def test_generation_five_reanalysis_attaches_action_distribution_and_value():
         reanalysis_fraction=1.0,
         reanalysis_max_per_game=1,
         reanalysis_max_actions=2,
-        reanalysis_rollouts_per_action=1,
+        reanalysis_rollouts_per_action=2,
         reanalysis_horizon_turns=2,
         reanalysis_policy_temperature=0.35,
         max_turns=100,
@@ -306,4 +306,8 @@ def test_generation_five_reanalysis_attaches_action_distribution_and_value():
     assert np.isclose(np.sum(searched[0].search_policy), 1.0)
     assert np.sum(searched[0].search_mask) == 2
     assert 0 <= searched[0].search_value <= 1
+    assert collected.search_repeatability_positions == 1
+    assert collected.search_top_action_agreements in {0, 1}
+    assert collected.search_policy_js_sum >= 0
+    assert collected.search_value_abs_delta_sum >= 0
     assert actor.value_calls > 0

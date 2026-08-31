@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- Local card art has mixed portrait and landscape aspect ratios. */
+
 import {
   useCallback,
   useEffect,
@@ -9,6 +11,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
+import { cardArtUrl } from "./card-art";
 
 export type ManualModelGroup = {
   runId: string;
@@ -437,6 +440,7 @@ function CardNameEditor({
       <div className="relay-card-options" id={listboxId} role="listbox">
         {matches.map((item) => (
           <button key={item.card_id} type="button" role="option" aria-selected={value?.card_id === item.card_id} onClick={() => onSelect(item.card_id)}>
+            <img className="relay-option-art" src={cardArtUrl(item.card_id, item.name) ?? undefined} alt="" aria-hidden="true" loading="lazy" />
             <span className={`relay-faction-dot faction-${factionClass(item)}`} />
             <strong>{item.name}</strong>
             <small>{item.card_type} · cost {item.cost}</small>
@@ -474,6 +478,7 @@ function EditableCard({
   showAllOptions?: boolean;
 }) {
   const [editing, setEditing] = useState(tracked.cardId === null && !tracked.knownEmpty);
+  const artUrl = cardArtUrl(definition?.card_id, definition?.name);
 
   if (tracked.knownEmpty && !editing) {
     return (
@@ -513,8 +518,9 @@ function EditableCard({
   }
 
   return (
-    <article className={`relay-card faction-${factionClass(definition)}${compact ? " is-compact" : ""}`}>
+    <article className={`relay-card faction-${factionClass(definition)}${artUrl ? " has-card-art" : ""}${definition?.card_type === "ship" ? "" : " card-landscape"}${compact ? " is-compact" : ""}`}>
       {topLabel ? <span className="relay-top-label">{topLabel}</span> : null}
+      {artUrl ? <img className="relay-card-art" src={artUrl} alt={`${definition?.name ?? "Star Realms"} card`} draggable={false} /> : null}
       <span className="relay-card-cost">{definition?.cost ?? "?"}</span>
       <span className="relay-card-kind">{definition?.card_type ?? "undefined"}</span>
       <strong title={definition?.name}>{definition?.name ?? "Undefined"}</strong>

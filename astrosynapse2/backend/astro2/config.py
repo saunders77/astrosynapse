@@ -101,11 +101,18 @@ class RunConfig(BaseModel):
     reanalysis_policy_temperature: float = Field(default=0.35, gt=0, le=5)
     reanalysis_policy_loss_weight: float = Field(default=0.0, ge=0, le=20)
     reanalysis_value_loss_weight: float = Field(default=0.0, ge=0, le=20)
+    # Sparse searched rows must not receive the same aggregate objective weight
+    # as a well-populated auxiliary batch. Search losses ramp to their configured
+    # weight at this many searched positions in the learner batch.
+    reanalysis_loss_reference_positions: int = Field(default=64, ge=1, le=8_192)
     # Keeping only a phase/family reservoir from each player-game makes a
     # fixed decision budget remember tens of thousands of games instead of a
     # few thousand long trajectories.
     policy_replay_decisions_per_player_game: int = Field(default=0, ge=0, le=128)
     policy_replay_family_balanced: bool = False
+    # When family balancing is enabled, mix stratified retention/sampling with
+    # natural within-game decisions instead of replacing the natural objective.
+    policy_replay_family_balanced_fraction: float = Field(default=1.0, ge=0, le=1)
 
     epsilon_start: float = Field(default=0.20, ge=0, le=1)
     epsilon_end: float = Field(default=0.025, ge=0, le=1)
@@ -167,9 +174,9 @@ class RunConfig(BaseModel):
     evaluation_early_look_interval_pairs: int = Field(default=0, ge=0, le=50_000)
     # Promotion evaluations continue in fixed blocks while the candidate is
     # above 50% and its configured 95% interval still overlaps 50%. The arena
-    # enforces the 2,000-pair blocks and 50,000-pair ceiling system-wide.
+    # enforces the 2,000-pair blocks and 100,000-pair ceiling system-wide.
     evaluation_extension_enabled: bool = True
-    evaluation_extension_max_pairs: int = Field(default=50_000, ge=2_000, le=250_000)
+    evaluation_extension_max_pairs: int = Field(default=100_000, ge=2_000, le=250_000)
     evaluation_extension_block_pairs: int = Field(default=2_000, ge=250, le=50_000)
     evaluation_extension_min_score: float = Field(default=0.50, ge=0.50, le=0.75)
     evaluation_extension_min_lower_bound: float = Field(default=0.0, ge=0.0, le=0.50)
@@ -270,7 +277,7 @@ class RunConfig(BaseModel):
         # already-queued or interrupted jobs when they resume.
         self.promotion_confidence = 0.95
         self.evaluation_extension_enabled = True
-        self.evaluation_extension_max_pairs = 50_000
+        self.evaluation_extension_max_pairs = 100_000
         self.evaluation_extension_block_pairs = 2_000
         self.evaluation_extension_min_score = 0.50
         self.evaluation_extension_min_lower_bound = 0.0
@@ -654,7 +661,7 @@ class RunConfig(BaseModel):
             governor_max_updates_multiplier=1.5,
             evaluation_early_rejection=False,
             evaluation_extension_enabled=True,
-            evaluation_extension_max_pairs=50_000,
+            evaluation_extension_max_pairs=100_000,
             evaluation_extension_block_pairs=2_000,
             evaluation_extension_min_score=0.50,
             evaluation_extension_min_lower_bound=0.0,
@@ -691,7 +698,7 @@ class RunConfig(BaseModel):
             evaluation_early_acceptance_confidence=0.99,
             evaluation_early_look_interval_pairs=2_000,
             evaluation_extension_enabled=True,
-            evaluation_extension_max_pairs=50_000,
+            evaluation_extension_max_pairs=100_000,
             evaluation_extension_block_pairs=2_000,
             evaluation_extension_min_score=0.50,
             evaluation_extension_min_lower_bound=0.0,

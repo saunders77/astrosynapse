@@ -1,4 +1,6 @@
+import json
 import zipfile
+from pathlib import Path
 
 import numpy as np
 from astro2.model import (
@@ -9,8 +11,10 @@ from astro2.model import (
     export_actor,
     load_optimizer_state,
     preference_ranking_loss,
+    regenerate_actor_snapshot,
     save_optimizer_state,
 )
+from safetensors.numpy import save_file
 
 
 def test_model_spec_preserves_the_legacy_positional_argument_order():
@@ -195,6 +199,33 @@ def test_actor_exports_support_fast_uncompressed_runtime_archives(tmp_path):
         np.testing.assert_allclose(actual, expected, rtol=2e-4, atol=2e-4)
 
 
+def test_regenerate_actor_snapshot_converts_portable_weights_without_mlx(tmp_path):
+    spec = ModelSpec(
+        state_size=8,
+        action_size=6,
+        families=2,
+        hidden_size=32,
+        action_hidden_size=16,
+        residual_blocks=1,
+        bootstrap_heads=3,
+        encoder_version=2,
+        objective_version=2,
+    )
+    model_path = tmp_path / "checkpoint.safetensors"
+    actor_path = tmp_path / "checkpoint.actor.npz"
+    weights = {"state_in.weight": np.arange(24, dtype=np.float32).reshape(3, 8)}
+    save_file(weights, model_path)
+    Path(f"{model_path}.json").write_text(json.dumps(spec.as_dict()))
+
+    result = regenerate_actor_snapshot(model_path, actor_path)
+    actor = NumpyActor.load(result)
+
+    assert result == actor_path
+    assert actor.spec == spec
+    np.testing.assert_array_equal(actor.weights["state_in.weight"], weights["state_in.weight"])
+    assert not list(tmp_path.glob("*.partial.npz"))
+
+
 def test_generation_four_numpy_actor_and_actor_critic_loss(tmp_path):
     import mlx.core as mx
 
@@ -225,9 +256,25 @@ def test_generation_four_numpy_actor_and_actor_critic_loss(tmp_path):
         mx.array(np.full(4, 0.2, dtype=np.float32)),
         mx.array(np.ones((4, 3), dtype=np.float32)),
         mx.array(np.ones(4, dtype=np.float32)),
+        search_policy_targets=mx.array(np.full((4, 5), 0.2, dtype=np.float32)),
+        search_mask=mx.array(np.ones((4, 5), dtype=np.float32)),
+        search_values=mx.array(np.full(4, 0.5, dtype=np.float32)),
+        search_valid=mx.array(np.asarray([1, 0, 0, 0], dtype=np.float32)),
+        search_policy_loss_weight=1.0,
+        search_value_loss_weight=1.0,
+        search_loss_reference_positions=4,
+        collection_policy_probabilities=mx.array(np.full(4, 0.2, dtype=np.float32)),
+        behavior_heads=mx.array(np.asarray([0, 1, 2, -1], dtype=np.int32)),
+        importance_groups={
+            "first_half": mx.array(np.asarray([1, 1, 0, 0], dtype=np.float32))
+        },
     )
     mx.eval(loss, *diagnostics.values())
     assert np.isfinite(float(loss.item()))
+    assert float(diagnostics["importance_samples_first_half"].item()) == 2.0
+    assert float(diagnostics["search_weight_scale"].item()) == 0.25
+    assert float(diagnostics["collection_policy_samples"].item()) == 4.0
+    assert all(f"importance_ratio_head_{head}" in diagnostics for head in range(3))
 
     path = export_actor(model, spec, tmp_path / "generation4.actor.npz")
     actor = NumpyActor.load(path)

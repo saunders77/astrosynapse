@@ -640,6 +640,18 @@ class Store:
                 raise KeyError(checkpoint_id)
         return self.checkpoint(checkpoint_id)
 
+    def set_checkpoint_actor_path(
+        self, checkpoint_id: str, actor_path: str
+    ) -> dict[str, Any]:
+        with self._connect() as db:
+            cursor = db.execute(
+                "UPDATE checkpoints SET actor_path = ? WHERE id = ?",
+                (actor_path, checkpoint_id),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(checkpoint_id)
+        return self.checkpoint(checkpoint_id)
+
     def create_arena_job(
         self,
         *,
