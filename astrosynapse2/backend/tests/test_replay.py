@@ -401,6 +401,7 @@ def test_astro5_policy_reservoir_preserves_search_and_round_trips(tmp_path):
                 search_value=0.7,
                 search_valid=searched,
                 rollout_source=3,
+                opponent_key=987654321,
                 collected_at_game=123_456,
                 collection_policy_probability=0.42,
                 behavior_head=2,
@@ -429,6 +430,7 @@ def test_astro5_policy_reservoir_preserves_search_and_round_trips(tmp_path):
     assert restored.metrics()["player_games"] == 1
     restored_batch = restored.sample(3)
     assert set(restored_batch.rollout_sources.tolist()) == {3}
+    assert set(restored_batch.opponent_keys.tolist()) == {987654321}
     assert set(restored_batch.collected_at_games.tolist()) == {123_456}
     np.testing.assert_allclose(restored_batch.collection_policy_probabilities, 0.42, atol=1e-3)
     assert set(restored_batch.behavior_heads.tolist()) == {2}

@@ -172,6 +172,9 @@ def actor_critic_policy_loss(
     search_value_loss_weight: float = 0.0,
     behavior_policy_loss_weight: float = 1.0,
     search_loss_reference_positions: int = 1,
+    actor_sample_weights=None,
+    reference_model=None,
+    reference_policy_kl_weight: float = 0.0,
     collection_policy_probabilities=None,
     behavior_heads=None,
     importance_groups: dict[str, Any] | None = None,
@@ -210,17 +213,49 @@ def actor_critic_policy_loss(
     ratios = mx.stop_gradient(mx.minimum(raw_ratios, mx.array(float(importance_clip))))
     weights = bootstrap_mask * sample_weights[:, None]
     denominator = mx.maximum(mx.sum(weights), mx.array(1.0))
-    policy_loss = -mx.sum(weights * ratios * advantages * chosen_log_probs) / denominator
+    resolved_actor_sample_weights = (
+        mx.ones_like(sample_weights) if actor_sample_weights is None else actor_sample_weights
+    )
+    actor_weights = weights * resolved_actor_sample_weights[:, None]
+    actor_denominator = mx.maximum(mx.sum(actor_weights), mx.array(1.0))
+    policy_loss = (
+        -mx.sum(actor_weights * ratios * advantages * chosen_log_probs) / actor_denominator
+    )
     value_losses = nn.losses.binary_cross_entropy(
         value_logits, target_matrix, with_logits=True, reduction="none"
     )
     value_loss = mx.sum(weights * value_losses) / denominator
     entropy_by_head = -mx.sum(probabilities * log_probs, axis=1)
-    entropy = mx.sum(weights * entropy_by_head) / denominator
+    entropy = mx.sum(actor_weights * entropy_by_head) / actor_denominator
     legal_counts = mx.maximum(mx.sum(legal_mask, axis=1), mx.array(2.0))
     normalized_entropy = (
-        mx.sum(weights * (entropy_by_head / mx.log(legal_counts)[:, None])) / denominator
+        mx.sum(actor_weights * (entropy_by_head / mx.log(legal_counts)[:, None]))
+        / actor_denominator
     )
+    reference_policy_kl = mx.array(0.0)
+    if reference_model is not None and float(reference_policy_kl_weight) > 0:
+        reference_state_features = reference_model.state_features(states)
+        reference_repeated_state_features = mx.broadcast_to(
+            reference_state_features[:, None, :],
+            (batch, options, reference_state_features.shape[-1]),
+        ).reshape((batch * options, reference_state_features.shape[-1]))
+        reference_logits = reference_model.action_logits_from_features(
+            reference_repeated_state_features,
+            legal_actions.reshape((batch * options, action_size)),
+            repeated_families,
+        ).reshape((batch, options, -1))
+        reference_masked_logits = mx.where(legal_mask[:, :, None] > 0, reference_logits, -1e9)
+        reference_log_probs = reference_masked_logits - mx.logsumexp(
+            reference_masked_logits, axis=1, keepdims=True
+        )
+        reference_probabilities = mx.stop_gradient(mx.exp(reference_log_probs))
+        reference_policy_kl = (
+            mx.sum(
+                actor_weights
+                * mx.sum(reference_probabilities * (reference_log_probs - log_probs), axis=1)
+            )
+            / actor_denominator
+        )
     search_policy_loss = mx.array(0.0)
     search_value_loss = mx.array(0.0)
     searched_fraction = mx.array(0.0)
@@ -230,15 +265,19 @@ def actor_critic_policy_loss(
         searched_logits = mx.where(resolved_search_mask[:, :, None] > 0, policy_logits, -1e9)
         searched_log_probs = searched_logits - mx.logsumexp(searched_logits, axis=1, keepdims=True)
         target_distribution = search_policy_targets[:, :, None]
-        search_weights = bootstrap_mask * search_valid[:, None] * sample_weights[:, None]
-        search_denominator = mx.maximum(mx.sum(search_weights), mx.array(1.0))
-        searched_count = mx.sum(search_valid)
+        search_value_weights = bootstrap_mask * search_valid[:, None] * sample_weights[:, None]
+        search_policy_weights = search_value_weights * resolved_actor_sample_weights[:, None]
+        search_policy_denominator = mx.maximum(mx.sum(search_policy_weights), mx.array(1.0))
+        search_value_denominator = mx.maximum(mx.sum(search_value_weights), mx.array(1.0))
+        searched_count = mx.sum(search_valid * resolved_actor_sample_weights)
         search_weight_scale = mx.minimum(
             searched_count / mx.array(float(max(1, search_loss_reference_positions))),
             mx.array(1.0),
         )
         cross_entropy = -mx.sum(target_distribution * searched_log_probs, axis=1)
-        search_policy_loss = mx.sum(search_weights * cross_entropy) / search_denominator
+        search_policy_loss = (
+            mx.sum(search_policy_weights * cross_entropy) / search_policy_denominator
+        )
         if search_values is not None:
             searched_value_targets = mx.broadcast_to(search_values[:, None], value_logits.shape)
             searched_value_losses = nn.losses.binary_cross_entropy(
@@ -247,12 +286,15 @@ def actor_critic_policy_loss(
                 with_logits=True,
                 reduction="none",
             )
-            search_value_loss = mx.sum(search_weights * searched_value_losses) / search_denominator
+            search_value_loss = (
+                mx.sum(search_value_weights * searched_value_losses) / search_value_denominator
+            )
         searched_fraction = mx.mean(search_valid)
     loss = (
         float(behavior_policy_loss_weight) * policy_loss
         + float(value_loss_weight) * value_loss
         - float(entropy_weight) * entropy
+        + float(reference_policy_kl_weight) * reference_policy_kl
         + float(search_policy_loss_weight) * search_weight_scale * search_policy_loss
         + float(search_value_loss_weight) * search_weight_scale * search_value_loss
     )
@@ -262,6 +304,7 @@ def actor_critic_policy_loss(
         "value_loss": value_loss,
         "policy_entropy": entropy,
         "normalized_policy_entropy": normalized_entropy,
+        "reference_policy_kl": reference_policy_kl,
         "search_policy_loss": search_policy_loss,
         "search_value_loss": search_value_loss,
         "searched_fraction": searched_fraction,
@@ -270,6 +313,8 @@ def actor_critic_policy_loss(
         "weighted_policy_loss": float(behavior_policy_loss_weight) * policy_loss,
         "weighted_value_loss": float(value_loss_weight) * value_loss,
         "weighted_entropy_loss": -float(entropy_weight) * entropy,
+        "weighted_reference_policy_kl": (float(reference_policy_kl_weight) * reference_policy_kl),
+        "actor_sample_fraction": mx.mean(resolved_actor_sample_weights),
         "weighted_search_policy_loss": (
             float(search_policy_loss_weight) * search_weight_scale * search_policy_loss
         ),
@@ -299,9 +344,7 @@ def actor_critic_policy_loss(
             mx.mean(chosen_probabilities, axis=1),
         )
         collection_known = collection_policy_probabilities > 0
-        collection_denominator = mx.maximum(
-            collection_policy_probabilities, mx.array(1e-6)
-        )
+        collection_denominator = mx.maximum(collection_policy_probabilities, mx.array(1e-6))
         collection_ratios = current_collection_probabilities / collection_denominator
         collection_log_drift = mx.abs(
             mx.log(mx.maximum(current_collection_probabilities, mx.array(1e-6)))
@@ -327,14 +370,32 @@ def actor_critic_policy_loss(
             resolved_group = group_mask.astype(weights.dtype)
             group_weights = weights * resolved_group[:, None]
             group_denominator = mx.maximum(mx.sum(group_weights), mx.array(1.0))
+            group_actor_weights = actor_weights * resolved_group[:, None]
+            group_actor_denominator = mx.maximum(mx.sum(group_actor_weights), mx.array(1.0))
             diagnostics[f"importance_ratio_{name}"] = (
                 mx.sum(group_weights * ratios) / group_denominator
             )
             diagnostics[f"importance_samples_{name}"] = mx.sum(resolved_group)
+            diagnostics[f"actor_samples_{name}"] = mx.sum(
+                resolved_group * resolved_actor_sample_weights
+            )
+            diagnostics[f"policy_loss_{name}"] = (
+                -mx.sum(group_actor_weights * ratios * advantages * chosen_log_probs)
+                / group_actor_denominator
+            )
+            diagnostics[f"value_loss_{name}"] = (
+                mx.sum(group_weights * value_losses) / group_denominator
+            )
+            diagnostics[f"advantage_{name}"] = (
+                mx.sum(group_actor_weights * advantages) / group_actor_denominator
+            )
+            group_predictions = mx.broadcast_to(prediction[:, None], values.shape)
+            diagnostics[f"value_brier_{name}"] = (
+                mx.sum(group_weights * mx.square(group_predictions - target_matrix))
+                / group_denominator
+            )
             if collection_known is not None:
-                collection_group_weights = resolved_group * collection_known.astype(
-                    weights.dtype
-                )
+                collection_group_weights = resolved_group * collection_known.astype(weights.dtype)
                 collection_group_denominator = mx.maximum(
                     mx.sum(collection_group_weights), mx.array(1.0)
                 )
@@ -346,9 +407,7 @@ def actor_critic_policy_loss(
                     mx.sum(collection_group_weights * collection_log_drift)
                     / collection_group_denominator
                 )
-                diagnostics[f"collection_policy_samples_{name}"] = mx.sum(
-                    collection_group_weights
-                )
+                diagnostics[f"collection_policy_samples_{name}"] = mx.sum(collection_group_weights)
     return loss, diagnostics
 
 

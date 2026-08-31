@@ -265,9 +265,7 @@ def test_generation_four_numpy_actor_and_actor_critic_loss(tmp_path):
         search_loss_reference_positions=4,
         collection_policy_probabilities=mx.array(np.full(4, 0.2, dtype=np.float32)),
         behavior_heads=mx.array(np.asarray([0, 1, 2, -1], dtype=np.int32)),
-        importance_groups={
-            "first_half": mx.array(np.asarray([1, 1, 0, 0], dtype=np.float32))
-        },
+        importance_groups={"first_half": mx.array(np.asarray([1, 1, 0, 0], dtype=np.float32))},
     )
     mx.eval(loss, *diagnostics.values())
     assert np.isfinite(float(loss.item()))
@@ -275,6 +273,28 @@ def test_generation_four_numpy_actor_and_actor_critic_loss(tmp_path):
     assert float(diagnostics["search_weight_scale"].item()) == 0.25
     assert float(diagnostics["collection_policy_samples"].item()) == 4.0
     assert all(f"importance_ratio_head_{head}" in diagnostics for head in range(3))
+
+    value_only_loss, value_only_diagnostics = actor_critic_policy_loss(
+        model,
+        mx.array(states),
+        mx.array(legal_actions),
+        mx.array(legal_mask),
+        mx.array(np.asarray([0, 1, 2, 3], dtype=np.int32)),
+        mx.array(families),
+        mx.array(np.asarray([1, 0, 1, 0], dtype=np.float32)),
+        mx.array(np.full(4, 0.2, dtype=np.float32)),
+        mx.array(np.ones((4, 3), dtype=np.float32)),
+        mx.array(np.ones(4, dtype=np.float32)),
+        actor_sample_weights=mx.array(np.zeros(4, dtype=np.float32)),
+        reference_model=model,
+        reference_policy_kl_weight=1.0,
+    )
+    mx.eval(value_only_loss, *value_only_diagnostics.values())
+    assert float(value_only_diagnostics["actor_sample_fraction"].item()) == 0.0
+    assert float(value_only_diagnostics["policy_loss"].item()) == 0.0
+    assert float(value_only_diagnostics["policy_entropy"].item()) == 0.0
+    assert float(value_only_diagnostics["reference_policy_kl"].item()) == 0.0
+    assert float(value_only_diagnostics["value_loss"].item()) > 0.0
 
     path = export_actor(model, spec, tmp_path / "generation4.actor.npz")
     actor = NumpyActor.load(path)
@@ -408,9 +428,7 @@ def test_tactical_preference_loss_is_finite_and_reports_ordering_metrics():
         mx.array(rng.normal(size=(5, spec.action_size)).astype(np.float32)),
         mx.array(np.zeros(5, dtype=np.int32)),
         margin=1.0,
-        bootstrap_mask=mx.array(
-            np.tile(np.asarray([[1, 0, 0]], dtype=np.float32), (5, 1))
-        ),
+        bootstrap_mask=mx.array(np.tile(np.asarray([[1, 0, 0]], dtype=np.float32), (5, 1))),
     )
     mx.eval(loss, *diagnostics.values())
     assert np.isfinite(float(loss.item()))

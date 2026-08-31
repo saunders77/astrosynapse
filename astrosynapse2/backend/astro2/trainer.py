@@ -46,6 +46,7 @@ from .replay import (
     GameBalancedPolicyReplayBuffer,
     PreferenceReplayBuffer,
     ReplayBuffer,
+    policy_opponent_key,
 )
 from .retention import RetentionSafetyError, cleanup_previous_checkpoint_npz
 from .selfplay import ActorPolicy, WorkerResult, collect_worker_batch
@@ -113,6 +114,32 @@ class _Totals:
     search_policy_js_sum: float = 0.0
     search_value_abs_delta_sum: float = 0.0
     rollout_games: dict[str, int] = field(default_factory=dict)
+    opponent_games: dict[str, int] = field(default_factory=dict)
+    opponent_scores: dict[str, float] = field(default_factory=dict)
+
+
+def _record_opponent_result(
+    totals: _Totals,
+    league: League,
+    plan: _RolloutPlan,
+    result: WorkerResult,
+) -> None:
+    """Track every named opponent while updating PFSP only for league members."""
+
+    if plan.opponent_id is None or plan.current_player is None:
+        return
+    completed_games = result.games - result.truncated
+    if completed_games <= 0:
+        return
+    score = result.wins[plan.current_player] + 0.5 * result.draws
+    totals.opponent_games[plan.opponent_id] = (
+        totals.opponent_games.get(plan.opponent_id, 0) + completed_games
+    )
+    totals.opponent_scores[plan.opponent_id] = (
+        totals.opponent_scores.get(plan.opponent_id, 0.0) + score
+    )
+    if plan.kind in {"league", "baseline"}:
+        league.record(plan.opponent_id, score, completed_games)
 
 
 @dataclass(frozen=True, slots=True)
@@ -410,9 +437,7 @@ def _governor_status(
     clip_fraction = float(diagnostics.get("gradient_clip_fraction", 0.0))
     searched_fraction = float(diagnostics.get("searched_fraction", 0.0))
     importance_ratio = float(diagnostics.get("mean_importance_ratio", 1.0))
-    collection_policy_drift = float(
-        diagnostics.get("collection_policy_abs_log_drift", 0.0)
-    )
+    collection_policy_drift = float(diagnostics.get("collection_policy_abs_log_drift", 0.0))
     collection_policy_samples = int(diagnostics.get("collection_policy_samples", 0.0))
     lr_multiplier = 1.0
     updates_multiplier = 1.0
@@ -1647,6 +1672,14 @@ def _restore_totals(
             str(key): max(0, int(value))
             for key, value in (latest.get("rollout_games") or {}).items()
         },
+        opponent_games={
+            str(key): max(0, int(value))
+            for key, value in (latest.get("opponent_games") or {}).items()
+        },
+        opponent_scores={
+            str(key): max(0.0, float(value))
+            for key, value in (latest.get("opponent_scores") or {}).items()
+        },
     )
 
 
@@ -1681,6 +1714,8 @@ def _training_state(
         "search_policy_js_sum": totals.search_policy_js_sum,
         "search_value_abs_delta_sum": totals.search_value_abs_delta_sum,
         "rollout_games": dict(totals.rollout_games),
+        "opponent_games": dict(totals.opponent_games),
+        "opponent_scores": dict(totals.opponent_scores),
         "seed_cursor": int(seed_cursor),
         "optimizer_updates_at_start": max(0, int(optimizer_updates_at_start)),
         "schedule_games_origin": max(0, int(schedule_games_origin)),
@@ -2054,6 +2089,8 @@ def _make_plan(
     rng: np.random.Generator,
     league: League,
     current_actor: str,
+    fixed_champion_id: str | None = None,
+    fixed_champion_actor: str | None = None,
     epsilon: float,
     seed: int,
 ) -> _RolloutPlan:
@@ -2076,12 +2113,35 @@ def _make_plan(
             deployment_policy=(deployment_policy, deployment_policy),
         )
 
+    fixed_champion_cutoff = config.current_selfplay_fraction + config.fixed_champion_fraction
+    if roll < fixed_champion_cutoff:
+        if not fixed_champion_id or not fixed_champion_actor:
+            raise RuntimeError("fixed champion rollouts require an immutable branch-root actor")
+        current_player = int(rng.integers(0, 2))
+        actors: list[str | None] = [fixed_champion_actor, fixed_champion_actor]
+        actors[current_player] = current_actor
+        collect = [False, False]
+        collect[current_player] = True
+        epsilons = [0.0, 0.0]
+        epsilons[current_player] = epsilon
+        return _RolloutPlan(
+            actor_paths=(actors[0], actors[1]),
+            baseline_names=("balanced", "balanced"),
+            collect_players=(collect[0], collect[1]),
+            epsilons=(epsilons[0], epsilons[1]),
+            seed=seed,
+            games=config.games_per_actor_batch,
+            kind="fixed_champion",
+            opponent_id=fixed_champion_id,
+            current_player=current_player,
+        )
+
     checkpoint_opponents = [
         item
         for item in league.opponents
         if item.kind in {"checkpoint", "champion", "anchor"} and item.actor_path
     ]
-    league_cutoff = config.current_selfplay_fraction + config.league_fraction
+    league_cutoff = fixed_champion_cutoff + config.league_fraction
     if roll < league_cutoff and checkpoint_opponents:
         opponent = league.select(
             rng,
@@ -2212,6 +2272,8 @@ def _train_updates(
     totals: _Totals,
     optimizer_updates_at_start: int,
     control: Any,
+    reference_model: Any | None = None,
+    fixed_champion_key: int = 0,
     learning_rate_multiplier: float = 1.0,
     promotion_direction: dict[str, Any] | None = None,
 ) -> dict[str, float]:
@@ -2239,6 +2301,7 @@ def _train_updates(
             search_mask,
             search_values,
             search_valid,
+            deployment_policy,
             preference_states,
             preferred_actions,
             disfavored_actions,
@@ -2267,6 +2330,13 @@ def _train_updates(
                 search_policy_loss_weight=config.reanalysis_policy_loss_weight,
                 search_value_loss_weight=config.reanalysis_value_loss_weight,
                 search_loss_reference_positions=config.reanalysis_loss_reference_positions,
+                actor_sample_weights=mx.where(
+                    deployment_policy > 0,
+                    mx.array(float(config.deployment_policy_actor_weight)),
+                    mx.array(1.0),
+                ),
+                reference_model=reference_model,
+                reference_policy_kl_weight=config.policy_reference_kl_weight,
             )[0]
             counterfactual = preference_ranking_loss(
                 model,
@@ -2306,6 +2376,7 @@ def _train_updates(
                 mx.array(batch.search_mask),
                 mx.array(batch.search_values),
                 mx.array(batch.search_valid),
+                mx.array(batch.deployment_policy),
             )
             if len(preference_replay):
                 preference_batch = preference_replay.sample(config.preference_batch_size)
@@ -2421,6 +2492,19 @@ def _train_updates(
                 importance_groups[f"source_{source_name}"] = mx.array(
                     last_policy_batch.rollout_sources == source_id
                 )
+            if fixed_champion_key:
+                importance_groups["opponent_fixed_champion"] = mx.array(
+                    last_policy_batch.opponent_keys == fixed_champion_key
+                )
+            opponent_keys, opponent_counts = np.unique(
+                last_policy_batch.opponent_keys[last_policy_batch.opponent_keys > 0],
+                return_counts=True,
+            )
+            for index in np.argsort(opponent_counts)[-8:]:
+                opponent_key = int(opponent_keys[index])
+                importance_groups[f"opponent_{opponent_key:016x}"] = mx.array(
+                    last_policy_batch.opponent_keys == opponent_key
+                )
             for family in DecisionFamily:
                 importance_groups[f"family_{family.name.lower()}"] = mx.array(
                     last_policy_batch.families == int(family)
@@ -2438,6 +2522,13 @@ def _train_updates(
                 search_policy_loss_weight=config.reanalysis_policy_loss_weight,
                 search_value_loss_weight=config.reanalysis_value_loss_weight,
                 search_loss_reference_positions=config.reanalysis_loss_reference_positions,
+                actor_sample_weights=mx.where(
+                    last_policy_arrays[13] > 0,
+                    mx.array(float(config.deployment_policy_actor_weight)),
+                    mx.array(1.0),
+                ),
+                reference_model=reference_model,
+                reference_policy_kl_weight=config.policy_reference_kl_weight,
                 collection_policy_probabilities=mx.array(
                     last_policy_batch.collection_policy_probabilities
                 ),
@@ -2487,7 +2578,9 @@ def _train_updates(
             if crossed_gradient_probe:
                 from mlx.utils import tree_flatten
 
-                def component_gradients(kind: str) -> tuple[list[Any], Any]:
+                def component_gradients(
+                    kind: str, source_mask: Any | None = None
+                ) -> tuple[list[Any], Any]:
                     def component_loss(
                         states,
                         legal_actions,
@@ -2502,6 +2595,7 @@ def _train_updates(
                         search_mask,
                         search_values,
                         search_valid,
+                        deployment_policy,
                     ):
                         return actor_critic_policy_loss(
                             model,
@@ -2527,6 +2621,20 @@ def _train_updates(
                             search_loss_reference_positions=(
                                 config.reanalysis_loss_reference_positions
                             ),
+                            actor_sample_weights=(
+                                mx.where(
+                                    deployment_policy > 0,
+                                    mx.array(float(config.deployment_policy_actor_weight)),
+                                    mx.array(1.0),
+                                )
+                                * (
+                                    mx.ones_like(deployment_policy)
+                                    if source_mask is None
+                                    else source_mask
+                                )
+                            ),
+                            reference_model=(reference_model if kind == "reference_kl" else None),
+                            reference_policy_kl_weight=(1.0 if kind == "reference_kl" else 0.0),
                         )[0]
 
                     _value, gradients = nn.value_and_grad(model, component_loss)(
@@ -2544,8 +2652,16 @@ def _train_updates(
                     # actor_critic_policy_loss differentiates -entropy when
                     # entropy_weight is positive, matching the applied sign.
                     "entropy": float(config.policy_entropy_weight),
+                    "reference_kl": float(config.policy_reference_kl_weight),
                 }
                 component_results = {kind: component_gradients(kind) for kind in component_weights}
+                source_actor_results = {
+                    source_name: component_gradients(
+                        "actor",
+                        mx.array(last_policy_batch.rollout_sources == source_id),
+                    )
+                    for source_id, source_name in POLICY_ROLLOUT_SOURCE_NAMES.items()
+                }
                 raw_norms = {kind: result[1] for kind, result in component_results.items()}
                 search_gradients = [
                     policy_gradient + value_gradient
@@ -2568,10 +2684,7 @@ def _train_updates(
                     )
                 ]
                 weighted_search_norm = mx.sqrt(
-                    sum(
-                        mx.sum(mx.square(gradient))
-                        for gradient in weighted_search_gradients
-                    )
+                    sum(mx.sum(mx.square(gradient)) for gradient in weighted_search_gradients)
                 )
 
                 def cosine(left: str, right: str) -> Any:
@@ -2593,16 +2706,32 @@ def _train_updates(
                     ("value", "search_value"),
                     ("search_policy", "search_value"),
                     ("actor", "entropy"),
+                    ("actor", "reference_kl"),
+                    ("value", "reference_kl"),
                 )
                 cosines = {
                     f"objective_{left}_{right}_gradient_cosine": cosine(left, right)
                     for left, right in cosine_pairs
                 }
+                actor_gradients, actor_norm = component_results["actor"]
+                source_actor_cosines = {}
+                for source_name, (source_gradients, source_norm) in source_actor_results.items():
+                    source_dot = sum(
+                        mx.sum(actor_gradient * source_gradient)
+                        for actor_gradient, source_gradient in zip(
+                            actor_gradients, source_gradients, strict=True
+                        )
+                    )
+                    source_actor_cosines[source_name] = source_dot / mx.maximum(
+                        actor_norm * source_norm, mx.array(1e-12)
+                    )
                 mx.eval(
                     search_norm,
                     weighted_search_norm,
                     *raw_norms.values(),
                     *cosines.values(),
+                    *(result[1] for result in source_actor_results.values()),
+                    *source_actor_cosines.values(),
                 )
 
                 metrics.update(
@@ -2611,10 +2740,19 @@ def _train_updates(
                     objective_search_policy_gradient_norm=float(raw_norms["search_policy"].item()),
                     objective_search_value_gradient_norm=float(raw_norms["search_value"].item()),
                     objective_entropy_gradient_norm=float(raw_norms["entropy"].item()),
+                    objective_reference_kl_gradient_norm=float(raw_norms["reference_kl"].item()),
+                    **{
+                        f"objective_actor_source_{source_name}_gradient_norm": float(
+                            result[1].item()
+                        )
+                        for source_name, result in source_actor_results.items()
+                    },
+                    **{
+                        f"objective_actor_source_{source_name}_total_cosine": float(cosine.item())
+                        for source_name, cosine in source_actor_cosines.items()
+                    },
                     objective_search_gradient_norm=float(search_norm.item()),
-                    objective_search_weighted_gradient_norm=float(
-                        weighted_search_norm.item()
-                    ),
+                    objective_search_weighted_gradient_norm=float(weighted_search_norm.item()),
                     objective_gradient_probe_update=float(totals.updates),
                     **{
                         f"objective_{kind}_weighted_gradient_norm": (
@@ -2858,6 +2996,48 @@ def run_training(
         or spec.objective_version != (2 if config.training_generation >= 4 else 1)
     ):
         raise RuntimeError("checkpoint training/encoder contract does not match this run")
+
+    branch_root_checkpoint = next(
+        (
+            checkpoint
+            for checkpoint in store.checkpoints(run_id)
+            if int(checkpoint.get("games", -1)) == 0
+            and str((checkpoint.get("evaluation") or {}).get("reason") or "") == "branch import"
+        ),
+        None,
+    )
+    if branch_root_checkpoint is None and config.initial_checkpoint_id:
+        branch_root_checkpoint = store.checkpoint(config.initial_checkpoint_id)
+    fixed_champion_id = (
+        str(branch_root_checkpoint["id"]) if branch_root_checkpoint is not None else None
+    )
+    fixed_champion_actor = (
+        str(branch_root_checkpoint.get("actor_path") or "")
+        if branch_root_checkpoint is not None
+        else None
+    )
+    if fixed_champion_actor and not Path(fixed_champion_actor).is_file():
+        fixed_champion_actor = None
+    reference_model = None
+    if config.policy_reference_kl_weight > 0:
+        if branch_root_checkpoint is None or not Path(branch_root_checkpoint["path"]).is_file():
+            raise RuntimeError("policy reference KL requires retained branch-root weights")
+        reference_model, reference_spec = load_model(branch_root_checkpoint["path"])
+        if reference_spec != spec:
+            raise RuntimeError("policy reference checkpoint architecture does not match learner")
+        reference_model.eval()
+        mx.eval(reference_model.parameters())
+        store.event(
+            run_id,
+            "policy_reference_loaded",
+            "Loaded immutable branch-root policy reference",
+            {
+                "checkpoint_id": fixed_champion_id,
+                "weight": config.policy_reference_kl_weight,
+            },
+        )
+    if config.fixed_champion_fraction > 0 and (not fixed_champion_id or not fixed_champion_actor):
+        raise RuntimeError("fixed champion quota requires a retained branch-root actor")
 
     model.train()
     mx.eval(model.parameters())
@@ -3632,6 +3812,10 @@ def run_training(
             "deployment_policy_scheduled_fraction": (
                 config.current_selfplay_fraction * config.deployment_policy_selfplay_fraction
             ),
+            "deployment_policy_actor_weight": config.deployment_policy_actor_weight,
+            "fixed_champion_fraction": config.fixed_champion_fraction,
+            "policy_reference_kl_weight": config.policy_reference_kl_weight,
+            "fixed_champion_id": fixed_champion_id,
             "target_mode": (
                 "legal_set_actor_critic"
                 if config.training_generation >= 4
@@ -3648,6 +3832,13 @@ def run_training(
                 ),
             },
             "rollout_games": dict(totals.rollout_games),
+            "opponent_results": {
+                opponent_id: {
+                    "games": games,
+                    "score": totals.opponent_scores.get(opponent_id, 0.0) / max(1, games),
+                }
+                for opponent_id, games in totals.opponent_games.items()
+            },
             "rollout_mix": rollout_mix,
             "durable_resume": dict(durable_resume),
             "curriculum_phase": (
@@ -3996,6 +4187,8 @@ def run_training(
                         rng=rng,
                         league=league,
                         current_actor=rollout_actor,
+                        fixed_champion_id=fixed_champion_id,
+                        fixed_champion_actor=fixed_champion_actor,
                         epsilon=epsilon,
                         seed=seed_cursor,
                     )
@@ -4022,6 +4215,8 @@ def run_training(
                 totals=totals,
                 optimizer_updates_at_start=optimizer_updates_at_start,
                 control=control,
+                reference_model=reference_model,
+                fixed_champion_key=policy_opponent_key(fixed_champion_id),
                 learning_rate_multiplier=float(governor.get("learning_rate_multiplier", 1.0)),
                 promotion_direction=promotion_direction,
             )
@@ -4047,6 +4242,7 @@ def run_training(
                     policy_replay.extend_compact(
                         result.policy_samples,
                         rollout_source=plan.kind,
+                        opponent_key=policy_opponent_key(plan.opponent_id),
                         collected_at_game=totals.games + result.games,
                     )
                     preference_replay.extend_compact(result.preferences)
@@ -4074,11 +4270,7 @@ def run_training(
                     totals.rollout_games[plan.kind] = (
                         totals.rollout_games.get(plan.kind, 0) + result.games
                     )
-                    if plan.opponent_id is not None and plan.current_player is not None:
-                        completed_games = result.games - result.truncated
-                        score = result.wins[plan.current_player] + 0.5 * result.draws
-                        if completed_games > 0:
-                            league.record(plan.opponent_id, score, completed_games)
+                    _record_opponent_result(totals, league, plan, result)
                 boundary_phase = (
                     "stopping"
                     if control.should_stop()

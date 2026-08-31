@@ -7,6 +7,7 @@ import os
 import shutil
 import threading
 import time
+import traceback
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -233,7 +234,7 @@ class Supervisor:
                 run_id,
                 "run_failed",
                 "Training stopped after an error",
-                {"error": repr(error)},
+                {"error": repr(error), "traceback": traceback.format_exc()},
             )
         finally:
             # The current thread owns the single accelerator slot until this
@@ -260,15 +261,15 @@ class Supervisor:
                 )
                 if queued_experiment is not None:
                     queued = next(
-                        item
-                        for item in queued_experiment["members"]
-                        if item["status"] == "queued"
+                        item for item in queued_experiment["members"] if item["status"] == "queued"
                     )
                     with suppress(InvalidTransition):
                         self.start(queued["run_id"])
             return
         run = self.store.get_run(completed_run_id)
-        terminal = run["status"] if run["status"] in {"complete", "failed", "stopped"} else "complete"
+        terminal = (
+            run["status"] if run["status"] in {"complete", "failed", "stopped"} else "complete"
+        )
         score: float | None = None
         for checkpoint in self.store.checkpoints(completed_run_id):
             latest_arena = (checkpoint.get("evaluation") or {}).get("latest_arena") or {}
@@ -283,7 +284,10 @@ class Supervisor:
             return
         queued = [item for item in experiment["members"] if item["status"] == "queued"]
         if not queued:
-            statuses = {item["run_status"] for item in self.store.branch_experiment(member["experiment_id"])["members"]}
+            statuses = {
+                item["run_status"]
+                for item in self.store.branch_experiment(member["experiment_id"])["members"]
+            }
             final_status = "failed" if statuses == {"failed"} else "complete"
             self.store.update_branch_experiment(member["experiment_id"], status=final_status)
             return
@@ -417,11 +421,7 @@ class Supervisor:
             recipe.update(overrides)
             # Give branches independent but reproducible game/RNG streams.
             experiment_seed = int(experiment["id"][:8], 16)
-            recipe["seed"] = (
-                int(recipe.get("seed", 0))
-                + experiment_seed
-                + ordinal * 10_000_019
-            )
+            recipe["seed"] = int(recipe.get("seed", 0)) + experiment_seed + ordinal * 10_000_019
             config = RunConfig.model_validate(recipe)
             run = self.store.create_run(config)
             destination = self.store.path.parent / "checkpoints" / run["id"]
@@ -429,7 +429,9 @@ class Supervisor:
             copied_model = self._copy_checkpoint_artifact(source["path"], model_destination)
             if copied_model is None:
                 raise ValueError("source model disappeared while creating the branch")
-            sidecar_source = str(Path(source["path"]).with_suffix(Path(source["path"]).suffix + ".json"))
+            sidecar_source = str(
+                Path(source["path"]).with_suffix(Path(source["path"]).suffix + ".json")
+            )
             self._copy_checkpoint_artifact(
                 sidecar_source,
                 model_destination.with_suffix(model_destination.suffix + ".json"),
@@ -457,9 +459,7 @@ class Supervisor:
                         source_artifact, destination / filename
                     )
                 else:
-                    copied = self._copy_checkpoint_artifact(
-                        source_artifact, destination / filename
-                    )
+                    copied = self._copy_checkpoint_artifact(source_artifact, destination / filename)
                 if copied:
                     artifacts[artifact_key] = copied
             for key in (

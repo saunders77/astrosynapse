@@ -27,8 +27,20 @@ POLICY_ROLLOUT_SOURCE_IDS = {
     "deployment_self_play": 2,
     "league": 3,
     "baseline": 4,
+    "fixed_champion": 5,
 }
 POLICY_ROLLOUT_SOURCE_NAMES = {value: key for key, value in POLICY_ROLLOUT_SOURCE_IDS.items()}
+
+
+def policy_opponent_key(opponent_id: str | None) -> int:
+    """Return a stable compact replay key without storing checkpoint strings per row."""
+
+    if not opponent_id:
+        return 0
+    return int.from_bytes(
+        hashlib.blake2b(opponent_id.encode("utf-8"), digest_size=8).digest(), "little"
+    )
+
 
 DEFAULT_CAPACITY_WEIGHTS: dict[DecisionFamily, float] = {
     DecisionFamily.MAIN: 0.82,
@@ -161,6 +173,7 @@ class PolicyItem:
     search_value: float = 0.5
     search_valid: bool = False
     rollout_source: int = 0
+    opponent_key: int = 0
     collected_at_game: int = 0
 
 
@@ -188,6 +201,7 @@ class PolicyBatch:
     search_valid: np.ndarray
     sample_tiers: np.ndarray
     rollout_sources: np.ndarray
+    opponent_keys: np.ndarray
     collected_at_games: np.ndarray
 
     def __len__(self) -> int:
@@ -1468,6 +1482,7 @@ class _DiskPolicyReplayStore:
     )
     _OPTIONAL_ARRAY_NAMES = (
         "rollout_sources",
+        "opponent_keys",
         "collected_at_games",
         "collection_policy_probabilities",
         "behavior_heads",
@@ -1727,6 +1742,7 @@ class _DiskPolicyReplayStore:
             "search_values": np.asarray([item.search_value for item in items], dtype=np.float16),
             "search_valid": np.asarray([item.search_valid for item in items], dtype=np.uint8),
             "rollout_sources": np.asarray([item.rollout_source for item in items], dtype=np.uint8),
+            "opponent_keys": np.asarray([item.opponent_key for item in items], dtype=np.uint64),
             "collected_at_games": np.asarray(
                 [item.collected_at_game for item in items], dtype=np.uint64
             ),
@@ -1902,6 +1918,11 @@ class _DiskPolicyReplayStore:
                             rollout_source=(
                                 int(arrays["rollout_sources"][row])
                                 if "rollout_sources" in arrays
+                                else 0
+                            ),
+                            opponent_key=(
+                                int(arrays["opponent_keys"][row])
+                                if "opponent_keys" in arrays
                                 else 0
                             ),
                             collected_at_game=(
@@ -2118,6 +2139,7 @@ class GameBalancedPolicyReplayBuffer:
             search_value=float(item.search_value),
             search_valid=search_valid,
             rollout_source=int(item.rollout_source),
+            opponent_key=max(0, int(item.opponent_key)),
             collected_at_game=max(0, int(item.collected_at_game)),
         )
 
@@ -2216,6 +2238,7 @@ class GameBalancedPolicyReplayBuffer:
         compact: Any,
         *,
         rollout_source: str | int = "unknown",
+        opponent_key: int = 0,
         collected_at_game: int = 0,
     ) -> int:
         offsets = np.asarray(compact.action_offsets, dtype=np.int64)
@@ -2231,6 +2254,7 @@ class GameBalancedPolicyReplayBuffer:
             else int(rollout_source)
         )
         compact_sources = getattr(compact, "rollout_sources", None)
+        compact_opponents = getattr(compact, "opponent_keys", None)
         compact_collection_games = getattr(compact, "collected_at_games", None)
         items = [
             PolicyItem(
@@ -2249,9 +2273,7 @@ class GameBalancedPolicyReplayBuffer:
                     else 0.0
                 ),
                 behavior_head=(
-                    int(compact.behavior_heads[index])
-                    if hasattr(compact, "behavior_heads")
-                    else -1
+                    int(compact.behavior_heads[index]) if hasattr(compact, "behavior_heads") else -1
                 ),
                 behavior_epsilon=(
                     float(compact.behavior_epsilons[index])
@@ -2278,6 +2300,11 @@ class GameBalancedPolicyReplayBuffer:
                 search_valid=bool(compact.search_valid[index]),
                 rollout_source=(
                     int(compact_sources[index]) if compact_sources is not None else source_id
+                ),
+                opponent_key=(
+                    int(compact_opponents[index])
+                    if compact_opponents is not None
+                    else max(0, int(opponent_key))
                 ),
                 collected_at_game=(
                     int(compact_collection_games[index])
@@ -2377,6 +2404,7 @@ class GameBalancedPolicyReplayBuffer:
                 else np.asarray(sample_tiers, dtype=np.uint8)
             ),
             rollout_sources=np.asarray([item.rollout_source for item in items], dtype=np.uint8),
+            opponent_keys=np.asarray([item.opponent_key for item in items], dtype=np.uint64),
             collected_at_games=np.asarray(
                 [item.collected_at_game for item in items], dtype=np.uint64
             ),
@@ -2561,6 +2589,7 @@ class GameBalancedPolicyReplayBuffer:
                 search_values=np.asarray([item.search_value for item in items], dtype=np.float16),
                 search_valid=np.asarray([item.search_valid for item in items], dtype=np.uint8),
                 rollout_sources=np.asarray([item.rollout_source for item in items], dtype=np.uint8),
+                opponent_keys=np.asarray([item.opponent_key for item in items], dtype=np.uint64),
                 collected_at_games=np.asarray(
                     [item.collected_at_game for item in items], dtype=np.uint64
                 ),
@@ -2816,6 +2845,11 @@ class GameBalancedPolicyReplayBuffer:
                 if "rollout_sources" in archive
                 else np.zeros(len(columns["targets"]), dtype=np.uint8)
             )
+            columns["opponent_keys"] = (
+                archive["opponent_keys"]
+                if "opponent_keys" in archive
+                else np.zeros(len(columns["targets"]), dtype=np.uint64)
+            )
             columns["collected_at_games"] = (
                 archive["collected_at_games"]
                 if "collected_at_games" in archive
@@ -2882,9 +2916,7 @@ class GameBalancedPolicyReplayBuffer:
                         "collection_policy_probabilities": columns[
                             "collection_policy_probabilities"
                         ][decision_start:decision_stop],
-                        "behavior_heads": columns["behavior_heads"][
-                            decision_start:decision_stop
-                        ],
+                        "behavior_heads": columns["behavior_heads"][decision_start:decision_stop],
                         "behavior_epsilons": columns["behavior_epsilons"][
                             decision_start:decision_stop
                         ],
@@ -2900,6 +2932,7 @@ class GameBalancedPolicyReplayBuffer:
                         "search_values": columns["search_values"][decision_start:decision_stop],
                         "search_valid": columns["search_valid"][decision_start:decision_stop],
                         "rollout_sources": columns["rollout_sources"][decision_start:decision_stop],
+                        "opponent_keys": columns["opponent_keys"][decision_start:decision_stop],
                         "collected_at_games": columns["collected_at_games"][
                             decision_start:decision_stop
                         ],

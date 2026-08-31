@@ -1,6 +1,7 @@
 import json
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import astro2.trainer as trainer_module
 import numpy as np
@@ -32,6 +33,7 @@ from astro2.trainer import (
     _optimizer_schedule_origin,
     _persisted_active_elapsed,
     _plateau_status,
+    _record_opponent_result,
     _repair_anomalous_deployment_anchor,
     _restore_totals,
     _save_checkpoint,
@@ -576,6 +578,43 @@ def test_astro3_collects_a_configured_share_with_exact_deployment_policy():
     assert plan.epsilons == (0.0, 0.0)
 
 
+def test_fixed_champion_quota_collects_only_the_learner_side():
+    config = RunConfig.astro5_mature().model_copy(
+        update={
+            "current_selfplay_fraction": 0.0,
+            "fixed_champion_fraction": 1.0,
+            "league_fraction": 0.0,
+            "baseline_fraction": 0.0,
+        }
+    )
+    plan = _make_plan(
+        config=config,
+        rng=np.random.default_rng(17),
+        league=League(),
+        current_actor="learner.actor.npz",
+        fixed_champion_id="root-checkpoint",
+        fixed_champion_actor="root.actor.npz",
+        epsilon=0.04,
+        seed=93,
+    )
+
+    assert plan.kind == "fixed_champion"
+    assert plan.opponent_id == "root-checkpoint"
+    assert plan.actor_paths.count("learner.actor.npz") == 1
+    assert plan.actor_paths.count("root.actor.npz") == 1
+    assert plan.collect_players.count(True) == 1
+    assert plan.collect_players[plan.current_player] is True
+    assert plan.epsilons[plan.current_player] == pytest.approx(0.04)
+
+    totals = _Totals(games=0, decisions=0, updates=0)
+    result = SimpleNamespace(games=4, truncated=0, wins=(3, 1), draws=0)
+    _record_opponent_result(totals, League(), plan, result)
+    assert totals.opponent_games == {"root-checkpoint": 4}
+    assert totals.opponent_scores["root-checkpoint"] == pytest.approx(
+        result.wins[plan.current_player]
+    )
+
+
 def test_astro2_rollout_contract_never_uses_deployment_collection_mode():
     config = RunConfig().model_copy(
         update={
@@ -601,6 +640,16 @@ def test_astro2_rollout_contract_never_uses_deployment_collection_mode():
 def test_deployment_rollouts_require_generation_three_or_later():
     with pytest.raises(ValueError, match="requires training_generation>=3"):
         RunConfig(deployment_policy_selfplay_fraction=0.2)
+
+
+def test_fixed_champion_fraction_participates_in_rollout_mix_validation():
+    with pytest.raises(ValueError, match="opponent fractions"):
+        RunConfig(fixed_champion_fraction=0.1)
+
+
+def test_reference_kl_requires_an_immutable_initial_checkpoint():
+    with pytest.raises(ValueError, match="requires an initial checkpoint"):
+        RunConfig(policy_reference_kl_weight=0.05)
 
 
 def test_zero_game_random_checkpoint_is_not_added_to_league(tmp_path):

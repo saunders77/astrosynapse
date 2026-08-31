@@ -85,6 +85,13 @@ class RunConfig(BaseModel):
     policy_value_loss_weight: float = Field(default=0.5, ge=0, le=10)
     policy_entropy_weight: float = Field(default=0.01, ge=0, le=1)
     policy_importance_clip: float = Field(default=2.0, ge=1, le=20)
+    # Deterministic deployment rollouts have no counterfactual action support.
+    # They remain useful value targets, but mature refinement can exclude them
+    # from every policy-shaping objective.
+    deployment_policy_actor_weight: float = Field(default=1.0, ge=0, le=1)
+    # Anchor the learner's complete legal-action distribution to the immutable
+    # branch root. Zero preserves the historical objective.
+    policy_reference_kl_weight: float = Field(default=0.0, ge=0, le=10)
     counterfactual_fraction: float = Field(default=0.0, ge=0, le=1)
     counterfactual_max_per_game: int = Field(default=0, ge=0, le=8)
     counterfactual_loss_weight: float = Field(default=0.0, ge=0, le=10)
@@ -129,6 +136,10 @@ class RunConfig(BaseModel):
     # Fraction of current-v-current games collected with the exact deployable
     # mean-head, prior-free, greedy policy. Generation 2 remains unchanged.
     deployment_policy_selfplay_fraction: float = Field(default=0.0, ge=0, le=1)
+    # Unlike the PFSP league share, this quota always faces the immutable
+    # branch-root actor. It prevents a moving self-play population from
+    # forgetting the policy the branch is explicitly trying to improve upon.
+    fixed_champion_fraction: float = Field(default=0.0, ge=0, le=1)
     league_fraction: float = Field(default=0.30, ge=0, le=1)
     baseline_fraction: float = Field(default=0.15, ge=0, le=1)
     behavior_policy: Literal["champion", "learner"] = "champion"
@@ -166,9 +177,7 @@ class RunConfig(BaseModel):
     evaluation_early_acceptance_min_pairs: int = Field(
         default=MINIMUM_PROMOTION_PAIRS, ge=MINIMUM_PROMOTION_PAIRS, le=2_000
     )
-    evaluation_early_acceptance_confidence: float = Field(
-        default=0.995, ge=0.90, le=0.9999
-    )
+    evaluation_early_acceptance_confidence: float = Field(default=0.995, ge=0.90, le=0.9999)
     # Zero preserves geometric looks. A positive value schedules fixed regular
     # looks through the full extension ceiling.
     evaluation_early_look_interval_pairs: int = Field(default=0, ge=0, le=50_000)
@@ -236,13 +245,10 @@ class RunConfig(BaseModel):
 
         if isinstance(value, dict):
             value = dict(value)
-            directional_alpha_upgrade = (
-                value.get("preset") == "astro5_directional"
-                and (
-                    "evaluation_early_look_interval_pairs" not in value
-                    or float(value.get("promotion_confidence", 0.95))
-                    >= float(value.get("evaluation_early_acceptance_confidence", 0.99))
-                )
+            directional_alpha_upgrade = value.get("preset") == "astro5_directional" and (
+                "evaluation_early_look_interval_pairs" not in value
+                or float(value.get("promotion_confidence", 0.95))
+                >= float(value.get("evaluation_early_acceptance_confidence", 0.99))
             )
             if directional_alpha_upgrade:
                 # Directional branches created before regular sequential looks
@@ -301,7 +307,12 @@ class RunConfig(BaseModel):
             # Persisted Astro5 recipes predate the disk tier. Resuming them
             # should gain the longer replay horizon without editing SQLite.
             self.policy_replay_disk_capacity = 5_000_000
-        mix = self.current_selfplay_fraction + self.league_fraction + self.baseline_fraction
+        mix = (
+            self.current_selfplay_fraction
+            + self.fixed_champion_fraction
+            + self.league_fraction
+            + self.baseline_fraction
+        )
         if abs(mix - 1.0) > 1e-6:
             raise ValueError("opponent fractions must sum to 1.0")
         if self.epsilon_end > self.epsilon_start:
@@ -312,6 +323,8 @@ class RunConfig(BaseModel):
             raise ValueError("min_learning_rate must not exceed learning_rate")
         if self.training_generation < 3 and self.deployment_policy_selfplay_fraction:
             raise ValueError("deployment_policy_selfplay_fraction requires training_generation>=3")
+        if self.policy_reference_kl_weight and not self.initial_checkpoint_id:
+            raise ValueError("policy_reference_kl_weight requires an initial checkpoint")
         if self.training_generation < 4 and (
             self.counterfactual_fraction or self.counterfactual_max_per_game
         ):
@@ -333,8 +346,7 @@ class RunConfig(BaseModel):
             raise ValueError("reanalysis_max_per_game must be positive when reanalysis is enabled")
         early_look_ceiling = (
             self.evaluation_extension_max_pairs
-            if self.evaluation_early_look_interval_pairs
-            and self.evaluation_extension_enabled
+            if self.evaluation_early_look_interval_pairs and self.evaluation_extension_enabled
             else self.evaluation_pairs
         )
         if (
@@ -345,9 +357,7 @@ class RunConfig(BaseModel):
                 "evaluation_early_acceptance_min_pairs must be smaller than the planned look ceiling"
             )
         if self.evaluation_extension_max_pairs < self.evaluation_pairs:
-            raise ValueError(
-                "evaluation_extension_max_pairs must be at least evaluation_pairs"
-            )
+            raise ValueError("evaluation_extension_max_pairs must be at least evaluation_pairs")
         if self.evaluation_early_look_interval_pairs:
             interim_confidences = [
                 confidence
@@ -363,9 +373,7 @@ class RunConfig(BaseModel):
                 )
                 if enabled
             ]
-            if interim_confidences and self.promotion_confidence >= min(
-                interim_confidences
-            ):
+            if interim_confidences and self.promotion_confidence >= min(interim_confidences):
                 raise ValueError(
                     "promotion_confidence must be lower than interim confidence "
                     "so the final evaluation retains an error budget"
@@ -671,9 +679,7 @@ class RunConfig(BaseModel):
         return cls.model_validate(base)
 
     @classmethod
-    def astro5_directional(
-        cls, name: str = "Astro5 promotion-direction refinement"
-    ) -> RunConfig:
+    def astro5_directional(cls, name: str = "Astro5 promotion-direction refinement") -> RunConfig:
         """Mature refinement guided by verified historical promotion vectors."""
 
         base = cls.astro5_mature(name=name).model_dump()
