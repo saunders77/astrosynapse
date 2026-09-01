@@ -294,6 +294,7 @@ def test_generation_four_numpy_actor_and_actor_critic_loss(tmp_path):
     assert float(value_only_diagnostics["policy_loss"].item()) == 0.0
     assert float(value_only_diagnostics["policy_entropy"].item()) == 0.0
     assert float(value_only_diagnostics["reference_policy_kl"].item()) == 0.0
+    assert float(value_only_diagnostics["reference_policy_head_kl"].item()) == 0.0
     assert float(value_only_diagnostics["value_loss"].item()) > 0.0
 
     path = export_actor(model, spec, tmp_path / "generation4.actor.npz")

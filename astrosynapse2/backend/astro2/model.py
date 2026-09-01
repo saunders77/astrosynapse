@@ -233,6 +233,7 @@ def actor_critic_policy_loss(
         / actor_denominator
     )
     reference_policy_kl = mx.array(0.0)
+    reference_policy_head_kl = mx.array(0.0)
     if reference_model is not None and float(reference_policy_kl_weight) > 0:
         reference_state_features = reference_model.state_features(states)
         reference_repeated_state_features = mx.broadcast_to(
@@ -249,12 +250,43 @@ def actor_critic_policy_loss(
             reference_masked_logits, axis=1, keepdims=True
         )
         reference_probabilities = mx.stop_gradient(mx.exp(reference_log_probs))
-        reference_policy_kl = (
+        reference_policy_head_kl = (
             mx.sum(
                 actor_weights
                 * mx.sum(reference_probabilities * (reference_log_probs - log_probs), axis=1)
             )
             / actor_denominator
+        )
+        # Inference deploys the arithmetic mean of head logits, not a sampled
+        # bootstrap head. Regularize that exact distribution so a harmless
+        # permutation or specialization of individual heads is not penalized.
+        deployment_logits = mx.mean(policy_logits, axis=2)
+        deployment_masked_logits = mx.where(legal_mask > 0, deployment_logits, -1e9)
+        deployment_log_probs = deployment_masked_logits - mx.logsumexp(
+            deployment_masked_logits, axis=1, keepdims=True
+        )
+        reference_deployment_logits = mx.mean(reference_logits, axis=2)
+        reference_deployment_masked_logits = mx.where(
+            legal_mask > 0, reference_deployment_logits, -1e9
+        )
+        reference_deployment_log_probs = reference_deployment_masked_logits - mx.logsumexp(
+            reference_deployment_masked_logits, axis=1, keepdims=True
+        )
+        reference_deployment_probabilities = mx.stop_gradient(
+            mx.exp(reference_deployment_log_probs)
+        )
+        deployment_weights = sample_weights * resolved_actor_sample_weights
+        deployment_denominator = mx.maximum(mx.sum(deployment_weights), mx.array(1.0))
+        reference_policy_kl = (
+            mx.sum(
+                deployment_weights
+                * mx.sum(
+                    reference_deployment_probabilities
+                    * (reference_deployment_log_probs - deployment_log_probs),
+                    axis=1,
+                )
+            )
+            / deployment_denominator
         )
     search_policy_loss = mx.array(0.0)
     search_value_loss = mx.array(0.0)
@@ -305,6 +337,7 @@ def actor_critic_policy_loss(
         "policy_entropy": entropy,
         "normalized_policy_entropy": normalized_entropy,
         "reference_policy_kl": reference_policy_kl,
+        "reference_policy_head_kl": reference_policy_head_kl,
         "search_policy_loss": search_policy_loss,
         "search_value_loss": search_value_loss,
         "searched_fraction": searched_fraction,

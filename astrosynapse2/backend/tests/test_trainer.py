@@ -605,6 +605,8 @@ def test_fixed_champion_quota_collects_only_the_learner_side():
     assert plan.collect_players.count(True) == 1
     assert plan.collect_players[plan.current_player] is True
     assert plan.epsilons[plan.current_player] == pytest.approx(0.04)
+    assert plan.deployment_policy[plan.current_player] is False
+    assert plan.deployment_policy[1 - plan.current_player] is True
 
     totals = _Totals(games=0, decisions=0, updates=0)
     result = SimpleNamespace(games=4, truncated=0, wins=(3, 1), draws=0)
@@ -613,6 +615,46 @@ def test_fixed_champion_quota_collects_only_the_learner_side():
     assert totals.opponent_scores["root-checkpoint"] == pytest.approx(
         result.wins[plan.current_player]
     )
+    assert totals.rollout_completed_games == {"fixed_champion": 4}
+
+
+@pytest.mark.parametrize(
+    ("random_seed", "expected_kind"),
+    [
+        (17, "fixed_champion_probe_deployment"),
+        (1, "fixed_champion_probe_exploration"),
+    ],
+)
+def test_fixed_champion_probes_are_not_added_to_training_replay(random_seed, expected_kind):
+    config = RunConfig.astro5_mature().model_copy(
+        update={
+            "current_selfplay_fraction": 0.0,
+            "fixed_champion_fraction": 1.0,
+            "fixed_champion_probe_fraction": 1.0,
+            "league_fraction": 0.0,
+            "baseline_fraction": 0.0,
+        }
+    )
+    plan = _make_plan(
+        config=config,
+        rng=np.random.default_rng(random_seed),
+        league=League(),
+        current_actor="learner.actor.npz",
+        fixed_champion_id="root-checkpoint",
+        fixed_champion_actor="root.actor.npz",
+        epsilon=0.01,
+        seed=93,
+    )
+
+    assert plan.kind == expected_kind
+    assert plan.collect_players == (False, False)
+    assert plan.deployment_policy[1 - plan.current_player] is True
+    if expected_kind.endswith("deployment"):
+        assert plan.deployment_policy == (True, True)
+        assert plan.epsilons == (0.0, 0.0)
+    else:
+        assert plan.deployment_policy[plan.current_player] is False
+        assert plan.epsilons[plan.current_player] == pytest.approx(0.04)
 
 
 def test_astro2_rollout_contract_never_uses_deployment_collection_mode():
@@ -650,6 +692,18 @@ def test_fixed_champion_fraction_participates_in_rollout_mix_validation():
 def test_reference_kl_requires_an_immutable_initial_checkpoint():
     with pytest.raises(ValueError, match="requires an initial checkpoint"):
         RunConfig(policy_reference_kl_weight=0.05)
+
+
+def test_adaptive_reference_kl_validates_controller_bounds():
+    with pytest.raises(ValueError, match="requires policy_reference_kl_weight"):
+        RunConfig(policy_reference_kl_target=0.001)
+    with pytest.raises(ValueError, match="must be within its bounds"):
+        RunConfig(
+            initial_checkpoint_id="root",
+            policy_reference_kl_weight=0.05,
+            policy_reference_kl_target=0.001,
+            policy_reference_kl_max_weight=0.02,
+        )
 
 
 def test_zero_game_random_checkpoint_is_not_added_to_league(tmp_path):
@@ -1652,6 +1706,42 @@ def test_invalid_evaluations_are_retryable_and_do_not_create_a_false_plateau(tmp
             }
         )
         == "promoted"
+    )
+    assert (
+        _trainer_evaluation_outcome(
+            truncated
+            | {
+                "status": "complete",
+                "result": {
+                    "games_completed": 200_000,
+                    "truncated_games": 1,
+                    "promotion": {
+                        "eligible": True,
+                        "promoted": False,
+                        "truncation_adjustment": {"applied": True},
+                    },
+                },
+            }
+        )
+        == "not_promoted"
+    )
+    assert (
+        _trainer_evaluation_outcome(
+            truncated
+            | {
+                "status": "complete",
+                "result": {
+                    "games_completed": 4_000,
+                    "truncated_games": 1,
+                    "promotion": {
+                        "eligible": True,
+                        "promoted": False,
+                        "truncation_adjustment": {"applied": True},
+                    },
+                },
+            }
+        )
+        == "truncated"
     )
     assert (
         _trainer_evaluation_outcome(

@@ -114,6 +114,8 @@ class _Totals:
     search_policy_js_sum: float = 0.0
     search_value_abs_delta_sum: float = 0.0
     rollout_games: dict[str, int] = field(default_factory=dict)
+    rollout_completed_games: dict[str, int] = field(default_factory=dict)
+    rollout_scores: dict[str, float] = field(default_factory=dict)
     opponent_games: dict[str, int] = field(default_factory=dict)
     opponent_scores: dict[str, float] = field(default_factory=dict)
 
@@ -132,6 +134,10 @@ def _record_opponent_result(
     if completed_games <= 0:
         return
     score = result.wins[plan.current_player] + 0.5 * result.draws
+    totals.rollout_completed_games[plan.kind] = (
+        totals.rollout_completed_games.get(plan.kind, 0) + completed_games
+    )
+    totals.rollout_scores[plan.kind] = totals.rollout_scores.get(plan.kind, 0.0) + score
     totals.opponent_games[plan.opponent_id] = (
         totals.opponent_games.get(plan.opponent_id, 0) + completed_games
     )
@@ -1096,10 +1102,10 @@ def _trainer_evaluation_outcome(job: dict[str, Any]) -> str:
     """Classify whether an arena is skill evidence or retryable infrastructure.
 
     A completed SQLite row is not automatically a valid comparison. A truncated
-    arena is valid only when it promoted after conservatively scoring every
-    truncation as a candidate loss. Other truncations, a stale champion
-    opponent, or a structurally incomplete result must be retried and must not
-    look like a model regression.
+    arena can remain valid when an exceptionally small truncation rate was
+    already conservatively scored as candidate losses. Larger truncation rates,
+    a stale champion opponent, or a structurally incomplete result must be
+    retried and must not look like a model regression.
     """
 
     status = str(job.get("status", ""))
@@ -1114,7 +1120,23 @@ def _trainer_evaluation_outcome(job: dict[str, Any]) -> str:
 
     result = job.get("result") or {}
     promotion = result.get("promotion") or {}
-    if int(result.get("truncated_games", 0) or 0) > 0 and not bool(promotion.get("promoted")):
+    truncated_games = max(0, int(result.get("truncated_games", 0) or 0))
+    games_completed = max(0, int(result.get("games_completed", 0) or 0))
+    # One bad worker result in a very large arena should not erase the other
+    # games. The arena's promotion calculation has already charged each such
+    # game as a candidate loss. Re-run when the rate exceeds 0.01%, or when an
+    # old/incomplete result does not report a denominator.
+    low_rate_conservative_truncation = bool(
+        truncated_games
+        and games_completed
+        and truncated_games <= int(games_completed * 0.0001)
+        and (promotion.get("truncation_adjustment") or {}).get("applied")
+    )
+    if (
+        truncated_games
+        and not bool(promotion.get("promoted"))
+        and not low_rate_conservative_truncation
+    ):
         return "truncated"
     if bool(promotion.get("stale_opponent") or result.get("stale_opponent")):
         return "stale"
@@ -1672,6 +1694,14 @@ def _restore_totals(
             str(key): max(0, int(value))
             for key, value in (latest.get("rollout_games") or {}).items()
         },
+        rollout_completed_games={
+            str(key): max(0, int(value))
+            for key, value in (latest.get("rollout_completed_games") or {}).items()
+        },
+        rollout_scores={
+            str(key): max(0.0, float(value))
+            for key, value in (latest.get("rollout_scores") or {}).items()
+        },
         opponent_games={
             str(key): max(0, int(value))
             for key, value in (latest.get("opponent_games") or {}).items()
@@ -1693,6 +1723,7 @@ def _training_state(
     rollout_rng_state: dict[str, Any] | None = None,
     replay_rng_state: dict[str, Any] | None = None,
     league_state: list[dict[str, object]] | None = None,
+    policy_reference_kl_controller: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     state: dict[str, Any] = {
         "schema_version": _TRAINING_STATE_SCHEMA_VERSION,
@@ -1714,6 +1745,8 @@ def _training_state(
         "search_policy_js_sum": totals.search_policy_js_sum,
         "search_value_abs_delta_sum": totals.search_value_abs_delta_sum,
         "rollout_games": dict(totals.rollout_games),
+        "rollout_completed_games": dict(totals.rollout_completed_games),
+        "rollout_scores": dict(totals.rollout_scores),
         "opponent_games": dict(totals.opponent_games),
         "opponent_scores": dict(totals.opponent_scores),
         "seed_cursor": int(seed_cursor),
@@ -1728,6 +1761,11 @@ def _training_state(
         state["replay_rng_state"] = replay_rng_state
     if league_state is not None:
         state["league_state"] = league_state
+    if policy_reference_kl_controller is not None:
+        state["policy_reference_kl_controller"] = {
+            "weight": float(policy_reference_kl_controller.get("weight", 0.0)),
+            "last_kl": float(policy_reference_kl_controller.get("last_kl", 0.0)),
+        }
     return state
 
 
@@ -2124,6 +2162,21 @@ def _make_plan(
         collect[current_player] = True
         epsilons = [0.0, 0.0]
         epsilons[current_player] = epsilon
+        deployment = [True, True]
+        deployment[current_player] = False
+        kind = "fixed_champion"
+        if float(rng.random()) < config.fixed_champion_probe_fraction:
+            collect[current_player] = False
+            if float(rng.random()) < 0.5:
+                # Exact deployed mean policy on both seats.
+                kind = "fixed_champion_probe_deployment"
+                epsilons[current_player] = 0.0
+                deployment[current_player] = True
+            else:
+                # Constant exploration makes this rolling score comparable
+                # across checkpoints even while the training epsilon decays.
+                kind = "fixed_champion_probe_exploration"
+                epsilons[current_player] = config.fixed_champion_probe_epsilon
         return _RolloutPlan(
             actor_paths=(actors[0], actors[1]),
             baseline_names=("balanced", "balanced"),
@@ -2131,9 +2184,10 @@ def _make_plan(
             epsilons=(epsilons[0], epsilons[1]),
             seed=seed,
             games=config.games_per_actor_batch,
-            kind="fixed_champion",
+            kind=kind,
             opponent_id=fixed_champion_id,
             current_player=current_player,
+            deployment_policy=(deployment[0], deployment[1]),
         )
 
     checkpoint_opponents = [
@@ -2276,6 +2330,7 @@ def _train_updates(
     fixed_champion_key: int = 0,
     learning_rate_multiplier: float = 1.0,
     promotion_direction: dict[str, Any] | None = None,
+    policy_reference_kl_controller: dict[str, float] | None = None,
 ) -> dict[str, float]:
     active_replay_size = len(policy_replay) if config.training_generation >= 4 else len(replay)
     if count <= 0 or active_replay_size < config.replay_warmup:
@@ -2284,6 +2339,11 @@ def _train_updates(
     import mlx.core as mx
     import mlx.nn as nn
     import mlx.optimizers as optim
+    from mlx.utils import tree_flatten
+
+    reference_kl_weight = float(
+        (policy_reference_kl_controller or {}).get("weight", config.policy_reference_kl_weight)
+    )
 
     if config.training_generation >= 4:
 
@@ -2336,7 +2396,7 @@ def _train_updates(
                     mx.array(1.0),
                 ),
                 reference_model=reference_model,
-                reference_policy_kl_weight=config.policy_reference_kl_weight,
+                reference_policy_kl_weight=reference_kl_weight,
             )[0]
             counterfactual = preference_ranking_loss(
                 model,
@@ -2358,6 +2418,9 @@ def _train_updates(
         clipped_updates = 0
         gradient_norms: list[float] = []
         clipping_scales: list[float] = []
+        parameter_update_norms: list[float] = []
+        relative_parameter_update_norms: list[float] = []
+        parameter_norm = 0.0
         for _ in range(count):
             if control.should_stop() or control.pause_requested.is_set():
                 break
@@ -2431,13 +2494,39 @@ def _train_updates(
                     )
                 gradients = tree_unflatten(guided)
             gradients, norm = optim.clip_grad_norm(gradients, config.gradient_clip)
+            parameters_before = [
+                value for _name, value in tree_flatten(model.trainable_parameters())
+            ]
             optimizer.update(model, gradients)
-            mx.eval(model.parameters(), optimizer.state, loss, norm)
+            parameters_after = [
+                value for _name, value in tree_flatten(model.trainable_parameters())
+            ]
+            update_norm_array = mx.sqrt(
+                sum(
+                    mx.sum(mx.square(after - before))
+                    for before, after in zip(parameters_before, parameters_after, strict=True)
+                )
+            )
+            parameter_norm_array = mx.sqrt(
+                sum(mx.sum(mx.square(value)) for value in parameters_after)
+            )
+            mx.eval(
+                model.parameters(),
+                optimizer.state,
+                loss,
+                norm,
+                update_norm_array,
+                parameter_norm_array,
+            )
             loss_value = float(loss.item())
             gradient_norm = float(norm.item())
             clipped_updates += int(gradient_norm > config.gradient_clip)
             gradient_norms.append(gradient_norm)
             clipping_scales.append(min(1.0, config.gradient_clip / max(gradient_norm, 1e-12)))
+            update_norm = float(update_norm_array.item())
+            parameter_norm = float(parameter_norm_array.item())
+            parameter_update_norms.append(update_norm)
+            relative_parameter_update_norms.append(update_norm / max(parameter_norm, 1e-12))
             totals.updates += 1
             completed += 1
             last_policy_arrays = arrays
@@ -2456,6 +2545,18 @@ def _train_updates(
             "gradient_clipping_scale_mean": (
                 float(np.mean(clipping_scales)) if clipping_scales else 1.0
             ),
+            "parameter_update_norm_mean": (
+                float(np.mean(parameter_update_norms)) if parameter_update_norms else 0.0
+            ),
+            "parameter_update_norm_p90": (
+                float(np.percentile(parameter_update_norms, 90)) if parameter_update_norms else 0.0
+            ),
+            "relative_parameter_update_norm_mean": (
+                float(np.mean(relative_parameter_update_norms))
+                if relative_parameter_update_norms
+                else 0.0
+            ),
+            "parameter_norm": parameter_norm,
             "learning_rate_multiplier": float(learning_rate_multiplier),
             "promotion_direction_strength": float(
                 config.promotion_direction_strength if promotion_direction else 0.0
@@ -2528,7 +2629,7 @@ def _train_updates(
                     mx.array(1.0),
                 ),
                 reference_model=reference_model,
-                reference_policy_kl_weight=config.policy_reference_kl_weight,
+                reference_policy_kl_weight=reference_kl_weight,
                 collection_policy_probabilities=mx.array(
                     last_policy_batch.collection_policy_probabilities
                 ),
@@ -2544,6 +2645,32 @@ def _train_updates(
                     "accuracy": float(diagnostics["value_accuracy"].item()),
                 }
             )
+            observed_reference_kl = float(diagnostics["reference_policy_kl"].item())
+            relative_update_count = max(1, totals.updates - optimizer_updates_at_start)
+            metrics.update(
+                policy_reference_kl_effective_weight=reference_kl_weight,
+                policy_reference_kl_target=float(config.policy_reference_kl_target),
+                reference_policy_kl_per_1000_updates=(
+                    1_000.0 * observed_reference_kl / relative_update_count
+                ),
+            )
+            if policy_reference_kl_controller is not None:
+                next_weight = reference_kl_weight
+                target = float(config.policy_reference_kl_target)
+                if target > 0:
+                    if observed_reference_kl > target * 1.25:
+                        next_weight *= config.policy_reference_kl_adjustment
+                    elif observed_reference_kl < target / 1.25:
+                        next_weight /= config.policy_reference_kl_adjustment
+                    next_weight = min(
+                        config.policy_reference_kl_max_weight,
+                        max(config.policy_reference_kl_min_weight, next_weight),
+                    )
+                policy_reference_kl_controller.update(
+                    weight=float(next_weight),
+                    last_kl=observed_reference_kl,
+                )
+                metrics["policy_reference_kl_next_weight"] = float(next_weight)
             if last_preference_arrays is not None:
                 preference_loss, preference_diagnostics = preference_ranking_loss(
                     model,
@@ -2573,10 +2700,11 @@ def _train_updates(
             # the shared trunk when the aggregate gradient is clipped.
             crossed_gradient_probe = (
                 completed > 0
-                and totals.updates // 1_024 != max(0, totals.updates - completed) // 1_024
+                and totals.updates // config.objective_gradient_probe_interval_updates
+                != max(0, totals.updates - completed)
+                // config.objective_gradient_probe_interval_updates
             )
             if crossed_gradient_probe:
-                from mlx.utils import tree_flatten
 
                 def component_gradients(
                     kind: str, source_mask: Any | None = None
@@ -2652,7 +2780,7 @@ def _train_updates(
                     # actor_critic_policy_loss differentiates -entropy when
                     # entropy_weight is positive, matching the applied sign.
                     "entropy": float(config.policy_entropy_weight),
-                    "reference_kl": float(config.policy_reference_kl_weight),
+                    "reference_kl": reference_kl_weight,
                 }
                 component_results = {kind: component_gradients(kind) for kind in component_weights}
                 source_actor_results = {
@@ -2660,6 +2788,25 @@ def _train_updates(
                         "actor",
                         mx.array(last_policy_batch.rollout_sources == source_id),
                     )
+                    for source_id, source_name in POLICY_ROLLOUT_SOURCE_NAMES.items()
+                }
+                resolved_actor_weights = mx.where(
+                    last_policy_arrays[13] > 0,
+                    mx.array(float(config.deployment_policy_actor_weight)),
+                    mx.array(1.0),
+                )
+                all_actor_weights = (
+                    last_policy_arrays[7]
+                    * last_policy_arrays[8][:, None]
+                    * resolved_actor_weights[:, None]
+                )
+                all_actor_weight = mx.maximum(mx.sum(all_actor_weights), mx.array(1e-12))
+                source_actor_shares = {
+                    source_name: mx.sum(
+                        all_actor_weights
+                        * mx.array(last_policy_batch.rollout_sources == source_id)[:, None]
+                    )
+                    / all_actor_weight
                     for source_id, source_name in POLICY_ROLLOUT_SOURCE_NAMES.items()
                 }
                 raw_norms = {kind: result[1] for kind, result in component_results.items()}
@@ -2725,6 +2872,21 @@ def _train_updates(
                     source_actor_cosines[source_name] = source_dot / mx.maximum(
                         actor_norm * source_norm, mx.array(1e-12)
                     )
+                source_pair_cosines = {}
+                source_names = tuple(source_actor_results)
+                for left_index, left in enumerate(source_names):
+                    left_gradients, left_norm = source_actor_results[left]
+                    for right in source_names[left_index + 1 :]:
+                        right_gradients, right_norm = source_actor_results[right]
+                        dot = sum(
+                            mx.sum(left_gradient * right_gradient)
+                            for left_gradient, right_gradient in zip(
+                                left_gradients, right_gradients, strict=True
+                            )
+                        )
+                        source_pair_cosines[f"{left}_{right}"] = dot / mx.maximum(
+                            left_norm * right_norm, mx.array(1e-12)
+                        )
                 mx.eval(
                     search_norm,
                     weighted_search_norm,
@@ -2732,6 +2894,8 @@ def _train_updates(
                     *cosines.values(),
                     *(result[1] for result in source_actor_results.values()),
                     *source_actor_cosines.values(),
+                    *source_actor_shares.values(),
+                    *source_pair_cosines.values(),
                 )
 
                 metrics.update(
@@ -2750,6 +2914,20 @@ def _train_updates(
                     **{
                         f"objective_actor_source_{source_name}_total_cosine": float(cosine.item())
                         for source_name, cosine in source_actor_cosines.items()
+                    },
+                    **{
+                        f"objective_actor_source_{source_name}_sample_share": float(share.item())
+                        for source_name, share in source_actor_shares.items()
+                    },
+                    **{
+                        f"objective_actor_source_{source_name}_weighted_gradient_norm": (
+                            float(source_actor_results[source_name][1].item()) * float(share.item())
+                        )
+                        for source_name, share in source_actor_shares.items()
+                    },
+                    **{
+                        f"objective_actor_source_{pair}_gradient_cosine": float(cosine.item())
+                        for pair, cosine in source_pair_cosines.items()
                     },
                     objective_search_gradient_norm=float(search_norm.item()),
                     objective_search_weighted_gradient_norm=float(weighted_search_norm.item()),
@@ -3111,6 +3289,11 @@ def run_training(
     )
     totals = _restore_totals(store, run, latest)
     restored_training_state = _checkpoint_training_state(latest)
+    restored_kl_controller = restored_training_state.get("policy_reference_kl_controller") or {}
+    policy_reference_kl_controller: dict[str, float] = {
+        "weight": float(restored_kl_controller.get("weight", config.policy_reference_kl_weight)),
+        "last_kl": float(restored_kl_controller.get("last_kl", 0.0)),
+    }
     schedule_games_origin = max(0, int(restored_training_state.get("schedule_games_origin", 0)))
     artifacts = ((latest or {}).get("evaluation") or {}).get("artifacts") or {}
     promotion_direction: dict[str, Any] = {}
@@ -3298,6 +3481,7 @@ def run_training(
                 optimizer_updates_at_start=optimizer_updates_at_start,
                 schedule_games_origin=schedule_games_origin,
                 active_elapsed_seconds=0.0,
+                policy_reference_kl_controller=policy_reference_kl_controller,
             ),
         )
         parent_checkpoint_id = latest["id"]
@@ -3358,6 +3542,8 @@ def run_training(
     last_memory_pressure_event_at = 0.0
     consecutive_critical_memory_samples = 0
     last_diagnostics: dict[str, float] = {}
+    last_reported_rollout_games = dict(totals.rollout_completed_games)
+    last_reported_rollout_scores = dict(totals.rollout_scores)
     metric_seq = int(time.time() * 1_000)
     seed_cursor = int(
         restored_training_state.get("seed_cursor", config.seed + totals.games * 10_007)
@@ -3785,6 +3971,18 @@ def run_training(
         metric_seq += 1
         rollout_total = max(1, sum(totals.rollout_games.values()))
         rollout_mix = {key: value / rollout_total for key, value in totals.rollout_games.items()}
+        rollout_interval_results = {}
+        for kind, completed_games in totals.rollout_completed_games.items():
+            interval_games = completed_games - last_reported_rollout_games.get(kind, 0)
+            if interval_games <= 0:
+                continue
+            interval_score = totals.rollout_scores.get(
+                kind, 0.0
+            ) - last_reported_rollout_scores.get(kind, 0.0)
+            rollout_interval_results[kind] = {
+                "games": interval_games,
+                "score": interval_score / interval_games,
+            }
         uncertainty = float(last_diagnostics.get("uncertainty", 0.0))
         payload: dict[str, Any] = {
             "seq": metric_seq,
@@ -3814,7 +4012,15 @@ def run_training(
             ),
             "deployment_policy_actor_weight": config.deployment_policy_actor_weight,
             "fixed_champion_fraction": config.fixed_champion_fraction,
-            "policy_reference_kl_weight": config.policy_reference_kl_weight,
+            "fixed_champion_probe_fraction": config.fixed_champion_probe_fraction,
+            "policy_reference_kl_weight": float(
+                last_diagnostics.get(
+                    "policy_reference_kl_effective_weight",
+                    config.policy_reference_kl_weight,
+                )
+            ),
+            "policy_reference_kl_initial_weight": config.policy_reference_kl_weight,
+            "policy_reference_kl_target": config.policy_reference_kl_target,
             "fixed_champion_id": fixed_champion_id,
             "target_mode": (
                 "legal_set_actor_critic"
@@ -3832,6 +4038,14 @@ def run_training(
                 ),
             },
             "rollout_games": dict(totals.rollout_games),
+            "rollout_results": {
+                kind: {
+                    "games": games,
+                    "score": totals.rollout_scores.get(kind, 0.0) / max(1, games),
+                }
+                for kind, games in totals.rollout_completed_games.items()
+            },
+            "rollout_interval_results": rollout_interval_results,
             "opponent_results": {
                 opponent_id: {
                     "games": games,
@@ -3902,6 +4116,8 @@ def run_training(
             updates=totals.updates,
         )
         publish(payload)
+        last_reported_rollout_games.update(totals.rollout_completed_games)
+        last_reported_rollout_scores.update(totals.rollout_scores)
         last_metric_at = now
 
     def persist_checkpoint(reason: str, *, schedule_evaluation: bool) -> dict[str, Any]:
@@ -3939,6 +4155,7 @@ def run_training(
                 rollout_rng_state=rng.bit_generator.state,
                 replay_rng_state=replay.rng_state(),
                 league_state=league.snapshot(),
+                policy_reference_kl_controller=policy_reference_kl_controller,
             ),
         )
         parent_checkpoint_id = checkpoint["id"]
@@ -4219,6 +4436,7 @@ def run_training(
                 fixed_champion_key=policy_opponent_key(fixed_champion_id),
                 learning_rate_multiplier=float(governor.get("learning_rate_multiplier", 1.0)),
                 promotion_direction=promotion_direction,
+                policy_reference_kl_controller=policy_reference_kl_controller,
             )
             emit(
                 phase=(
@@ -4330,6 +4548,7 @@ def run_training(
                     rollout_rng_state=rng.bit_generator.state,
                     replay_rng_state=replay.rng_state(),
                     league_state=league.snapshot(),
+                    policy_reference_kl_controller=policy_reference_kl_controller,
                 ),
             )
             parent_checkpoint_id = checkpoint["id"]

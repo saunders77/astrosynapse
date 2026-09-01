@@ -92,6 +92,13 @@ class RunConfig(BaseModel):
     # Anchor the learner's complete legal-action distribution to the immutable
     # branch root. Zero preserves the historical objective.
     policy_reference_kl_weight: float = Field(default=0.0, ge=0, le=10)
+    # When a target is positive, the trainer adapts the effective KL weight to
+    # keep drift of the deployable mean-head policy near this per-batch value.
+    policy_reference_kl_target: float = Field(default=0.0, ge=0, le=1)
+    policy_reference_kl_min_weight: float = Field(default=0.0, ge=0, le=10)
+    policy_reference_kl_max_weight: float = Field(default=10.0, ge=0, le=10)
+    policy_reference_kl_adjustment: float = Field(default=1.05, gt=1, le=2)
+    objective_gradient_probe_interval_updates: int = Field(default=1_024, ge=32, le=100_000)
     counterfactual_fraction: float = Field(default=0.0, ge=0, le=1)
     counterfactual_max_per_game: int = Field(default=0, ge=0, le=8)
     counterfactual_loss_weight: float = Field(default=0.0, ge=0, le=10)
@@ -140,6 +147,10 @@ class RunConfig(BaseModel):
     # branch-root actor. It prevents a moving self-play population from
     # forgetting the policy the branch is explicitly trying to improve upon.
     fixed_champion_fraction: float = Field(default=0.0, ge=0, le=1)
+    # A small part of the fixed-root quota can be reserved for non-training
+    # probes: half exact deployment and half fixed-epsilon exploration.
+    fixed_champion_probe_fraction: float = Field(default=0.0, ge=0, le=1)
+    fixed_champion_probe_epsilon: float = Field(default=0.04, ge=0, le=1)
     league_fraction: float = Field(default=0.30, ge=0, le=1)
     baseline_fraction: float = Field(default=0.15, ge=0, le=1)
     behavior_policy: Literal["champion", "learner"] = "champion"
@@ -325,6 +336,18 @@ class RunConfig(BaseModel):
             raise ValueError("deployment_policy_selfplay_fraction requires training_generation>=3")
         if self.policy_reference_kl_weight and not self.initial_checkpoint_id:
             raise ValueError("policy_reference_kl_weight requires an initial checkpoint")
+        if self.policy_reference_kl_target and not self.policy_reference_kl_weight:
+            raise ValueError("policy_reference_kl_target requires policy_reference_kl_weight")
+        if self.policy_reference_kl_min_weight > self.policy_reference_kl_max_weight:
+            raise ValueError("policy_reference_kl_min_weight must not exceed the maximum")
+        if self.policy_reference_kl_target and not (
+            self.policy_reference_kl_min_weight
+            <= self.policy_reference_kl_weight
+            <= self.policy_reference_kl_max_weight
+        ):
+            raise ValueError("initial policy reference KL weight must be within its bounds")
+        if self.fixed_champion_probe_fraction and not self.fixed_champion_fraction:
+            raise ValueError("fixed champion probes require a fixed champion quota")
         if self.training_generation < 4 and (
             self.counterfactual_fraction or self.counterfactual_max_per_game
         ):
