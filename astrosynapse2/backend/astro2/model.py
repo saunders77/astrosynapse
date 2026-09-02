@@ -173,6 +173,8 @@ def actor_critic_policy_loss(
     behavior_policy_loss_weight: float = 1.0,
     search_loss_reference_positions: int = 1,
     actor_sample_weights=None,
+    actor_advantages=None,
+    actor_advantage_valid=None,
     reference_model=None,
     reference_policy_kl_weight: float = 0.0,
     collection_policy_probabilities=None,
@@ -207,7 +209,23 @@ def actor_critic_policy_loss(
     value_logits = model.state_values_from_features(state_features, families)
     values = mx.sigmoid(value_logits)
     target_matrix = mx.broadcast_to(targets[:, None], values.shape)
-    advantages = mx.stop_gradient(target_matrix - values)
+    monte_carlo_advantages = target_matrix - values
+    if actor_advantages is not None:
+        supplied_advantages = mx.broadcast_to(actor_advantages[:, None], values.shape)
+        valid_advantages = (
+            mx.ones_like(actor_advantages)
+            if actor_advantage_valid is None
+            else actor_advantage_valid
+        )
+        advantages = mx.where(
+            valid_advantages[:, None] > 0,
+            supplied_advantages,
+            monte_carlo_advantages,
+        )
+    else:
+        valid_advantages = mx.zeros_like(targets)
+        advantages = monte_carlo_advantages
+    advantages = mx.stop_gradient(advantages)
     behavior = mx.maximum(behavior_probabilities[:, None], mx.array(1e-6))
     raw_ratios = chosen_probabilities / behavior
     ratios = mx.stop_gradient(mx.minimum(raw_ratios, mx.array(float(importance_clip))))
@@ -348,6 +366,11 @@ def actor_critic_policy_loss(
         "weighted_entropy_loss": -float(entropy_weight) * entropy,
         "weighted_reference_policy_kl": (float(reference_policy_kl_weight) * reference_policy_kl),
         "actor_sample_fraction": mx.mean(resolved_actor_sample_weights),
+        "actor_supplied_advantage_fraction": mx.mean(valid_advantages),
+        "actor_advantage_mean": (mx.sum(actor_weights * advantages) / actor_denominator),
+        "actor_advantage_rms": mx.sqrt(
+            mx.sum(actor_weights * mx.square(advantages)) / actor_denominator
+        ),
         "weighted_search_policy_loss": (
             float(search_policy_loss_weight) * search_weight_scale * search_policy_loss
         ),

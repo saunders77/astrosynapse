@@ -98,7 +98,21 @@ class RunConfig(BaseModel):
     policy_reference_kl_min_weight: float = Field(default=0.0, ge=0, le=10)
     policy_reference_kl_max_weight: float = Field(default=10.0, ge=0, le=10)
     policy_reference_kl_adjustment: float = Field(default=1.05, gt=1, le=2)
+    policy_reference_kl_ema_decay: float = Field(default=0.99, ge=0, lt=1)
+    policy_reference_kl_adjust_interval_updates: int = Field(default=100, ge=1, le=100_000)
     objective_gradient_probe_interval_updates: int = Field(default=1_024, ge=32, le=100_000)
+    objective_gradient_probe_splits: int = Field(default=1, ge=1, le=8)
+    # Source-stratified actor loss gives every active source its configured
+    # aggregate weight regardless of incidental representation in one batch.
+    source_stratified_actor_loss: bool = False
+    self_play_actor_weight: float = Field(default=1.0, ge=0, le=4)
+    fixed_champion_actor_weight: float = Field(default=1.0, ge=0, le=4)
+    league_actor_weight: float = Field(default=1.0, ge=0, le=4)
+    baseline_actor_weight: float = Field(default=1.0, ge=0, le=4)
+    # Monte Carlo remains the critic target. Turn GAE changes only the actor
+    # advantage and therefore isolates credit-assignment variance.
+    policy_actor_advantage: Literal["monte_carlo", "turn_gae"] = "monte_carlo"
+    policy_actor_gae_lambda: float = Field(default=0.95, ge=0, le=1)
     counterfactual_fraction: float = Field(default=0.0, ge=0, le=1)
     counterfactual_max_per_game: int = Field(default=0, ge=0, le=8)
     counterfactual_loss_weight: float = Field(default=0.0, ge=0, le=10)
@@ -352,6 +366,17 @@ class RunConfig(BaseModel):
             self.counterfactual_fraction or self.counterfactual_max_per_game
         ):
             raise ValueError("counterfactual rollout training requires training_generation=4")
+        if self.training_generation < 4 and self.policy_actor_advantage != "monte_carlo":
+            raise ValueError("turn-level actor advantages require training_generation>=4")
+        if self.source_stratified_actor_loss and not any(
+            (
+                self.self_play_actor_weight,
+                self.fixed_champion_actor_weight,
+                self.league_actor_weight,
+                self.baseline_actor_weight,
+            )
+        ):
+            raise ValueError("source-stratified actor loss requires a positive source weight")
         if self.training_generation < 5 and (
             self.reanalysis_fraction
             or self.reanalysis_max_per_game

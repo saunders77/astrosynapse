@@ -57,7 +57,7 @@ def test_arena_config_is_bounded_and_conservative():
         ArenaConfig(early_rejection_confidence=1.0)
 
 
-def test_existing_automatic_job_config_inherits_universal_extension_policy():
+def test_automatic_job_keeps_confidence_contract_and_respects_extension_controls():
     config = ArenaConfig(
         automatic_promotion=True,
         trainer_scheduled=True,
@@ -70,11 +70,11 @@ def test_existing_automatic_job_config_inherits_universal_extension_policy():
     )
 
     assert config.confidence == 0.95
-    assert config.extension_enabled is True
-    assert config.extension_max_pairs == 100_000
-    assert config.extension_block_pairs == 2_000
-    assert config.extension_min_score == 0.50
-    assert config.extension_min_lower_bound == 0.0
+    assert config.extension_enabled is False
+    assert config.extension_max_pairs == 4_000
+    assert config.extension_block_pairs == 5_000
+    assert config.extension_min_score == 0.60
+    assert config.extension_min_lower_bound == 0.48
 
 
 def test_arena_summary_separates_true_draws_from_truncations():
@@ -168,12 +168,8 @@ def test_regular_99_percent_looks_share_error_across_both_decisions():
     assert arena_module._early_rejection_looks(config) == expected_looks
     assert arena_module._early_acceptance_looks(config) == expected_looks
 
-    strong = arena_module._early_acceptance_look(
-        [0.56] * 2_000, config=config, look_pairs=2_000
-    )
-    weak = arena_module._early_rejection_look(
-        [0.44] * 2_000, config=config, look_pairs=2_000
-    )
+    strong = arena_module._early_acceptance_look([0.56] * 2_000, config=config, look_pairs=2_000)
+    weak = arena_module._early_rejection_look([0.44] * 2_000, config=config, look_pairs=2_000)
     borderline = arena_module._early_acceptance_look(
         [0.53] * 2_000, config=config, look_pairs=2_000
     )
@@ -186,12 +182,15 @@ def test_regular_99_percent_looks_share_error_across_both_decisions():
     assert strong["bonferroni_look_alpha"] == pytest.approx(0.01 / 98)
     assert arena_module._extension_confidence(config, 48_000) == pytest.approx(0.95)
     assert arena_module._extension_confidence(config, 50_000) == pytest.approx(0.95)
-    assert arena_module._should_extend_promotion_evaluation(
-        config=config,
-        pairs_completed=10_000,
-        estimate=0.40,
-        lower_bound=0.35,
-    ) is False
+    assert (
+        arena_module._should_extend_promotion_evaluation(
+            config=config,
+            pairs_completed=10_000,
+            estimate=0.40,
+            lower_bound=0.35,
+        )
+        is False
+    )
     repaired = ArenaConfig(
         pairs=10_000,
         confidence=0.99,
@@ -288,12 +287,15 @@ def test_all_automatic_promotion_tiers_can_extend():
         trainer_scheduled=True,
     )
 
-    assert arena_module._should_extend_promotion_evaluation(
-        config=config,
-        pairs_completed=1_000,
-        estimate=0.51,
-        lower_bound=0.49,
-    ) is True
+    assert (
+        arena_module._should_extend_promotion_evaluation(
+            config=config,
+            pairs_completed=1_000,
+            estimate=0.51,
+            lower_bound=0.49,
+        )
+        is True
+    )
 
 
 def test_marginal_positive_full_evaluation_runs_one_more_2000_pair_block(
@@ -405,13 +407,11 @@ def test_mature_evaluation_can_extend_across_multiple_blocks(tmp_path, monkeypat
 
     assert complete["status"] == "complete", complete.get("error")
     result = complete["result"]
-    assert result["pairs_completed"] == 20_000
-    assert result["adaptive_extension"]["additional_pairs"] == 18_000
-    assert result["adaptive_extension"]["maximum_pairs"] == 100_000
-    assert result["adaptive_extension"]["look_adjusted_confidence"] == pytest.approx(
-        0.95
-    )
-    assert result["promotion"]["promoted"] is True
+    assert result["pairs_completed"] == 8_000
+    assert result["adaptive_extension"]["additional_pairs"] == 6_000
+    assert result["adaptive_extension"]["maximum_pairs"] == 8_000
+    assert result["adaptive_extension"]["look_adjusted_confidence"] == pytest.approx(0.95)
+    assert result["promotion"]["promoted"] is False
 
 
 def test_promotion_extension_stops_at_100000_pairs_when_still_unresolved(
@@ -957,9 +957,9 @@ def test_automatic_finalization_never_promotes_manual_or_tiny_jobs_but_promotes_
     )
     assert marginal_truncated["promotion"]["eligible"] is True
     assert marginal_truncated["promotion"]["promoted"] is False
-    assert marginal_truncated["promotion"]["truncation_adjustment"]["model_a_score"] == pytest.approx(
-        0.5172
-    )
+    assert marginal_truncated["promotion"]["truncation_adjustment"][
+        "model_a_score"
+    ] == pytest.approx(0.5172)
     assert marginal_truncated["promotion"]["truncation_adjustment"]["paired_interval"]["low"] < 0.5
     assert store.get_run(run["id"])["champion_id"] == champion["id"]
 

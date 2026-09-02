@@ -423,6 +423,10 @@ class CompactPolicySamples:
     game_ids: np.ndarray
     players: np.ndarray
     steps: np.ndarray
+    turns: np.ndarray
+    collection_values: np.ndarray
+    actor_advantages: np.ndarray
+    actor_advantage_valid: np.ndarray
     search_policy: np.ndarray
     search_mask: np.ndarray
     search_values: np.ndarray
@@ -457,6 +461,10 @@ class CompactPolicySamples:
                 game_ids=np.empty(0, dtype=np.uint64),
                 players=np.empty(0, dtype=np.uint8),
                 steps=np.empty(0, dtype=np.uint32),
+                turns=np.empty(0, dtype=np.uint16),
+                collection_values=np.empty(0, dtype=np.float16),
+                actor_advantages=np.empty(0, dtype=np.float16),
+                actor_advantage_valid=np.empty(0, dtype=np.uint8),
                 search_policy=np.empty(0, dtype=np.float16),
                 search_mask=np.empty(0, dtype=np.uint8),
                 search_values=np.empty(0, dtype=np.float16),
@@ -488,6 +496,14 @@ class CompactPolicySamples:
             game_ids=np.asarray([int(item.game_id) % (1 << 64) for item in items], dtype=np.uint64),
             players=np.asarray([item.player for item in items], dtype=np.uint8),
             steps=np.asarray([item.step for item in items], dtype=np.uint32),
+            turns=np.asarray([item.turn for item in items], dtype=np.uint16),
+            collection_values=np.asarray(
+                [item.collection_value for item in items], dtype=np.float16
+            ),
+            actor_advantages=np.asarray([item.actor_advantage for item in items], dtype=np.float16),
+            actor_advantage_valid=np.asarray(
+                [item.actor_advantage_valid for item in items], dtype=np.uint8
+            ),
             search_policy=np.concatenate(
                 [
                     np.asarray(
@@ -559,6 +575,7 @@ class _PendingPolicySample:
     family: DecisionFamily
     player: int
     step: int
+    turn: int
     search_policy: np.ndarray | None = None
     search_mask: np.ndarray | None = None
     search_value: float = 0.5
@@ -653,6 +670,8 @@ def collect_game(
     collect_preferences: bool = True,
     collect_policy_decisions: bool = False,
     collect_outcome_decisions: bool = True,
+    policy_actor_advantage: str = "monte_carlo",
+    policy_actor_gae_lambda: float = 0.95,
     counterfactual_fraction: float = 0.0,
     counterfactual_max_per_game: int = 1,
     reanalysis_fraction: float = 0.0,
@@ -675,6 +694,10 @@ def collect_game(
         raise ValueError("provide exactly one policy and collection flag per player")
     if bootstrap_heads < 1:
         raise ValueError("bootstrap_heads must be positive")
+    if policy_actor_advantage not in {"monte_carlo", "turn_gae"}:
+        raise ValueError("policy_actor_advantage must be monte_carlo or turn_gae")
+    if not 0 <= policy_actor_gae_lambda <= 1:
+        raise ValueError("policy_actor_gae_lambda must be in [0, 1]")
     if not 0 <= counterfactual_fraction <= 1:
         raise ValueError("counterfactual_fraction must be in [0, 1]")
     if counterfactual_max_per_game < 0:
@@ -1055,6 +1078,7 @@ def collect_game(
                                 family=encoded.family,
                                 player=player,
                                 step=player_steps[player],
+                                turn=max(0, int(decision.observation.turn)),
                             )
                         )
                 if collect_preferences:
@@ -1102,6 +1126,43 @@ def collect_game(
     if result.winner is not None:
         targets = (1.0, 0.0) if result.winner == 0 else (0.0, 1.0)
     resolved_game_id = seed if game_id is None else game_id
+    turn_values: dict[tuple[int, int], float] = {}
+    turn_advantages: dict[tuple[int, int], float] = {}
+    if policy_actor_advantage == "turn_gae" and not result.truncated:
+        for player in range(2):
+            policy = policies[player]
+            if not isinstance(policy, ActorPolicy):
+                continue
+            first_by_turn: dict[int, _PendingPolicySample] = {}
+            for item in pending_policy:
+                if item.player == player:
+                    first_by_turn.setdefault(item.turn, item)
+            ordered = [first_by_turn[turn] for turn in sorted(first_by_turn)]
+            if not ordered:
+                continue
+            logits = np.asarray(
+                policy.actor.predict_values(
+                    np.stack([item.state for item in ordered]),
+                    np.asarray([int(item.family) for item in ordered], dtype=np.int64),
+                ),
+                dtype=np.float64,
+            )
+            probabilities = 1.0 / (1.0 + np.exp(-np.clip(logits, -40.0, 40.0)))
+            values = []
+            for index, item in enumerate(ordered):
+                if item.behavior_head >= 0:
+                    values.append(float(probabilities[index, item.behavior_head]))
+                else:
+                    values.append(float(np.mean(probabilities[index])))
+            trace = 0.0
+            next_value = float(targets[player])
+            for item, value in reversed(tuple(zip(ordered, values, strict=True))):
+                delta = next_value - value
+                trace = delta + float(policy_actor_gae_lambda) * trace
+                key = (player, item.turn)
+                turn_values[key] = value
+                turn_advantages[key] = float(np.clip(trace, -1.0, 1.0))
+                next_value = value
     samples = ()
     policy_samples = ()
     if not result.truncated:
@@ -1138,6 +1199,10 @@ def collect_game(
                 game_id=resolved_game_id,
                 player=item.player,
                 step=item.step,
+                turn=item.turn,
+                collection_value=turn_values.get((item.player, item.turn), 0.5),
+                actor_advantage=turn_advantages.get((item.player, item.turn), 0.0),
+                actor_advantage_valid=(item.player, item.turn) in turn_advantages,
                 search_policy=item.search_policy,
                 search_mask=item.search_mask,
                 search_value=item.search_value,
@@ -1291,6 +1356,8 @@ def collect_worker_batch(
     collect_preferences: bool = True,
     collect_policy_decisions: bool = False,
     collect_outcome_decisions: bool = True,
+    policy_actor_advantage: str = "monte_carlo",
+    policy_actor_gae_lambda: float = 0.95,
     counterfactual_fraction: float = 0.0,
     counterfactual_max_per_game: int = 1,
     reanalysis_fraction: float = 0.0,
@@ -1393,6 +1460,8 @@ def collect_worker_batch(
             collect_preferences=collect_preferences,
             collect_policy_decisions=collect_policy_decisions,
             collect_outcome_decisions=collect_outcome_decisions,
+            policy_actor_advantage=policy_actor_advantage,
+            policy_actor_gae_lambda=policy_actor_gae_lambda,
             counterfactual_fraction=counterfactual_fraction,
             counterfactual_max_per_game=counterfactual_max_per_game,
             reanalysis_fraction=reanalysis_fraction,

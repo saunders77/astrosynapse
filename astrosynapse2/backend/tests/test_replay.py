@@ -407,6 +407,10 @@ def test_astro5_policy_reservoir_preserves_search_and_round_trips(tmp_path):
                 behavior_head=2,
                 behavior_epsilon=0.03,
                 deployment_policy=False,
+                turn=step // 2,
+                collection_value=0.61,
+                actor_advantage=0.17,
+                actor_advantage_valid=True,
             )
         )
     assert replay.extend(entries) == 10
@@ -435,6 +439,10 @@ def test_astro5_policy_reservoir_preserves_search_and_round_trips(tmp_path):
     np.testing.assert_allclose(restored_batch.collection_policy_probabilities, 0.42, atol=1e-3)
     assert set(restored_batch.behavior_heads.tolist()) == {2}
     np.testing.assert_allclose(restored_batch.behavior_epsilons, 0.03, atol=1e-3)
+    np.testing.assert_allclose(restored_batch.collection_values, 0.61, atol=1e-3)
+    np.testing.assert_allclose(restored_batch.actor_advantages, 0.17, atol=1e-3)
+    assert np.all(restored_batch.actor_advantage_valid)
+    assert set(restored_batch.turns.tolist()).issubset(set(range(5)))
     assert set(restored_batch.sample_tiers.tolist()) == {0}
 
 

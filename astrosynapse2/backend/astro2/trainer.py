@@ -42,6 +42,7 @@ from .model import (
 )
 from .replay import (
     NATURAL_SAMPLING_WEIGHTS,
+    POLICY_ROLLOUT_SOURCE_IDS,
     POLICY_ROLLOUT_SOURCE_NAMES,
     GameBalancedPolicyReplayBuffer,
     PreferenceReplayBuffer,
@@ -1765,6 +1766,11 @@ def _training_state(
         state["policy_reference_kl_controller"] = {
             "weight": float(policy_reference_kl_controller.get("weight", 0.0)),
             "last_kl": float(policy_reference_kl_controller.get("last_kl", 0.0)),
+            "ema_kl": float(policy_reference_kl_controller.get("ema_kl", 0.0)),
+            "ema_initialized": bool(policy_reference_kl_controller.get("ema_initialized", False)),
+            "next_adjustment_update": int(
+                policy_reference_kl_controller.get("next_adjustment_update", 0)
+            ),
         }
     return state
 
@@ -2291,6 +2297,8 @@ def _submit_rollout(
         collect_preferences=config.tactical_preference_training,
         collect_policy_decisions=config.training_generation >= 4,
         collect_outcome_decisions=config.training_generation < 4,
+        policy_actor_advantage=config.policy_actor_advantage,
+        policy_actor_gae_lambda=config.policy_actor_gae_lambda,
         counterfactual_fraction=(
             config.counterfactual_fraction if config.training_generation >= 4 else 0.0
         ),
@@ -2345,6 +2353,39 @@ def _train_updates(
         (policy_reference_kl_controller or {}).get("weight", config.policy_reference_kl_weight)
     )
 
+    def resolved_actor_sample_weights(deployment_policy: Any, rollout_sources: Any) -> Any:
+        deployment_weights = mx.where(
+            deployment_policy > 0,
+            mx.array(float(config.deployment_policy_actor_weight)),
+            mx.array(1.0),
+        )
+        source_weights = {
+            "unknown": 1.0,
+            "self_play": float(config.self_play_actor_weight),
+            "deployment_self_play": float(config.self_play_actor_weight),
+            "fixed_champion": float(config.fixed_champion_actor_weight),
+            "league": float(config.league_actor_weight),
+            "baseline": float(config.baseline_actor_weight),
+        }
+        if not config.source_stratified_actor_loss:
+            resolved = mx.zeros_like(deployment_policy)
+            for source_name, configured_weight in source_weights.items():
+                source_id = POLICY_ROLLOUT_SOURCE_IDS[source_name]
+                resolved = mx.where(
+                    rollout_sources == source_id,
+                    mx.array(configured_weight),
+                    resolved,
+                )
+            return deployment_weights * resolved
+        resolved = mx.zeros_like(deployment_policy)
+        for source_name, configured_weight in source_weights.items():
+            source_id = POLICY_ROLLOUT_SOURCE_IDS[source_name]
+            mask = (rollout_sources == source_id).astype(deployment_policy.dtype)
+            eligible = mask * deployment_weights
+            per_sample = float(configured_weight) / mx.maximum(mx.sum(eligible), mx.array(1.0))
+            resolved = resolved + eligible * per_sample
+        return resolved
+
     if config.training_generation >= 4:
 
         def policy_loss_function(
@@ -2362,6 +2403,9 @@ def _train_updates(
             search_values,
             search_valid,
             deployment_policy,
+            actor_advantages,
+            actor_advantage_valid,
+            rollout_sources,
             preference_states,
             preferred_actions,
             disfavored_actions,
@@ -2390,11 +2434,11 @@ def _train_updates(
                 search_policy_loss_weight=config.reanalysis_policy_loss_weight,
                 search_value_loss_weight=config.reanalysis_value_loss_weight,
                 search_loss_reference_positions=config.reanalysis_loss_reference_positions,
-                actor_sample_weights=mx.where(
-                    deployment_policy > 0,
-                    mx.array(float(config.deployment_policy_actor_weight)),
-                    mx.array(1.0),
+                actor_sample_weights=resolved_actor_sample_weights(
+                    deployment_policy, rollout_sources
                 ),
+                actor_advantages=actor_advantages,
+                actor_advantage_valid=actor_advantage_valid,
                 reference_model=reference_model,
                 reference_policy_kl_weight=reference_kl_weight,
             )[0]
@@ -2440,6 +2484,9 @@ def _train_updates(
                 mx.array(batch.search_values),
                 mx.array(batch.search_valid),
                 mx.array(batch.deployment_policy),
+                mx.array(batch.actor_advantages),
+                mx.array(batch.actor_advantage_valid),
+                mx.array(batch.rollout_sources),
             )
             if len(preference_replay):
                 preference_batch = preference_replay.sample(config.preference_batch_size)
@@ -2623,11 +2670,11 @@ def _train_updates(
                 search_policy_loss_weight=config.reanalysis_policy_loss_weight,
                 search_value_loss_weight=config.reanalysis_value_loss_weight,
                 search_loss_reference_positions=config.reanalysis_loss_reference_positions,
-                actor_sample_weights=mx.where(
-                    last_policy_arrays[13] > 0,
-                    mx.array(float(config.deployment_policy_actor_weight)),
-                    mx.array(1.0),
+                actor_sample_weights=resolved_actor_sample_weights(
+                    last_policy_arrays[13], last_policy_arrays[16]
                 ),
+                actor_advantages=last_policy_arrays[14],
+                actor_advantage_valid=last_policy_arrays[15],
                 reference_model=reference_model,
                 reference_policy_kl_weight=reference_kl_weight,
                 collection_policy_probabilities=mx.array(
@@ -2657,20 +2704,42 @@ def _train_updates(
             if policy_reference_kl_controller is not None:
                 next_weight = reference_kl_weight
                 target = float(config.policy_reference_kl_target)
-                if target > 0:
-                    if observed_reference_kl > target * 1.25:
+                ema_initialized = bool(policy_reference_kl_controller.get("ema_initialized", False))
+                previous_ema = float(
+                    policy_reference_kl_controller.get("ema_kl", observed_reference_kl)
+                )
+                decay = float(config.policy_reference_kl_ema_decay)
+                smoothed_reference_kl = (
+                    decay * previous_ema + (1.0 - decay) * observed_reference_kl
+                    if ema_initialized
+                    else observed_reference_kl
+                )
+                next_adjustment_update = int(
+                    policy_reference_kl_controller.get("next_adjustment_update", 0)
+                )
+                adjustment_due = totals.updates >= next_adjustment_update
+                if target > 0 and adjustment_due:
+                    if smoothed_reference_kl > target * 1.25:
                         next_weight *= config.policy_reference_kl_adjustment
-                    elif observed_reference_kl < target / 1.25:
+                    elif smoothed_reference_kl < target / 1.25:
                         next_weight /= config.policy_reference_kl_adjustment
                     next_weight = min(
                         config.policy_reference_kl_max_weight,
                         max(config.policy_reference_kl_min_weight, next_weight),
                     )
+                    next_adjustment_update = (
+                        totals.updates + config.policy_reference_kl_adjust_interval_updates
+                    )
                 policy_reference_kl_controller.update(
                     weight=float(next_weight),
                     last_kl=observed_reference_kl,
+                    ema_kl=float(smoothed_reference_kl),
+                    ema_initialized=True,
+                    next_adjustment_update=int(next_adjustment_update),
                 )
                 metrics["policy_reference_kl_next_weight"] = float(next_weight)
+                metrics["policy_reference_kl_ema"] = float(smoothed_reference_kl)
+                metrics["policy_reference_kl_adjustment_due"] = float(adjustment_due)
             if last_preference_arrays is not None:
                 preference_loss, preference_diagnostics = preference_ranking_loss(
                     model,
@@ -2724,6 +2793,9 @@ def _train_updates(
                         search_values,
                         search_valid,
                         deployment_policy,
+                        actor_advantages,
+                        actor_advantage_valid,
+                        rollout_sources,
                     ):
                         return actor_critic_policy_loss(
                             model,
@@ -2750,17 +2822,15 @@ def _train_updates(
                                 config.reanalysis_loss_reference_positions
                             ),
                             actor_sample_weights=(
-                                mx.where(
-                                    deployment_policy > 0,
-                                    mx.array(float(config.deployment_policy_actor_weight)),
-                                    mx.array(1.0),
-                                )
+                                resolved_actor_sample_weights(deployment_policy, rollout_sources)
                                 * (
                                     mx.ones_like(deployment_policy)
                                     if source_mask is None
                                     else source_mask
                                 )
                             ),
+                            actor_advantages=actor_advantages,
+                            actor_advantage_valid=actor_advantage_valid,
                             reference_model=(reference_model if kind == "reference_kl" else None),
                             reference_policy_kl_weight=(1.0 if kind == "reference_kl" else 0.0),
                         )[0]
@@ -2790,10 +2860,49 @@ def _train_updates(
                     )
                     for source_id, source_name in POLICY_ROLLOUT_SOURCE_NAMES.items()
                 }
-                resolved_actor_weights = mx.where(
-                    last_policy_arrays[13] > 0,
-                    mx.array(float(config.deployment_policy_actor_weight)),
-                    mx.array(1.0),
+                gradient_split_results: dict[str, list[tuple[list[Any], Any]]] = {}
+                split_count = int(config.objective_gradient_probe_splits)
+                if split_count > 1:
+                    row_splits = np.arange(len(last_policy_batch.rollout_sources)) % split_count
+                    deployment_eligible = (last_policy_batch.deployment_policy <= 0) | (
+                        config.deployment_policy_actor_weight > 0
+                    )
+                    fixed_rows = (
+                        last_policy_batch.rollout_sources
+                        == POLICY_ROLLOUT_SOURCE_IDS["fixed_champion"]
+                    ) & deployment_eligible
+                    enabled_nonfixed_sources: set[int] = set()
+                    if config.self_play_actor_weight > 0:
+                        enabled_nonfixed_sources.add(POLICY_ROLLOUT_SOURCE_IDS["self_play"])
+                        enabled_nonfixed_sources.add(
+                            POLICY_ROLLOUT_SOURCE_IDS["deployment_self_play"]
+                        )
+                    if config.league_actor_weight > 0:
+                        enabled_nonfixed_sources.add(POLICY_ROLLOUT_SOURCE_IDS["league"])
+                    if config.baseline_actor_weight > 0:
+                        enabled_nonfixed_sources.add(POLICY_ROLLOUT_SOURCE_IDS["baseline"])
+                    nonfixed_rows = (
+                        np.isin(
+                            last_policy_batch.rollout_sources,
+                            tuple(enabled_nonfixed_sources),
+                        )
+                        & deployment_eligible
+                    )
+                    for group_name, group_rows in (
+                        ("fixed", fixed_rows),
+                        ("nonfixed", nonfixed_rows),
+                    ):
+                        splits = [
+                            component_gradients(
+                                "actor", mx.array(group_rows & (row_splits == split))
+                            )
+                            for split in range(split_count)
+                            if np.count_nonzero(group_rows & (row_splits == split)) >= 2
+                        ]
+                        if len(splits) >= 2:
+                            gradient_split_results[group_name] = splits
+                resolved_actor_weights = resolved_actor_sample_weights(
+                    last_policy_arrays[13], last_policy_arrays[16]
                 )
                 all_actor_weights = (
                     last_policy_arrays[7]
@@ -2887,6 +2996,47 @@ def _train_updates(
                         source_pair_cosines[f"{left}_{right}"] = dot / mx.maximum(
                             left_norm * right_norm, mx.array(1e-12)
                         )
+                gradient_stability_metrics: dict[str, Any] = {}
+                for group_name, split_results in gradient_split_results.items():
+                    mean_gradients = [
+                        sum(split[0][tensor_index] for split in split_results) / len(split_results)
+                        for tensor_index in range(len(split_results[0][0]))
+                    ]
+                    signal_norm = mx.sqrt(
+                        sum(mx.sum(mx.square(gradient)) for gradient in mean_gradients)
+                    )
+                    noise_power = sum(
+                        sum(
+                            mx.sum(mx.square(gradient - mean_gradient))
+                            for gradient, mean_gradient in zip(
+                                split_gradients, mean_gradients, strict=True
+                            )
+                        )
+                        for split_gradients, _split_norm in split_results
+                    ) / len(split_results)
+                    noise_norm = mx.sqrt(noise_power)
+                    pair_cosines = []
+                    for left_index, (left_gradients, left_norm) in enumerate(split_results):
+                        for right_gradients, right_norm in split_results[left_index + 1 :]:
+                            dot = sum(
+                                mx.sum(left * right)
+                                for left, right in zip(left_gradients, right_gradients, strict=True)
+                            )
+                            pair_cosines.append(
+                                dot / mx.maximum(left_norm * right_norm, mx.array(1e-12))
+                            )
+                    gradient_stability_metrics.update(
+                        {
+                            f"objective_actor_{group_name}_gradient_signal_norm": signal_norm,
+                            f"objective_actor_{group_name}_gradient_noise_norm": noise_norm,
+                            f"objective_actor_{group_name}_gradient_snr": (
+                                signal_norm / mx.maximum(noise_norm, mx.array(1e-12))
+                            ),
+                            f"objective_actor_{group_name}_split_cosine_mean": (
+                                sum(pair_cosines) / len(pair_cosines)
+                            ),
+                        }
+                    )
                 mx.eval(
                     search_norm,
                     weighted_search_norm,
@@ -2896,6 +3046,7 @@ def _train_updates(
                     *source_actor_cosines.values(),
                     *source_actor_shares.values(),
                     *source_pair_cosines.values(),
+                    *gradient_stability_metrics.values(),
                 )
 
                 metrics.update(
@@ -2928,6 +3079,10 @@ def _train_updates(
                     **{
                         f"objective_actor_source_{pair}_gradient_cosine": float(cosine.item())
                         for pair, cosine in source_pair_cosines.items()
+                    },
+                    **{
+                        name: float(value.item())
+                        for name, value in gradient_stability_metrics.items()
                     },
                     objective_search_gradient_norm=float(search_norm.item()),
                     objective_search_weighted_gradient_norm=float(weighted_search_norm.item()),
@@ -3293,6 +3448,9 @@ def run_training(
     policy_reference_kl_controller: dict[str, float] = {
         "weight": float(restored_kl_controller.get("weight", config.policy_reference_kl_weight)),
         "last_kl": float(restored_kl_controller.get("last_kl", 0.0)),
+        "ema_kl": float(restored_kl_controller.get("ema_kl", 0.0)),
+        "ema_initialized": bool(restored_kl_controller.get("ema_initialized", False)),
+        "next_adjustment_update": int(restored_kl_controller.get("next_adjustment_update", 0)),
     }
     schedule_games_origin = max(0, int(restored_training_state.get("schedule_games_origin", 0)))
     artifacts = ((latest or {}).get("evaluation") or {}).get("artifacts") or {}

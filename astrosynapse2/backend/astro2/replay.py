@@ -168,6 +168,10 @@ class PolicyItem:
     game_id: int | str = 0
     player: int = 0
     step: int = 0
+    turn: int = 0
+    collection_value: float = 0.5
+    actor_advantage: float = 0.0
+    actor_advantage_valid: bool = False
     search_policy: np.ndarray | None = None
     search_mask: np.ndarray | None = None
     search_value: float = 0.5
@@ -195,6 +199,10 @@ class PolicyBatch:
     game_ids: np.ndarray
     players: np.ndarray
     steps: np.ndarray
+    turns: np.ndarray
+    collection_values: np.ndarray
+    actor_advantages: np.ndarray
+    actor_advantage_valid: np.ndarray
     search_policy: np.ndarray
     search_mask: np.ndarray
     search_values: np.ndarray
@@ -1488,6 +1496,10 @@ class _DiskPolicyReplayStore:
         "behavior_heads",
         "behavior_epsilons",
         "deployment_policy",
+        "turns",
+        "collection_values",
+        "actor_advantages",
+        "actor_advantage_valid",
     )
 
     def __init__(
@@ -1735,6 +1747,16 @@ class _DiskPolicyReplayStore:
             ),
             "bootstrap_masks": np.stack([item.bootstrap_mask for item in items]).astype(np.uint8),
             "steps": np.asarray([item.step for item in items], dtype=np.uint32),
+            "turns": np.asarray([item.turn for item in items], dtype=np.uint16),
+            "collection_values": np.asarray(
+                [item.collection_value for item in items], dtype=np.float16
+            ),
+            "actor_advantages": np.asarray(
+                [item.actor_advantage for item in items], dtype=np.float16
+            ),
+            "actor_advantage_valid": np.asarray(
+                [item.actor_advantage_valid for item in items], dtype=np.uint8
+            ),
             "search_policy": np.concatenate([item.search_policy for item in items]).astype(
                 np.float16
             ),
@@ -1911,6 +1933,22 @@ class _DiskPolicyReplayStore:
                             game_id=int(arrays["episode_game_ids"][episode_index]),
                             player=int(arrays["episode_players"][episode_index]),
                             step=int(arrays["steps"][row]),
+                            turn=(int(arrays["turns"][row]) if "turns" in arrays else 0),
+                            collection_value=(
+                                float(arrays["collection_values"][row])
+                                if "collection_values" in arrays
+                                else 0.5
+                            ),
+                            actor_advantage=(
+                                float(arrays["actor_advantages"][row])
+                                if "actor_advantages" in arrays
+                                else 0.0
+                            ),
+                            actor_advantage_valid=(
+                                bool(arrays["actor_advantage_valid"][row])
+                                if "actor_advantage_valid" in arrays
+                                else False
+                            ),
                             search_policy=arrays["search_policy"][action_start:action_stop],
                             search_mask=arrays["search_mask"][action_start:action_stop],
                             search_value=float(arrays["search_values"][row]),
@@ -2102,6 +2140,13 @@ class GameBalancedPolicyReplayBuffer:
             raise ValueError("behavior head is outside the bootstrap head range")
         if not 0 <= float(item.behavior_epsilon) <= 1:
             raise ValueError("behavior epsilon must be in [0, 1]")
+        if not 0 <= float(item.collection_value) <= 1:
+            raise ValueError("collection value must be in [0, 1]")
+        if (
+            not np.isfinite(float(item.actor_advantage))
+            or not -1 <= float(item.actor_advantage) <= 1
+        ):
+            raise ValueError("actor advantage must be finite and in [-1, 1]")
         if int(item.rollout_source) not in POLICY_ROLLOUT_SOURCE_NAMES:
             raise ValueError("unknown policy rollout source")
         if search_policy.shape != (len(actions),) or search_mask.shape != (len(actions),):
@@ -2134,6 +2179,10 @@ class GameBalancedPolicyReplayBuffer:
             game_id=item.game_id,
             player=int(item.player),
             step=int(item.step),
+            turn=max(0, int(item.turn)),
+            collection_value=float(item.collection_value),
+            actor_advantage=float(item.actor_advantage),
+            actor_advantage_valid=bool(item.actor_advantage_valid),
             search_policy=search_policy,
             search_mask=search_mask,
             search_value=float(item.search_value),
@@ -2256,6 +2305,10 @@ class GameBalancedPolicyReplayBuffer:
         compact_sources = getattr(compact, "rollout_sources", None)
         compact_opponents = getattr(compact, "opponent_keys", None)
         compact_collection_games = getattr(compact, "collected_at_games", None)
+        compact_turns = getattr(compact, "turns", None)
+        compact_collection_values = getattr(compact, "collection_values", None)
+        compact_actor_advantages = getattr(compact, "actor_advantages", None)
+        compact_actor_advantage_valid = getattr(compact, "actor_advantage_valid", None)
         items = [
             PolicyItem(
                 state=np.asarray(compact.states[index], dtype=np.float32),
@@ -2288,6 +2341,22 @@ class GameBalancedPolicyReplayBuffer:
                 game_id=int(compact.game_ids[index]),
                 player=int(compact.players[index]),
                 step=int(compact.steps[index]),
+                turn=(int(compact_turns[index]) if compact_turns is not None else 0),
+                collection_value=(
+                    float(compact_collection_values[index])
+                    if compact_collection_values is not None
+                    else 0.5
+                ),
+                actor_advantage=(
+                    float(compact_actor_advantages[index])
+                    if compact_actor_advantages is not None
+                    else 0.0
+                ),
+                actor_advantage_valid=(
+                    bool(compact_actor_advantage_valid[index])
+                    if compact_actor_advantage_valid is not None
+                    else False
+                ),
                 search_policy=np.asarray(
                     compact.search_policy[offsets[index] : offsets[index + 1]],
                     dtype=np.float32,
@@ -2394,6 +2463,14 @@ class GameBalancedPolicyReplayBuffer:
             ),
             players=np.asarray([item.player for item in items], dtype=np.uint8),
             steps=np.asarray([item.step for item in items], dtype=np.uint32),
+            turns=np.asarray([item.turn for item in items], dtype=np.uint16),
+            collection_values=np.asarray(
+                [item.collection_value for item in items], dtype=np.float32
+            ),
+            actor_advantages=np.asarray([item.actor_advantage for item in items], dtype=np.float32),
+            actor_advantage_valid=np.asarray(
+                [item.actor_advantage_valid for item in items], dtype=np.float32
+            ),
             search_policy=search_policy,
             search_mask=search_mask,
             search_values=np.asarray([item.search_value for item in items], dtype=np.float32),
@@ -2584,6 +2661,16 @@ class GameBalancedPolicyReplayBuffer:
                     else np.empty((0, self.bootstrap_heads), dtype=np.uint8)
                 ),
                 steps=np.asarray([item.step for item in items], dtype=np.uint32),
+                turns=np.asarray([item.turn for item in items], dtype=np.uint16),
+                collection_values=np.asarray(
+                    [item.collection_value for item in items], dtype=np.float16
+                ),
+                actor_advantages=np.asarray(
+                    [item.actor_advantage for item in items], dtype=np.float16
+                ),
+                actor_advantage_valid=np.asarray(
+                    [item.actor_advantage_valid for item in items], dtype=np.uint8
+                ),
                 search_policy=search_policy.astype(np.float16),
                 search_mask=search_mask.astype(np.uint8),
                 search_values=np.asarray([item.search_value for item in items], dtype=np.float16),
@@ -2875,6 +2962,26 @@ class GameBalancedPolicyReplayBuffer:
                 if "deployment_policy" in archive
                 else np.zeros(len(columns["targets"]), dtype=np.uint8)
             )
+            columns["turns"] = (
+                archive["turns"]
+                if "turns" in archive
+                else np.zeros(len(columns["targets"]), dtype=np.uint16)
+            )
+            columns["collection_values"] = (
+                archive["collection_values"]
+                if "collection_values" in archive
+                else np.full(len(columns["targets"]), 0.5, dtype=np.float16)
+            )
+            columns["actor_advantages"] = (
+                archive["actor_advantages"]
+                if "actor_advantages" in archive
+                else np.zeros(len(columns["targets"]), dtype=np.float16)
+            )
+            columns["actor_advantage_valid"] = (
+                archive["actor_advantage_valid"]
+                if "actor_advantage_valid" in archive
+                else np.zeros(len(columns["targets"]), dtype=np.uint8)
+            )
             if clear:
                 self.clear()
             restored = 0
@@ -2927,6 +3034,16 @@ class GameBalancedPolicyReplayBuffer:
                         "game_ids": np.repeat(game_ids[episode_start:episode_stop], chunk_lengths),
                         "players": np.repeat(players[episode_start:episode_stop], chunk_lengths),
                         "steps": columns["steps"][decision_start:decision_stop],
+                        "turns": columns["turns"][decision_start:decision_stop],
+                        "collection_values": columns["collection_values"][
+                            decision_start:decision_stop
+                        ],
+                        "actor_advantages": columns["actor_advantages"][
+                            decision_start:decision_stop
+                        ],
+                        "actor_advantage_valid": columns["actor_advantage_valid"][
+                            decision_start:decision_stop
+                        ],
                         "search_policy": columns["search_policy"][action_start:action_stop],
                         "search_mask": columns["search_mask"][action_start:action_stop],
                         "search_values": columns["search_values"][decision_start:decision_stop],

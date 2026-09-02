@@ -3,6 +3,7 @@ import zipfile
 from pathlib import Path
 
 import numpy as np
+import pytest
 from astro2.model import (
     ModelSpec,
     NumpyActor,
@@ -296,6 +297,23 @@ def test_generation_four_numpy_actor_and_actor_critic_loss(tmp_path):
     assert float(value_only_diagnostics["reference_policy_kl"].item()) == 0.0
     assert float(value_only_diagnostics["reference_policy_head_kl"].item()) == 0.0
     assert float(value_only_diagnostics["value_loss"].item()) > 0.0
+
+    gae_loss, gae_diagnostics = actor_critic_policy_loss(
+        model,
+        mx.array(states),
+        mx.array(legal_actions),
+        mx.array(legal_mask),
+        mx.array(np.asarray([0, 1, 2, 3], dtype=np.int32)),
+        mx.array(families),
+        mx.array(np.asarray([1, 0, 1, 0], dtype=np.float32)),
+        mx.array(np.full(4, 0.2, dtype=np.float32)),
+        mx.array(np.ones((4, 3), dtype=np.float32)),
+        mx.array(np.ones(4, dtype=np.float32)),
+        actor_advantages=mx.array(np.asarray([0.2, -0.1, 0.0, 0.0], dtype=np.float32)),
+        actor_advantage_valid=mx.array(np.asarray([1, 1, 0, 0], dtype=np.float32)),
+    )
+    mx.eval(gae_loss, *gae_diagnostics.values())
+    assert float(gae_diagnostics["actor_supplied_advantage_fraction"].item()) == pytest.approx(0.5)
 
     path = export_actor(model, spec, tmp_path / "generation4.actor.npz")
     actor = NumpyActor.load(path)

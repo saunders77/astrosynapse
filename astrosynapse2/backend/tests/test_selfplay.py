@@ -311,3 +311,32 @@ def test_generation_five_reanalysis_attaches_action_distribution_and_value():
     assert collected.search_policy_js_sum >= 0
     assert collected.search_value_abs_delta_sum >= 0
     assert actor.value_calls > 0
+
+
+def test_turn_gae_assigns_one_bootstrapped_advantage_to_every_decision_in_a_turn():
+    encoder = Encoder(version=2)
+    actor = RecordingActor(encoder, bootstrap_heads=5)
+    policy = ActorPolicy(actor, encoder)
+    collected = collect_game(
+        (policy, policy),
+        seed=927,
+        encoder=encoder,
+        bootstrap_heads=5,
+        collect_policy_decisions=True,
+        collect_preferences=False,
+        collect_outcome_decisions=False,
+        policy_actor_advantage="turn_gae",
+        policy_actor_gae_lambda=0.95,
+        max_turns=180,
+    )
+
+    assert collected.result.truncated is False
+    assert collected.policy_samples
+    assert actor.value_calls == 2
+    assert all(item.actor_advantage_valid for item in collected.policy_samples)
+    assert all(item.collection_value == pytest.approx(0.5) for item in collected.policy_samples)
+    by_player_turn: dict[tuple[int, int], set[float]] = {}
+    for item in collected.policy_samples:
+        by_player_turn.setdefault((item.player, item.turn), set()).add(item.actor_advantage)
+    assert all(len(advantages) == 1 for advantages in by_player_turn.values())
+    assert any(abs(item.actor_advantage) > 0 for item in collected.policy_samples)

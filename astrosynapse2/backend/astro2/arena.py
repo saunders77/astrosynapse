@@ -81,20 +81,11 @@ class ArenaConfig:
 
     def __post_init__(self) -> None:
         if self.automatic_promotion and self.trainer_scheduled:
-            # This is a system-wide promotion contract, including jobs loaded
-            # from SQLite after an upgrade. Keep the legacy fields readable so
-            # old job JSON remains compatible, but do not let a stored preset
-            # disable or weaken the extension policy.
+            # Promotion confidence remains a system-wide contract, including
+            # jobs loaded from SQLite after an upgrade. Extension controls are
+            # intentionally respected so inexpensive canaries do not silently
+            # become 100,000-pair evaluations.
             object.__setattr__(self, "confidence", 0.95)
-            object.__setattr__(self, "extension_enabled", True)
-            object.__setattr__(
-                self,
-                "extension_max_pairs",
-                max(self.pairs, PROMOTION_EXTENSION_MAX_PAIRS),
-            )
-            object.__setattr__(self, "extension_block_pairs", PROMOTION_EXTENSION_PAIRS)
-            object.__setattr__(self, "extension_min_score", 0.50)
-            object.__setattr__(self, "extension_min_lower_bound", 0.0)
         pair_limit = (
             MAX_AUTOMATIC_PAIRS
             if self.automatic_promotion and self.trainer_scheduled
@@ -157,9 +148,7 @@ class ArenaConfig:
             raise ValueError("early_acceptance_min_pairs must be smaller than the look ceiling")
         if self.early_look_interval_pairs and not 8 <= self.early_look_interval_pairs <= 50_000:
             raise ValueError("early_look_interval_pairs must be zero or between 8 and 50,000")
-        if self.early_look_interval_pairs and not (
-            self.early_rejection or self.early_acceptance
-        ):
+        if self.early_look_interval_pairs and not (self.early_rejection or self.early_acceptance):
             raise ValueError("regular early looks require early rejection or acceptance")
         if self.early_look_interval_pairs:
             interim_confidences = [
@@ -359,11 +348,7 @@ def _trainer_arena_worker_processes(available: int) -> int:
 def _arena_worker_processes(config: ArenaConfig, available: int) -> int:
     """Give exclusive full promotion gates the complete evaluator pool."""
 
-    if (
-        config.trainer_scheduled
-        and config.automatic_promotion
-        and config.promotion_tier == "full"
-    ):
+    if config.trainer_scheduled and config.automatic_promotion and config.promotion_tier == "full":
         return max(1, available)
     if config.trainer_scheduled:
         return _trainer_arena_worker_processes(available)
@@ -516,9 +501,7 @@ def _planned_decision_looks(config: ArenaConfig) -> frozenset[int]:
         looks.add(target)
     if config.extension_enabled and config.trainer_scheduled:
         while target < config.extension_max_pairs:
-            target = min(
-                config.extension_max_pairs, target + config.extension_block_pairs
-            )
+            target = min(config.extension_max_pairs, target + config.extension_block_pairs)
             if target < ceiling:
                 looks.add(target)
     return frozenset(looks)
@@ -581,12 +564,8 @@ def _early_rejection_look(
         and config.early_rejection_confidence == config.early_acceptance_confidence
     )
     tails = 2 if shared_two_sided else 1
-    planned_count = (
-        len(_planned_decision_looks(config)) if shared_two_sided else len(looks)
-    )
-    look_alpha = (1.0 - config.early_rejection_confidence) / (
-        tails * planned_count
-    )
+    planned_count = len(_planned_decision_looks(config)) if shared_two_sided else len(looks)
+    look_alpha = (1.0 - config.early_rejection_confidence) / (tails * planned_count)
     adjusted_confidence = 1.0 - look_alpha
     estimate = float(values.mean())
     confidence_radius = math.sqrt(math.log(1.0 / look_alpha) / (2.0 * len(values)))
@@ -675,12 +654,8 @@ def _early_acceptance_look(
         and config.early_acceptance_confidence == config.early_rejection_confidence
     )
     tails = 2 if shared_two_sided else 1
-    planned_count = (
-        len(_planned_decision_looks(config)) if shared_two_sided else len(looks)
-    )
-    look_alpha = (1.0 - config.early_acceptance_confidence) / (
-        tails * planned_count
-    )
+    planned_count = len(_planned_decision_looks(config)) if shared_two_sided else len(looks)
+    look_alpha = (1.0 - config.early_acceptance_confidence) / (tails * planned_count)
     estimate = float(values.mean())
     confidence_radius = math.sqrt(math.log(1.0 / look_alpha) / (2.0 * len(values)))
     lower = max(0.0, estimate - confidence_radius)
@@ -715,8 +690,7 @@ def _conservative_pair_scores(
     """Return pair scores after replacing every truncated game draw with a loss."""
 
     values = [
-        (first + second) * 0.5
-        for first, second in zip(first_scores, second_scores, strict=True)
+        (first + second) * 0.5 for first, second in zip(first_scores, second_scores, strict=True)
     ]
     # A truncated game is recorded as a 0.5 draw. Within a two-game pair it
     # contributes 0.25, so remove that mass. The bound depends only on the
@@ -796,7 +770,8 @@ def _should_extend_promotion_evaluation(
     )
     return (
         eligible
-        and estimate > 0.5
+        and estimate > config.extension_min_score
+        and lower_bound >= config.extension_min_lower_bound
         and lower_bound <= 0.5
     )
 
@@ -848,14 +823,11 @@ def _summary(
         },
         confidence=config.confidence,
     )
-    promotion_paired = (
-        truncation_adjustment["paired_interval"] if truncated_games else paired
-    )
+    promotion_paired = truncation_adjustment["paired_interval"] if truncated_games else paired
     rate = games_completed / elapsed_seconds if elapsed_seconds > 0 else 0.0
     remaining_games = max(0, config.pairs * 2 - games_completed)
     promotion_eligible = (
-        pairs_completed == config.pairs
-        and pairs_completed >= config.minimum_promotion_pairs
+        pairs_completed == config.pairs and pairs_completed >= config.minimum_promotion_pairs
     )
     promotion_threshold = 0.5 + config.promotion_margin
     recommendation = _recommendation(
@@ -1433,10 +1405,7 @@ class ArenaManager:
                             f"exceeds "
                             f"{float(latest_acceptance_look['promotion_threshold']):.3f}"
                         )
-                if (
-                    not early_stopped
-                    and pairs_completed == target_pairs
-                ):
+                if not early_stopped and pairs_completed == target_pairs:
                     extension_interval = _paired_interval(
                         _conservative_pair_scores(
                             first_scores,
@@ -1461,9 +1430,7 @@ class ArenaManager:
                             pairs=target_pairs,
                             confidence=_extension_confidence(base_config, target_pairs),
                         )
-                        statistical_looks = sorted(
-                            early_looks | acceptance_looks | {target_pairs}
-                        )
+                        statistical_looks = sorted(early_looks | acceptance_looks | {target_pairs})
                 now = time.monotonic()
                 if (
                     now - last_update >= progress_update_interval

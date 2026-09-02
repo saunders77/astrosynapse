@@ -651,16 +651,32 @@ class Supervisor:
             for handle in handles:
                 handle.control.stop_requested.set()
                 handle.control.pause_requested.clear()
-                # A reported paused state already follows a complete durable
-                # checkpoint. Avoid serializing the same full replay twice on
-                # the shutdown immediately following Pause & save.
-                if self.store.get_run(handle.run_id)["status"] != "paused":
+                run = self.store.get_run(handle.run_id)
+                checkpoints = self.store.checkpoints(handle.run_id)
+                latest = checkpoints[0] if checkpoints else None
+                durable_at_current_game = bool(
+                    latest
+                    and int(latest.get("games", -1)) >= int(run.get("games", 0))
+                    and latest.get("path")
+                    and Path(str(latest["path"])).is_file()
+                    and latest.get("actor_path")
+                    and Path(str(latest["actor_path"])).is_file()
+                )
+                # Avoid rewriting the same large replay/model bundle when the
+                # latest completed checkpoint already covers every committed
+                # game. This was the trigger for a shutdown-only Metal fault.
+                if run["status"] != "paused" and not durable_at_current_game:
                     handle.control.checkpoint_requested.set()
                 self.store.update_run(handle.run_id, status="stopping", phase="stopping")
                 self.store.event(
                     handle.run_id,
                     "shutdown_stop_requested",
-                    "Backend shutdown requested a final checkpoint",
+                    (
+                        "Backend shutdown will use the current durable checkpoint"
+                        if durable_at_current_game
+                        else "Backend shutdown requested a final checkpoint"
+                    ),
+                    {"durable_at_current_game": durable_at_current_game},
                 )
         deadline = time.monotonic() + max(0.0, timeout)
         for handle in handles:
