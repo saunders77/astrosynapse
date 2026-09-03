@@ -8,6 +8,7 @@ large accelerator context.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import multiprocessing as mp
@@ -95,6 +96,7 @@ class _RolloutPlan:
     opponent_id: str | None
     current_player: int | None
     deployment_policy: tuple[bool, bool] = (False, False)
+    mean_policy_behavior: tuple[bool, bool] = (False, False)
 
 
 @dataclass(slots=True)
@@ -1577,6 +1579,13 @@ def _next_evaluation_candidate(
             run_id,
             tier=candidate_plan.tier,
         )
+        if candidate_plan.tier == "canary":
+            # A full evaluation covers the same checkpoint more strongly. Do
+            # not immediately repeat its exact pairs as a diagnostic canary.
+            last_evaluation_games = max(
+                last_evaluation_games,
+                _last_scheduled_evaluation_games(store, run_id, tier="full"),
+            )
         if force_full:
             if last_evaluation_games < checkpoint_games:
                 plan = candidate_plan
@@ -1808,8 +1817,16 @@ def _schedule_evaluation(
         return None
     plan = plan or _evaluation_plan(config, int(checkpoint["games"]))
     retry = _evaluation_retry_state(store, run_id, checkpoint["id"], plan.tier)
+    seed_origin = config.seed
+    if config.paired_branch_evaluation_seeds and config.branch_experiment_id:
+        seed_origin = int.from_bytes(
+            hashlib.blake2b(
+                config.branch_experiment_id.encode("utf-8"), digest_size=8
+            ).digest(),
+            "little",
+        ) % 2_000_000_000
     evaluation_seed = (
-        config.seed
+        seed_origin
         + int(checkpoint["games"])
         + int(retry["attempts"]) * _EVALUATION_RETRY_SEED_STRIDE
     )
@@ -2170,6 +2187,7 @@ def _make_plan(
         epsilons[current_player] = epsilon
         deployment = [True, True]
         deployment[current_player] = False
+        mean_policy = [False, False]
         kind = "fixed_champion"
         if float(rng.random()) < config.fixed_champion_probe_fraction:
             collect[current_player] = False
@@ -2183,6 +2201,13 @@ def _make_plan(
                 # across checkpoints even while the training epsilon decays.
                 kind = "fixed_champion_probe_exploration"
                 epsilons[current_player] = config.fixed_champion_probe_epsilon
+        elif (
+            config.fixed_champion_mean_training_fraction > 0
+            and float(rng.random()) < config.fixed_champion_mean_training_fraction
+        ):
+            kind = "fixed_champion_mean"
+            mean_policy[current_player] = True
+            epsilons[current_player] = config.mean_policy_training_epsilon
         return _RolloutPlan(
             actor_paths=(actors[0], actors[1]),
             baseline_names=("balanced", "balanced"),
@@ -2194,6 +2219,7 @@ def _make_plan(
             opponent_id=fixed_champion_id,
             current_player=current_player,
             deployment_policy=(deployment[0], deployment[1]),
+            mean_policy_behavior=(mean_policy[0], mean_policy[1]),
         )
 
     checkpoint_opponents = [
@@ -2293,6 +2319,7 @@ def _submit_rollout(
         bootstrap_probability=config.bootstrap_inclusion_probability,
         randomized_prior_scale=config.randomized_prior_scale,
         deployment_policy=plan.deployment_policy,
+        mean_policy_behavior=plan.mean_policy_behavior,
         use_bootstrap_targets=config.use_bootstrap_targets,
         collect_preferences=config.tactical_preference_training,
         collect_policy_decisions=config.training_generation >= 4,
@@ -2406,6 +2433,7 @@ def _train_updates(
             actor_advantages,
             actor_advantage_valid,
             rollout_sources,
+            behavior_heads,
             preference_states,
             preferred_actions,
             disfavored_actions,
@@ -2439,6 +2467,9 @@ def _train_updates(
                 ),
                 actor_advantages=actor_advantages,
                 actor_advantage_valid=actor_advantage_valid,
+                behavior_heads=behavior_heads,
+                behavior_head_only_actor_loss=config.behavior_head_only_actor_loss,
+                mean_policy_actor_loss=config.mean_policy_actor_loss,
                 reference_model=reference_model,
                 reference_policy_kl_weight=reference_kl_weight,
             )[0]
@@ -2487,6 +2518,7 @@ def _train_updates(
                 mx.array(batch.actor_advantages),
                 mx.array(batch.actor_advantage_valid),
                 mx.array(batch.rollout_sources),
+                mx.array(batch.behavior_heads),
             )
             if len(preference_replay):
                 preference_batch = preference_replay.sample(config.preference_batch_size)
@@ -2681,6 +2713,8 @@ def _train_updates(
                     last_policy_batch.collection_policy_probabilities
                 ),
                 behavior_heads=mx.array(last_policy_batch.behavior_heads),
+                behavior_head_only_actor_loss=config.behavior_head_only_actor_loss,
+                mean_policy_actor_loss=config.mean_policy_actor_loss,
                 importance_groups=importance_groups,
             )
             mx.eval(diagnostic_loss, *diagnostics.values())
@@ -2796,6 +2830,7 @@ def _train_updates(
                         actor_advantages,
                         actor_advantage_valid,
                         rollout_sources,
+                        behavior_heads,
                     ):
                         return actor_critic_policy_loss(
                             model,
@@ -2831,6 +2866,11 @@ def _train_updates(
                             ),
                             actor_advantages=actor_advantages,
                             actor_advantage_valid=actor_advantage_valid,
+                            behavior_heads=behavior_heads,
+                            behavior_head_only_actor_loss=(
+                                config.behavior_head_only_actor_loss
+                            ),
+                            mean_policy_actor_loss=config.mean_policy_actor_loss,
                             reference_model=(reference_model if kind == "reference_kl" else None),
                             reference_policy_kl_weight=(1.0 if kind == "reference_kl" else 0.0),
                         )[0]
@@ -2909,11 +2949,26 @@ def _train_updates(
                     * last_policy_arrays[8][:, None]
                     * resolved_actor_weights[:, None]
                 )
-                all_actor_weight = mx.maximum(mx.sum(all_actor_weights), mx.array(1e-12))
+                if config.behavior_head_only_actor_loss:
+                    behavior_head_mask = (
+                        mx.arange(config.bootstrap_heads)[None, :]
+                        == last_policy_arrays[17][:, None].astype(mx.int32)
+                    ).astype(all_actor_weights.dtype)
+                    all_actor_weights = all_actor_weights * behavior_head_mask
+                actor_weight_by_sample = mx.sum(all_actor_weights, axis=1)
+                if config.mean_policy_actor_loss:
+                    actor_weight_by_sample = actor_weight_by_sample + (
+                        last_policy_arrays[8]
+                        * resolved_actor_weights
+                        * (last_policy_arrays[17] < 0).astype(last_policy_arrays[8].dtype)
+                    )
+                all_actor_weight = mx.maximum(
+                    mx.sum(actor_weight_by_sample), mx.array(1e-12)
+                )
                 source_actor_shares = {
                     source_name: mx.sum(
-                        all_actor_weights
-                        * mx.array(last_policy_batch.rollout_sources == source_id)[:, None]
+                        actor_weight_by_sample
+                        * mx.array(last_policy_batch.rollout_sources == source_id)
                     )
                     / all_actor_weight
                     for source_id, source_name in POLICY_ROLLOUT_SOURCE_NAMES.items()
@@ -3702,6 +3757,8 @@ def run_training(
     last_diagnostics: dict[str, float] = {}
     last_reported_rollout_games = dict(totals.rollout_completed_games)
     last_reported_rollout_scores = dict(totals.rollout_scores)
+    checkpoint_rollout_games_origin = dict(totals.rollout_completed_games)
+    checkpoint_rollout_scores_origin = dict(totals.rollout_scores)
     metric_seq = int(time.time() * 1_000)
     seed_cursor = int(
         restored_training_state.get("seed_cursor", config.seed + totals.games * 10_007)
@@ -4278,6 +4335,40 @@ def run_training(
         last_reported_rollout_scores.update(totals.rollout_scores)
         last_metric_at = now
 
+    def attach_checkpoint_rollout_window(
+        checkpoint: dict[str, Any], *, start_games: int
+    ) -> dict[str, Any]:
+        """Persist non-overlapping rollout outcomes for this checkpoint interval."""
+
+        kinds = set(checkpoint_rollout_games_origin) | set(totals.rollout_completed_games)
+        results: dict[str, dict[str, float | int]] = {}
+        for kind in sorted(kinds):
+            games = int(totals.rollout_completed_games.get(kind, 0)) - int(
+                checkpoint_rollout_games_origin.get(kind, 0)
+            )
+            if games <= 0:
+                continue
+            score_total = float(totals.rollout_scores.get(kind, 0.0)) - float(
+                checkpoint_rollout_scores_origin.get(kind, 0.0)
+            )
+            results[kind] = {"games": games, "score": score_total / games}
+        store.update_checkpoint_evaluation(
+            checkpoint["id"],
+            {
+                "rollout_window": {
+                    "start_games": int(start_games),
+                    "end_games": int(totals.games),
+                    "training_games": max(0, int(totals.games) - int(start_games)),
+                    "results": results,
+                }
+            },
+        )
+        checkpoint_rollout_games_origin.clear()
+        checkpoint_rollout_games_origin.update(totals.rollout_completed_games)
+        checkpoint_rollout_scores_origin.clear()
+        checkpoint_rollout_scores_origin.update(totals.rollout_scores)
+        return store.checkpoint(checkpoint["id"])
+
     def persist_checkpoint(reason: str, *, schedule_evaluation: bool) -> dict[str, Any]:
         """Write one complete learner boundary and update its parent cursor."""
 
@@ -4315,6 +4406,9 @@ def run_training(
                 league_state=league.snapshot(),
                 policy_reference_kl_controller=policy_reference_kl_controller,
             ),
+        )
+        checkpoint = attach_checkpoint_rollout_window(
+            checkpoint, start_games=last_checkpoint_games
         )
         parent_checkpoint_id = checkpoint["id"]
         last_checkpoint_games = totals.games
@@ -4617,7 +4711,11 @@ def run_training(
                     replay.extend_compact(result.samples)
                     policy_replay.extend_compact(
                         result.policy_samples,
-                        rollout_source=plan.kind,
+                        rollout_source=(
+                            "fixed_champion"
+                            if plan.kind == "fixed_champion_mean"
+                            else plan.kind
+                        ),
                         opponent_key=policy_opponent_key(plan.opponent_id),
                         collected_at_game=totals.games + result.games,
                     )
@@ -4708,6 +4806,9 @@ def run_training(
                     league_state=league.snapshot(),
                     policy_reference_kl_controller=policy_reference_kl_controller,
                 ),
+            )
+            checkpoint = attach_checkpoint_rollout_window(
+                checkpoint, start_games=last_checkpoint_games
             )
             parent_checkpoint_id = checkpoint["id"]
             if not control.should_stop():

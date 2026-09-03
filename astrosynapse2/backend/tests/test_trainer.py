@@ -618,6 +618,39 @@ def test_fixed_champion_quota_collects_only_the_learner_side():
     assert totals.rollout_completed_games == {"fixed_champion": 4}
 
 
+def test_fixed_champion_can_collect_exploratory_mean_policy_training():
+    config = RunConfig.astro5_mature().model_copy(
+        update={
+            "current_selfplay_fraction": 0.0,
+            "fixed_champion_fraction": 1.0,
+            "fixed_champion_probe_fraction": 0.0,
+            "fixed_champion_mean_training_fraction": 1.0,
+            "behavior_head_only_actor_loss": True,
+            "mean_policy_actor_loss": True,
+            "mean_policy_training_epsilon": 0.02,
+            "league_fraction": 0.0,
+            "baseline_fraction": 0.0,
+        }
+    )
+    plan = _make_plan(
+        config=config,
+        rng=np.random.default_rng(17),
+        league=League(),
+        current_actor="learner.actor.npz",
+        fixed_champion_id="root-checkpoint",
+        fixed_champion_actor="root.actor.npz",
+        epsilon=0.04,
+        seed=93,
+    )
+
+    assert plan.kind == "fixed_champion_mean"
+    assert plan.mean_policy_behavior[plan.current_player] is True
+    assert plan.mean_policy_behavior[1 - plan.current_player] is False
+    assert plan.deployment_policy[plan.current_player] is False
+    assert plan.deployment_policy[1 - plan.current_player] is True
+    assert plan.epsilons[plan.current_player] == pytest.approx(0.02)
+
+
 @pytest.mark.parametrize(
     ("random_seed", "expected_kind"),
     [
@@ -1623,6 +1656,31 @@ def test_completed_evaluation_releases_newest_due_checkpoint_once(tmp_path):
             "promotion_tier": "diagnostic",
         },
     )
+    assert _next_evaluation_candidate(store, run["id"], config) is None
+
+
+def test_full_evaluation_covers_same_checkpoint_canary_cadence(tmp_path):
+    store = Store(tmp_path / "state.sqlite3")
+    config = RunConfig.astro5_mature().model_copy(
+        update={
+            "checkpoint_every_games": 2_000,
+            "evaluate_every_games": 2_000,
+            "canary_every_games": 2_000,
+        }
+    )
+    run = store.create_run(config)
+    champion, candidate = _checkpoints(store, run, tmp_path)
+    job = store.create_arena_job(
+        model_a=candidate["id"],
+        model_b=champion["id"],
+        config={
+            "automatic_promotion": True,
+            "trainer_scheduled": True,
+            "promotion_tier": "full",
+        },
+    )
+    store.update_arena_job(job["id"], status="complete", result={})
+
     assert _next_evaluation_candidate(store, run["id"], config) is None
 
 

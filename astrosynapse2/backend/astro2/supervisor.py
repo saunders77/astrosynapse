@@ -270,12 +270,26 @@ class Supervisor:
         terminal = (
             run["status"] if run["status"] in {"complete", "failed", "stopped"} else "complete"
         )
-        score: float | None = None
+        scored_checkpoints: list[tuple[int, int, float, float]] = []
         for checkpoint in self.store.checkpoints(completed_run_id):
             latest_arena = (checkpoint.get("evaluation") or {}).get("latest_arena") or {}
             if "model_a_score" in latest_arena:
-                value = float(latest_arena["model_a_score"])
-                score = value if score is None else max(score, value)
+                tier = str(latest_arena.get("promotion_tier") or "")
+                scored_checkpoints.append(
+                    (
+                        int(checkpoint.get("games", 0)),
+                        int(tier == "full"),
+                        float(latest_arena.get("completed_at") or 0.0),
+                        float(latest_arena["model_a_score"]),
+                    )
+                )
+        # A branch score represents where training ended, not its luckiest
+        # early canary. Prefer the latest checkpoint and its full tier.
+        score = (
+            max(scored_checkpoints, key=lambda item: item[:3])[3]
+            if scored_checkpoints
+            else None
+        )
         self.store.update_branch_member(completed_run_id, status=terminal, score=score)
         if terminal == "stopped":
             self.store.update_branch_experiment(member["experiment_id"], status="paused")

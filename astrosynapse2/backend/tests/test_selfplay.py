@@ -104,6 +104,37 @@ def test_deployment_policy_uses_mean_heads_without_epsilon_or_random_prior():
     assert isinstance(call["rng"], np.random.Generator)
 
 
+def test_exploratory_mean_policy_keeps_epsilon_and_records_mean_behavior():
+    encoder = Encoder(version=2)
+    actor = RecordingActor(encoder, bootstrap_heads=5)
+    policy = ActorPolicy(actor, encoder)
+    collected = collect_game(
+        (policy, policy),
+        seed=37,
+        encoder=encoder,
+        bootstrap_heads=5,
+        epsilons=(0.2, 0.03),
+        mean_policy_behavior=(True, False),
+        collect_policy_decisions=True,
+        collect_outcome_decisions=False,
+        collect_preferences=False,
+        max_turns=180,
+    )
+
+    assert collected.result.truncated is False
+    player_zero = [item for item in collected.policy_samples if item.player == 0]
+    player_one = [item for item in collected.policy_samples if item.player == 1]
+    assert player_zero and player_one
+    assert {item.behavior_head for item in player_zero} == {-1}
+    assert {item.behavior_epsilon for item in player_zero} == {0.2}
+    assert all(not item.deployment_policy for item in player_zero)
+    assert all(item.behavior_head >= 0 for item in player_one)
+    mean_calls = [call for call in actor.calls if call["head"] is None]
+    assert mean_calls
+    assert {call["epsilon"] for call in mean_calls} == {0.2}
+    assert {call["randomized_prior_scale"] for call in mean_calls} == {0.0}
+
+
 def test_deployment_trajectory_keeps_valid_bootstrap_head_metadata():
     collected = collect_game(
         (CountingPolicy(0), CountingPolicy(1)),

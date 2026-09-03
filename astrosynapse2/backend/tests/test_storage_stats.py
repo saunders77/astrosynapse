@@ -229,6 +229,63 @@ def test_branch_experiment_and_controller_state_round_trip(tmp_path):
     assert store.controller_state(branch_run["id"])["branch_requested"] is False
 
 
+def test_branch_summary_uses_latest_checkpoint_instead_of_best_canary(tmp_path):
+    store = Store(tmp_path / "astro2.sqlite3")
+    source_run = store.create_run(RunConfig.astro5_mature())
+    source = store.add_checkpoint(
+        run_id=source_run["id"],
+        label="Source",
+        path=str(tmp_path / "source.safetensors"),
+        actor_path=str(tmp_path / "source.actor.npz"),
+        games=0,
+        champion=True,
+    )
+    experiment = store.create_branch_experiment(
+        name="Summary semantics",
+        source_checkpoint_id=source["id"],
+        config={"auto_advance": False},
+    )
+    branch_run = store.create_run(
+        RunConfig.astro5_mature().model_copy(
+            update={"branch_experiment_id": experiment["id"]}
+        )
+    )
+    store.add_branch_member(
+        experiment_id=experiment["id"],
+        run_id=branch_run["id"],
+        ordinal=0,
+        label="Branch",
+        status="running",
+    )
+    early = store.add_checkpoint(
+        run_id=branch_run["id"],
+        label="Early",
+        path=str(tmp_path / "early.safetensors"),
+        actor_path=None,
+        games=10_000,
+        evaluation={
+            "latest_arena": {"model_a_score": 0.55, "promotion_tier": "canary"}
+        },
+    )
+    final = store.add_checkpoint(
+        run_id=branch_run["id"],
+        label="Final",
+        path=str(tmp_path / "final.safetensors"),
+        actor_path=None,
+        games=20_000,
+        parent_id=early["id"],
+        evaluation={
+            "latest_arena": {"model_a_score": 0.48, "promotion_tier": "full"}
+        },
+    )
+    assert final["games"] > early["games"]
+    store.update_run(branch_run["id"], status="complete", phase="complete")
+
+    Supervisor(store, tmp_path)._advance_branch_queue(branch_run["id"])
+
+    assert store.branch_member(branch_run["id"])["score"] == pytest.approx(0.48)
+
+
 def test_supervisor_copies_compatible_branch_root_artifacts(tmp_path):
     store = Store(tmp_path / "astro2.sqlite3")
     source_run = store.create_run(RunConfig.astro4_m4())

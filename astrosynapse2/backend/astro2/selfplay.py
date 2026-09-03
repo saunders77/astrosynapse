@@ -56,6 +56,7 @@ class PlayerExploration:
     epsilon: float
     bootstrap_mask: np.ndarray
     deployment_policy: bool = False
+    mean_policy_behavior: bool = False
 
 
 class _InferenceRequest:
@@ -192,7 +193,8 @@ class ActorPolicy:
         encoded = self.encoder.encode_decision(decision.observation, decision)
         eligible = np.asarray(model_action_indices(decision), dtype=np.int64)
         deployment_policy = exploration.deployment_policy
-        behavior_head = None if deployment_policy else exploration.head
+        mean_policy = deployment_policy or exploration.mean_policy_behavior
+        behavior_head = None if mean_policy else exploration.head
         eligible_actions = encoded.actions[eligible]
         if self.inference_batcher is None:
             local_index, probabilities = self.actor.choose(
@@ -202,7 +204,7 @@ class ActorPolicy:
                 head=behavior_head,
                 epsilon=0.0 if deployment_policy else exploration.epsilon,
                 exploration_top_k=exploration_top_k,
-                randomized_prior_scale=0.0 if deployment_policy else randomized_prior_scale,
+                randomized_prior_scale=0.0 if mean_policy else randomized_prior_scale,
                 rng=rng,
             )
         else:
@@ -220,7 +222,7 @@ class ActorPolicy:
                 head=behavior_head,
                 epsilon=0.0 if deployment_policy else exploration.epsilon,
                 exploration_top_k=exploration_top_k,
-                randomized_prior_scale=0.0 if deployment_policy else randomized_prior_scale,
+                randomized_prior_scale=0.0 if mean_policy else randomized_prior_scale,
                 rng=rng,
             )
         index = int(eligible[local_index])
@@ -666,6 +668,7 @@ def collect_game(
     exploration_top_k: int = 3,
     randomized_prior_scale: float = 0.0,
     deployment_policy: bool | Sequence[bool] = False,
+    mean_policy_behavior: bool | Sequence[bool] = False,
     use_bootstrap_targets: bool = True,
     collect_preferences: bool = True,
     collect_policy_decisions: bool = False,
@@ -717,6 +720,12 @@ def collect_game(
     if any(not 0 <= epsilon <= 1 for epsilon in requested_epsilon_pair):
         raise ValueError("epsilons must be in [0, 1]")
     deployment_pair = _coerce_bool_pair(deployment_policy, "deployment_policy")
+    mean_policy_pair = _coerce_bool_pair(mean_policy_behavior, "mean_policy_behavior")
+    if any(
+        deployment_pair[player] and mean_policy_pair[player]
+        for player in range(2)
+    ):
+        raise ValueError("deployment and exploratory mean-policy modes are mutually exclusive")
     epsilon_pair = tuple(
         0.0 if deployment_pair[player] else requested_epsilon_pair[player] for player in range(2)
     )
@@ -763,6 +772,7 @@ def collect_game(
                 required_head=head_pair[player] if collect_players[player] else None,
             ),
             deployment_policy=deployment_pair[player],
+            mean_policy_behavior=mean_policy_pair[player],
         )
         for player in range(2)
     )
@@ -1063,6 +1073,7 @@ def collect_game(
                                     explorations[player].head
                                     if isinstance(policy, ActorPolicy)
                                     and not explorations[player].deployment_policy
+                                    and not explorations[player].mean_policy_behavior
                                     else -1
                                 ),
                                 behavior_epsilon=(
@@ -1352,6 +1363,7 @@ def collect_worker_batch(
     bootstrap_probability: float = 0.8,
     randomized_prior_scale: float = 0.0,
     deployment_policy: bool | Sequence[bool] = False,
+    mean_policy_behavior: bool | Sequence[bool] = False,
     use_bootstrap_targets: bool = True,
     collect_preferences: bool = True,
     collect_policy_decisions: bool = False,
@@ -1456,6 +1468,7 @@ def collect_worker_batch(
             bootstrap_probability=bootstrap_probability,
             randomized_prior_scale=randomized_prior_scale,
             deployment_policy=deployment_policy,
+            mean_policy_behavior=mean_policy_behavior,
             use_bootstrap_targets=use_bootstrap_targets,
             collect_preferences=collect_preferences,
             collect_policy_decisions=collect_policy_decisions,

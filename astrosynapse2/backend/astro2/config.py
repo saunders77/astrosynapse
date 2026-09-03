@@ -109,6 +109,15 @@ class RunConfig(BaseModel):
     fixed_champion_actor_weight: float = Field(default=1.0, ge=0, le=4)
     league_actor_weight: float = Field(default=1.0, ge=0, le=4)
     baseline_actor_weight: float = Field(default=1.0, ge=0, le=4)
+    # A behavior trajectory is on-policy only for the bootstrap head that
+    # generated it. Value targets may still train every included head.
+    behavior_head_only_actor_loss: bool = False
+    # Within the trainable fixed-root quota, optionally generate trajectories
+    # from the deployed mean-head with controlled exploration and optimize the
+    # mean logits directly.
+    fixed_champion_mean_training_fraction: float = Field(default=0.0, ge=0, le=1)
+    mean_policy_training_epsilon: float = Field(default=0.02, ge=0, le=1)
+    mean_policy_actor_loss: bool = False
     # Monte Carlo remains the critic target. Turn GAE changes only the actor
     # advantage and therefore isolates credit-assignment variance.
     policy_actor_advantage: Literal["monte_carlo", "turn_gae"] = "monte_carlo"
@@ -192,6 +201,9 @@ class RunConfig(BaseModel):
     canary_every_games: int = Field(default=0, ge=0)
     canary_pairs: int = Field(default=128, ge=8, le=2_000)
     evaluation_pairs: int = Field(default=2_000, ge=8, le=50_000)
+    # Branch members may share arena randomness at the same training-game
+    # boundary while still receiving a fresh seed at every later checkpoint.
+    paired_branch_evaluation_seeds: bool = False
     adaptive_evaluation: bool = True
     promotion_confidence: float = Field(default=0.95, ge=0.80, le=0.999)
     promotion_margin: float = Field(default=0.0, ge=0, le=0.25)
@@ -377,6 +389,12 @@ class RunConfig(BaseModel):
             )
         ):
             raise ValueError("source-stratified actor loss requires a positive source weight")
+        if self.fixed_champion_mean_training_fraction and not self.fixed_champion_fraction:
+            raise ValueError("mean-policy fixed-root training requires a fixed champion quota")
+        if self.fixed_champion_mean_training_fraction and not self.mean_policy_actor_loss:
+            raise ValueError("mean-policy fixed-root training requires mean-policy actor loss")
+        if self.mean_policy_actor_loss and not self.behavior_head_only_actor_loss:
+            raise ValueError("mean-policy actor loss requires behavior-head-only actor loss")
         if self.training_generation < 5 and (
             self.reanalysis_fraction
             or self.reanalysis_max_per_game

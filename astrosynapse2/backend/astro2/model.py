@@ -175,6 +175,8 @@ def actor_critic_policy_loss(
     actor_sample_weights=None,
     actor_advantages=None,
     actor_advantage_valid=None,
+    behavior_head_only_actor_loss: bool = False,
+    mean_policy_actor_loss: bool = False,
     reference_model=None,
     reference_policy_kl_weight: float = 0.0,
     collection_policy_probabilities=None,
@@ -200,6 +202,12 @@ def actor_critic_policy_loss(
     masked_logits = mx.where(legal_mask[:, :, None] > 0, policy_logits, -1e9)
     log_probs = masked_logits - mx.logsumexp(masked_logits, axis=1, keepdims=True)
     probabilities = mx.exp(log_probs) * legal_mask[:, :, None]
+    deployment_logits = mx.mean(policy_logits, axis=2)
+    deployment_masked_logits = mx.where(legal_mask > 0, deployment_logits, -1e9)
+    deployment_log_probs = deployment_masked_logits - mx.logsumexp(
+        deployment_masked_logits, axis=1, keepdims=True
+    )
+    deployment_probabilities = mx.exp(deployment_log_probs) * legal_mask
     selected = (mx.arange(options)[None, :] == selected_indices.astype(mx.int32)[:, None]).astype(
         policy_logits.dtype
     )[:, :, None]
@@ -235,21 +243,64 @@ def actor_critic_policy_loss(
         mx.ones_like(sample_weights) if actor_sample_weights is None else actor_sample_weights
     )
     actor_weights = weights * resolved_actor_sample_weights[:, None]
-    actor_denominator = mx.maximum(mx.sum(actor_weights), mx.array(1.0))
-    policy_loss = (
-        -mx.sum(actor_weights * ratios * advantages * chosen_log_probs) / actor_denominator
+    mean_actor_weights = mx.zeros_like(sample_weights)
+    if behavior_head_only_actor_loss:
+        resolved_behavior_heads = (
+            mx.zeros_like(selected_indices)
+            if behavior_heads is None
+            else behavior_heads.astype(mx.int32)
+        )
+        behavior_head_mask = (
+            mx.arange(policy_logits.shape[2])[None, :] == resolved_behavior_heads[:, None]
+        ).astype(policy_logits.dtype)
+        actor_weights = actor_weights * behavior_head_mask
+        if mean_policy_actor_loss:
+            mean_actor_weights = (
+                sample_weights
+                * resolved_actor_sample_weights
+                * (resolved_behavior_heads < 0).astype(sample_weights.dtype)
+            )
+    actor_denominator = mx.maximum(
+        mx.sum(actor_weights) + mx.sum(mean_actor_weights), mx.array(1.0)
     )
+    mean_values = mx.mean(values, axis=1)
+    mean_advantages = targets - mean_values
+    if actor_advantages is not None:
+        mean_advantages = mx.where(
+            valid_advantages > 0,
+            actor_advantages,
+            mean_advantages,
+        )
+    mean_advantages = mx.stop_gradient(mean_advantages)
+    selected_2d = selected[:, :, 0]
+    mean_chosen_log_probs = mx.sum(deployment_log_probs * selected_2d, axis=1)
+    mean_chosen_probabilities = mx.sum(deployment_probabilities * selected_2d, axis=1)
+    mean_raw_ratios = mean_chosen_probabilities / mx.maximum(
+        behavior_probabilities, mx.array(1e-6)
+    )
+    mean_ratios = mx.stop_gradient(
+        mx.minimum(mean_raw_ratios, mx.array(float(importance_clip)))
+    )
+    policy_numerator = -mx.sum(actor_weights * ratios * advantages * chosen_log_probs)
+    policy_numerator -= mx.sum(
+        mean_actor_weights * mean_ratios * mean_advantages * mean_chosen_log_probs
+    )
+    policy_loss = policy_numerator / actor_denominator
     value_losses = nn.losses.binary_cross_entropy(
         value_logits, target_matrix, with_logits=True, reduction="none"
     )
     value_loss = mx.sum(weights * value_losses) / denominator
     entropy_by_head = -mx.sum(probabilities * log_probs, axis=1)
-    entropy = mx.sum(actor_weights * entropy_by_head) / actor_denominator
+    deployment_entropy = -mx.sum(deployment_probabilities * deployment_log_probs, axis=1)
+    entropy = (
+        mx.sum(actor_weights * entropy_by_head)
+        + mx.sum(mean_actor_weights * deployment_entropy)
+    ) / actor_denominator
     legal_counts = mx.maximum(mx.sum(legal_mask, axis=1), mx.array(2.0))
     normalized_entropy = (
         mx.sum(actor_weights * (entropy_by_head / mx.log(legal_counts)[:, None]))
-        / actor_denominator
-    )
+        + mx.sum(mean_actor_weights * (deployment_entropy / mx.log(legal_counts)))
+    ) / actor_denominator
     reference_policy_kl = mx.array(0.0)
     reference_policy_head_kl = mx.array(0.0)
     if reference_model is not None and float(reference_policy_kl_weight) > 0:
@@ -278,11 +329,6 @@ def actor_critic_policy_loss(
         # Inference deploys the arithmetic mean of head logits, not a sampled
         # bootstrap head. Regularize that exact distribution so a harmless
         # permutation or specialization of individual heads is not penalized.
-        deployment_logits = mx.mean(policy_logits, axis=2)
-        deployment_masked_logits = mx.where(legal_mask > 0, deployment_logits, -1e9)
-        deployment_log_probs = deployment_masked_logits - mx.logsumexp(
-            deployment_masked_logits, axis=1, keepdims=True
-        )
         reference_deployment_logits = mx.mean(reference_logits, axis=2)
         reference_deployment_masked_logits = mx.where(
             legal_mask > 0, reference_deployment_logits, -1e9
@@ -366,10 +412,28 @@ def actor_critic_policy_loss(
         "weighted_entropy_loss": -float(entropy_weight) * entropy,
         "weighted_reference_policy_kl": (float(reference_policy_kl_weight) * reference_policy_kl),
         "actor_sample_fraction": mx.mean(resolved_actor_sample_weights),
+        "behavior_head_actor_fraction": (
+            mx.sum(actor_weights) / mx.maximum(mx.sum(weights), mx.array(1.0))
+        ),
+        "mean_policy_actor_fraction": mx.mean(mean_actor_weights > 0),
+        "mean_policy_loss": (
+            -mx.sum(
+                mean_actor_weights * mean_ratios * mean_advantages * mean_chosen_log_probs
+            )
+            / mx.maximum(mx.sum(mean_actor_weights), mx.array(1.0))
+        ),
         "actor_supplied_advantage_fraction": mx.mean(valid_advantages),
-        "actor_advantage_mean": (mx.sum(actor_weights * advantages) / actor_denominator),
+        "actor_advantage_mean": (
+            mx.sum(actor_weights * advantages)
+            + mx.sum(mean_actor_weights * mean_advantages)
+        )
+        / actor_denominator,
         "actor_advantage_rms": mx.sqrt(
-            mx.sum(actor_weights * mx.square(advantages)) / actor_denominator
+            (
+                mx.sum(actor_weights * mx.square(advantages))
+                + mx.sum(mean_actor_weights * mx.square(mean_advantages))
+            )
+            / actor_denominator
         ),
         "weighted_search_policy_loss": (
             float(search_policy_loss_weight) * search_weight_scale * search_policy_loss

@@ -315,6 +315,29 @@ def test_generation_four_numpy_actor_and_actor_critic_loss(tmp_path):
     mx.eval(gae_loss, *gae_diagnostics.values())
     assert float(gae_diagnostics["actor_supplied_advantage_fraction"].item()) == pytest.approx(0.5)
 
+    aligned_loss, aligned_diagnostics = actor_critic_policy_loss(
+        model,
+        mx.array(states),
+        mx.array(legal_actions),
+        mx.array(legal_mask),
+        mx.array(np.asarray([0, 1, 2, 3], dtype=np.int32)),
+        mx.array(families),
+        mx.array(np.asarray([1, 0, 1, 0], dtype=np.float32)),
+        mx.array(np.full(4, 0.2, dtype=np.float32)),
+        mx.array(np.ones((4, 3), dtype=np.float32)),
+        mx.array(np.ones(4, dtype=np.float32)),
+        behavior_heads=mx.array(np.asarray([0, 1, 2, -1], dtype=np.int32)),
+        behavior_head_only_actor_loss=True,
+        mean_policy_actor_loss=True,
+    )
+    mx.eval(aligned_loss, *aligned_diagnostics.values())
+    assert np.isfinite(float(aligned_loss.item()))
+    assert float(aligned_diagnostics["behavior_head_actor_fraction"].item()) == pytest.approx(
+        0.25
+    )
+    assert float(aligned_diagnostics["mean_policy_actor_fraction"].item()) == pytest.approx(0.25)
+    assert np.isfinite(float(aligned_diagnostics["mean_policy_loss"].item()))
+
     path = export_actor(model, spec, tmp_path / "generation4.actor.npz")
     actor = NumpyActor.load(path)
     expected_values = np.asarray(model.state_values(mx.array(states), mx.array(families)))
