@@ -10,6 +10,7 @@ from astro2.play import ActorChooser, PlayManager
 def test_human_game_advances_after_legal_choice():
     manager = PlayManager()
     initial = manager.create(seed=17, human_starts=True)
+    assert initial["rules_version"] == 2
     assert initial["status"] == "your_turn"
     assert initial["model_score_semantics"] is None
     assert initial["expected_win_rate"] is None

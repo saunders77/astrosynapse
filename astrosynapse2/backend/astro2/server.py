@@ -44,6 +44,7 @@ from .config import RunConfig, preset_config
 from .hardware import system_snapshot
 from .model import regenerate_actor_snapshot
 from .play import PlayManager
+from .progressive_models import progressive_models
 from .stats import elo_delta
 from .storage import Store
 from .supervisor import InvalidTransition, Supervisor
@@ -265,7 +266,8 @@ def _model_document(checkpoint: dict[str, Any]) -> dict[str, Any]:
     result["actor_available"] = actor_available
     result["model_available"] = model_available
     result["branch_compatible"] = bool(
-        model_available
+        not checkpoint.get("external")
+        and model_available
         and actor_available
         and model_spec.get("encoder_version") == 2
         and model_spec.get("objective_version") == 2
@@ -365,6 +367,11 @@ def progressive_progress() -> dict[str, Any]:
         "settings": manifest["settings"],
         "promotion_contract": manifest["promotion_contract"],
         "path": str(folder),
+        "run_name": f"{state.get('name', 'Astro6')} · {folder.name}",
+        "checkpoint_name": str(
+            Path((latest or {}).get("checkpoint") or state.get("model", "—"))
+        ).replace(str(folder) + "/", ""),
+        "champion_checkpoint_name": str(state.get("champion", "—")).replace(str(folder) + "/", ""),
         "stop_requested": (folder / "STOP").exists(),
     }
 
@@ -584,6 +591,11 @@ def models(
     include_tainted: bool = False,
 ) -> list[dict[str, Any]]:
     checkpoints = _store(request).checkpoints(run_id)
+    checkpoints += [
+        item
+        for item in progressive_models(_store(request).path.parent)
+        if run_id is None or item["run_id"] == run_id
+    ]
     tainted_ids = _tainted_checkpoint_ids(checkpoints)
     visible = (
         checkpoints
@@ -607,6 +619,8 @@ def patch_model(model_id: str, payload: ModelPatch, request: Request) -> dict[st
         checkpoint = store.checkpoint(model_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="model not found") from error
+    if checkpoint.get("external"):
+        raise HTTPException(409, "Astro6 retention is managed by its progressive campaign")
     if payload.pinned:
         actor_path_value = checkpoint.get("actor_path")
         actor_path = (
@@ -661,6 +675,7 @@ def create_arena(payload: CreateArenaRequest, request: Request) -> dict[str, Any
             payload.model_a,
             payload.model_b,
             ArenaConfig(
+                rules_version=2,
                 pairs=payload.pairs,
                 seed=payload.seed,
                 max_turns=payload.max_turns,
@@ -711,6 +726,7 @@ def create_card_analysis(payload: CreateCardAnalysisRequest, request: Request) -
             payload.model_id,
             payload.kind,
             CardAnalysisConfig(
+                rules_version=2,
                 games=games,
                 seed=payload.seed,
                 max_turns=payload.max_turns,

@@ -103,6 +103,7 @@ class GameSession:
             player_names=("You", model_label),
             choosers=(self._human_choose, opponent),
             config=GameConfig(
+                rules_version=2,
                 seed=self.seed,
                 starting_player=starting_player,
                 max_turns=240,
@@ -231,6 +232,7 @@ class GameSession:
                     else "model_thinking"
                 ),
                 "model_label": self.model_label,
+                "rules_version": self.game.config.rules_version,
                 "model_score_semantics": score_semantics,
                 "expected_win_rate": expected_win_rate,
                 "human_player": self.human_player,

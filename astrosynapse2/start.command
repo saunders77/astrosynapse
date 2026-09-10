@@ -25,12 +25,20 @@ export PYTHONPATH="${PROJECT_DIR}/backend"
 export ASTRO2_HOST="127.0.0.1"
 export ASTRO2_PORT="8765"
 
+# Do not launch a second instance over an older dashboard/API.
+for SERVICE_PORT in 3000 8765; do
+  if /usr/sbin/lsof -nP -iTCP:"${SERVICE_PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
+    print -u2 "Port ${SERVICE_PORT} is already in use. Stop the existing control center with Control-C in its Terminal window, then run start.command again."
+    exit 1
+  fi
+done
+
 # Keep the production bundle synchronized with dashboard source changes.
 npm run build
 
 "${PROJECT_DIR}/.venv/bin/python" -m astro2.server &
 BACKEND_PID=$!
-npm run start &
+node "${PROJECT_DIR}/node_modules/.bin/vinext" start --hostname 127.0.0.1 &
 FRONTEND_PID=$!
 if command -v caffeinate >/dev/null 2>&1; then
   caffeinate -dimsu -w "${BACKEND_PID}" &

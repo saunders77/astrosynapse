@@ -77,6 +77,7 @@ def default_games_for_kind(kind: AnalysisKind | str) -> int:
 
 @dataclass(frozen=True, slots=True)
 class CardAnalysisConfig:
+    rules_version: int = 1
     games: int = DEFAULT_ANALYSIS_GAMES
     seed: int = 20260813
     max_turns: int = 400
@@ -85,6 +86,8 @@ class CardAnalysisConfig:
     workers: int = max(1, min(4, (os.cpu_count() or 4) - 1))
 
     def __post_init__(self) -> None:
+        if self.rules_version not in (1, 2):
+            raise ValueError("rules_version must be 1 or 2")
         if not 1 <= self.games <= MAX_ANALYSIS_GAMES:
             raise ValueError(f"games must be between 1 and {MAX_ANALYSIS_GAMES:,}")
         if not 20 <= self.max_turns <= 500:
@@ -759,6 +762,7 @@ def _simulate_game_batch(
                 _GreedyChooser(actor, encoder, _derived_seed(config.seed, game_index, 2)),
             ),
             config=GameConfig(
+                rules_version=config.rules_version,
                 seed=game_seed,
                 max_turns=config.max_turns,
                 max_actions_per_turn=config.max_actions_per_turn,

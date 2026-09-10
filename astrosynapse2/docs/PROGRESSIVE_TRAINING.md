@@ -23,9 +23,10 @@ Each accepted model becomes the next training opponent and the source of the
 next learner stage. A separate 2,048-pair tournament tracks its strength against
 the original champion. A succession of wins is not assumed to be transitive.
 The eventual 70% target is judged against the original champions, separately
-from these incremental promotion tests. Historical game rules remain active
-for comparable checkpoint matches; corrected rules are a separately versioned
-training domain.
+from these incremental promotion tests. Historical rules v1 remain active in the frozen training campaign. New manual
+arena comparisons, Scrap/Acquire Elo probes (including bucketed Acquire), and
+Play matches in the control center use corrected rules v2. Saved results retain
+their original rules version; historical promotions are not corrected-rules evidence.
 
 Artifacts are under `data/progressive/20260910/`. `state.json` records phase,
 lineage, gates, and promotions. Each stage contains training metrics and retained
@@ -44,7 +45,10 @@ PYTHONPATH=backend ./.venv/bin/python scripts/progressive_training.py \
 ```
 
 The dashboard's new champion lineage is maintained by this supervisor. Existing
-database champions are not overwritten. Retained actor files can be found in
-the promotion records; integration into the older model registry is separate.
+database champions are not overwritten. Retained actors are discovered automatically in Models & Arena and Play, grouped
+by Astro6 run with stage/checkpoint names and promoted generation numbers. The
+progress page shows the current run, learner checkpoint, and champion checkpoint.
+These models are read-only entries: the progressive supervisor owns retention,
+and discovery does not add them to the older trainer’s league or change champions.
 The assessment and all measured experiments are in
 [the September report](assessment-2026-09-09.md).

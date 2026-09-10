@@ -260,6 +260,8 @@ type HardwareView = {
 };
 
 type ModelCheckpoint = {
+  runName?: string;
+  external?: boolean;
   id: string;
   runId?: string;
   label: string;
@@ -292,6 +294,7 @@ type ModelCheckpoint = {
 };
 
 type ArenaResultView = {
+  rulesVersion?: number;
   id: string;
   status: string;
   progress: number;
@@ -343,6 +346,7 @@ type CardEloChart = {
 };
 
 type CardAnalysisView = {
+  rulesVersion?: number;
   id: string;
   status: string;
   kind: "scrap" | "acquire" | "acquire_bucketed";
@@ -1788,6 +1792,8 @@ function normalizeModel(raw: unknown, fallback: ModelCheckpoint = emptyModel): M
   return {
     id: asString(item.id, fallback.id),
     runId: asString(item.run_id, fallback.runId ?? ""),
+    runName: asString(item.run_name, ""),
+    external: Boolean(item.external),
     label: displayLabel,
     parentId: typeof item.parent_id === "string" && item.parent_id ? item.parent_id : undefined,
     games: asNumber(item.games, fallback.games),
@@ -2029,6 +2035,7 @@ function normalizeArenaJob(raw: unknown): ArenaResultView | null {
     pairsRequested ? pairsCompleted / pairsRequested : 0,
   );
   return {
+    rulesVersion: asNumber(isRecord(raw.config) ? raw.config.rules_version : undefined, 1),
     id: asString(raw.id ?? raw.job_id, ""),
     status: asString(raw.status, "queued"),
     progress: Math.max(0, Math.min(100, progressFraction <= 1 ? progressFraction * 100 : progressFraction)),
@@ -2101,6 +2108,7 @@ function normalizeCardAnalysis(raw: unknown): CardAnalysisView | null {
   return {
     id: asString(raw.id, ""),
     status: asString(raw.status, "queued"),
+    rulesVersion: asNumber(config.rules_version, 1),
     kind: rawKind === "scrap" ? "scrap" : rawKind === "acquire_bucketed" ? "acquire_bucketed" : "acquire",
     modelId: asString(raw.model_id ?? model.id, ""),
     modelLabel: asString(raw.model_label ?? model.label, "Selected candidate"),
@@ -3333,7 +3341,7 @@ function ArenaModelPicker({
   const baselineSelected = arenaBaselines.some((model) => model.id === value);
   const selectedModel = groups.flatMap((group) => group.models).find((model) => model.id === value);
   const selectedRunId = baselineSelected ? "baseline" : selectedModel?.runId ?? groups[0]?.runId ?? "baseline";
-  const checkpoints = selectedRunId === "baseline"
+  const checkpoints: { id: string; label: string; games?: number; isChampion?: boolean }[] = selectedRunId === "baseline"
     ? arenaBaselines
     : groups.find((group) => group.runId === selectedRunId)?.models ?? [];
 
@@ -3350,7 +3358,7 @@ function ArenaModelPicker({
     <span>Model {side}</span>
     <span className="arena-model-picker-fields">
       <span><small>Run</small><select aria-label={`Arena model ${side} run`} value={selectedRunId} onChange={(event) => selectRun(event.target.value)}>{groups.map((group) => <option key={group.runId} value={group.runId}>{group.runName}</option>)}<option value="baseline">Reference baselines</option></select></span>
-      <span><small>Checkpoint</small><select aria-label={`Arena model ${side} checkpoint`} value={value} onChange={(event) => onChange(event.target.value)}>{checkpoints.map((model) => <option key={model.id} value={model.id}>{model.label}{"games" in model ? ` · ${gameCountFormatter.format(model.games)} games${model.isChampion ? " · champion" : ""}` : ""}</option>)}</select></span>
+      <span><small>Checkpoint</small><select aria-label={`Arena model ${side} checkpoint`} value={value} onChange={(event) => onChange(event.target.value)}>{checkpoints.map((model) => <option key={model.id} value={model.id}>{model.label}{model.games !== undefined ? ` · ${gameCountFormatter.format(model.games)} games${model.isChampion ? " · champion" : ""}` : ""}</option>)}</select></span>
     </span>
     <small>saved checkpoint from any run</small>
   </label>;
@@ -3448,8 +3456,8 @@ export default function Home() {
     Math.floor(config.evaluateEveryGames / 2),
   );
   const availableModels = useMemo(
-    () => snapshot.models.filter((model) => model.actorAvailable),
-    [snapshot.models],
+    () => arenaModels.filter((model) => model.actorAvailable),
+    [arenaModels],
   );
   const availableArenaModels = useMemo(
     () => arenaModels.filter((model) => model.actorAvailable),
@@ -3462,7 +3470,7 @@ export default function Home() {
       const runId = model.runId || "unknown";
       const group = groups.get(runId) ?? {
         runId,
-        runName: runNames.get(runId) ?? (runId === "unknown" ? "Other checkpoints" : runId),
+        runName: model.runName || runNames.get(runId) || (runId === "unknown" ? "Other checkpoints" : runId),
         models: [],
       };
       group.models.push(model);
@@ -4041,7 +4049,7 @@ export default function Home() {
   }, [connected, analysisJobId, analysisRunning]);
 
   useEffect(() => {
-    if (!snapshot.models.length) return;
+    if (!availableModels.length) return;
     const champion = availableModels.find((model) => model.isChampion) ?? availableModels[0];
     if (playModel !== "baseline" && !availableModels.some((model) => model.id === playModel)) setPlayModel(champion?.id ?? "baseline");
     const arenaChampion = availableArenaModels.find((model) => model.id === champion?.id)
@@ -5319,7 +5327,7 @@ export default function Home() {
         {activeTab === "models" ? (
           <section className="tab-panel models-panel" aria-labelledby="models-title">
             <header className="section-heading">
-              <div><span className="section-number">04 / MODELS & ARENA</span><h1 id="models-title">Prove strength, don’t infer it.</h1><p>Every result uses <Jargon term="pairedSeeds">paired seeds</Jargon>, reversed seats, and a <Jargon term="confidenceInterval">confidence interval</Jargon>.</p></div>
+              <div><span className="section-number">04 / MODELS & ARENA</span><h1 id="models-title">Prove strength, don’t infer it.</h1><p>New arena and card Elo tests use corrected rules v2. Arena results use <Jargon term="pairedSeeds">paired seeds</Jargon>, reversed seats, and a <Jargon term="confidenceInterval">confidence interval</Jargon>.</p></div>
               <div className="section-summary"><span>Current deployment model</span><strong>{snapshot.models.find((model) => model.isChampion)?.label ?? "—"}</strong><small>{snapshot.models.find((model) => model.isChampion)?.evaluated ? <>{formatPercent(snapshot.models.find((model) => model.isChampion)!.score)} <Jargon term="heldOutStrength">held-out score</Jargon> · evaluated champion</> : "Unevaluated anchor · not a promoted champion"}</small></div>
             </header>
 
@@ -5336,7 +5344,7 @@ export default function Home() {
                 {arenaResult ? <div className="arena-result">
                   <div className="result-score"><small>{arenaResult.status === "complete" ? "Latest result" : titleCase(arenaResult.status)}</small><strong>{arenaResult.pairsCompleted ? formatPercent(arenaResult.score) : "Pending"}</strong><span>{arenaResult.modelALabel}</span></div>
                   {arenaResult.pairsCompleted ? <><div className="interval-track"><i className="threshold" /><span style={{ left: `${arenaResult.ciLow * 100}%`, width: `${Math.max(0, arenaResult.ciHigh - arenaResult.ciLow) * 100}%` }} /><b style={{ left: `${arenaResult.score * 100}%` }} /></div><div className="interval-labels"><span>50% tie</span><strong><Jargon term="confidenceInterval">95% CI</Jargon> {formatPercent(arenaResult.ciLow)}–{formatPercent(arenaResult.ciHigh)}</strong><span>{arenaResult.elo >= 0 ? "+" : ""}{arenaResult.elo.toFixed(0)} <Jargon term="elo">Elo</Jargon></span></div></> : <div className="arena-pending">Waiting for the first paired games…</div>}
-                  <p className="arena-recommendation">{arenaResult.recommendation} · {numberFormatter.format(arenaResult.pairsCompleted)} / {numberFormatter.format(arenaResult.pairsRequested)} pairs · {numberFormatter.format(arenaResult.gamesCompleted)} games · seat A {formatPercent(arenaResult.firstSeatScore)} / seat B {formatPercent(arenaResult.secondSeatScore)} · {numberFormatter.format(arenaResult.truncatedGames)} truncations · {titleCase(arenaResult.intervalMethod)}</p>
+                  <p className="arena-recommendation">{arenaResult.recommendation} · Rules v{arenaResult.rulesVersion ?? 1} · {numberFormatter.format(arenaResult.pairsCompleted)} / {numberFormatter.format(arenaResult.pairsRequested)} pairs · {numberFormatter.format(arenaResult.gamesCompleted)} games · seat A {formatPercent(arenaResult.firstSeatScore)} / seat B {formatPercent(arenaResult.secondSeatScore)} · {numberFormatter.format(arenaResult.truncatedGames)} truncations · {titleCase(arenaResult.intervalMethod)}</p>
                 </div> : <EmptyState title={availableArenaModels.length < 1 ? "Arena needs an available actor" : "No arena evidence yet"} detail={availableArenaModels.length < 1 ? "Launch training or retain an actor snapshot; pruned history remains visible in the registry." : "Compare checkpoints from any two runs, or use a reference baseline, with paired seeds."} />}
               </article>
 
@@ -5353,15 +5361,15 @@ export default function Home() {
               <header className="panel-header"><div><span className="panel-kicker">Candidate behavior probe</span><h2>Card scrap & acquire Elo</h2></div><span className="paired-chip">1,000 standard · 10,000 bucketed</span></header>
               <p className="card-analysis-intro">Choose one immutable candidate, then rank the card choices its greedy deployment policy actually makes. Acquire trials include No Card, compared only with the card actually bought or, when nothing was bought, cards affordable at turn end. Scrap trials include No Discard. Turns with multiple scraps or acquisitions are excluded. The bucketed Acquire test records choice state during 10,000 games, then groups and rates the choices after simulation.</p>
               <div className="card-analysis-controls">
-                <label><span>Candidate checkpoint</span><select value={availableModels.some((model) => model.id === analysisModel) ? analysisModel : ""} onChange={(event) => setAnalysisModel(event.target.value)} disabled={analysisRunning}>{availableModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</select></label>
-                <label><span>Saved 10k result</span><select value={analysisResult?.kind === "acquire_bucketed" ? analysisResult.id : ""} onChange={(event) => loadSavedAnalysis(event.target.value)} disabled={analysisRunning || !analysisHistory.length}><option value="">{analysisHistory.length ? "Select a completed test…" : "No saved tests found"}</option>{analysisHistory.map((item) => <option key={item.id} value={item.id}>{item.modelLabel} · {item.completedAt ? new Date(item.completedAt).toLocaleString() : `${numberFormatter.format(item.gamesCompleted)} games`}</option>)}</select></label>
+                <label><span>Candidate checkpoint</span><select value={availableModels.some((model) => model.id === analysisModel) ? analysisModel : ""} onChange={(event) => setAnalysisModel(event.target.value)} disabled={analysisRunning}>{arenaModelGroups.map((group) => <optgroup key={group.runId} label={group.runName}>{group.models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup>)}</select></label>
+                <label><span>Saved 10k result</span><select value={analysisResult?.kind === "acquire_bucketed" ? analysisResult.id : ""} onChange={(event) => loadSavedAnalysis(event.target.value)} disabled={analysisRunning || !analysisHistory.length}><option value="">{analysisHistory.length ? "Select a completed test…" : "No saved tests found"}</option>{analysisHistory.map((item) => <option key={item.id} value={item.id}>{item.modelLabel} · Rules v{item.rulesVersion ?? 1} · {item.completedAt ? new Date(item.completedAt).toLocaleString() : `${numberFormatter.format(item.gamesCompleted)} games`}</option>)}</select></label>
                 <div><span>Fixed samples</span><strong>1,000 / 10,000 games</strong><small>candidate vs itself · greedy mean heads</small></div>
                 <button type="button" className="button" onClick={() => runCardAnalysis("scrap")} disabled={analysisRunning || !availableModels.length}>{analysisRunning && analysisResult?.kind === "scrap" ? "Running Scrap Elo…" : "Run Scrap Elo"}</button>
                 <button type="button" className="button" onClick={() => runCardAnalysis("acquire")} disabled={analysisRunning || !availableModels.length}>{analysisRunning && analysisResult?.kind === "acquire" ? "Running Acquire Elo…" : "Run Acquire Elo"}</button>
                 <button type="button" className="button button-primary" onClick={() => runCardAnalysis("acquire_bucketed")} disabled={analysisRunning || !availableModels.length}>{analysisRunning && analysisResult?.kind === "acquire_bucketed" ? "Running 10k Bucketed Elo…" : "Run 10k Bucketed Acquire Elo"}</button>
               </div>
               {analysisResult ? <>
-                <div className="arena-progress card-analysis-progress" aria-live="polite"><div><span>{analysisResult.kind === "acquire_bucketed" ? "Bucketed Acquire" : titleCase(analysisResult.kind)} Elo · {analysisResult.modelLabel}</span><strong>{Math.round(analysisResult.progress)}%</strong></div><i><b style={{ width: `${analysisResult.progress}%` }} /></i><p>{numberFormatter.format(analysisResult.gamesCompleted)} of {numberFormatter.format(analysisResult.gamesRequested)} games · {numberFormatter.format(analysisResult.singleCardTurns)} eligible zero-or-one-card turns{analysisResult.status === "complete" ? ` · ${numberFormatter.format(analysisResult.comparisons)} alternative comparisons` : ""}</p></div>
+                <div className="arena-progress card-analysis-progress" aria-live="polite"><div><span>{analysisResult.kind === "acquire_bucketed" ? "Bucketed Acquire" : titleCase(analysisResult.kind)} Elo · {analysisResult.modelLabel} · Rules v{analysisResult.rulesVersion ?? 1}</span><strong>{Math.round(analysisResult.progress)}%</strong></div><i><b style={{ width: `${analysisResult.progress}%` }} /></i><p>{numberFormatter.format(analysisResult.gamesCompleted)} of {numberFormatter.format(analysisResult.gamesRequested)} games · {numberFormatter.format(analysisResult.singleCardTurns)} eligible zero-or-one-card turns{analysisResult.status === "complete" ? ` · ${numberFormatter.format(analysisResult.comparisons)} alternative comparisons` : ""}</p></div>
                 {analysisResult.error ? <p className="card-analysis-error">{analysisResult.error}</p> : null}
                 {analysisResult.leaderboard.length ? <div className="card-elo-results">
                   <div className="card-elo-summary"><span><small>Scored choices</small><strong>{numberFormatter.format(analysisResult.scoredDecisions)}</strong></span><span><small>Comparisons</small><strong>{numberFormatter.format(analysisResult.comparisons)}</strong></span><span><small>Truncations</small><strong>{numberFormatter.format(analysisResult.truncatedGames)}</strong></span><span><small>Duration</small><strong>{formatDuration(analysisResult.durationSeconds)}</strong></span></div>
@@ -5378,8 +5386,8 @@ export default function Home() {
               }} disabled={commandBusy !== null || !availableModels.some((model) => model.isChampion)}>Export champion</button></div></header>
               <div className="model-table" role="table" aria-label="Model checkpoints">
                 <div className="model-row model-header" role="row"><span role="columnheader">Model</span><span role="columnheader">Games</span><span role="columnheader"><Jargon term="heldOutStrength">Held-out score</Jargon></span><span role="columnheader"><Jargon term="confidenceInterval">Confidence</Jargon></span><span role="columnheader">Δ <Jargon term="elo">Elo</Jargon></span><span role="columnheader">Created</span><span role="columnheader"><Jargon term="modelActions" align="right">Actions</Jargon></span></div>
-                {snapshot.models.map((model) => <div className="model-entry" role="rowgroup" key={model.id}><div className="model-row" role="row"><span role="cell"><i className={model.isChampion ? "champion-gem" : "model-node"} /><span><strong>{model.label}</strong><small>{model.id} · {model.artifactState === "pruned" ? "artifacts pruned · history retained" : model.sizeMb === null ? "size —" : `${model.sizeMb.toFixed(1)} MB`}{model.reason ? ` · ${model.reason}` : ""}</small></span>{model.role === "champion" ? <b className="champion-label"><Jargon term="champion">Evaluated champion</Jargon></b> : model.role === "anchor" ? <b className="champion-label anchor-label">Unevaluated anchor</b> : null}</span><span role="cell">{gameCountFormatter.format(model.games)}</span><span role="cell"><strong>{model.evaluated ? formatPercent(model.score) : "Not evaluated"}</strong></span><span role="cell">{model.evaluated ? `${formatPercent(model.ciLow)}–${formatPercent(model.ciHigh)}` : "—"}</span><span role="cell" className={model.hasElo && model.eloDelta >= 0 ? "positive" : ""}>{model.hasElo ? `${model.eloDelta >= 0 ? "+" : ""}${model.eloDelta.toFixed(0)}` : "—"}</span><span role="cell">{model.created}</span><span role="cell"><button type="button" aria-label={`${model.isPinned ? "Unpin" : "Pin"} ${model.label}`} onClick={() => togglePinned(model.id)} className={model.isPinned ? "is-pinned" : ""} disabled={commandBusy !== null}>◇</button><button type="button" aria-label={`Download actor for ${model.label}`} title={model.actorAvailable ? "Download actor" : "Actor artifact was pruned"} onClick={() => exportModel(model.id)} disabled={commandBusy !== null || !model.actorAvailable}>↓</button></span></div><ModelDiagnosticStrip model={model} /></div>)}
-                {!snapshot.models.length ? <EmptyState title="Registry is empty" detail="Checkpoints, actor exports, evaluations, and lineage metadata will appear here." /> : null}
+                {arenaModels.map((model) => <div className="model-entry" role="rowgroup" key={model.id}><div className="model-row" role="row"><span role="cell"><i className={model.isChampion ? "champion-gem" : "model-node"} /><span><strong>{model.label}</strong><small>{model.id} · {model.artifactState === "pruned" ? "artifacts pruned · history retained" : model.sizeMb === null ? "size —" : `${model.sizeMb.toFixed(1)} MB`}{model.reason ? ` · ${model.reason}` : ""}</small></span>{model.role === "champion" ? <b className="champion-label"><Jargon term="champion">Evaluated champion</Jargon></b> : model.role === "anchor" ? <b className="champion-label anchor-label">Unevaluated anchor</b> : null}</span><span role="cell">{gameCountFormatter.format(model.games)}</span><span role="cell"><strong>{model.evaluated ? formatPercent(model.score) : "Not evaluated"}</strong></span><span role="cell">{model.evaluated ? `${formatPercent(model.ciLow)}–${formatPercent(model.ciHigh)}` : "—"}</span><span role="cell" className={model.hasElo && model.eloDelta >= 0 ? "positive" : ""}>{model.hasElo ? `${model.eloDelta >= 0 ? "+" : ""}${model.eloDelta.toFixed(0)}` : "—"}</span><span role="cell">{model.created}</span><span role="cell"><button type="button" aria-label={`${model.isPinned ? "Unpin" : "Pin"} ${model.label}`} onClick={() => togglePinned(model.id)} className={model.isPinned ? "is-pinned" : ""} title={model.external ? "Retention managed by the Astro6 campaign" : undefined} disabled={commandBusy !== null || model.external}>◇</button><button type="button" aria-label={`Download actor for ${model.label}`} title={model.actorAvailable ? "Download actor" : "Actor artifact was pruned"} onClick={() => exportModel(model.id)} disabled={commandBusy !== null || !model.actorAvailable}>↓</button></span></div><ModelDiagnosticStrip model={model} /></div>)}
+                {!arenaModels.length ? <EmptyState title="Registry is empty" detail="Checkpoints, actor exports, evaluations, and lineage metadata will appear here." /> : null}
               </div>
             </article>
           </section>
@@ -5409,7 +5417,7 @@ export default function Home() {
           <section className="tab-panel play-panel" aria-labelledby="play-title">
             <header className="section-heading play-heading">
               <div><span className="section-number">05 / PLAY</span><h1 id="play-title">Enter the arena yourself.</h1><p>Challenge any checkpoint through the same legal-action interface used in self-play.</p></div>
-              <div className="game-setup"><label><span>Opponent</span><select value={playModel === "baseline" || availableModels.some((model) => model.id === playModel) ? playModel : "baseline"} onChange={(event) => setPlayModel(event.target.value)}><option value="baseline">Balanced baseline</option>{availableModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</select></label><label className="toggle-label"><input type="checkbox" checked={humanStarts} onChange={(event) => setHumanStarts(event.target.checked)} /><span />You start</label><button type="button" className="button card-visibility-button" onClick={() => setInventoryOpen(true)}>Hands & decks</button><button type="button" className="button button-primary" onClick={newGame} disabled={commandBusy !== null}>{commandBusy === "game-new" ? "Starting…" : "New game"}</button></div>
+              <div className="game-setup"><label><span>Opponent · corrected rules v2</span><select value={playModel === "baseline" || availableModels.some((model) => model.id === playModel) ? playModel : "baseline"} onChange={(event) => setPlayModel(event.target.value)}><option value="baseline">Balanced baseline</option>{arenaModelGroups.map((group) => <optgroup key={group.runId} label={group.runName}>{group.models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup>)}</select></label><label className="toggle-label"><input type="checkbox" checked={humanStarts} onChange={(event) => setHumanStarts(event.target.checked)} /><span />You start</label><button type="button" className="button card-visibility-button" onClick={() => setInventoryOpen(true)}>Hands & decks</button><button type="button" className="button button-primary" onClick={newGame} disabled={commandBusy !== null}>{commandBusy === "game-new" ? "Starting…" : "New game"}</button></div>
             </header>
 
             {connected && !remoteGame ? <div className="panel connected-game-empty"><EmptyState title="Start a live game" detail="Choose a checkpoint or the balanced baseline, then create a session. Every card and legal action will come from the engine." /></div> : <div className="game-shell">

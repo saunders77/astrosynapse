@@ -522,6 +522,11 @@ class Store:
         with self._connect() as db:
             row = db.execute("SELECT * FROM checkpoints WHERE id = ?", (checkpoint_id,)).fetchone()
         if row is None:
+            from .progressive_models import progressive_models
+
+            for item in progressive_models(self.path.parent):
+                if item["id"] == checkpoint_id:
+                    return item
             raise KeyError(checkpoint_id)
         item = dict(row)
         item["evaluation"] = json.loads(item.pop("eval_json"))

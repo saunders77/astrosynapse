@@ -56,6 +56,7 @@ class ModelResolutionError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class ArenaConfig:
+    rules_version: int = 1
     pairs: int = RECOMMENDED_PAIRS
     seed: int = 20260807
     max_turns: int = 180
@@ -83,6 +84,8 @@ class ArenaConfig:
     interval_confidence: float | None = None
 
     def __post_init__(self) -> None:
+        if self.rules_version not in (1, 2):
+            raise ValueError("rules_version must be 1 or 2")
         if self.automatic_promotion and self.trainer_scheduled:
             # Promotion confidence remains a system-wide contract, including
             # jobs loaded from SQLite after an upgrade. Extension controls are
@@ -282,6 +285,7 @@ def _play_pair(
     cancelled = cancel_hook or _arena_worker_cancelled
     common = dict(
         config=GameConfig(
+            rules_version=config.rules_version,
             seed=game_seed,
             seating=Seating.FIXED,
             starting_player=0,
