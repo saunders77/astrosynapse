@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-img-element -- Local card art has mixed portrait and landscape aspect ratios. */
 
 import ManualHardAiMatch from "./manual-hard-ai-match";
+import Link from "next/link";
 import {
   useEffect,
   useMemo,
@@ -4847,6 +4848,7 @@ export default function Home() {
             {tab.label}
           </button>
         ))}
+        <Link href="/progressive" className="progressive-nav-link">Astro6 progress ↗</Link>
       </nav>
 
       <div className="workspace">

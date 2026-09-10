@@ -78,6 +78,9 @@ class ArenaConfig:
     extension_block_pairs: int = PROMOTION_EXTENSION_PAIRS
     extension_min_score: float = 0.50
     extension_min_lower_bound: float = PROMOTION_EXTENSION_LOWER_MIN
+    # Internal interval level after allocating the overall error budget across
+    # scheduled looks. Kept separate from the persisted family confidence.
+    interval_confidence: float | None = None
 
     def __post_init__(self) -> None:
         if self.automatic_promotion and self.trainer_scheduled:
@@ -99,6 +102,14 @@ class ArenaConfig:
             raise ValueError("max_actions_per_turn must be between 20 and 500")
         if not 0.80 <= self.confidence <= 0.999:
             raise ValueError("confidence must be between 0.80 and 0.999")
+        if self.interval_confidence is not None and not 0.80 <= self.interval_confidence < 1.0:
+            raise ValueError("interval_confidence must be between 0.80 and 1")
+        if (
+            self.automatic_promotion
+            and self.early_acceptance
+            and (self.early_acceptance_confidence <= self.confidence)
+        ):
+            raise ValueError("early acceptance must leave a positive final-look error budget")
         if not 0.0 <= self.promotion_margin <= 0.25:
             raise ValueError("promotion_margin must be between 0.0 and 0.25")
         if self.promotion_tier not in {
@@ -777,11 +788,34 @@ def _should_extend_promotion_evaluation(
 
 
 def _extension_confidence(config: ArenaConfig, target_pairs: int | None = None) -> float:
-    """Use the system-wide 95% promotion interval."""
+    """Allocate the family error budget to every predeclared terminal look.
 
-    del config
+    Extension eligibility is data-dependent, so every possible boundary must
+    share the budget, including the original final boundary. Early acceptance
+    has a separate predeclared budget and must be subtracted, not added to 5%.
+    Bonferroni requires no independence between these nested samples.
+    """
+
     del target_pairs
-    return 0.95
+    if not (config.automatic_promotion and config.trainer_scheduled):
+        return config.confidence
+    alpha = 1.0 - config.confidence
+    if config.early_acceptance:
+        alpha -= 1.0 - config.early_acceptance_confidence
+    looks = 1
+    if config.extension_enabled:
+        looks += math.ceil(
+            (config.extension_max_pairs - config.pairs) / config.extension_block_pairs
+        )
+    return 1.0 - alpha / looks
+
+
+def _effective_confidence(config: ArenaConfig) -> float:
+    return (
+        config.interval_confidence
+        if config.interval_confidence is not None
+        else _extension_confidence(config)
+    )
 
 
 def _summary(
@@ -810,9 +844,10 @@ def _summary(
     neutral_results = sum(score == 0.5 for score in all_scores)
     draws = max(0, neutral_results - truncated_games)
     model_a_points = float(sum(all_scores))
-    z = NormalDist().inv_cdf(0.5 + config.confidence / 2.0)
+    confidence = _effective_confidence(config)
+    z = NormalDist().inv_cdf(0.5 + confidence / 2.0)
     wilson = wilson_interval(model_a_points, games_completed, z=z).as_dict()
-    paired = _paired_interval(paired_scores, config.confidence)
+    paired = _paired_interval(paired_scores, confidence)
     score = model_a_points / games_completed if games_completed else 0.5
     truncation_adjustment = _truncations_as_losses(
         {
@@ -821,7 +856,7 @@ def _summary(
             "model_a_score": score,
             "truncated_games": truncated_games,
         },
-        confidence=config.confidence,
+        confidence=confidence,
     )
     promotion_paired = truncation_adjustment["paired_interval"] if truncated_games else paired
     rate = games_completed / elapsed_seconds if elapsed_seconds > 0 else 0.0
@@ -859,7 +894,7 @@ def _summary(
         "wilson_interval": wilson,
         "paired_interval": paired,
         "paired_interval_method": "two_sided_hoeffding",
-        "confidence": config.confidence,
+        "confidence": confidence,
         "paired_common_seeds": True,
         "exact_seat_swap": True,
         "recent_pairs": pair_records[-20:],
@@ -945,7 +980,7 @@ def finalize_automatic_evaluation(
     early_stop_outcome = result.get("early_stop_outcome")
     early_accepted = early_stopped and early_stop_outcome == "accepted"
     truncated_games = max(0, int(result.get("truncated_games", 0)))
-    conservative = _truncations_as_losses(result, confidence=config.confidence)
+    conservative = _truncations_as_losses(result, confidence=_effective_confidence(config))
     promotion["truncation_adjustment"] = conservative
     effective_paired = conservative["paired_interval"] if truncated_games else paired
     paired_low = float(effective_paired.get("low", 0.0))
@@ -1286,7 +1321,7 @@ class ArenaManager:
             replace(
                 config,
                 pairs=target_pairs,
-                confidence=_extension_confidence(config, target_pairs),
+                interval_confidence=_extension_confidence(config, target_pairs),
             )
             if adaptive_extension_active
             else config
@@ -1428,7 +1463,7 @@ class ArenaManager:
                         summary_config = replace(
                             base_config,
                             pairs=target_pairs,
-                            confidence=_extension_confidence(base_config, target_pairs),
+                            interval_confidence=_extension_confidence(base_config, target_pairs),
                         )
                         statistical_looks = sorted(early_looks | acceptance_looks | {target_pairs})
                 now = time.monotonic()
@@ -1470,7 +1505,7 @@ class ArenaManager:
                         "additional_pairs": max(0, target_pairs - base_config.pairs),
                         "block_pairs": base_config.extension_block_pairs,
                         "maximum_pairs": base_config.extension_max_pairs,
-                        "look_adjusted_confidence": summary_config.confidence,
+                        "look_adjusted_confidence": _effective_confidence(summary_config),
                     }
                     result["resource_policy"] = {
                         "worker_processes": job_worker_processes,
@@ -1523,7 +1558,7 @@ class ArenaManager:
             "additional_pairs": max(0, target_pairs - base_config.pairs),
             "block_pairs": base_config.extension_block_pairs,
             "maximum_pairs": base_config.extension_max_pairs,
-            "look_adjusted_confidence": summary_config.confidence,
+            "look_adjusted_confidence": _effective_confidence(summary_config),
         }
         final["resource_policy"] = {
             "worker_processes": job_worker_processes,
@@ -1538,7 +1573,7 @@ class ArenaManager:
                 (first + second) * 0.5
                 for first, second in zip(first_scores, second_scores, strict=True)
             ],
-            summary_config.confidence,
+            _effective_confidence(summary_config),
         )
         final["paired_interval"] = paired_interval
         final["paired_interval_method"] = "two_sided_hoeffding"

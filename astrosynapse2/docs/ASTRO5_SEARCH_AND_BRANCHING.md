@@ -15,7 +15,7 @@ older run contracts; selecting Astro4, Astro3, or Astro2 still creates those exa
    policies remain explicit alternatives.
 3. **Learn calculated action sets.** Selected-action REINFORCE remains a broad background signal,
    but sampled main-phase states receive a searched target over up to four legal actions plus a
-   searched state-value target. The M4 preset samples at most one state in 0.25% of games and uses
+   searched state-value target. The M4 preset samples each eligible main-phase decision with probability 0.25%, capped at one state per game and uses
    one rollout per action, avoiding the former search budget's dominant CPU cost.
 4. **Use public-belief search.** Every search rollout redeterminizes the observer's unknown deck,
    opponent hand/deck split, and future market order. Candidate actions at the same rollout index
@@ -85,7 +85,7 @@ searched-batch coverage, and rolling three-canary trends. It can cool learning-r
 and increase searched supervision within configured bounds. It never weakens promotion confidence.
 
 After any promotion evaluation reaches its initial target, the arena adds 2,000-pair blocks while
-the score is above 50% and its 95% paired interval still overlaps 50%. It stops when that interval is
+the score is above 50% and its paired interval adjusted for all planned looks still overlaps 50%. It stops when that interval is
 wholly above 50%, the score is no longer above 50%, or 100,000 total pairs are complete. This policy is
 fixed across presets and is also applied when persisted runs and interrupted arena jobs resume.
 
@@ -108,7 +108,7 @@ a prior, not a causal claim: a promoted checkpoint contains many correlated
 SGD changes, so the normal canaries and arena still decide whether the reuse helped.
 
 Directional full evaluations retain their conservative early-decision looks. If no early decision is
-made, they use the universal promotion extension contract: inspect the 95% paired interval after each
+made, they use the universal promotion extension contract: inspect the paired interval adjusted for all planned looks after each
 2,000-pair block and continue only while the observed score is above 50% but the interval still crosses
 50%, with a hard ceiling of 50,000 pairs.
 Evaluations retain only recent human-readable

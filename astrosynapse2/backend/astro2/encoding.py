@@ -164,6 +164,7 @@ _ACTION_ALIASES: dict[str, ActionKind] = {
     "activate": ActionKind.ACTIVATE_ABILITY,
     "activate_ability": ActionKind.ACTIVATE_ABILITY,
     "activate_base": ActionKind.ACTIVATE_ABILITY,
+    "activate_ally": ActionKind.ACTIVATE_ABILITY,
     "scrap_from_play": ActionKind.SCRAP_FROM_PLAY,
     "scrap_for_ability": ActionKind.SCRAP_FROM_PLAY,
     "attack": ActionKind.ATTACK_BASE,

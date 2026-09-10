@@ -47,6 +47,7 @@ from .engine import DecisionFamily as EngineDecisionFamily
 _ENGINE_ACTION_KINDS = {
     EngineActionKind.PLAY_CARD: ActionKind.PLAY,
     EngineActionKind.ACTIVATE_BASE: ActionKind.ACTIVATE_ABILITY,
+    EngineActionKind.ACTIVATE_ALLY: ActionKind.ACTIVATE_ABILITY,
     EngineActionKind.SCRAP_FOR_ABILITY: ActionKind.SCRAP_FROM_PLAY,
     EngineActionKind.ATTACK_BASE: ActionKind.ATTACK_BASE,
     EngineActionKind.ATTACK_PLAYER: ActionKind.ATTACK_PLAYER,
@@ -224,11 +225,7 @@ class EngineEncoder(Encoder):
                 if status == "ready":
                     ids = (item.card.card_id for item in cards if not item.activated)
                 else:
-                    ids = (
-                        item.card.card_id
-                        for item in cards
-                        if bool(getattr(item, status))
-                    )
+                    ids = (item.card.card_id for item in cards if bool(getattr(item, status)))
                 result.append(tuple(sorted(ids)))
         return tuple(result)
 
@@ -306,9 +303,7 @@ class EngineEncoder(Encoder):
 
         kind = self._engine_kind(action)
         source_card = action.card_id if 0 <= action.card_id < self.card_count else -1
-        target_card = (
-            action.target_card_id if 0 <= action.target_card_id < self.card_count else -1
-        )
+        target_card = action.target_card_id if 0 <= action.target_card_id < self.card_count else -1
         source_zone = _ENGINE_ZONES.get(action.source_zone, -1)
         target_zone = -1
 
@@ -474,9 +469,7 @@ class EngineEncoder(Encoder):
         if not isinstance(observation, Observation) or not isinstance(
             decision_or_actions, Decision
         ):
-            return super().encode_decision(
-                observation, decision_or_actions, family=family
-            )
+            return super().encode_decision(observation, decision_or_actions, family=family)
 
         resolved_family = (
             _ENGINE_FAMILIES[decision_or_actions.family]

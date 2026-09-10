@@ -180,8 +180,13 @@ def test_regular_99_percent_looks_share_error_across_both_decisions():
     assert weak["reject"] is True
     assert borderline["accept"] is False
     assert strong["bonferroni_look_alpha"] == pytest.approx(0.01 / 98)
-    assert arena_module._extension_confidence(config, 48_000) == pytest.approx(0.95)
-    assert arena_module._extension_confidence(config, 50_000) == pytest.approx(0.95)
+    expected_final_confidence = 1 - (0.05 - 0.01) / 46
+    assert arena_module._extension_confidence(config, 48_000) == pytest.approx(
+        expected_final_confidence
+    )
+    assert arena_module._extension_confidence(config, 50_000) == pytest.approx(
+        expected_final_confidence
+    )
     assert (
         arena_module._should_extend_promotion_evaluation(
             config=config,
@@ -344,15 +349,15 @@ def test_marginal_positive_full_evaluation_runs_one_more_2000_pair_block(
 
     assert complete["status"] == "complete", complete.get("error")
     result = complete["result"]
-    assert result["pairs_completed"] == 6_000
-    assert result["pairs_requested"] == 6_000
+    assert result["pairs_completed"] == 10_000
+    assert result["pairs_requested"] == 10_000
     assert result["adaptive_extension"] == {
         "active": True,
         "initial_pairs": 2_000,
-        "additional_pairs": 4_000,
+        "additional_pairs": 8_000,
         "block_pairs": 2_000,
         "maximum_pairs": 100_000,
-        "look_adjusted_confidence": pytest.approx(0.95),
+        "look_adjusted_confidence": pytest.approx(0.999),
     }
     assert result["paired_interval"]["estimate"] == pytest.approx(0.52)
     assert result["paired_interval"]["low"] > 0.50
@@ -410,7 +415,7 @@ def test_mature_evaluation_can_extend_across_multiple_blocks(tmp_path, monkeypat
     assert result["pairs_completed"] == 8_000
     assert result["adaptive_extension"]["additional_pairs"] == 6_000
     assert result["adaptive_extension"]["maximum_pairs"] == 8_000
-    assert result["adaptive_extension"]["look_adjusted_confidence"] == pytest.approx(0.95)
+    assert result["adaptive_extension"]["look_adjusted_confidence"] == pytest.approx(0.9875)
     assert result["promotion"]["promoted"] is False
 
 

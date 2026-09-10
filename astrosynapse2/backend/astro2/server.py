@@ -6,8 +6,10 @@ import asyncio
 import json
 import os
 import re
+import subprocess
+import time
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
@@ -308,6 +310,97 @@ def system() -> dict[str, Any]:
     return system_snapshot()
 
 
+def _progressive_folder() -> Path | None:
+    root = DATA_DIR / "progressive"
+    pointer = root / "current.json"
+    if not pointer.exists():
+        return None
+    folder = Path(json.loads(pointer.read_text())["path"]).resolve()
+    if not folder.is_relative_to(root.resolve()):
+        raise HTTPException(400, "invalid progressive run path")
+    return folder
+
+
+@app.get("/api/progressive")
+def progressive_progress() -> dict[str, Any]:
+    folder = _progressive_folder()
+    if folder is None or not (folder / "state.json").exists():
+        return {"available": False}
+    state = json.loads((folder / "state.json").read_text())
+    manifest = json.loads((folder / "manifest.json").read_text())
+    training = folder / f"stage-{state['stage']:03d}"
+    metrics = training / "metrics.jsonl"
+    rows = []
+    if metrics.exists():
+        with metrics.open("rb") as file:
+            file.seek(0, 2)
+            offset = max(0, file.tell() - 500_000)
+            file.seek(offset)
+            if offset:
+                file.readline()
+            for line in file:
+                with suppress(json.JSONDecodeError):
+                    rows.append(json.loads(line))
+    latest = rows[-1] if rows else None
+    if latest:
+        state["games"] = state["games_before_stage"] + latest["games"]
+    try:
+        os.kill(int(state.get("pid", -1)), 0) if state.get("pid", 0) > 0 else None
+        alive = state.get("pid", 0) > 0
+    except (ProcessLookupError, PermissionError):
+        alive = False
+    running = alive and state["phase"] in {
+        "starting",
+        "training",
+        "verifying_candidate",
+        "benchmarking_original_champion",
+    }
+    return {
+        "available": True,
+        **state,
+        "running": running,
+        "stale": time.time() - state.get("heartbeat", 0) > 120,
+        "latest": latest,
+        "recent_metrics": rows[-120:],
+        "settings": manifest["settings"],
+        "promotion_contract": manifest["promotion_contract"],
+        "path": str(folder),
+        "stop_requested": (folder / "STOP").exists(),
+    }
+
+
+@app.post("/api/progressive/{command}")
+def progressive_command(command: str) -> dict[str, Any]:
+    folder = _progressive_folder()
+    if folder is None:
+        raise HTTPException(404, "no progressive run")
+    if command == "pause":
+        (folder / "STOP").touch()
+    elif command == "resume":
+        if not progressive_progress()["running"]:
+            with (folder / "manager.log").open("a") as log:
+                subprocess.Popen(
+                    [
+                        "/usr/bin/caffeinate",
+                        "-i",
+                        str(PROJECT_ROOT / ".venv/bin/python"),
+                        str(folder / "runtime/scripts/progressive_training.py"),
+                        "--output",
+                        str(folder),
+                        "--resume",
+                    ],
+                    cwd=PROJECT_ROOT,
+                    env={**os.environ, "PYTHONPATH": str(folder / "runtime")},
+                    stdin=subprocess.DEVNULL,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+    else:
+        raise HTTPException(400, "command must be pause or resume")
+    return {"ok": True, "command": command}
+
+
 @app.get("/api/presets")
 def presets() -> dict[str, Any]:
     return {
@@ -384,11 +477,7 @@ def runs(request: Request) -> list[dict[str, Any]]:
         checkpoints = store.checkpoints(run["id"])
         tainted_ids = _tainted_checkpoint_ids(checkpoints)
         latest = next(
-            (
-                model
-                for model in checkpoints
-                if model["id"] not in tainted_ids
-            ),
+            (model for model in checkpoints if model["id"] not in tainted_ids),
             None,
         )
         champion = next((model for model in checkpoints if model["is_champion"]), None)
@@ -615,9 +704,7 @@ def arena_job(job_id: str, request: Request) -> dict[str, Any]:
 
 
 @app.post("/api/card-analysis", status_code=201)
-def create_card_analysis(
-    payload: CreateCardAnalysisRequest, request: Request
-) -> dict[str, Any]:
+def create_card_analysis(payload: CreateCardAnalysisRequest, request: Request) -> dict[str, Any]:
     try:
         games = payload.games or default_games_for_kind(payload.kind)
         return _card_analysis(request).create(

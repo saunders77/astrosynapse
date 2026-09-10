@@ -47,6 +47,7 @@ class DecisionFamily(StrEnum):
 class ActionKind(StrEnum):
     PLAY_CARD = "play_card"
     ACTIVATE_BASE = "activate_base"
+    ACTIVATE_ALLY = "activate_ally"
     SCRAP_FOR_ABILITY = "scrap_for_ability"
     ATTACK_BASE = "attack_base"
     ATTACK_PLAYER = "attack_player"
@@ -226,6 +227,7 @@ def model_action_indices(decision: Decision) -> tuple[int, ...]:
         in {
             ActionKind.PLAY_CARD,
             ActionKind.ACTIVATE_BASE,
+            ActionKind.ACTIVATE_ALLY,
             ActionKind.ATTACK_BASE,
             ActionKind.ATTACK_PLAYER,
         }
@@ -248,6 +250,9 @@ class GameConfig(_JsonMixin):
     max_actions_per_turn: int = 200
     explorer_supply: int = 10
     initial_authority: int = 50
+    # Version 1 reproduces historical checkpoint matches. Version 2 restores
+    # Explorer recycling and player-controlled ally timing. Never pool them.
+    rules_version: int = 1
 
     def __post_init__(self) -> None:
         if isinstance(self.seating, str):
@@ -258,6 +263,8 @@ class GameConfig(_JsonMixin):
             raise ValueError("turn and action safeguards must be positive")
         if self.explorer_supply < 0 or self.initial_authority <= 0:
             raise ValueError("invalid supply or starting authority")
+        if self.rules_version not in (1, 2):
+            raise ValueError("rules_version must be 1 (historical) or 2 (corrected)")
 
 
 def _splitmix64(value: int) -> int:
@@ -661,8 +668,7 @@ class Game:
                 (
                     index
                     for index in unmatched_indices
-                    if hand_slots[index] is not None
-                    and hand_slots[index].card_id == known.card_id
+                    if hand_slots[index] is not None and hand_slots[index].card_id == known.card_id
                 ),
                 None,
             )
@@ -682,9 +688,7 @@ class Game:
         hidden_opponent = [*hidden_hand, *unknown_deck]
         rng.shuffle(hidden_opponent)
         hidden_iter = iter(hidden_opponent[: len(unmatched_indices)])
-        opponent.hand = [
-            card if card is not None else next(hidden_iter) for card in hand_slots
-        ]
+        opponent.hand = [card if card is not None else next(hidden_iter) for card in hand_slots]
         opponent.deck = hidden_opponent[len(unmatched_indices) :] + known_deck
 
         # The remaining trade deck order is hidden. The visible row and every
@@ -886,6 +890,17 @@ class Game:
                 )
             )
         for item in player.in_play:
+            if self.config.rules_version >= 2 and self._ally_available(player, item):
+                actions.append(
+                    Action(
+                        ActionKind.ACTIVATE_ALLY,
+                        card_id=item.card.card_id,
+                        ability=item.card.ally,
+                        source_zone="in_play",
+                        amount=item.card.ally_amount,
+                        opaque=(item.uid,),
+                    )
+                )
             if item.card.is_base and not item.activated:
                 actions.append(
                     Action(
@@ -958,6 +973,12 @@ class Game:
         elif kind == ActionKind.ACTIVATE_BASE:
             item = self._find_in_play(player, int(action.opaque[0]))
             self._activate_card(player, item)
+        elif kind == ActionKind.ACTIVATE_ALLY:
+            item = self._find_in_play(player, int(action.opaque[0]))
+            if not self._ally_available(player, item):
+                raise RuntimeError("ally ability is not available")
+            item.ally_triggered = True
+            self._execute_effect(player, item.card.ally, item.card.ally_amount, item)
         elif kind == ActionKind.SCRAP_FOR_ABILITY:
             item = self._find_in_play(player, int(action.opaque[0]))
             self._scrap_in_play(player, item)
@@ -1023,6 +1044,9 @@ class Game:
         self._trigger_available_allies(player)
 
     def _trigger_available_allies(self, player: _Player) -> None:
+        if self.config.rules_version >= 2:
+            # Availability becomes a legal action; the player controls timing.
+            return
         # Effects can draw or alter state, but cannot add in-play cards without
         # returning to the main loop.  Iterate to cover all newly enabled allies.
         progress = True
@@ -1040,6 +1064,26 @@ class Game:
                     item.ally_triggered = True
                     self._execute_effect(player, item.card.ally, item.card.ally_amount, item)
                     progress = True
+
+    @staticmethod
+    def _ally_available(player: _Player, item: _InPlay) -> bool:
+        return bool(
+            item.card.ally
+            and not item.ally_triggered
+            and any(
+                other.uid != item.uid
+                and (other.card.card_id == 19 or other.has_faction(item.card.faction))
+                for other in player.in_play
+            )
+        )
+
+    def _send_to_scrap(self, card: Card) -> None:
+        # The Explorer rule applies to every reason and source zone. A copied
+        # Explorer still scraps the original Stealth Needle, not an Explorer.
+        if self.config.rules_version >= 2 and card.card_id == EXPLORER.card_id:
+            self.explorers_remaining += 1
+        else:
+            self.scrap_heap.append(card)
 
     def _execute_effect(self, player: _Player, effect: str, amount: int, source: _InPlay) -> None:
         opponent = self.players[1 - player.player_id]
@@ -1215,7 +1259,7 @@ class Game:
             self._forget_revealed(player, card)
         else:
             card = player.discard.pop(int(action.opaque[0]))
-        self.scrap_heap.append(card)
+        self._send_to_scrap(card)
         return 1
 
     def _scrap_from_hand(self, player: _Player, source: _InPlay) -> None:
@@ -1230,7 +1274,7 @@ class Game:
         )
         card = player.hand.pop(int(action.opaque[0]))
         self._forget_revealed(player, card)
-        self.scrap_heap.append(card)
+        self._send_to_scrap(card)
 
     def _recycle(self, player: _Player, source: _InPlay) -> None:
         action = self._choose(
@@ -1392,7 +1436,7 @@ class Game:
 
     def _scrap_in_play(self, player: _Player, item: _InPlay) -> None:
         player.in_play.remove(item)
-        self.scrap_heap.append(item.original_card)
+        self._send_to_scrap(item.original_card)
         self._execute_effect(player, item.card.scrap, item.card.scrap_amount, item)
 
     def _acquire_market(
