@@ -162,12 +162,6 @@ type HardActionKind =
   | "ability"
   | "end_turn";
 
-type HardQueuedDecision = {
-  effect: string;
-  cardId: number;
-  cardName: string;
-};
-
 type Props = {
   apiBase: string;
   connected: boolean;
@@ -301,11 +295,21 @@ function effectiveDefinition(tracked: TrackedCard, definitions: Map<number, Card
   return cardId === null ? undefined : definitions.get(cardId);
 }
 
-function baseRequiresActivation(definition: CardDefinition): boolean {
-  return definition.card_type !== "ship"
-    && definition.card_id !== 19
-    && definition.card_id !== 29
-    && Boolean(definition.combat || definition.authority || definition.trade || definition.primary);
+function trackedHasFaction(tracked: TrackedCard, faction: string, definitions: Map<number, CardDefinition>): boolean {
+  return effectiveDefinition(tracked, definitions)?.faction === faction
+    || (tracked.cardId === 23 && faction === "machine_cult");
+}
+
+const AUTOMATIC_RESOURCE_EFFECTS = new Set(["gain_combat", "gain_trade", "gain_authority"]);
+
+function requiresManualPrimary(definition: CardDefinition): boolean {
+  return Boolean(definition.primary && !["all_ally", "fleet_hq"].includes(definition.primary));
+}
+
+function primaryAvailable(cards: TrackedCard[], item: TrackedCard, definition: CardDefinition, definitions: Map<number, CardDefinition>): boolean {
+  if (item.activated) return false;
+  return definition.primary !== "copy_ship"
+    || cards.some((other) => other.uid !== item.uid && effectiveDefinition(other, definitions)?.card_type === "ship");
 }
 
 function originalCard(tracked: TrackedCard): TrackedCard {
@@ -712,8 +716,12 @@ function buildMainActions(match: ManualMatch, definitions: Map<number, CardDefin
   for (const item of match.astro.inPlay) {
     const definition = effectiveDefinition(item, definitions);
     if (!definition) continue;
-    if (definition && definition.card_type !== "ship" && !item.activated && (definition.combat || definition.trade || definition.authority || definition.primary)) {
-      add({ kind: "activate_base", card_id: definition.card_id, source_zone: "in_play", label: `Activate ${definition.name}` });
+    const allied = match.astro.inPlay.some((other) => other.uid !== item.uid && (effectiveCardId(other) === 19 || trackedHasFaction(other, definition.faction, definitions)));
+    if (definition.ally && !AUTOMATIC_RESOURCE_EFFECTS.has(definition.ally) && !item.allyTriggered && allied) {
+      add({ kind: "activate_ally", card_id: definition.card_id, ability: definition.ally, source_zone: "in_play", amount: definition.ally_amount, label: `Activate ${definition.name} ally · ${abilityLabel(definition.ally, definition.ally_amount)}` });
+    }
+    if (primaryAvailable(match.astro.inPlay, item, definition, definitions)) {
+      add({ kind: "activate_base", card_id: definition.card_id, ability: definition.primary, source_zone: "in_play", label: `Activate ${definition.name}` });
     }
     if (definition?.scrap) {
       add({ kind: "scrap_for_ability", card_id: definition.card_id, source_zone: "in_play", ability: definition.scrap, amount: definition.scrap_amount, label: `Scrap ${definition.name} · ${abilityLabel(definition.scrap, definition.scrap_amount)}` });
@@ -900,22 +908,10 @@ function drawHardCards(match: ManualMatch, count: number): ManualMatch {
   };
 }
 
-function applyAutomaticHardEffect(match: ManualMatch, effect: string, amount: number, definitions: Map<number, CardDefinition>): ManualMatch {
-  if (!effect || HARD_DECISION_EFFECTS.has(effect)) {
-    if (effect === "draw_then_scrap" || effect === "draw_destroy") return drawHardCards(match, 1);
-    return match;
-  }
+function applyAutomaticHardResource(match: ManualMatch, effect: string, amount: number): ManualMatch {
   if (effect === "gain_combat") return { ...match, hard: { ...match.hard, combat: match.hard.combat + amount } };
   if (effect === "gain_trade") return { ...match, hard: { ...match.hard, trade: match.hard.trade + amount } };
   if (effect === "gain_authority") return { ...match, hard: { ...match.hard, authority: match.hard.authority + amount } };
-  if (effect === "draw") return drawHardCards(match, 1);
-  if (effect === "draw_two") return drawHardCards(match, 2);
-  if (effect === "opponent_discard") return { ...match, astro: { ...match.astro, pendingDiscard: match.astro.pendingDiscard + 1 } };
-  if (effect === "ship_top") return { ...match, hard: { ...match.hard, nextShipToTop: true } };
-  if (effect === "embassy_yacht") {
-    const baseCount = match.hard.inPlay.filter((item) => effectiveDefinition(item, definitions)?.card_type !== "ship").length;
-    return baseCount >= 2 ? drawHardCards(match, 2) : match;
-  }
   return match;
 }
 
@@ -925,8 +921,8 @@ function triggerAutomaticHardAllies(match: ManualMatch, definitions: Map<number,
     const allAllied = next.hard.inPlay.some((item) => effectiveCardId(item) === 19);
     const candidate = next.hard.inPlay.find((item) => {
       const definition = effectiveDefinition(item, definitions);
-      if (item.allyTriggered || !definition?.ally || definition.faction === "unaligned") return false;
-      return allAllied || next.hard.inPlay.some((other) => other.uid !== item.uid && effectiveDefinition(other, definitions)?.faction === definition.faction);
+      if (item.allyTriggered || !definition?.ally || !AUTOMATIC_RESOURCE_EFFECTS.has(definition.ally) || definition.faction === "unaligned") return false;
+      return allAllied || next.hard.inPlay.some((other) => other.uid !== item.uid && trackedHasFaction(other, definition.faction, definitions));
     });
     if (!candidate) return next;
     const definition = effectiveDefinition(candidate, definitions);
@@ -935,18 +931,31 @@ function triggerAutomaticHardAllies(match: ManualMatch, definitions: Map<number,
       ...next,
       hard: { ...next.hard, inPlay: next.hard.inPlay.map((item) => item.uid === candidate.uid ? { ...item, allyTriggered: true } : item) },
     };
-    next = applyAutomaticHardEffect(next, definition.ally, definition.ally_amount, definitions);
+    next = applyAutomaticHardResource(next, definition.ally, definition.ally_amount);
   }
 }
 
-function newlyTriggeredHardAllyDecision(match: ManualMatch, played: CardDefinition, definitions: Map<number, CardDefinition>): CardDefinition | undefined {
-  const existing = match.hard.inPlay.map((item) => ({ item, definition: effectiveDefinition(item, definitions) }));
-  const eventual = [...existing.map(({ definition }) => definition), played].filter((item): item is CardDefinition => Boolean(item));
-  const allAllied = eventual.some((definition) => definition.card_id === 19);
-  return [...existing, { item: { uid: "new", cardId: played.card_id, allyTriggered: false }, definition: played }].find(({ item, definition }, index, entries) => {
-    if (item.allyTriggered || !definition?.ally || !HARD_DECISION_EFFECTS.has(definition.ally) || definition.faction === "unaligned") return false;
-    return allAllied || entries.some(({ definition: other }, otherIndex) => otherIndex !== index && other?.faction === definition.faction);
-  })?.definition;
+function triggerAutomaticAstroAllies(match: ManualMatch, definitions: Map<number, CardDefinition>): ManualMatch {
+  let next = match;
+  while (true) {
+    const allAllied = next.astro.inPlay.some((item) => effectiveCardId(item) === 19);
+    const candidate = next.astro.inPlay.find((item) => {
+      const definition = effectiveDefinition(item, definitions);
+      if (item.allyTriggered || !definition?.ally || !AUTOMATIC_RESOURCE_EFFECTS.has(definition.ally) || definition.faction === "unaligned") return false;
+      return allAllied || next.astro.inPlay.some((other) => other.uid !== item.uid && trackedHasFaction(other, definition.faction, definitions));
+    });
+    if (!candidate) return next;
+    const definition = effectiveDefinition(candidate, definitions);
+    if (!definition) return next;
+    const astro = {
+      ...next.astro,
+      combat: next.astro.combat + (definition.ally === "gain_combat" ? definition.ally_amount : 0),
+      trade: next.astro.trade + (definition.ally === "gain_trade" ? definition.ally_amount : 0),
+      authority: next.astro.authority + (definition.ally === "gain_authority" ? definition.ally_amount : 0),
+      inPlay: next.astro.inPlay.map((item) => item.uid === candidate.uid ? { ...item, allyTriggered: true } : item),
+    };
+    next = { ...next, astro };
+  }
 }
 
 function effectDecision(
@@ -1124,6 +1133,12 @@ function affordableHardAcquisitions(match: ManualMatch, definitions: Map<number,
   });
 }
 
+function hardManualAllyAvailable(match: ManualMatch, item: TrackedCard, definitions: Map<number, CardDefinition>): boolean {
+  const definition = effectiveDefinition(item, definitions);
+  if (!definition?.ally || AUTOMATIC_RESOURCE_EFFECTS.has(definition.ally) || item.allyTriggered || definition.faction === "unaligned") return false;
+  return match.hard.inPlay.some((other) => other.uid !== item.uid && (effectiveCardId(other) === 19 || trackedHasFaction(other, definition.faction, definitions)));
+}
+
 function hardLegalActionKinds(match: ManualMatch, definitions: Map<number, CardDefinition>, decisionEffect: string): HardActionKind[] {
   if (decisionEffect) {
     if (decisionEffect === "scrap_trade_row") return match.tradeRow.some((item) => item.cardId !== null) ? ["scrap_row"] : [];
@@ -1145,8 +1160,8 @@ function hardLegalActionKinds(match: ManualMatch, definitions: Map<number, CardD
   if (match.hard.inPlay.some((item) => Boolean(effectiveDefinition(item, definitions)?.scrap))) kinds.push("scrap");
   if (match.hard.inPlay.some((item) => {
     const definition = effectiveDefinition(item, definitions);
-    return definition && !item.activated && baseRequiresActivation(definition);
-  })) kinds.push("ability");
+    return definition && requiresManualPrimary(definition) && primaryAvailable(match.hard.inPlay, item, definition, definitions);
+  }) || match.hard.inPlay.some((item) => hardManualAllyAvailable(match, item, definitions))) kinds.push("ability");
   kinds.push("end_turn");
   return kinds;
 }
@@ -1154,17 +1169,7 @@ function hardLegalActionKinds(match: ManualMatch, definitions: Map<number, CardD
 function playAllIsDecisionFree(match: ManualMatch, definitions: Map<number, CardDefinition>): boolean {
   if (match.astro.hand.length < 2 || match.astro.hand.some((item) => item.cardId === null)) return false;
   const playedDefinitions = match.astro.hand.flatMap((item) => item.cardId === null ? [] : definitions.get(item.cardId) ?? []);
-  if (playedDefinitions.length !== match.astro.hand.length) return false;
-  const eventualInPlay = [...match.astro.inPlay.map((item) => effectiveDefinition(item, definitions)), ...playedDefinitions].filter((item): item is CardDefinition => Boolean(item));
-  const hasNeedleTarget = eventualInPlay.filter((item) => item.card_type === "ship").length > 1;
-  if (playedDefinitions.some((definition) => definition.card_type === "ship" && (HARD_DECISION_EFFECTS.has(definition.primary) || ["draw", "draw_two", "embassy_yacht"].includes(definition.primary)))) return false;
-  if (playedDefinitions.some((definition) => definition.card_id === 23 && hasNeedleTarget)) return false;
-  const allAllied = eventualInPlay.some((definition) => definition.card_id === 19);
-  return !eventualInPlay.some((definition, index) => {
-    if (!definition.ally || definition.faction === "unaligned") return false;
-    const allied = allAllied || eventualInPlay.some((other, otherIndex) => otherIndex !== index && other.faction === definition.faction);
-    return allied && (HARD_DECISION_EFFECTS.has(definition.ally) || ["draw", "draw_two"].includes(definition.ally));
-  });
+  return playedDefinitions.length === match.astro.hand.length;
 }
 
 function loadSavedMatch(fallback: ManualMatch): ManualMatch {
@@ -1209,7 +1214,6 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
   const [hardDeclined, setHardDeclined] = useState(false);
   const [hardScrapCount, setHardScrapCount] = useState(0);
   const [hardDecisionNotice, setHardDecisionNotice] = useState(match.hard.pendingDiscard > 0 ? `The Hard AI must discard ${match.hard.pendingDiscard}.` : "");
-  const [hardQueuedDecision, setHardQueuedDecision] = useState<HardQueuedDecision | null>(null);
   const [pendingTradeRefillSlot, setPendingTradeRefillSlot] = useState<number | null>(null);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [recommendationState, setRecommendationState] = useState<"idle" | "loading" | "offline" | "error">("idle");
@@ -1310,7 +1314,6 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
     setRecommendation(null);
     setPendingTradeRefillSlot(null);
     setHardDecisionNotice("");
-    setHardQueuedDecision(null);
     setHardDecisionEffect("");
     setHardAbilityChoice("");
     setHardDeclined(false);
@@ -1423,35 +1426,12 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
       const priorDecision = current.pendingDecision;
       let next: ManualMatch = { ...current, pendingDecision: null, actionNumber: current.actionNumber + 1 };
       const definition = action.card_id === undefined ? undefined : definitions.get(action.card_id);
-      const triggerAvailableAllies = (state: ManualMatch): ManualMatch => {
-        let result = state;
-        while (!result.pendingDecision) {
-          const allAllied = result.astro.inPlay.some((item) => effectiveCardId(item) === 19);
-          const candidate = result.astro.inPlay.find((item) => {
-            const itemDefinition = effectiveDefinition(item, definitions);
-            if (item.allyTriggered || !itemDefinition?.ally || itemDefinition.faction === "unaligned") return false;
-            return allAllied || result.astro.inPlay.some((other) => other.uid !== item.uid && effectiveDefinition(other, definitions)?.faction === itemDefinition.faction);
-          });
-          if (!candidate) break;
-          const candidateDefinition = effectiveDefinition(candidate, definitions);
-          if (!candidateDefinition) break;
-          result = {
-            ...result,
-            astro: {
-              ...result.astro,
-              inPlay: result.astro.inPlay.map((item) => item.uid === candidate.uid ? { ...item, allyTriggered: true } : item),
-            },
-          };
-          result = applySimpleEffect(result, candidateDefinition.ally, candidateDefinition.ally_amount, candidateDefinition);
-        }
-        return result;
-      };
+      const triggerAvailableAllies = (state: ManualMatch): ManualMatch => triggerAutomaticAstroAllies(state, definitions);
       if (action.kind === "play_card" && definition) {
         const played = next.astro.hand.find((item) => item.cardId === definition.card_id);
         if (!played) return current;
-        const isNeedle = definition.card_id === 23;
         const isShip = definition.card_type === "ship";
-        const inPlayCard = { ...played, activated: isShip ? !isNeedle : !baseRequiresActivation(definition), allyTriggered: false, playedTurn: next.turn };
+        const inPlayCard = { ...played, activated: !requiresManualPrimary(definition), allyTriggered: false, playedTurn: next.turn };
         next = {
           ...next,
           astro: {
@@ -1460,31 +1440,26 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
             inPlay: [...next.astro.inPlay, inPlayCard],
           },
         };
-        if (isNeedle) {
-          const decision = effectDecision("copy_ship", definition, next, definitions);
-          if (decision) next = { ...next, pendingDecision: decision };
-          else next = { ...next, astro: { ...next.astro, inPlay: next.astro.inPlay.map((item) => item.uid === inPlayCard.uid ? { ...item, activated: true } : item) } };
-        } else if (isShip) {
-          const fleetBonus = next.astro.inPlay.some((item) => effectiveCardId(item) === 29) ? 1 : 0;
-          next = { ...next, astro: {
-            ...next.astro,
-            authority: next.astro.authority + definition.authority,
-            trade: next.astro.trade + definition.trade,
-            combat: next.astro.combat + definition.combat + fleetBonus,
-          } };
-          if (definition.primary) next = applySimpleEffect(next, definition.primary, 0, definition);
-        }
+        const fleetBonus = isShip && next.astro.inPlay.some((item) => effectiveCardId(item) === 29) ? 1 : 0;
+        next = { ...next, astro: {
+          ...next.astro,
+          authority: next.astro.authority + definition.authority,
+          trade: next.astro.trade + definition.trade,
+          combat: next.astro.combat + definition.combat + fleetBonus,
+        } };
       } else if (action.kind === "activate_base" && definition) {
         const target = next.astro.inPlay.find((item) => effectiveCardId(item) === definition.card_id && !item.activated);
         if (!target) return current;
         next = { ...next, astro: {
           ...next.astro,
-          authority: next.astro.authority + definition.authority,
-          trade: next.astro.trade + definition.trade,
-          combat: next.astro.combat + definition.combat,
           inPlay: next.astro.inPlay.map((item) => item.uid === target.uid ? { ...item, activated: true } : item),
         } };
         if (definition.primary) next = applySimpleEffect(next, definition.primary, 0, definition);
+      } else if (action.kind === "activate_ally" && definition) {
+        const target = next.astro.inPlay.find((item) => effectiveCardId(item) === definition.card_id && !item.allyTriggered);
+        if (!target) return current;
+        next = { ...next, astro: { ...next.astro, inPlay: next.astro.inPlay.map((item) => item.uid === target.uid ? { ...item, allyTriggered: true } : item) } };
+        next = applySimpleEffect(next, action.ability ?? definition.ally, action.amount ?? definition.ally_amount, definition);
       } else if (action.kind === "scrap_for_ability" && definition) {
         const target = next.astro.inPlay.find((item) => effectiveCardId(item) === definition.card_id);
         if (target) next = { ...next, astro: { ...next.astro, inPlay: next.astro.inPlay.filter((item) => item.uid !== target.uid) }, scrapHeap: [...next.scrapHeap, originalCard(target)] };
@@ -1576,21 +1551,28 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
             authority: next.astro.authority + copied.authority,
             trade: next.astro.trade + copied.trade,
             combat: next.astro.combat + copied.combat + fleetBonus,
-            inPlay: next.astro.inPlay.map((item) => item.uid === needle?.uid ? { ...item, copiedCardId: copied.card_id, activated: true } : item),
+            inPlay: next.astro.inPlay.map((item) => item.uid === needle?.uid ? { ...item, copiedCardId: copied.card_id, activated: !requiresManualPrimary(copied) } : item),
           } };
-          if (copied.primary) next = applySimpleEffect(next, copied.primary, 0, copied);
         }
       } else if (action.kind === "end_turn") {
         const ships = next.astro.inPlay.filter((item) => effectiveDefinition(item, definitions)?.card_type === "ship").map(originalCard);
         const bases = next.astro.inPlay.filter((item) => effectiveDefinition(item, definitions)?.card_type !== "ship").map((item) => {
           const base = effectiveDefinition(item, definitions);
-          return { ...item, activated: base ? !baseRequiresActivation(base) : false, allyTriggered: false };
+          return { ...item, activated: base ? !requiresManualPrimary(base) : false, allyTriggered: false };
         });
         const hardBases = next.hard.inPlay.map((item) => {
           const base = effectiveDefinition(item, definitions);
-          return { ...item, activated: base ? !baseRequiresActivation(base) : false, allyTriggered: false };
+          return { ...item, activated: base ? !requiresManualPrimary(base) : false, allyTriggered: false };
         });
-        next = { ...next, activeSide: "hard", turn: next.turn + 1, actionNumber: 0, astro: { ...next.astro, trade: 0, combat: 0, nextShipToTop: false, discard: [...next.astro.discard, ...next.astro.hand.map(originalCard), ...ships], hand: [], inPlay: bases }, hard: { ...next.hard, inPlay: hardBases } };
+        const hardDefinitions = hardBases.flatMap((item) => effectiveDefinition(item, definitions) ?? []);
+        next = { ...next, activeSide: "hard", turn: next.turn + 1, actionNumber: 0, astro: { ...next.astro, trade: 0, combat: 0, nextShipToTop: false, discard: [...next.astro.discard, ...next.astro.hand.map(originalCard), ...ships], hand: [], inPlay: bases }, hard: {
+          ...next.hard,
+          authority: next.hard.authority + hardDefinitions.reduce((sum, card) => sum + card.authority, 0),
+          trade: hardDefinitions.reduce((sum, card) => sum + card.trade, 0),
+          combat: hardDefinitions.reduce((sum, card) => sum + card.combat, 0),
+          inPlay: hardBases,
+        } };
+        next = triggerAutomaticHardAllies(next, definitions);
         next = drawAstroCards(next, 5);
       }
       if (!next.pendingDecision && action.kind !== "end_turn") next = triggerAvailableAllies(next);
@@ -1636,18 +1618,17 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
         const hidden = known ? next.hard.hidden : existing ? next.hard.hidden.filter((item) => item.uid !== existing.uid) : next.hard.hidden.slice(0, -1);
         const knownHand = known ? next.hard.knownHand.filter((item) => item.uid !== known.uid) : next.hard.knownHand;
         const isShip = definition.card_type === "ship";
-        const activated = isShip ? definition.card_id !== 23 : !baseRequiresActivation(definition);
+        const activated = !requiresManualPrimary(definition);
         next = { ...next, hard: {
           ...next.hard,
-          authority: next.hard.authority + (isShip ? definition.authority : 0),
-          trade: next.hard.trade + (isShip ? definition.trade : 0),
-          combat: next.hard.combat + (isShip ? definition.combat + (next.hard.inPlay.some((item) => effectiveCardId(item) === 29) ? 1 : 0) : 0),
+          authority: next.hard.authority + definition.authority,
+          trade: next.hard.trade + definition.trade,
+          combat: next.hard.combat + definition.combat + (isShip && next.hard.inPlay.some((item) => effectiveCardId(item) === 29) ? 1 : 0),
           handCount: Math.max(0, next.hard.handCount - 1),
           hidden,
           knownHand,
           inPlay: [...next.hard.inPlay, { ...played, activated, allyTriggered: false, playedTurn: next.turn }],
         } };
-        if (isShip && definition.card_id !== 23) next = applyAutomaticHardEffect(next, definition.primary, 0, definitions);
         next = triggerAutomaticHardAllies(next, definitions);
         eventText = `Hard AI played ${definition.name}`;
       } else if (hardActionKind === "acquire") {
@@ -1722,24 +1703,23 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
               authority: next.hard.authority + copied.authority,
               trade: next.hard.trade + copied.trade,
               combat: next.hard.combat + copied.combat + fleetBonus,
-              inPlay: next.hard.inPlay.map((item) => item.uid === needle.uid ? { ...item, copiedCardId: copied.card_id, activated: true } : item),
+              inPlay: next.hard.inPlay.map((item) => item.uid === needle.uid ? { ...item, copiedCardId: copied.card_id, activated: !requiresManualPrimary(copied) } : item),
             } };
-            next = applyAutomaticHardEffect(next, copied.primary, 0, definitions);
             next = triggerAutomaticHardAllies(next, definitions);
             eventText = `Hard AI copied ${copied.name} with Stealth Needle`;
           }
         } else {
-          const baseTarget = next.hard.inPlay.find((item) => effectiveCardId(item) === definition.card_id && !item.activated && definition.card_type !== "ship");
-          if (baseTarget) {
+          const primaryTarget = next.hard.inPlay.find((item) => effectiveCardId(item) === definition.card_id && !item.activated);
+          const allyTarget = primaryTarget ? undefined : next.hard.inPlay.find((item) => effectiveCardId(item) === definition.card_id && hardManualAllyAvailable(next, item, definitions));
+          if (primaryTarget) {
             next = { ...next, hard: {
               ...next.hard,
-              authority: next.hard.authority + definition.authority,
-              trade: next.hard.trade + definition.trade,
-              combat: next.hard.combat + definition.combat,
-              inPlay: next.hard.inPlay.map((item) => item.uid === baseTarget.uid ? { ...item, activated: true } : item),
+              inPlay: next.hard.inPlay.map((item) => item.uid === primaryTarget.uid ? { ...item, activated: true } : item),
             } };
+          } else if (allyTarget) {
+            next = { ...next, hard: { ...next.hard, inPlay: next.hard.inPlay.map((item) => item.uid === allyTarget.uid ? { ...item, allyTriggered: true } : item) } };
           }
-          const recordedEffect = hardDecisionEffect || (baseTarget ? definition.primary : definition.ally);
+          const recordedEffect = hardDecisionEffect || (primaryTarget ? definition.primary : definition.ally);
           const [ability, encodedAmount] = hardAbilityChoice.split(":");
           const resolvedAbility = ability || recordedEffect;
           const amount = Number(encodedAmount) || hardAmount || (recordedEffect === definition.ally ? definition.ally_amount : 0);
@@ -1761,8 +1741,23 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
         }
       } else if (hardActionKind === "end_turn") {
         const ships = next.hard.inPlay.filter((item) => effectiveDefinition(item, definitions)?.card_type === "ship").map(originalCard);
-        const bases = next.hard.inPlay.filter((item) => effectiveDefinition(item, definitions)?.card_type !== "ship").map((item) => ({ ...item, activated: true, allyTriggered: false }));
-        next = { ...next, activeSide: "astro5", turn: next.turn + 1, hard: { ...next.hard, trade: 0, combat: 0, pendingDiscard: 0, nextShipToTop: false, discard: [...next.hard.discard, ...ships], inPlay: bases } };
+        const bases = next.hard.inPlay.filter((item) => effectiveDefinition(item, definitions)?.card_type !== "ship").map((item) => {
+          const base = effectiveDefinition(item, definitions);
+          return { ...item, activated: base ? !requiresManualPrimary(base) : false, allyTriggered: false };
+        });
+        const astroBases = next.astro.inPlay.map((item) => {
+          const base = effectiveDefinition(item, definitions);
+          return { ...item, activated: base ? !requiresManualPrimary(base) : false, allyTriggered: false };
+        });
+        const astroDefinitions = astroBases.flatMap((item) => effectiveDefinition(item, definitions) ?? []);
+        next = { ...next, activeSide: "astro5", turn: next.turn + 1, astro: {
+          ...next.astro,
+          authority: next.astro.authority + astroDefinitions.reduce((sum, card) => sum + card.authority, 0),
+          trade: astroDefinitions.reduce((sum, card) => sum + card.trade, 0),
+          combat: astroDefinitions.reduce((sum, card) => sum + card.combat, 0),
+          inPlay: astroBases,
+        }, hard: { ...next.hard, trade: 0, combat: 0, pendingDiscard: 0, nextShipToTop: false, discard: [...next.hard.discard, ...ships], inPlay: bases } };
+        next = triggerAutomaticAstroAllies(next, definitions);
         next = drawHardCards(next, Math.max(0, 5 - next.hard.handCount));
         eventText = "Hard AI ended its turn";
       }
@@ -1774,32 +1769,17 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
     setHardAbilityChoice("");
     setHardDeclined(false);
     setHardSourceZone("hand");
-    const playedDefinition = hardActionKind === "play" && hardCardId !== null ? definitions.get(hardCardId) : undefined;
     const scrappedDefinition = hardActionKind === "scrap" && hardSourceZone === "in_play" && hardCardId !== null ? definitions.get(hardCardId) : undefined;
     const abilityDefinition = hardActionKind === "ability" && hardCardId !== null ? definitions.get(hardCardId) : undefined;
     const manuallyTriggeredEffect = hardActionKind === "ability" && !hardDecisionEffect ? abilityDefinition?.ally ?? "" : "";
     const activatedFollowupEffect = hardActionKind === "ability" && ["scrap_trade_row", "scrap_any", "scrap_two_draw", "draw_then_scrap", "destroy_base", "free_ship", "destroy_and_scrap", "draw_destroy", "copy_ship"].includes(hardDecisionEffect) ? hardDecisionEffect : "";
-    const allyDecisionDefinition = playedDefinition ? newlyTriggeredHardAllyDecision(match, playedDefinition, definitions) : undefined;
-    const copiedTarget = hardActionKind === "ability" && hardDecisionEffect === "copy_ship" ? match.hard.inPlay.find((item) => item.uid === hardTargetUid) : undefined;
-    const copiedDefinition = copiedTarget ? effectiveDefinition(copiedTarget, definitions) : undefined;
-    const playedFollowup = playedDefinition?.primary ? hardFollowup(playedDefinition.primary, playedDefinition.name) : null;
     const scrappedFollowup = scrappedDefinition?.scrap ? hardFollowup(scrappedDefinition.scrap, scrappedDefinition.name) : null;
     const activatedFollowup = activatedFollowupEffect && abilityDefinition ? hardFollowup(activatedFollowupEffect, abilityDefinition.name) : null;
     const manualFollowup = manuallyTriggeredEffect && abilityDefinition ? hardFollowup(manuallyTriggeredEffect, abilityDefinition.name) : null;
-    const allyFollowup = allyDecisionDefinition?.ally ? hardFollowup(allyDecisionDefinition.ally, allyDecisionDefinition.name) : null;
-    const copiedFollowup = copiedDefinition?.primary ? hardFollowup(copiedDefinition.primary, copiedDefinition.name) : null;
-    const queuedFollowup = hardQueuedDecision ? hardFollowup(hardQueuedDecision.effect, hardQueuedDecision.cardName) : null;
-    if (playedFollowup && allyFollowup && allyDecisionDefinition) {
-      setHardQueuedDecision({ effect: allyDecisionDefinition.ally, cardId: allyDecisionDefinition.card_id, cardName: allyDecisionDefinition.name });
-    }
-    const nextHardDecisionEffect = playedFollowup ? playedDefinition?.primary ?? ""
-      : scrappedFollowup ? scrappedDefinition?.scrap ?? ""
+    const nextHardDecisionEffect = scrappedFollowup ? scrappedDefinition?.scrap ?? ""
         : activatedFollowup ? activatedFollowupEffect
           : manualFollowup ? manuallyTriggeredEffect
-            : allyFollowup ? allyDecisionDefinition?.ally ?? ""
-              : copiedFollowup ? copiedDefinition?.primary ?? ""
-                : queuedFollowup ? hardQueuedDecision?.effect ?? ""
-                : "";
+            : "";
     const chainedFollowup = hardActionKind === "attack_base" && hardDecisionEffect === "destroy_and_scrap"
       ? { kind: "scrap_row" as HardActionKind, notice: "Blob Destroyer: which trade-row card did the Hard AI scrap?" }
       : null;
@@ -1815,28 +1795,22 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
     const repeatedForcedDiscard = hardActionKind === "discard" && match.hard.pendingDiscard > 1
       ? { kind: "discard" as HardActionKind, notice: `The Hard AI must discard ${match.hard.pendingDiscard - 1} more.` }
       : null;
-    const followup = playedFollowup
-      ?? scrappedFollowup
+    const followup = scrappedFollowup
       ?? activatedFollowup
       ?? manualFollowup
-      ?? allyFollowup
-      ?? copiedFollowup
       ?? chainedFollowup
       ?? repeatedScrap
       ?? startedCycle
       ?? repeatedCycle
-      ?? repeatedForcedDiscard
-      ?? queuedFollowup;
+      ?? repeatedForcedDiscard;
     if (followup) {
-      const usesQueuedFollowup = followup === queuedFollowup;
       setHardActionKind(followup.kind);
       setHardDecisionEffect(chainedFollowup ? "scrap_trade_row" : repeatedScrap ? "scrap_two_draw" : startedCycle || repeatedCycle ? "recycle_cycle" : nextHardDecisionEffect);
       setHardAbilityChoice("");
-      setHardCardId(startedCycle || repeatedCycle ? null : usesQueuedFollowup ? hardQueuedDecision?.cardId ?? null : playedDefinition?.card_id ?? scrappedDefinition?.card_id ?? copiedDefinition?.card_id ?? abilityDefinition?.card_id ?? null);
+      setHardCardId(startedCycle || repeatedCycle ? null : scrappedDefinition?.card_id ?? abilityDefinition?.card_id ?? null);
       setHardScrapCount(repeatedScrap || repeatedCycle ? 1 : 0);
       setHardDecisionNotice(followup.notice);
       setHardActionOpen(true);
-      if (usesQueuedFollowup) setHardQueuedDecision(null);
     } else {
       setHardDecisionEffect("");
       setHardAbilityChoice("");
@@ -1864,7 +1838,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
     : hardActionKind === "ability"
       ? hardDecisionEffect && hardCardId !== null
         ? catalog.filter((definition) => definition.card_id === hardCardId)
-        : catalog.filter((definition) => match.hard.inPlay.some((item) => effectiveCardId(item) === definition.card_id && !item.activated && baseRequiresActivation(definition)))
+        : catalog.filter((definition) => match.hard.inPlay.some((item) => effectiveCardId(item) === definition.card_id && ((requiresManualPrimary(definition) && primaryAvailable(match.hard.inPlay, item, definition, definitions)) || hardManualAllyAvailable(match, item, definitions))))
       : catalog;
   const possibleAstroHandCards = (item: TrackedCard) => astroHandCandidateCatalog(match, item, catalog);
 
@@ -1959,7 +1933,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
               <div className="relay-hard-pulse"><i /><span>{match.hard.combat > 0 ? `${match.hard.combat} damage currently available` : "Hard AI turn is waiting for input"}</span></div>
               {legalHardKinds.length ? <button type="button" className="relay-primary-command" onClick={() => { const kind = legalHardKinds[0]; setHardActionKind(kind); if (kind === "attack_player") setHardAmount(match.hard.combat); if (kind === "scrap" && !hardDecisionEffect) setHardSourceZone("in_play"); setHardActionOpen(true); }}>Record Hard AI action</button> : null}
               <div className="relay-quick-actions">
-                {legalHardKinds.map((kind) => <button key={kind} type="button" onClick={() => { setHardActionKind(kind); if (kind === "attack_player") setHardAmount(match.hard.combat); if (kind === "scrap" && !hardDecisionEffect) setHardSourceZone("in_play"); setHardAbilityChoice(""); setHardDeclined(false); setHardActionOpen(true); }}>{kind === "play" ? "Play from hand" : kind === "attack_player" ? `Attack Astro5 · ${match.hard.combat}` : kind === "attack_base" ? "Attack base" : kind === "end_turn" ? "End turn" : kind === "scrap" ? "Scrap for ability" : kind === "ability" ? "Activate base" : titleCase(kind)}</button>)}
+                {legalHardKinds.map((kind) => <button key={kind} type="button" onClick={() => { setHardActionKind(kind); if (kind === "attack_player") setHardAmount(match.hard.combat); if (kind === "scrap" && !hardDecisionEffect) setHardSourceZone("in_play"); setHardAbilityChoice(""); setHardDeclined(false); setHardActionOpen(true); }}>{kind === "play" ? "Play from hand" : kind === "attack_player" ? `Attack Astro5 · ${match.hard.combat}` : kind === "attack_base" ? "Attack base" : kind === "end_turn" ? "End turn" : kind === "scrap" ? "Scrap for ability" : kind === "ability" ? "Activate ability" : titleCase(kind)}</button>)}
               </div>
             </div>
           ) : unresolved.length ? (
@@ -2095,7 +2069,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
               </button>
             ) : null}
             {hardActionKind === "play" || hardActionKind === "discard" || hardActionKind === "scrap" || hardActionKind === "ability" ? (
-              <div><span>Which card?</span><CardNameEditor key={`${hardActionKind}-${hardDecisionEffect}-${hardCardId ?? "empty"}`} value={hardCardId === null ? undefined : definitions.get(hardCardId)} catalog={hardCardCatalog} onSelect={(cardId) => { setHardCardId(cardId); if (hardActionKind === "ability" && !hardDecisionEffect && cardId !== null) setHardDecisionEffect(definitions.get(cardId)?.primary ?? ""); }} onCancel={() => setHardCardId(null)} allowUndefined={false} listboxId="relay-hard-card-options" autoFocus /></div>
+              <div><span>Which card?</span><CardNameEditor key={`${hardActionKind}-${hardDecisionEffect}-${hardCardId ?? "empty"}`} value={hardCardId === null ? undefined : definitions.get(hardCardId)} catalog={hardCardCatalog} onSelect={(cardId) => { setHardCardId(cardId); if (hardActionKind === "ability" && !hardDecisionEffect && cardId !== null) { const selected = definitions.get(cardId); const primaryReady = selected && match.hard.inPlay.some((item) => effectiveCardId(item) === cardId && primaryAvailable(match.hard.inPlay, item, selected, definitions)); setHardDecisionEffect(primaryReady ? selected.primary : ""); } }} onCancel={() => setHardCardId(null)} allowUndefined={false} listboxId="relay-hard-card-options" autoFocus /></div>
             ) : null}
             {hardActionKind === "scrap" ? <label><span>Card came from</span><select value={hardSourceZone} onChange={(event) => setHardSourceZone(event.target.value as "hand" | "discard" | "in_play")}><option value="hand">Hand</option>{hardDecisionEffect !== "draw_then_scrap" ? <option value="discard">Discard pile</option> : null}{!hardDecisionEffect ? <option value="in_play">In play (scrap ability)</option> : null}</select></label> : null}
             {hardActionKind === "ability" && hardModeOptions.length ? <label><span>Option chosen</span><select value={hardAbilityChoice} onChange={(event) => setHardAbilityChoice(event.target.value)}><option value="">Choose an option…</option>{hardModeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label> : null}

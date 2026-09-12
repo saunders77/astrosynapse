@@ -34,7 +34,11 @@ Corrected behavior removes only provably identical physical-card options. It nev
 
 Legacy ordering could allow card/base effects before required discard pressure resolved, and some base abilities fired immediately instead of remaining available at the legal point in the main phase.
 
-Corrected behavior resolves forced discard before main-phase actions. Newly played and surviving bases expose once-per-turn activations as legal main-phase actions, allowing effects such as Blob World, Central Office, and Recycling Station to be timed. Continuous effects such as Mech World and Fleet HQ remain continuous.
+Corrected behavior resolves forced discard before main-phase actions. Unconditional printed combat, authority, and trade from newly played or surviving bases are collected immediately and do not create policy decisions. Timing-sensitive primary effects on bases or ships remain legal main-phase activations, allowing effects such as draw, Blob World, Central Office, and Recycling Station to be timed. Continuous effects such as Mech World and Fleet HQ remain continuous.
+
+### Automatic resource gains
+
+Every rules mode uses one timing rule for card abilities: an unconditional combat, authority, or trade gain fires as soon as it becomes available. This includes printed ship/base resources and resource-only ally abilities, including allies enabled by Mech World. Resource choices, scrap-for-resource abilities, draws, targeting, and other effects with timing or decision value remain explicit actions. This removes strategically meaningless resource-collection actions from human and model decisions without hiding real choices.
 
 ### Stealth Needle and faction state
 

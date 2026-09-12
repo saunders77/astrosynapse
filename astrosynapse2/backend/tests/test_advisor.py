@@ -12,7 +12,7 @@ from astro2.advisor import (
     main_phase_actions,
 )
 from astro2.cards import CARD_BY_NAME, SCOUT, VIPER
-from astro2.engine import Game, GameConfig, _InPlay
+from astro2.engine import ActionKind, Game, GameConfig, _InPlay
 from fastapi.testclient import TestClient
 
 
@@ -34,6 +34,8 @@ def test_advisor_hydrates_engine_observation_and_generates_main_actions():
     own.in_play = [
         _InPlay(101, CARD_BY_NAME["Trading Post"], CARD_BY_NAME["Trading Post"], False),
         _InPlay(102, CARD_BY_NAME["Battle Station"], CARD_BY_NAME["Battle Station"], True),
+        _InPlay(103, CARD_BY_NAME["Mothership"], CARD_BY_NAME["Mothership"], False),
+        _InPlay(104, CARD_BY_NAME["Trade Pod"], CARD_BY_NAME["Trade Pod"], True, True),
     ]
     opponent.in_play = [
         _InPlay(201, CARD_BY_NAME["War World"], CARD_BY_NAME["War World"], True)
@@ -52,6 +54,7 @@ def test_advisor_hydrates_engine_observation_and_generates_main_actions():
     assert [action.semantic_key for action in generated] == [
         action.semantic_key for action in expected
     ]
+    assert any(action.kind == ActionKind.ACTIVATE_ALLY for action in generated)
     assert [action.kind for action in generated].count(generated[0].kind) == 2
     assert decision_from_request(request).prompt == "Main phase"
 

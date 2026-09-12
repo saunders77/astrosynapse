@@ -141,13 +141,14 @@ describes those rules; the [official FAQ](https://www.starrealms.com/faq/)
 clarifies ally availability and other Core Set interactions. These errors can
 distort strategy, but their contribution to the plateau has not been measured.
 
-`GameConfig.rules_version=2` now provides corrected Explorer recycling and
-explicit ally activation. Version 1 remains the historical default so existing
-experiment identities do not silently change. New ally actions use the existing
-semantic ability representation, with their effect and source card encoded.
+`GameConfig.rules_version=2` provides corrected Explorer recycling. Ability
+timing is now shared by every mode and rules version: unconditional combat,
+authority, and trade gains fire automatically, while draw, choice, targeting,
+and other timing-sensitive abilities remain explicit actions. Ally actions use
+the existing semantic ability representation, with their effect and source card encoded.
 Rules version and encoder version are separate concepts. Historical champions
-have not trained on these new timing choices; their results under version 2
-must be reported separately. The current learning pilots all use version 1.
+have not trained on all of these timing choices, so pre-change and post-change
+results should not be pooled even when they share a rules-version number.
 The correction has dedicated official-rule example tests; this is not a claim
 that every possible Core Set interaction has been exhaustively proved correct.
 

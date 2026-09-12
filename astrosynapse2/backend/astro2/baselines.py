@@ -144,7 +144,7 @@ class HeuristicChooser:
         if decision.family == DecisionFamily.ABILITY_MODE:
             return self._mode_score(action)
 
-        if kind in {ActionKind.PLAY_CARD, ActionKind.ACTIVATE_BASE}:
+        if kind in {ActionKind.PLAY_CARD, ActionKind.ACTIVATE_BASE, ActionKind.ACTIVATE_ALLY}:
             return 1_000.0 + value
         if kind == ActionKind.SCRAP_FOR_ABILITY:
             # This is an optional irreversible choice, not ordinary turn

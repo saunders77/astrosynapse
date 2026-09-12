@@ -21,8 +21,9 @@ from typing import Any, Literal
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .cards import ALL_CARDS, CARD_BY_ID, EXPLORER, Card, CardType
+from .cards import ALL_CARDS, CARD_BY_ID, EXPLORER, Card, CardType, Faction
 from .engine import (
+    AUTOMATIC_RESOURCE_EFFECTS,
     Action,
     ActionKind,
     Decision,
@@ -304,13 +305,51 @@ def main_phase_actions(observation: Observation) -> tuple[Action, ...]:
             "pending_discard is unresolved; supply the legal discard decision actions"
         )
     actions: list[Action] = []
+
+    def has_faction(entry: InPlayObservation, faction: Faction) -> bool:
+        return entry.card.faction == faction or (
+            entry.copied_from_stealth_needle and faction == Faction.MACHINE_CULT
+        )
+
     for card in observation.hand:
         actions.append(Action(ActionKind.PLAY_CARD, card_id=card.card_id, source_zone="hand"))
-    for item in observation.own_in_play:
+    for item_index, item in enumerate(observation.own_in_play):
         card = item.card
-        if card.is_base and not item.activated:
+        if (
+            card.ally
+            and card.ally not in AUTOMATIC_RESOURCE_EFFECTS
+            and not item.ally_triggered
+            and any(
+                other.card.card_id == 19
+                or has_faction(other, card.faction)
+                for other_index, other in enumerate(observation.own_in_play)
+                if other_index != item_index
+            )
+        ):
             actions.append(
-                Action(ActionKind.ACTIVATE_BASE, card_id=card.card_id, source_zone="in_play")
+                Action(
+                    ActionKind.ACTIVATE_ALLY,
+                    card_id=card.card_id,
+                    ability=card.ally,
+                    source_zone="in_play",
+                    amount=card.ally_amount,
+                )
+            )
+        primary_available = not item.activated and (
+            card.primary != "copy_ship"
+            or any(
+                other_index != item_index and other.card.is_ship
+                for other_index, other in enumerate(observation.own_in_play)
+            )
+        )
+        if primary_available:
+            actions.append(
+                Action(
+                    ActionKind.ACTIVATE_BASE,
+                    card_id=card.card_id,
+                    ability=card.primary,
+                    source_zone="in_play",
+                )
             )
         if card.scrap:
             actions.append(
@@ -396,6 +435,7 @@ _FAMILY_ACTION_KINDS: dict[DecisionFamily, frozenset[ActionKind]] = {
         {
             ActionKind.PLAY_CARD,
             ActionKind.ACTIVATE_BASE,
+            ActionKind.ACTIVATE_ALLY,
             ActionKind.SCRAP_FOR_ABILITY,
             ActionKind.ATTACK_BASE,
             ActionKind.ATTACK_PLAYER,

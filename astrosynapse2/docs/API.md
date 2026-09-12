@@ -113,7 +113,7 @@ type AdvisorObservation = {
 };
 
 type SemanticAction = {
-  kind: "play_card" | "activate_base" | "scrap_for_ability" |
+  kind: "play_card" | "activate_base" | "activate_ally" | "scrap_for_ability" |
         "attack_base" | "attack_player" | "acquire" | "end_turn" |
         "discard_card" | "scrap_card" | "choose_mode" | "copy_ship" |
         "destroy_base" | "scrap_trade_row" | "free_acquire" | "decline";

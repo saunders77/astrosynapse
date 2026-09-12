@@ -63,6 +63,9 @@ class ActionKind(StrEnum):
     DECLINE = "decline"
 
 
+AUTOMATIC_RESOURCE_EFFECTS = frozenset({"gain_combat", "gain_trade", "gain_authority"})
+
+
 def _json_value(value: Any) -> Any:
     if isinstance(value, Enum):
         return value.value
@@ -127,7 +130,10 @@ class Action(_JsonMixin):
     def label(self) -> str:
         card = CARD_BY_ID.get(self.card_id)
         target = CARD_BY_ID.get(self.target_card_id)
-        bits = [self.kind.value.replace("_", " ")]
+        kind_label = self.kind.value.replace("_", " ")
+        if self.kind == ActionKind.ACTIVATE_BASE and card is not None and card.is_ship:
+            kind_label = "activate ability"
+        bits = [kind_label]
         if card is not None:
             bits.append(card.name)
         if self.kind == ActionKind.SCRAP_CARD and self.source_zone:
@@ -212,7 +218,7 @@ def model_action_indices(decision: Decision) -> tuple[int, ...]:
     The game engine keeps every rules-legal action for human play and auditing.
     Learned actors, however, should not spend capacity rediscovering exact
     dominance invariants.  Ending a turn while a card can still be played, a
-    positive base can still be activated, or generated combat can legally be
+    timing-sensitive ability can still be activated, or generated combat can legally be
     spent is strictly dominated in the base set: those actions do not prevent
     a later purchase or end-turn choice and their resources do not carry over.
 
@@ -250,8 +256,10 @@ class GameConfig(_JsonMixin):
     max_actions_per_turn: int = 200
     explorer_supply: int = 10
     initial_authority: int = 50
-    # Version 1 reproduces historical checkpoint matches. Version 2 restores
-    # Explorer recycling and player-controlled ally timing. Never pool them.
+    # Version 1 preserves historical Explorer disposal. Version 2 restores
+    # Explorer recycling. Ability timing is shared by every rules version:
+    # unconditional resource gains are automatic, while effects with choices
+    # or timing value remain player-controlled.
     rules_version: int = 1
 
     def __post_init__(self) -> None:
@@ -795,7 +803,9 @@ class Game:
         player.blob_cards_played = 0
         for item in player.in_play:
             item.ally_triggered = False
-            item.activated = not self._base_requires_activation(item.card)
+            item.activated = not self._requires_manual_primary(item.card)
+            self._apply_automatic_resources(player, item.card)
+        self._trigger_automatic_allies(player)
 
         # Discard pressure resolves before the player can draw/cycle via a base.
         while player.must_discard > 0 and player.hand:
@@ -890,7 +900,7 @@ class Game:
                 )
             )
         for item in player.in_play:
-            if self.config.rules_version >= 2 and self._ally_available(player, item):
+            if self._manual_ally_available(player, item):
                 actions.append(
                     Action(
                         ActionKind.ACTIVATE_ALLY,
@@ -901,11 +911,12 @@ class Game:
                         opaque=(item.uid,),
                     )
                 )
-            if item.card.is_base and not item.activated:
+            if self._primary_available(player, item):
                 actions.append(
                     Action(
                         ActionKind.ACTIVATE_BASE,
                         card_id=item.card.card_id,
+                        ability=item.card.primary,
                         source_zone="in_play",
                         opaque=(item.uid,),
                     )
@@ -975,7 +986,7 @@ class Game:
             self._activate_card(player, item)
         elif kind == ActionKind.ACTIVATE_ALLY:
             item = self._find_in_play(player, int(action.opaque[0]))
-            if not self._ally_available(player, item):
+            if not self._manual_ally_available(player, item):
                 raise RuntimeError("ally ability is not available")
             item.ally_triggered = True
             self._execute_effect(player, item.card.ally, item.card.ally_amount, item)
@@ -1011,59 +1022,56 @@ class Game:
         self._uid += 1
         item = _InPlay(self._uid, card, card, activated=False)
         player.in_play.append(item)
-        if card.card_id == 23:
-            self._copy_stealth_needle(player, item)
         if item.card.faction == Faction.BLOB and item.original_card.card_id != 23:
             player.blob_cards_played += 1
-        if item.card.is_ship:
-            self._activate_card(player, item)
-        elif not self._base_requires_activation(item.card):
-            # Continuous/no-resource bases have no once-per-turn activation to
-            # schedule (Mech World, Fleet HQ, and Battle Station).
-            item.activated = True
-            self._trigger_available_allies(player)
-        else:
-            # A base enters play immediately, but its once-per-turn ability is
-            # deliberately scheduled as a main-phase action.  This is crucial
-            # for cards such as Blob World, Recycling Station, and Central
-            # Office whose correct timing can change later decisions.
-            self._trigger_available_allies(player)
+        # Ally resource gains become available as soon as the card enters play,
+        # before any draw or decision-bearing primary ability is resolved.
+        self._trigger_automatic_allies(player)
+        self._apply_automatic_resources(player, item.card)
+        if item.card.is_ship and self._fleet_hq_active(player):
+            player.combat += 1
+        item.activated = not self._requires_manual_primary(item.card)
+        self._trigger_automatic_allies(player)
 
     def _activate_card(self, player: _Player, item: _InPlay) -> None:
         if item.activated:
             raise RuntimeError("card activated twice")
-        item.activated = True
+        if not self._primary_available(player, item):
+            raise RuntimeError("card primary ability is not available")
         card = item.card
+        if card.primary == "copy_ship" and item.original_card.card_id == 23:
+            self._copy_stealth_needle(player, item)
+            self._apply_automatic_resources(player, item.card)
+            if self._fleet_hq_active(player):
+                player.combat += 1
+            item.activated = not self._requires_manual_primary(item.card)
+            self._trigger_automatic_allies(player)
+            return
+        item.activated = True
+        if card.primary:
+            self._execute_effect(player, card.primary, 0, item)
+        self._trigger_automatic_allies(player)
+
+    @staticmethod
+    def _apply_automatic_resources(player: _Player, card: Card) -> None:
         player.combat += card.combat
         player.authority += card.authority
         player.trade += card.trade
-        if card.is_ship and self._fleet_hq_active(player):
-            player.combat += 1
-        if card.primary:
-            self._execute_effect(player, card.primary, 0, item)
-        self._trigger_available_allies(player)
 
-    def _trigger_available_allies(self, player: _Player) -> None:
-        if self.config.rules_version >= 2:
-            # Availability becomes a legal action; the player controls timing.
-            return
-        # Effects can draw or alter state, but cannot add in-play cards without
-        # returning to the main loop.  Iterate to cover all newly enabled allies.
-        progress = True
-        while progress:
-            progress = False
-            all_ally = any(entry.card.card_id == 19 for entry in player.in_play)
-            for item in list(player.in_play):
-                if item.ally_triggered or not item.card.ally:
-                    continue
-                faction = item.card.faction
-                allied = all_ally or any(
-                    other.uid != item.uid and other.has_faction(faction) for other in player.in_play
-                )
-                if allied:
-                    item.ally_triggered = True
-                    self._execute_effect(player, item.card.ally, item.card.ally_amount, item)
-                    progress = True
+    def _trigger_automatic_allies(self, player: _Player) -> None:
+        for item in list(player.in_play):
+            if (
+                item.card.ally in AUTOMATIC_RESOURCE_EFFECTS
+                and self._ally_available(player, item)
+            ):
+                item.ally_triggered = True
+                self._execute_effect(player, item.card.ally, item.card.ally_amount, item)
+
+    def _manual_ally_available(self, player: _Player, item: _InPlay) -> bool:
+        return bool(
+            item.card.ally not in AUTOMATIC_RESOURCE_EFFECTS
+            and self._ally_available(player, item)
+        )
 
     @staticmethod
     def _ally_available(player: _Player, item: _InPlay) -> bool:
@@ -1521,12 +1529,16 @@ class Game:
         return any(item.card.card_id == 29 for item in player.in_play)
 
     @staticmethod
-    def _base_requires_activation(card: Card) -> bool:
-        return (
-            card.is_base
-            and card.card_id not in (19, 29)
-            and bool(card.combat or card.authority or card.trade or card.primary)
-        )
+    def _requires_manual_primary(card: Card) -> bool:
+        return bool(card.primary and card.primary not in {"all_ally", "fleet_hq"})
+
+    @staticmethod
+    def _primary_available(player: _Player, item: _InPlay) -> bool:
+        if item.activated:
+            return False
+        if item.card.primary == "copy_ship" and item.original_card.card_id == 23:
+            return any(other.uid != item.uid and other.card.is_ship for other in player.in_play)
+        return True
 
 
 def play_game(
