@@ -211,13 +211,7 @@ def test_stealth_needle_copying_blob_does_not_count_as_blob_play():
     player.hand = [CARD_BY_NAME["Stealth Needle"]]
     game._play_card(player, 0)
     needle = player.in_play[-1]
-    assert needle.card.name == "Stealth Needle"
-    activate = next(
-        action
-        for action in game._main_actions(player)
-        if action.kind == ActionKind.ACTIVATE_BASE and action.card_id == needle.card.card_id
-    )
-    game._apply_main_action(player, activate)
+    assert needle.activated
     assert player.in_play[-1].card.name == "Battle Blob"
     assert player.combat == 16
     assert player.blob_cards_played == 1

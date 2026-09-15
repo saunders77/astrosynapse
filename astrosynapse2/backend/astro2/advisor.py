@@ -23,11 +23,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cards import ALL_CARDS, CARD_BY_ID, EXPLORER, Card, CardType, Faction
 from .engine import (
-    AUTOMATIC_RESOURCE_EFFECTS,
+    AUTOMATIC_ALLY_EFFECTS,
     Action,
     ActionKind,
     Decision,
     DecisionFamily,
+    Game,
     InPlayObservation,
     Observation,
 )
@@ -317,7 +318,7 @@ def main_phase_actions(observation: Observation) -> tuple[Action, ...]:
         card = item.card
         if (
             card.ally
-            and card.ally not in AUTOMATIC_RESOURCE_EFFECTS
+            and card.ally not in AUTOMATIC_ALLY_EFFECTS
             and not item.ally_triggered
             and any(
                 other.card.card_id == 19
@@ -335,13 +336,7 @@ def main_phase_actions(observation: Observation) -> tuple[Action, ...]:
                     amount=card.ally_amount,
                 )
             )
-        primary_available = not item.activated and (
-            card.primary != "copy_ship"
-            or any(
-                other_index != item_index and other.card.is_ship
-                for other_index, other in enumerate(observation.own_in_play)
-            )
-        )
+        primary_available = not item.activated and Game._requires_manual_primary(card)
         if primary_available:
             actions.append(
                 Action(

@@ -34,11 +34,20 @@ Corrected behavior removes only provably identical physical-card options. It nev
 
 Legacy ordering could allow card/base effects before required discard pressure resolved, and some base abilities fired immediately instead of remaining available at the legal point in the main phase.
 
-Corrected behavior resolves forced discard before main-phase actions. Unconditional printed combat, authority, and trade from newly played or surviving bases are collected immediately and do not create policy decisions. Timing-sensitive primary effects on bases or ships remain legal main-phase activations, allowing effects such as draw, Blob World, Central Office, and Recycling Station to be timed. Continuous effects such as Mech World and Fleet HQ remain continuous.
+Corrected behavior resolves forced discard before main-phase actions. Unconditional printed combat, authority, and trade from newly played or surviving bases are collected immediately and do not create policy decisions. Other base primary effects remain legal main-phase activations, including Blob World and Recycling Station. Central Office automatically enables next-ship top-deck placement when played or at turn start. Continuous effects such as Mech World and Fleet HQ remain continuous.
 
 ### Automatic resource gains
 
-Every rules mode uses one timing rule for card abilities: an unconditional combat, authority, or trade gain fires as soon as it becomes available. This includes printed ship/base resources and resource-only ally abilities, including allies enabled by Mech World. Resource choices, scrap-for-resource abilities, draws, targeting, and other effects with timing or decision value remain explicit actions. This removes strategically meaningless resource-collection actions from human and model decisions without hiding real choices.
+Every mode and both rules versions use the digital app timing requested for training, evaluation, simulated games, arena, and acquire tests:
+
+- Ship primary effects resolve during play, including draws, scrap/destroy target prompts, Patrol Mech's resource choice, and Stealth Needle's copy choice. A Needle with no target cannot save its copy for later; copied primaries also resolve immediately.
+- Resource-only allies and ally draws resolve automatically once enabled, including allies enabled by Mech World. Embassy Yacht automatically draws two cards once two bases are in play, including when the second base enters later that turn; it draws only once.
+- Freighter's ally and Central Office's primary automatically arm next-ship top-deck placement. The next acquired ship (including Explorer) consumes it; buying a base does not. It cannot be delayed or declined.
+- Scrap/destroy effects retain their target choices and printed optional declines, but ship primary prompts must be answered immediately. Scrap-for-ability actions and other base choices remain explicit.
+- Turn-start discard pressure resolves before automatic base ally draws.
+
+This supersedes the earlier tabletop timing behavior; historical action logs and evaluation scores may differ under these rules.
+
 
 ### Stealth Needle and faction state
 

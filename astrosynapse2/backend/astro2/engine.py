@@ -64,6 +64,7 @@ class ActionKind(StrEnum):
 
 
 AUTOMATIC_RESOURCE_EFFECTS = frozenset({"gain_combat", "gain_trade", "gain_authority"})
+AUTOMATIC_ALLY_EFFECTS = AUTOMATIC_RESOURCE_EFFECTS | {"draw", "draw_two", "ship_top"}
 
 
 def _json_value(value: Any) -> Any:
@@ -258,8 +259,8 @@ class GameConfig(_JsonMixin):
     initial_authority: int = 50
     # Version 1 preserves historical Explorer disposal. Version 2 restores
     # Explorer recycling. Ability timing is shared by every rules version:
-    # unconditional resource gains are automatic, while effects with choices
-    # or timing value remain player-controlled.
+    # ship primaries, ally draws/resources, and next-ship top-deck effects
+    # resolve immediately under the digital app timing rules.
     rules_version: int = 1
 
     def __post_init__(self) -> None:
@@ -805,7 +806,8 @@ class Game:
             item.ally_triggered = False
             item.activated = not self._requires_manual_primary(item.card)
             self._apply_automatic_resources(player, item.card)
-        self._trigger_automatic_allies(player)
+            if item.card.primary == "ship_top":
+                self._execute_effect(player, "ship_top", 0, item)
 
         # Discard pressure resolves before the player can draw/cycle via a base.
         while player.must_discard > 0 and player.hand:
@@ -825,6 +827,8 @@ class Game:
             player.must_discard -= 1
         if not player.hand:
             player.must_discard = 0
+
+        self._trigger_automatic_allies(player)
 
         ended = False
         while not ended and self._winner is None:
@@ -1026,12 +1030,30 @@ class Game:
             player.blob_cards_played += 1
         # Ally resource gains become available as soon as the card enters play,
         # before any draw or decision-bearing primary ability is resolved.
-        self._trigger_automatic_allies(player)
+        self._trigger_automatic_allies(player, resources_only=True)
         self._apply_automatic_resources(player, item.card)
         if item.card.is_ship and self._fleet_hq_active(player):
             player.combat += 1
-        item.activated = not self._requires_manual_primary(item.card)
+        self._resolve_played_primary(player, item)
         self._trigger_automatic_allies(player)
+
+    def _resolve_played_primary(self, player: _Player, item: _InPlay) -> None:
+        """Resolve ship choices inside play, before another main action is possible."""
+        card = item.card
+        if card.primary == "copy_ship":
+            self._copy_stealth_needle(player, item)
+            if item.card != card:
+                self._apply_automatic_resources(player, item.card)
+                self._resolve_played_primary(player, item)
+            else:
+                item.activated = True  # No target: the copy cannot be saved for later.
+            return
+        if card.primary == "embassy_yacht":
+            item.activated = False
+            return  # Automatically draw as soon as the two-base condition is met.
+        item.activated = not self._requires_manual_primary(card)
+        if card.primary and (card.is_ship or card.primary == "ship_top"):
+            self._execute_effect(player, card.primary, 0, item)
 
     def _activate_card(self, player: _Player, item: _InPlay) -> None:
         if item.activated:
@@ -1039,14 +1061,6 @@ class Game:
         if not self._primary_available(player, item):
             raise RuntimeError("card primary ability is not available")
         card = item.card
-        if card.primary == "copy_ship" and item.original_card.card_id == 23:
-            self._copy_stealth_needle(player, item)
-            self._apply_automatic_resources(player, item.card)
-            if self._fleet_hq_active(player):
-                player.combat += 1
-            item.activated = not self._requires_manual_primary(item.card)
-            self._trigger_automatic_allies(player)
-            return
         item.activated = True
         if card.primary:
             self._execute_effect(player, card.primary, 0, item)
@@ -1058,10 +1072,19 @@ class Game:
         player.authority += card.authority
         player.trade += card.trade
 
-    def _trigger_automatic_allies(self, player: _Player) -> None:
+    def _trigger_automatic_allies(self, player: _Player, *, resources_only: bool = False) -> None:
+        effects = AUTOMATIC_RESOURCE_EFFECTS if resources_only else AUTOMATIC_ALLY_EFFECTS
         for item in list(player.in_play):
             if (
-                item.card.ally in AUTOMATIC_RESOURCE_EFFECTS
+                not resources_only
+                and item.card.primary == "embassy_yacht"
+                and not item.activated
+                and sum(other.card.is_base for other in player.in_play) >= 2
+            ):
+                item.activated = True
+                self._execute_effect(player, "embassy_yacht", 0, item)
+            if (
+                item.card.ally in effects
                 and self._ally_available(player, item)
             ):
                 item.ally_triggered = True
@@ -1069,7 +1092,7 @@ class Game:
 
     def _manual_ally_available(self, player: _Player, item: _InPlay) -> bool:
         return bool(
-            item.card.ally not in AUTOMATIC_RESOURCE_EFFECTS
+            item.card.ally not in AUTOMATIC_ALLY_EFFECTS
             and self._ally_available(player, item)
         )
 
@@ -1530,15 +1553,11 @@ class Game:
 
     @staticmethod
     def _requires_manual_primary(card: Card) -> bool:
-        return bool(card.primary and card.primary not in {"all_ally", "fleet_hq"})
+        return bool(card.is_base and card.primary and card.primary not in {"all_ally", "fleet_hq", "ship_top"})
 
     @staticmethod
     def _primary_available(player: _Player, item: _InPlay) -> bool:
-        if item.activated:
-            return False
-        if item.card.primary == "copy_ship" and item.original_card.card_id == 23:
-            return any(other.uid != item.uid and other.card.is_ship for other in player.in_play)
-        return True
+        return not item.activated and Game._requires_manual_primary(item.card)
 
 
 def play_game(

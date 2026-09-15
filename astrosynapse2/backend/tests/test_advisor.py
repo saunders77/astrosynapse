@@ -54,7 +54,7 @@ def test_advisor_hydrates_engine_observation_and_generates_main_actions():
     assert [action.semantic_key for action in generated] == [
         action.semantic_key for action in expected
     ]
-    assert any(action.kind == ActionKind.ACTIVATE_ALLY for action in generated)
+    assert not any(action.kind == ActionKind.ACTIVATE_ALLY for action in generated)
     assert [action.kind for action in generated].count(generated[0].kind) == 2
     assert decision_from_request(request).prompt == "Main phase"
 
