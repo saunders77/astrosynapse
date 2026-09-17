@@ -199,6 +199,8 @@ def main():
                 for i in range(args.games)
             ]
             trajectories = list(pool.map(collect_trajectory, tasks, chunksize=2))
+            rollout_seconds = time.monotonic() - iteration_start
+            learning_start = time.monotonic()
             valid = [t for t in trajectories if not t.truncated]
             states = np.asarray([s for t in valid for s in t.states], dtype=np.float32)
             actions = [a for t in valid for a in t.actions]
@@ -264,8 +266,11 @@ def main():
                     grads, norm = optim.clip_grad_norm(grads, 1.0)
                     mx.eval(value, norm, *latest.values())
                     stats = {k: float(v.item()) for k, v in latest.items()}
-                    if not np.isfinite(float(value.item())):
-                        raise RuntimeError("nonfinite loss")
+                    if not all(
+                        np.isfinite(v)
+                        for v in (float(value.item()), float(norm.item()), *stats.values())
+                    ):
+                        raise RuntimeError("nonfinite loss, gradient norm, or policy diagnostics")
                     if stats["categorical_kl"] > args.target_kl:
                         early_kl_stop = True
                         break
@@ -305,6 +310,8 @@ def main():
                 ).item()
             )
             used_lr = current_lr
+            if not np.isfinite(post_update_kl):
+                raise RuntimeError("nonfinite post-update KL")
             update_rejected = post_update_kl > 2 * args.target_kl
             if update_rejected:
                 model.update(saved_parameters)
@@ -322,6 +329,8 @@ def main():
                 )
                 optimizer.learning_rate = current_lr
             total_games += args.games
+            learning_seconds = time.monotonic() - learning_start
+            checkpoint_start = time.monotonic()
             checkpoint = out / f"g{total_games:08d}.safetensors"
             save_model(model, spec, checkpoint)
             runtime = checkpoint.with_suffix(".actor.npz")
@@ -337,6 +346,11 @@ def main():
                 truncated=sum(t.truncated for t in trajectories),
                 elapsed=elapsed_before + time.monotonic() - started,
                 iteration_seconds=time.monotonic() - iteration_start,
+                rollout_seconds=rollout_seconds,
+                learning_seconds=learning_seconds,
+                checkpoint_seconds=time.monotonic() - checkpoint_start,
+                workers=args.workers,
+                updates_this_iteration=updates - saved_updates,
                 gradient_norm_mean=float(np.mean(norms)) if norms else None,
                 early_kl_stop=early_kl_stop,
                 checkpoint=str(checkpoint),
@@ -344,11 +358,14 @@ def main():
                 next_learning_rate=current_lr,
                 post_update_kl=post_update_kl,
                 update_rejected=update_rejected,
-                **{k: float(np.mean([d[k] for d in diagnostics])) for k in diagnostics[0]}
-                if diagnostics
-                else {},
+                **(
+                    {k: float(np.mean([d[k] for d in diagnostics])) for k in diagnostics[0]}
+                    if diagnostics
+                    else {}
+                ),
             )
             if (iteration + 1) % args.eval_every == 0 or iteration == args.iterations - 1:
+                evaluation_start = time.monotonic()
                 eval_seed = int(eval_rng.integers(2**62))
                 results = list(
                     pool.map(
@@ -374,8 +391,10 @@ def main():
                     )
                 )
                 record["evaluation"] = summary(results)
+                record["evaluation_seconds"] = time.monotonic() - evaluation_start
                 record["evaluation_seed"] = eval_seed
                 (out / f"g{total_games:08d}.pairs.json").write_text(json.dumps(results))
+            record["total_iteration_seconds"] = time.monotonic() - iteration_start
             log.write(json.dumps(record) + "\n")
             state = dict(
                 iteration=iteration,

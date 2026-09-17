@@ -43,7 +43,7 @@ from .stats import elo_delta, wilson_interval
 from .storage import Store
 
 RECOMMENDED_PAIRS = 2_000
-MAX_PAIRS = 2_000
+MAX_PAIRS = 100_000
 MAX_AUTOMATIC_PAIRS = 250_000
 PROMOTION_EXTENSION_PAIRS = 2_000
 PROMOTION_EXTENSION_MAX_PAIRS = 100_000
@@ -97,7 +97,9 @@ class ArenaConfig:
             if self.automatic_promotion and self.trainer_scheduled
             else MAX_PAIRS
         )
-        if not 1 <= self.pairs <= pair_limit:
+        if self.pairs < 1:
+            raise ValueError("pairs must be at least 1")
+        if self.automatic_promotion and self.pairs > pair_limit:
             raise ValueError(f"pairs must be between 1 and {pair_limit:,}")
         if not 20 <= self.max_turns <= 500:
             raise ValueError("max_turns must be between 20 and 500")
@@ -178,7 +180,7 @@ class ArenaConfig:
                     "confidence must be lower than interim confidence so the final "
                     "evaluation retains an error budget"
                 )
-        if not self.pairs <= self.extension_max_pairs <= MAX_AUTOMATIC_PAIRS:
+        if self.automatic_promotion and not self.pairs <= self.extension_max_pairs <= MAX_AUTOMATIC_PAIRS:
             raise ValueError(
                 f"extension_max_pairs must be between pairs and {MAX_AUTOMATIC_PAIRS:,}"
             )

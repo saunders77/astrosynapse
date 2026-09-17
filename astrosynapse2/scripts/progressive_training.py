@@ -24,6 +24,27 @@ from astro2.sequential import promotion_evidence
 from planning_experiment import pair, summary
 
 
+def restore_settings(args, settings):
+    """Omitted execution budgets inherit the saved run, including on UI resume."""
+    for key, value in settings.items():
+        if key in {"resume", "output"}:
+            continue
+        if key in {"hours", "workers"} and getattr(args, key) is not None:
+            continue
+        setattr(args, key, value)
+
+
+def gate_finished(report, budget, attempt):
+    return report.get("pairs", 0) >= budget or bool(
+        attempt
+        and (
+            report.get("passed")
+            or (report.get("pairs", 0) >= 2048 and report["score"] <= 0.50)
+            or (report.get("pairs", 0) >= 8192 and report["score"] < 0.51)
+        )
+    )
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--output", default="data/progressive/20260910")
@@ -32,8 +53,8 @@ def main():
         default="data/assessment_20260909/managed_campaign/full_policy/g00049152.safetensors",
     )
     p.add_argument("--champion", default="08aa018c672847d9")
-    p.add_argument("--workers", type=int, default=8)
-    p.add_argument("--hours", type=float, default=48)
+    p.add_argument("--workers", type=int, default=None)
+    p.add_argument("--hours", type=float, default=None)
     p.add_argument("--games", type=int, default=512)
     p.add_argument("--round-iterations", type=int, default=16)
     p.add_argument("--screen-pairs", type=int, default=512)
@@ -43,8 +64,8 @@ def main():
     args = p.parse_args()
     if (
         min(
-            args.workers,
-            args.hours,
+            args.workers if args.workers is not None else 8,
+            args.hours if args.hours is not None else 48,
             args.games,
             args.round_iterations,
             args.screen_pairs,
@@ -67,9 +88,7 @@ def main():
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     if args.resume:
         manifest = json.loads((out / "manifest.json").read_text())
-        for key, value in manifest["settings"].items():
-            if key not in {"resume", "hours", "workers", "output"}:
-                setattr(args, key, value)
+        restore_settings(args, manifest["settings"])
         if code_identity(runtime / "astro2", runtime / "scripts") != manifest["code_identity"]:
             raise ValueError("frozen runtime changed")
         state = json.loads((out / "state.json").read_text())
@@ -77,6 +96,8 @@ def main():
         for path in out.glob("stage-*/STOP"):
             path.unlink()
     else:
+        args.workers = 8 if args.workers is None else args.workers
+        args.hours = 48 if args.hours is None else args.hours
         if (out / "manifest.json").exists():
             raise ValueError("use --resume or a new output directory")
         import astro2
@@ -131,6 +152,10 @@ def main():
             games_before_stage=0,
             games=0,
         )
+    if args.hours <= 0 or args.workers <= 0:
+        raise ValueError("budgets must be positive")
+    manifest["settings"].update(hours=args.hours, workers=args.workers)
+    atomic_json(out / "manifest.json", manifest)
     atomic_json(out.parent / "current.json", {"path": str(out)})
     started, elapsed_before = time.monotonic(), state["elapsed"]
     stopped = False
@@ -177,6 +202,13 @@ def main():
         if [r["pair"] for r in rows] != list(range(len(rows))):
             raise ValueError("evaluation must resume a contiguous prefix")
         budget = fixed_pairs or args.max_gate_pairs
+        report = promotion_evidence(rows, attempt) if attempt else (summary(rows) if rows else {})
+        # A crash/pause after a decisive batch must not trigger another look.
+        if gate_finished(report, budget, attempt):
+            report["paused"] = False
+            atomic_json(folder / "result.json", report)
+            return report
+        evaluation_started = time.monotonic()
         with (
             concurrent.futures.ProcessPoolExecutor(
                 max_workers=args.workers, mp_context=multiprocessing.get_context("spawn")
@@ -198,17 +230,15 @@ def main():
                     rows.append(result)
                     log.write(json.dumps(result) + "\n")
                 report = promotion_evidence(rows, attempt) if attempt else summary(rows)
+                report["session_wall_seconds"] = time.monotonic() - evaluation_started
                 state["evaluation"] = report
                 atomic_json(folder / "result.json", report)
                 persist()
-                if attempt and (
-                    report["passed"]
-                    or (len(rows) >= 2048 and report["score"] <= 0.50)
-                    or (len(rows) >= 8192 and report["score"] < 0.51)
-                ):
+                if gate_finished(report, budget, attempt):
                     break
         report = promotion_evidence(rows, attempt) if attempt else (summary(rows) if rows else {})
-        report["paused"] = halt() and len(rows) < budget and not report.get("passed")
+        report["session_wall_seconds"] = time.monotonic() - evaluation_started
+        report["paused"] = halt() and not gate_finished(report, budget, attempt)
         atomic_json(folder / "result.json", report)
         return report
 
@@ -217,6 +247,25 @@ def main():
             if shutil.disk_usage(out).free < 12 * 1024**3:
                 state["phase"] = "disk_budget_exhausted"
                 break
+            # Promotion is committed before benchmarking. Resume this obligation
+            # even if the process stopped between those two operations.
+            if state["promotions"]:
+                promotion = state["promotions"][-1]
+                benchmark = promotion.get("original_champion_benchmark", {})
+                if benchmark.get("pairs", 0) < 2048:
+                    state["phase"] = "benchmarking_original_champion"
+                    persist()
+                    benchmark = matches(
+                        state["champion"],
+                        str(out / "original-champion.actor.npz"),
+                        out / f"anchor-{state['stage']:03d}",
+                        args.seed + 2000000000 + state["stage"],
+                        fixed_pairs=2048,
+                    )
+                    promotion["original_champion_benchmark"] = benchmark
+                    persist()
+                    if benchmark["paused"] or halt():
+                        break
             folder = out / f"stage-{state['stage']:03d}"
             folder.mkdir(exist_ok=True)
             if not state["pending_gate"]:
@@ -358,18 +407,6 @@ def main():
                 )
             state["pending_gate"] = None
             persist()
-            if evidence["passed"]:
-                state["phase"] = "benchmarking_original_champion"
-                persist()
-                benchmark = matches(
-                    state["champion"],
-                    str(out / "original-champion.actor.npz"),
-                    out / f"anchor-{state['stage']:03d}",
-                    args.seed + 2000000000 + state["stage"],
-                    fixed_pairs=2048,
-                )
-                state["promotions"][-1]["original_champion_benchmark"] = benchmark
-                persist()
         if state["phase"] != "disk_budget_exhausted":
             state["phase"] = (
                 "paused" if stopped or (out / "STOP").exists() else "time_budget_complete"

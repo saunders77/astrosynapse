@@ -97,7 +97,7 @@ class CreateArenaRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     model_a: str = Field(min_length=1, max_length=128)
     model_b: str = Field(min_length=1, max_length=128)
-    pairs: int = Field(default=RECOMMENDED_PAIRS, ge=1, le=MAX_PAIRS)
+    pairs: int = Field(default=RECOMMENDED_PAIRS, ge=1)
     seed: int = 20260807
     max_turns: int = Field(default=180, ge=20, le=500)
     max_actions_per_turn: int = Field(default=160, ge=20, le=500)

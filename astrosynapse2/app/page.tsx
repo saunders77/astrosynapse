@@ -3379,6 +3379,7 @@ export default function Home() {
   const [arenaPairs, setArenaPairs] = useState(2_000);
   const [arenaRunning, setArenaRunning] = useState(false);
   const [arenaProgress, setArenaProgress] = useState(0);
+  const [arenaWatchLoading, setArenaWatchLoading] = useState(false);
   const [arenaJobId, setArenaJobId] = useState<string | null>(null);
   const [arenaResult, setArenaResult] = useState<ArenaResultView | null>(demoArenaResult);
   const [analysisModel, setAnalysisModel] = useState("champion-042");
@@ -3767,12 +3768,13 @@ export default function Home() {
         if (!runId) {
           setRemoteRunId(null);
           activeRunIdRef.current = null;
-          arenaSelectionRef.current = null;
           metricsSeqRef.current = -1;
-          setArenaResult(null);
-          setArenaProgress(0);
-          setArenaRunning(false);
-          setArenaJobId(null);
+          if (!arenaSelectionRef.current) {
+            setArenaResult(null);
+            setArenaProgress(0);
+            setArenaRunning(false);
+            setArenaJobId(null);
+          }
           setAnalysisRunning(false);
           setAnalysisJobId(null);
           setAnalysisResult(null);
@@ -3802,7 +3804,7 @@ export default function Home() {
           });
         } else {
           const changedRun = activeRunIdRef.current !== runId;
-          if (changedRun) arenaSelectionRef.current = null;
+          // An explicitly watched arena stays selected across trainer run changes.
           const after = changedRun ? -1 : metricsSeqRef.current;
           const [detailRaw, metricsRaw, modelsRaw, eventsRaw, arenaJobsRaw, analysisJobsRaw] = await Promise.all([
             fetchJson(`/runs/${encodeURIComponent(runId)}`),
@@ -3993,7 +3995,7 @@ export default function Home() {
           setArenaProgress(normalized.progress);
         }
         const status = asString(raw.status, "running").toLowerCase();
-        if (["complete", "completed", "failed", "error"].includes(status)) {
+        if (["complete", "completed", "failed", "error", "cancelled"].includes(status)) {
           setArenaRunning(false);
           showToast(status.startsWith("complete") ? "Arena evaluation complete" : `Arena evaluation ${status}`);
         }
@@ -4058,7 +4060,8 @@ export default function Home() {
     const arenaChallenger = availableArenaModels.find((model) => model.id !== arenaChampion?.id);
     if (!availableArenaModels.some((model) => model.id === arenaA) && !arenaBaselines.some((model) => model.id === arenaA)) setArenaA(arenaChampion?.id ?? "baseline:balanced");
     if (!availableArenaModels.some((model) => model.id === arenaB) && !arenaBaselines.some((model) => model.id === arenaB)) setArenaB(arenaChallenger?.id ?? "baseline:balanced");
-    if (arenaA === arenaB) setArenaB(arenaChallenger?.id ?? "baseline:balanced");
+    // Both pickers may temporarily select the same checkpoint while choosing
+    // rivals from one run. Preserve that selection; Run arena requires distinct IDs.
     if (!availableModels.some((model) => model.id === analysisModel)) setAnalysisModel(champion?.id ?? "");
   }, [snapshot.models, availableModels, availableArenaModels, playModel, arenaA, arenaB, analysisModel]);
 
@@ -4433,6 +4436,34 @@ export default function Home() {
     }
   };
 
+  const watchActiveArena = async () => {
+    setArenaWatchLoading(true);
+    try {
+      const raw = await fetchJson("/arena?limit=500");
+      const jobs = Array.isArray(raw) ? raw.filter(isRecord) : [];
+      const active = jobs.find((job) => asString(job.status, "").toLowerCase() === "running")
+        ?? jobs.find((job) => asString(job.status, "").toLowerCase() === "queued");
+      const match = normalizeArenaJob(active);
+      if (!active || !match || !match.id) {
+        showToast("No active or queued arena match");
+        return;
+      }
+      arenaSelectionRef.current = match.id;
+      setArenaJobId(match.id);
+      setArenaResult(match);
+      setArenaProgress(match.progress);
+      setArenaRunning(true);
+      setArenaA(asString(active.model_a, arenaA));
+      setArenaB(asString(active.model_b, arenaB));
+      setArenaPairs(match.pairsRequested);
+      showToast(match.status === "queued" ? "Watching queued arena match" : "Watching active arena match");
+    } catch (error) {
+      showToast(`Could not load active arena: ${error instanceof Error ? error.message : "unknown error"}`);
+    } finally {
+      setArenaWatchLoading(false);
+    }
+  };
+
   const runArena = async () => {
     if (arenaA === arenaB) {
       showToast("Choose two different models for a useful arena match");
@@ -4454,7 +4485,12 @@ export default function Home() {
           arenaSelectionRef.current = jobId;
           setArenaJobId(jobId);
           const normalized = normalizeArenaJob(result);
-          if (normalized) setArenaResult(normalized);
+          if (normalized) {
+            setArenaResult(normalized);
+            setArenaProgress(normalized.progress);
+            setArenaRunning(["queued", "running"].includes(normalized.status.toLowerCase()));
+            if (normalized.status === "queued") showToast("Arena match queued; waiting for the active match to finish");
+          }
         }
       } catch (error) {
         setArenaRunning(false);
@@ -5334,13 +5370,14 @@ export default function Home() {
             <div className="arena-layout">
               <article className="panel arena-console">
                 <header className="panel-header"><div><span className="panel-kicker">Head-to-head laboratory</span><h2>Arena match</h2></div><span className="paired-chip"><Jargon term="pairedSeeds">Paired randomness</Jargon></span></header>
+                {connected ? <div className="arena-watch-controls"><button type="button" className="button button-secondary" onClick={watchActiveArena} disabled={arenaWatchLoading}>{arenaWatchLoading ? "Loading match…" : "Watch active arena"}</button><small>Switch to the running match from any training run and follow its live progress.</small></div> : null}
                 <div className="versus-row">
                   <ArenaModelPicker side="A" value={arenaA} groups={arenaModelGroups} onChange={setArenaA} />
                   <div className="versus-mark"><span>VS</span><i /></div>
                   <ArenaModelPicker side="B" value={arenaB} groups={arenaModelGroups} onChange={setArenaB} />
                 </div>
-                <div className="arena-settings"><label><span><Jargon term="pairedSeeds">Seed pairs</Jargon></span><input type="number" min="1" max="2000" value={arenaPairs} onChange={(event) => setArenaPairs(Math.min(2_000, Math.max(1, Number(event.target.value) || 1)))} /></label><div><span>Games</span><strong>{numberFormatter.format(arenaPairs * 2)}</strong></div><div><span><Jargon term="confidenceInterval">Interval confidence</Jargon></span><strong>95%</strong></div><button type="button" className="button button-primary" onClick={runArena} disabled={arenaRunning || availableArenaModels.length < 1 || arenaA === arenaB}>{arenaRunning ? "Evaluating…" : availableArenaModels.length < 1 ? "Need an available checkpoint" : arenaA === arenaB ? "Choose two rivals" : "Run arena"}</button></div>
-                {arenaRunning || arenaProgress > 0 ? <div className="arena-progress" aria-live="polite"><div><span>Evaluation progress</span><strong>{Math.round(arenaProgress)}%</strong></div><i><b style={{ width: `${arenaProgress}%` }} /></i><p>{arenaRunning ? `${numberFormatter.format((arenaResult?.pairsCompleted ?? Math.round(arenaPairs * arenaProgress / 100)) * 2)} of ${numberFormatter.format((arenaResult?.pairsRequested ?? arenaPairs) * 2)} games · exact seats reversed` : "Complete · paired result persisted with both checkpoints"}</p></div> : null}
+                <div className="arena-settings"><label><span><Jargon term="pairedSeeds">Seed pairs</Jargon></span><input type="number" min="1" step="1" value={arenaPairs} onChange={(event) => setArenaPairs(Math.max(1, Math.trunc(Number(event.target.value)) || 1))} /></label><div><span>Games</span><strong>{numberFormatter.format(arenaPairs * 2)}</strong></div><div><span><Jargon term="confidenceInterval">Interval confidence</Jargon></span><strong>95%</strong></div><button type="button" className="button button-primary" onClick={runArena} disabled={arenaRunning || availableArenaModels.length < 1 || arenaA === arenaB}>{arenaRunning ? arenaResult?.status === "queued" ? "Queued…" : "Evaluating…" : availableArenaModels.length < 1 ? "Need an available checkpoint" : arenaA === arenaB ? "Choose two rivals" : "Run arena"}</button></div>
+                {arenaRunning || arenaProgress > 0 ? <div className="arena-progress" aria-live="polite"><div><span>{arenaResult?.status === "queued" ? "Arena match queued" : "Evaluation progress"}</span><strong>{Math.round(arenaProgress)}%</strong></div><i><b style={{ width: `${arenaProgress}%` }} /></i><p>{arenaRunning && arenaResult?.status === "queued" ? "Waiting for the active arena match to finish. This match will start automatically." : arenaRunning ? `${numberFormatter.format((arenaResult?.pairsCompleted ?? Math.round(arenaPairs * arenaProgress / 100)) * 2)} of ${numberFormatter.format((arenaResult?.pairsRequested ?? arenaPairs) * 2)} games · exact seats reversed` : "Complete · paired result persisted with both checkpoints"}</p></div> : null}
                 {arenaResult ? <div className="arena-result">
                   <div className="result-score"><small>{arenaResult.status === "complete" ? "Latest result" : titleCase(arenaResult.status)}</small><strong>{arenaResult.pairsCompleted ? formatPercent(arenaResult.score) : "Pending"}</strong><span>{arenaResult.modelALabel}</span></div>
                   {arenaResult.pairsCompleted ? <><div className="interval-track"><i className="threshold" /><span style={{ left: `${arenaResult.ciLow * 100}%`, width: `${Math.max(0, arenaResult.ciHigh - arenaResult.ciLow) * 100}%` }} /><b style={{ left: `${arenaResult.score * 100}%` }} /></div><div className="interval-labels"><span>50% tie</span><strong><Jargon term="confidenceInterval">95% CI</Jargon> {formatPercent(arenaResult.ciLow)}–{formatPercent(arenaResult.ciHigh)}</strong><span>{arenaResult.elo >= 0 ? "+" : ""}{arenaResult.elo.toFixed(0)} <Jargon term="elo">Elo</Jargon></span></div></> : <div className="arena-pending">Waiting for the first paired games…</div>}

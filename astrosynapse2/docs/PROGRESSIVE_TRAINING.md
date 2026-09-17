@@ -6,7 +6,7 @@ save** finishes the current learning iteration or evaluation batch. **Resume
 training** restores the frozen code, model, optimizer, counters, and random state.
 
 The September 10 run starts from the best screened full-policy candidate in the
-four-hour assessment campaign. It has a 48-hour cumulative budget, eight CPU
+four-hour assessment campaign. Its saved cumulative budget is now 144 hours, with eight CPU
 actors, one Metal learner, fresh trajectories, and no replay or search labels.
 It screens every 8,192 games against the incumbent. Screening results are
 exploratory; only a fresh independent verification can promote a checkpoint.
@@ -39,7 +39,7 @@ Terminal controls from the project directory:
 # Request a safe pause.
 touch data/progressive/20260910/STOP
 
-# Resume the same run; its original cumulative 48-hour limit remains active.
+# Resume the same run using its saved cumulative budget (currently 144 hours).
 PYTHONPATH=backend ./.venv/bin/python scripts/progressive_training.py \
   --output data/progressive/20260910 --resume
 ```
@@ -52,3 +52,19 @@ These models are read-only entries: the progressive supervisor owns retention,
 and discovery does not add them to the older trainer’s league or change champions.
 The assessment and all measured experiments are in
 [the September report](assessment-2026-09-09.md).
+
+The [108-hour review](astro6-review-2026-09-15.md) records the September 15
+operational fixes. Resume now inherits saved hours and workers unless explicitly
+overridden; an override is saved for subsequent resumes. Interrupted original-
+champion benchmarks resume before learning, and already-decided gates do not
+collect additional batches. Learner metrics separate rollout, learning,
+checkpoint, and evaluation wall times. Historical evaluation `seconds` sums
+worker task durations and is not elapsed wall time.
+
+The paused campaign received an audited revision of its two execution scripts.
+Its original runtime and manifests remain in `runtime-revisions/`; both the
+supervisor and active learner manifests record the revision. Completed-stage
+manifests retain their historical identities. Model, optimizer, seeds, rules,
+and promotion thresholds were preserved. `scripts/maintain_progressive_runtime.py`
+performs this restricted maintenance under the campaign lock, verifies the
+existing identity, and refuses an unpaused or unexpectedly modified runtime.

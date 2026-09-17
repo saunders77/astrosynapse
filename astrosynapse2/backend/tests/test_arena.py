@@ -39,7 +39,7 @@ def test_arena_config_is_bounded_and_conservative():
     assert ArenaConfig().early_rejection_min_pairs == 512
     assert ArenaConfig().early_rejection_confidence == 0.995
     with pytest.raises(ValueError):
-        ArenaConfig(pairs=MAX_PAIRS + 1)
+        ArenaConfig(pairs=MAX_PAIRS + 1, automatic_promotion=True)
     with pytest.raises(ValueError):
         ArenaConfig(pairs=2, minimum_promotion_pairs=2)
     with pytest.raises(ValueError):
@@ -55,6 +55,20 @@ def test_arena_config_is_bounded_and_conservative():
         )
     with pytest.raises(ValueError):
         ArenaConfig(early_rejection_confidence=1.0)
+
+
+@pytest.mark.parametrize("pairs", [2_001, 100_001, 1_000_000])
+def test_manual_arena_has_no_pair_ceiling(pairs):
+    request = server.CreateArenaRequest(model_a="a", model_b="b", pairs=pairs)
+    assert ArenaConfig(pairs=request.pairs).pairs == pairs
+
+
+@pytest.mark.parametrize("pairs", [0, -1])
+def test_manual_arena_requires_positive_pairs(pairs):
+    with pytest.raises(ValueError):
+        server.CreateArenaRequest(model_a="a", model_b="b", pairs=pairs)
+    with pytest.raises(ValueError):
+        ArenaConfig(pairs=pairs)
 
 
 def test_automatic_job_keeps_confidence_contract_and_respects_extension_controls():
@@ -222,18 +236,19 @@ def test_final_paired_interval_is_valid_for_constant_samples():
     assert losing["confidence_radius"] == pytest.approx(winning["confidence_radius"])
 
 
-def test_only_trainer_owned_automatic_arenas_may_use_the_4000_pair_cap():
+def test_trainer_owned_automatic_arenas_keep_their_separate_pair_cap():
+    pairs = MAX_PAIRS + 1
+    assert ArenaConfig(pairs=pairs).pairs == pairs
     with pytest.raises(ValueError):
-        ArenaConfig(pairs=4_000)
-    with pytest.raises(ValueError):
-        ArenaConfig(pairs=4_000, automatic_promotion=True)
+        ArenaConfig(pairs=pairs, automatic_promotion=True)
 
     config = ArenaConfig(
-        pairs=4_000,
+        pairs=pairs,
         automatic_promotion=True,
         trainer_scheduled=True,
+        extension_max_pairs=pairs,
     )
-    assert config.pairs == 4_000
+    assert config.pairs == pairs
 
 
 def test_full_promotion_arenas_use_all_available_workers():

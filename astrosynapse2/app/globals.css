@@ -5171,3 +5171,6 @@ button.game-card:hover:not(:disabled) {
   .relay-hard-pulse i,
   .relay-thinking i { animation: none; }
 }
+
+.arena-watch-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
+.arena-watch-controls small { color: var(--faint); }
