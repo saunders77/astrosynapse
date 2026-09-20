@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import random
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field, fields
 from enum import Enum, StrEnum
 from typing import Any
 
@@ -91,7 +91,10 @@ def _card_multiset(cards: Iterable[Card]) -> tuple[Card, ...]:
 
 class _JsonMixin:
     def to_dict(self) -> dict[str, Any]:
-        return {key: _json_value(value) for key, value in asdict(self).items() if key != "opaque"}
+        return {
+            item.name: _json_value(getattr(self, item.name))
+            for item in fields(self) if item.name != "opaque"
+        }
 
     def to_json(self, *, indent: int | None = None) -> str:
         return json.dumps(self.to_dict(), indent=indent, sort_keys=True)
@@ -205,6 +208,8 @@ class Decision(_JsonMixin):
     observation: Observation
     actions: tuple[Action, ...]
     prompt: str = ""
+    # Engine-local, lazy model override; never part of encodings or replay JSON.
+    opaque: Any = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.actions:
@@ -223,9 +228,14 @@ def model_action_indices(decision: Decision) -> tuple[int, ...]:
     spent is strictly dominated in the base set: those actions do not prevent
     a later purchase or end-turn choice and their resources do not carry over.
 
-    Optional purchases and scrap abilities deliberately remain choices.
+    A verified lethal sequence takes priority, including its nested ability
+    choices. Otherwise optional purchases and scrap abilities remain choices.
     """
 
+    if decision.opaque is not None:
+        lethal = decision.opaque(decision)
+        if lethal is not None:
+            return (lethal,)
     indices = tuple(range(len(decision.actions)))
     if decision.family != DecisionFamily.MAIN:
         return indices
@@ -421,6 +431,7 @@ class Game:
         self._winner: int | None = None
         self._truncation_reason: str | None = None
         self.result: GameResult | None = None
+        self._lethal_plan: list[tuple[DecisionFamily, tuple[Any, ...]]] = []
 
         for player in self.players:
             player.deck = [SCOUT] * 8 + [VIPER] * 2
@@ -519,6 +530,7 @@ class Game:
         forked._winner = self._winner
         forked._truncation_reason = self._truncation_reason
         forked.result = self.result
+        forked._lethal_plan = []
         forked.starting_player = self.starting_player
         forked.active_player = self.active_player
         return forked
@@ -796,6 +808,7 @@ class Game:
         return dict(card_counts(cards))
 
     def _take_turn(self, player: _Player) -> None:
+        self._lethal_plan.clear()
         self.turns += 1
         self._turn_actions = 0
         player.combat = 0
@@ -869,7 +882,17 @@ class Game:
         options = self._deduplicate(actions)
         if not options:
             raise RuntimeError("engine generated an empty decision: " + prompt)
-        decision = Decision(family, self.observation(player.player_id), options, prompt)
+        lethal_index: list[int | None] = []
+
+        def model_override(current: Decision) -> int | None:
+            if not lethal_index:
+                lethal_index.append(self._model_lethal_action(current))
+            return lethal_index[0]
+
+        decision = Decision(
+            family, self.observation(player.player_id), options, prompt,
+            opaque=model_override,
+        )
         self.decisions += 1
         self._turn_actions += 1
         if len(options) == 1:
@@ -892,7 +915,27 @@ class Game:
                 raise TypeError("chooser must return Action or integer index")
         if self.decision_hook is not None:
             self.decision_hook(player.player_id, decision, selected)
+        if self._lethal_plan:
+            if self._lethal_plan[0] == (family, selected.semantic_key):
+                self._lethal_plan.pop(0)
+            else:
+                self._lethal_plan.clear()
         return selected
+
+    def _model_lethal_action(self, decision: Decision) -> int | None:
+        """Only learned policies opt into the shared, rules-checked finisher."""
+        from .lethal import find_lethal_plan
+
+        if not self._lethal_plan and decision.family == DecisionFamily.MAIN:
+            self._lethal_plan = find_lethal_plan(self, decision)
+        if self._lethal_plan:
+            family, key = self._lethal_plan[0]
+            if family == decision.family:
+                for index, action in enumerate(decision.actions):
+                    if action.semantic_key == key:
+                        return index
+            self._lethal_plan.clear()
+        return None
 
     def _main_actions(self, player: _Player) -> tuple[Action, ...]:
         opponent = self.players[1 - player.player_id]

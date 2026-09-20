@@ -42,6 +42,16 @@ with live training, independently verified champion succession, and pause/resume
 See [progressive training](docs/PROGRESSIVE_TRAINING.md) and the
 [full assessment](docs/assessment-2026-09-09.md) for its behavior and measured results.
 
+Learned actors share a lethal-turn finisher in training, arena/evaluation, Elo
+acquisition, and human matches. At each main-phase decision (including turn start
+and after draws resolve), it checks for a legal winning sequence using combat,
+allies, scrap abilities, and outpost destruction. Cards in the current deck can
+contribute only after hand/in-play cards supply enough draws to exhaust that deck;
+discard reshuffles are not forecast. Verified sequences execute as ordinary
+actions and appear in replays. Human choices remain unrestricted. Search is capped
+at 256 branches per check for training throughput; complex unproven positions stay
+with the model.
+
 Double-click `start.command`, or run:
 
 ```bash
