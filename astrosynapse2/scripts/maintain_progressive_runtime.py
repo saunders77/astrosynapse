@@ -14,7 +14,7 @@ from astro2.experiment_control import atomic_json, code_identity
 PATCHABLE = ("scripts/progressive_training.py", "scripts/onpolicy_experiment.py")
 
 
-def maintain(out: Path, project: Path, reason: str):
+def maintain(out: Path, project: Path, reason: str, *, separate_critic: bool = False):
     out = out.resolve()
     with (out / "manager.lock").open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -30,9 +30,18 @@ def maintain(out: Path, project: Path, reason: str):
         active = json.loads(stage_manifest.read_text()) if stage_manifest.exists() else None
         if active and active["code_identity"] != before:
             raise ValueError("active learner runtime identity differs from supervisor")
+        learner_source = project / "backend/astro2/onpolicy.py"
+        if (
+            not separate_critic
+            and learner_source.exists()
+            and learner_source.read_bytes() != (runtime / "astro2/onpolicy.py").read_bytes()
+        ):
+            raise ValueError("learner module changed; use an explicit --separate-critic revision")
         changes = {}
-        for name in PATCHABLE:
-            content = (project / name).read_bytes()
+        patchable = (*PATCHABLE, "astro2/onpolicy.py") if separate_critic else PATCHABLE
+        for name in patchable:
+            source = project / ("backend" if name.startswith("astro2/") else "") / name
+            content = source.read_bytes()
             compile(content, name, "exec")
             if content != (runtime / name).read_bytes():
                 changes[name] = content
@@ -61,9 +70,20 @@ def maintain(out: Path, project: Path, reason: str):
                 changed_files={
                     name: {"before": before[name], "after": after[name]} for name in changes
                 },
+                learner_settings=(
+                    dict(
+                        learner_version=4,
+                        separate_critic=True,
+                        critic_learning_rate=0.0003,
+                        critic_epochs=2,
+                    )
+                    if separate_critic
+                    else {}
+                ),
             )
             atomic_json(backup / "revision.json", revision)
             if active:
+                active.update(revision["learner_settings"])
                 active["code_identity"] = after
                 active.setdefault("runtime_revisions", []).append(revision)
                 atomic_json(stage_manifest, active)
@@ -84,9 +104,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--reason", required=True)
+    parser.add_argument("--separate-critic", action="store_true")
     args = parser.parse_args()
     print(
         json.dumps(
-            maintain(args.output, Path(__file__).resolve().parents[1], args.reason), indent=2
+            maintain(
+                args.output,
+                Path(__file__).resolve().parents[1],
+                args.reason,
+                separate_critic=args.separate_critic,
+            ),
+            indent=2,
         )
     )

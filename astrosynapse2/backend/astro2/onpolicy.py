@@ -8,7 +8,7 @@ samples the exact masked distribution used by its PPO objective.
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -40,6 +40,9 @@ class Trajectory:
     log_policies: list
     target: float
     truncated: bool
+    value_states: list = field(default_factory=list)
+    value_families: list = field(default_factory=list)
+    value_forced: list = field(default_factory=list)
 
 
 def collect_trajectory(task):
@@ -58,10 +61,14 @@ def collect_trajectory(task):
         )
 
     def choose(pid, decision):
-        if automatic is not None and not strategic_decision(decision):
-            return automatic(pid, decision)
         encoded = encoder.encode_decision(decision.observation, decision)
         eligible = np.asarray(model_action_indices(decision), dtype=np.int64)
+        if len(extra) > 2 and extra[2]:
+            rows.value_states.append(encoded.state)
+            rows.value_families.append(int(encoded.family))
+            rows.value_forced.append(len(eligible) == 1)
+        if automatic is not None and not strategic_decision(decision):
+            return automatic(pid, decision)
         if len(eligible) == 1:
             return decision.actions[int(eligible[0])]
         actions = encoded.actions[eligible]
@@ -102,6 +109,41 @@ def collect_trajectory(task):
     rows.truncated = result.truncated
     rows.target = float(result.winner == seat)
     return rows
+
+
+def critic_logits(head, features, families, family_count, heads):
+    """Select the value bank without involving any policy parameters."""
+    import mlx.core as mx
+
+    values = head(features).reshape((-1, family_count, heads))
+    indices = mx.broadcast_to(families[:, None, None], (len(families), 1, heads))
+    return mx.take_along_axis(values, indices, axis=1).squeeze(1)
+
+
+def critic_calibration(probabilities, targets, families, forced):
+    """Pre-fit, fresh-rollout diagnostics; never report training fit as calibration."""
+    probabilities, targets = np.asarray(probabilities), np.asarray(targets)
+    families, forced = np.asarray(families), np.asarray(forced, dtype=bool)
+
+    def summary(mask):
+        p, y = probabilities[mask], targets[mask]
+        if not len(p):
+            return {"positions": 0}
+        clipped = np.clip(p, 1e-7, 1 - 1e-7)
+        return dict(
+            positions=len(p),
+            prediction=float(p.mean()),
+            outcome=float(y.mean()),
+            brier=float(np.mean((p - y) ** 2)),
+            log_loss=float(-np.mean(y * np.log(clipped) + (1 - y) * np.log1p(-clipped))),
+        )
+
+    return dict(
+        all=summary(np.ones(len(targets), dtype=bool)),
+        forced=summary(forced),
+        choices=summary(~forced),
+        families={str(f): summary(families == f) for f in np.unique(families)},
+    )
 
 
 def masked_log_policy(model, states, actions, mask, families, temperature):

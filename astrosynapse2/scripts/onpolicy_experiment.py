@@ -27,7 +27,13 @@ from astro2.model import (
     save_model,
     save_optimizer_state,
 )
-from astro2.onpolicy import collect_trajectory, masked_log_policy, ppo_loss
+from astro2.onpolicy import (
+    collect_trajectory,
+    critic_calibration,
+    critic_logits,
+    masked_log_policy,
+    ppo_loss,
+)
 from astro2.planning import PlanningConfig
 from planning_experiment import pair, summary
 
@@ -63,6 +69,9 @@ def main():
     p.add_argument("--rules-version", type=int, choices=[1, 2], default=1)
     p.add_argument("--adaptive-kl", action="store_true")
     p.add_argument("--max-learning-rate", type=float, default=0.0002)
+    p.add_argument("--separate-critic", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--critic-learning-rate", type=float, default=0.0003)
+    p.add_argument("--critic-epochs", type=int, default=2)
     args = p.parse_args()
     if args.temperature <= 0 or args.games < 2 or args.batch_size < 2:
         raise ValueError("invalid training settings")
@@ -77,7 +86,7 @@ def main():
     identity = code_identity(Path(astro2.__file__).parent, Path(__file__).parent)
     if args.resume:
         manifest = json.loads(manifest_path.read_text())
-        if manifest.get("learner_version") != 3:
+        if manifest.get("learner_version") not in (3, 4):
             raise ValueError("this checkpoint requires an explicit fork into a new experiment")
         if manifest.get("code_identity") != identity:
             raise ValueError(
@@ -86,7 +95,8 @@ def main():
         requested_iterations = args.iterations
         for key in vars(args):
             if key not in {"iterations", "workers", "resume", "output"}:
-                setattr(args, key, manifest.get(key, getattr(args, key)))
+                fallback = False if key == "separate_critic" else getattr(args, key)
+                setattr(args, key, manifest.get(key, fallback))
         args.iterations = max(requested_iterations, manifest["iterations"])
         resume_state = json.loads((out / "state.json").read_text())
     elif manifest_path.exists():
@@ -103,7 +113,7 @@ def main():
             json.dumps(
                 {
                     **vars(args),
-                    "learner_version": 3,
+                    "learner_version": 4,
                     "code_identity": identity,
                     "source_sha256": hashlib.sha256(Path(model_path).read_bytes()).hexdigest(),
                     "opponent_sha256": hashlib.sha256(Path(opponent_path).read_bytes()).hexdigest(),
@@ -125,6 +135,25 @@ def main():
         for output in model.head_outputs:
             output.unfreeze()
         model.value_output.unfreeze()
+    if args.critic_learning_rate <= 0 or args.critic_epochs < 1:
+        raise ValueError("invalid critic settings")
+    critic = critic_optimizer = None
+    critic_rng = np.random.default_rng(np.random.SeedSequence([args.seed, 0xC817]))
+    critic_updates = 0
+    if args.separate_critic:
+        critic = nn.Linear(spec.hidden_size, spec.families * spec.bootstrap_heads)
+        critic.update(model.value_output.parameters())
+        # Exclude the head entirely, including inherited Adam momentum, from
+        # policy updates and their global gradient clipping.
+        model.value_output.freeze()
+        critic_optimizer = optim.Adam(learning_rate=args.critic_learning_rate)
+        if resume_state and resume_state.get("critic_optimizer"):
+            if not load_optimizer_state(critic_optimizer, resume_state["critic_optimizer"]):
+                raise RuntimeError("resumable critic optimizer artifact is missing")
+            critic_rng.bit_generator.state = resume_state["critic_rng"]
+            critic_updates = resume_state["critic_updates"]
+        elif resume_state and resume_state.get("critic_updates", 0):
+            raise RuntimeError("resumable critic optimizer artifact is missing")
     mx.eval(model.parameters())
     optimizer = optim.Adam(learning_rate=args.learning_rate)
     if resume_state and not load_optimizer_state(optimizer, resume_state["optimizer"]):
@@ -171,7 +200,12 @@ def main():
 
     def loss(*arrays):
         nonlocal latest
-        value, latest = ppo_loss(model, *arrays, temperature=args.temperature)
+        value, latest = ppo_loss(
+            model,
+            *arrays,
+            temperature=args.temperature,
+            value_weight=0.0 if args.separate_critic else 0.5,
+        )
         return value
 
     gradient = nn.value_and_grad(model, loss)
@@ -195,6 +229,7 @@ def main():
                     i,
                     auto_path,
                     args.rules_version,
+                    args.separate_critic,
                 )
                 for i in range(args.games)
             ]
@@ -224,6 +259,33 @@ def main():
                 ).mean(axis=1)
                 baseline.extend(np.asarray(values))
             advantages = targets - np.asarray(baseline)
+            calibration = None
+            if args.separate_critic:
+                value_states = np.asarray(
+                    [s for t in valid for s in t.value_states], dtype=np.float32
+                )
+                value_families = np.asarray(
+                    [f for t in valid for f in t.value_families], dtype=np.int32
+                )
+                value_targets = np.asarray(
+                    [t.target for t in valid for _ in t.value_states], dtype=np.float32
+                )
+                value_forced = np.asarray([f for t in valid for f in t.value_forced], dtype=bool)
+                predictions = []
+                for offset in range(0, len(value_states), 512):
+                    predictions.extend(
+                        np.asarray(
+                            mx.sigmoid(
+                                model.state_values(
+                                    mx.array(value_states[offset : offset + 512]),
+                                    mx.array(value_families[offset : offset + 512]),
+                                )
+                            ).mean(axis=1)
+                        )
+                    )
+                calibration = critic_calibration(
+                    predictions, value_targets, value_families, value_forced
+                )
             # A single scale over the full fresh rollout keeps the sign and
             # per-decision return weighting; no family/turn replay resampling.
             advantages /= max(float(advantages.std()), 0.1)
@@ -328,6 +390,58 @@ def main():
                     update_rejected,
                 )
                 optimizer.learning_rate = current_lr
+            critic_start = time.monotonic()
+            if args.separate_critic:
+                # Fit after the accepted policy update (or rollback) so the
+                # critic tracks the actual exported representation. Advantages
+                # above used the pre-fit critic, with no same-game target leak.
+                feature_batches = []
+                for offset in range(0, len(value_states), 512):
+                    features = mx.stop_gradient(
+                        model.state_features(mx.array(value_states[offset : offset + 512]))
+                    )
+                    mx.eval(features)
+                    feature_batches.append(features)
+                value_features = mx.concatenate(feature_batches)
+
+                def value_loss(features, family, target):
+                    logits = critic_logits(
+                        critic, features, family, spec.families, spec.bootstrap_heads
+                    )
+                    return nn.losses.binary_cross_entropy(
+                        logits,
+                        mx.broadcast_to(target[:, None], logits.shape),
+                        with_logits=True,
+                        reduction="mean",
+                    )
+
+                value_gradient = nn.value_and_grad(critic, value_loss)
+                value_family_array = mx.array(value_families)
+                value_target_array = mx.array(value_targets)
+                for _ in range(args.critic_epochs):
+                    order = critic_rng.permutation(len(value_states))
+                    for offset in range(0, len(order), args.batch_size):
+                        indices = mx.array(
+                            order[offset : offset + args.batch_size].astype(np.int32)
+                        )
+                        value, grads = value_gradient(
+                            value_features[indices],
+                            value_family_array[indices],
+                            value_target_array[indices],
+                        )
+                        grads, norm = optim.clip_grad_norm(grads, 1.0)
+                        mx.eval(value, norm)
+                        if not np.isfinite(float(value.item())) or not np.isfinite(
+                            float(norm.item())
+                        ):
+                            raise RuntimeError("nonfinite critic loss or gradient")
+                        critic_optimizer.update(critic, grads)
+                        mx.eval(critic.parameters(), critic_optimizer.state)
+                        critic_updates += 1
+                model.value_output.update(critic.parameters())
+                mx.eval(model.parameters())
+                del feature_batches, value_features
+            critic_seconds = time.monotonic() - critic_start
             total_games += args.games
             learning_seconds = time.monotonic() - learning_start
             checkpoint_start = time.monotonic()
@@ -337,6 +451,10 @@ def main():
             export_actor(model, spec, runtime, compressed=False)
             optimizer_path = checkpoint.with_suffix(".optimizer.npz")
             save_optimizer_state(optimizer, optimizer_path)
+            critic_optimizer_path = None
+            if args.separate_critic:
+                critic_optimizer_path = checkpoint.with_suffix(".critic-optimizer.npz")
+                save_optimizer_state(critic_optimizer, critic_optimizer_path)
             record = dict(
                 iteration=iteration,
                 games=total_games,
@@ -358,6 +476,9 @@ def main():
                 next_learning_rate=current_lr,
                 post_update_kl=post_update_kl,
                 update_rejected=update_rejected,
+                critic_calibration=calibration,
+                critic_seconds=critic_seconds,
+                critic_updates=critic_updates,
                 **(
                     {k: float(np.mean([d[k] for d in diagnostics])) for k in diagnostics[0]}
                     if diagnostics
@@ -406,6 +527,9 @@ def main():
                 eval_rng=eval_rng.bit_generator.state,
                 elapsed=elapsed_before + time.monotonic() - started,
                 learning_rate=current_lr,
+                critic_optimizer=str(critic_optimizer_path) if critic_optimizer_path else None,
+                critic_rng=critic_rng.bit_generator.state,
+                critic_updates=critic_updates,
             )
             temporary = out / "state.tmp"
             temporary.write_text(json.dumps(state, indent=2))

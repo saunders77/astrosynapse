@@ -68,3 +68,11 @@ manifests retain their historical identities. Model, optimizer, seeds, rules,
 and promotion thresholds were preserved. `scripts/maintain_progressive_runtime.py`
 performs this restricted maintenance under the campaign lock, verifies the
 existing identity, and refuses an unpaused or unexpectedly modified runtime.
+
+The [September 19 critic correction](astro6-critic-2026-09-19.md) addresses
+missing forced-action value examples and separates critic optimization from
+policy clipping and KL control. Its validation job installs an explicit audited
+revision only after checks complete; `data/astro6-critic-20260919/result.json`
+records the outcome. Installation leaves the campaign paused and retains its
+champion and promotion evidence. New learner checkpoints include a separate
+critic optimizer sidecar and pre-fit calibration metrics.

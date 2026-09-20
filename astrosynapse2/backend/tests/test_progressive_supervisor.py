@@ -81,10 +81,12 @@ def test_resume_completes_interrupted_anchor_before_training(supervisor, tmp_pat
     (out / "state.json").write_text(json.dumps(state))
     anchor = out / "anchor-001"
     anchor.mkdir()
+
     def row(i):
         return dict(
             pair=i, scores=[1.0, 0.0], seconds=0.0, searches=0, changes=0, branches=0, truncated=0
         )
+
     (anchor / "pairs.jsonl").write_text("".join(json.dumps(row(i)) + "\n" for i in range(1792)))
     seen = []
 
@@ -155,6 +157,25 @@ def test_runtime_maintenance_preserves_provenance_and_rejects_unknown_changes(
     assert (out / "STOP").exists()
     assert json.loads((Path(revision["backup"]) / "manifest.json").read_text()) == manifest
     assert maintain(out, project, "repeat")["changed_files"] == []
+    (project / "backend/astro2").mkdir(parents=True)
+    (project / "backend/astro2/onpolicy.py").write_text("critic = 2\n")
+    (runtime / "astro2/onpolicy.py").write_text("critic = 1\n")
+    # Add the old learner module to the known identity before migration.
+    old_identity = code_identity(runtime / "astro2", runtime / "scripts")
+    for path in [out / "manifest.json", out / "stage-001/manifest.json"]:
+        payload = json.loads(path.read_text())
+        payload["code_identity"] = old_identity
+        path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="explicit --separate-critic"):
+        maintain(out, project, "must opt in")
+    revision = maintain(out, project, "critic correction", separate_critic=True)
+    migrated = json.loads((out / "stage-001/manifest.json").read_text())
+    assert migrated["separate_critic"] is True
+    assert migrated["learner_version"] == 4
+    assert migrated["critic_learning_rate"] == 0.0003
+    assert json.loads((out / "state.json").read_text()) == state
+    assert (runtime / "astro2/engine.py").read_text() == "rules = 1\n"
+    assert (Path(revision["backup"]) / "runtime/astro2/onpolicy.py").read_text() == "critic = 1\n"
     (runtime / "astro2/engine.py").write_text("rules = 2\n")
     with pytest.raises(ValueError, match="unknown modification"):
         maintain(out, project, "bad patch")

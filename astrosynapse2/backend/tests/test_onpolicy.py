@@ -1,7 +1,7 @@
 import numpy as np
 
 from astro2.model import ModelSpec, build_model
-from astro2.onpolicy import masked_log_policy, ppo_loss
+from astro2.onpolicy import critic_calibration, critic_logits, masked_log_policy, ppo_loss
 
 
 def fixture():
@@ -76,3 +76,136 @@ def test_critic_cannot_move_policy_parameters_but_actor_can():
     norms = {name: float(mx.sum(mx.abs(value)).item()) for name, value in tree_flatten(gradients)}
     assert sum(norm for name, norm in norms.items() if name.startswith("state_in.")) > 0
     assert all(norm == 0 for name, norm in norms.items() if name.startswith("value_output."))
+
+
+def test_separate_critic_fits_outcomes_without_changing_policy(tmp_path):
+    import mlx.core as mx
+    import mlx.nn as nn
+    import mlx.optimizers as optim
+    from mlx.utils import tree_flatten
+
+    from astro2.model import load_optimizer_state, save_optimizer_state
+
+    model, arrays = fixture()
+    before = {k: np.asarray(v).copy() for k, v in tree_flatten(model.parameters())}
+    head = nn.Linear(16, 6)
+    head.update(model.value_output.parameters())
+    model.value_output.freeze()
+    features = mx.stop_gradient(model.state_features(arrays[0]))
+    targets = mx.array([1.0, 0.0, 1.0, 0.0])
+
+    def loss():
+        logits = critic_logits(head, features, arrays[3], 3, 2)
+        return nn.losses.binary_cross_entropy(
+            logits,
+            mx.broadcast_to(targets[:, None], logits.shape),
+            with_logits=True,
+            reduction="mean",
+        )
+
+    initial = float(loss().item())
+    optimizer = optim.Adam(learning_rate=0.003)
+    gradient = nn.value_and_grad(head, loss)
+    for _ in range(30):
+        _, grads = gradient()
+        optimizer.update(head, grads)
+        mx.eval(head.parameters(), optimizer.state)
+    assert float(loss().item()) < initial
+    model.value_output.update(head.parameters())
+    after = {k: np.asarray(v) for k, v in tree_flatten(model.parameters())}
+    for name in before:
+        if not name.startswith("value_output."):
+            np.testing.assert_array_equal(before[name], after[name])
+    assert any(
+        not np.array_equal(before[k], after[k]) for k in before if k.startswith("value_output.")
+    )
+
+    # A policy update excludes the value head even when the actor optimizer has
+    # inherited nonzero critic momentum from the old combined objective.
+    model.value_output.unfreeze()
+    actor_optimizer = optim.Adam(learning_rate=0.001)
+    _, grads = nn.value_and_grad(
+        model,
+        lambda: ppo_loss(
+            model,
+            *arrays,
+            mx.zeros(4),
+            targets,
+        )[0],
+    )()
+    actor_optimizer.update(model, grads)
+    mx.eval(model.parameters(), actor_optimizer.state)
+    model.value_output.freeze()
+    frozen = {k: np.asarray(v).copy() for k, v in tree_flatten(model.value_output.parameters())}
+    _, grads = nn.value_and_grad(
+        model,
+        lambda: ppo_loss(
+            model,
+            *arrays,
+            mx.ones(4),
+            targets,
+            value_weight=0,
+        )[0],
+    )()
+    actor_optimizer.update(model, grads)
+    mx.eval(model.parameters(), actor_optimizer.state)
+    for k, v in tree_flatten(model.value_output.parameters()):
+        np.testing.assert_array_equal(frozen[k], np.asarray(v))
+
+    path = tmp_path / "critic.npz"
+    save_optimizer_state(optimizer, path)
+    restored = optim.Adam(learning_rate=0.003)
+    assert load_optimizer_state(restored, path)
+    for (name, value), (other_name, other) in zip(
+        tree_flatten(optimizer.state), tree_flatten(restored.state), strict=True
+    ):
+        assert name == other_name
+        np.testing.assert_array_equal(np.asarray(value), np.asarray(other))
+
+
+def test_critic_calibration_separates_forced_and_family_errors():
+    report = critic_calibration([0.9, 0.5, 0.2], [0.0, 1.0, 0.0], [0, 0, 1], [True, False, False])
+    assert report["forced"]["positions"] == 1
+    assert abs(report["forced"]["brier"] - 0.81) < 1e-7
+    assert report["choices"]["positions"] == 2
+    assert report["families"]["1"]["positions"] == 1
+
+
+def test_forced_positions_train_critic_but_not_policy(monkeypatch):
+    from types import SimpleNamespace
+
+    import astro2.onpolicy as module
+
+    decision = SimpleNamespace(actions=[object(), object()], observation=None)
+    actor = SimpleNamespace(
+        spec=SimpleNamespace(encoder_version=1),
+        predict_options=lambda *_: np.array([[0.0], [0.0]]),
+    )
+    monkeypatch.setattr(module, "cached_actor", lambda _: actor)
+    monkeypatch.setattr(
+        module,
+        "EngineEncoder",
+        lambda **_: SimpleNamespace(
+            encode_decision=lambda *_: SimpleNamespace(
+                state=np.ones(2), actions=np.ones((2, 3)), family=0
+            )
+        ),
+    )
+    indices = iter([[0], [0, 1]])
+    monkeypatch.setattr(module, "model_action_indices", lambda _: next(indices))
+
+    class Game:
+        def __init__(self, choosers, **_):
+            self.choose = choosers[0]
+
+        def run(self):
+            self.choose(0, decision)
+            self.choose(0, decision)
+            return SimpleNamespace(truncated=False, winner=0)
+
+    monkeypatch.setattr(module, "Game", Game)
+    trajectory = module.collect_trajectory(("actor", "opponent", 0.03, 17, 0, None, 1, True))
+    assert len(trajectory.states) == 1
+    assert len(trajectory.value_states) == 2
+    assert trajectory.value_forced == [True, False]
+    assert trajectory.target == 1.0
