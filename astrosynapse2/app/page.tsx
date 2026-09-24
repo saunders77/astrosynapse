@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-img-element -- Local card art has mixed portrait and landscape aspect ratios. */
 
 import ManualHardAiMatch from "./manual-hard-ai-match";
+import AcquireStudentAdvice from "./acquire-student-advice";
 import Link from "next/link";
 import {
   useEffect,
@@ -346,6 +347,15 @@ type CardEloChart = {
   buckets: CardEloBucket[];
 };
 
+type TurnStatChart = {
+  key: string;
+  label: string;
+  yLabel: string;
+  description: string;
+  unit: string;
+  series: { key: string; label: string; points: { turn: number; value: number; lower: number; upper: number; count: number }[] }[];
+};
+
 type CardAnalysisView = {
   rulesVersion?: number;
   id: string;
@@ -364,6 +374,7 @@ type CardAnalysisView = {
   completedAt: string;
   leaderboard: CardEloEntry[];
   bucketedCharts: CardEloChart[];
+  turnStatCharts: TurnStatChart[];
   error: string;
 };
 
@@ -562,6 +573,8 @@ type RemoteGameAction = {
 };
 
 type RemoteGameSession = {
+  observation: Record<string, unknown>;
+  tradeSpent: number;
   id: string;
   status: "your_turn" | "model_thinking" | "complete" | "error";
   prompt: string;
@@ -926,6 +939,7 @@ const quickConfig: TrainerConfig = {
 };
 
 const demoCheckpointDiagnostics = {
+  wasChampion: false,
   actorAvailable: true,
   modelAvailable: true,
   branchCompatible: true,
@@ -946,6 +960,7 @@ const demoModels: ModelCheckpoint[] = [
   {
     ...demoCheckpointDiagnostics,
     id: "champion-042",
+    wasChampion: true,
     label: "Champion 042",
     parentId: "champion-038",
     games: 190_000,
@@ -981,6 +996,7 @@ const demoModels: ModelCheckpoint[] = [
   {
     ...demoCheckpointDiagnostics,
     id: "champion-038",
+    wasChampion: true,
     label: "Champion 038",
     parentId: "champion-031",
     games: 145_000,
@@ -998,6 +1014,7 @@ const demoModels: ModelCheckpoint[] = [
   {
     ...demoCheckpointDiagnostics,
     id: "champion-031",
+    wasChampion: true,
     label: "Champion 031",
     parentId: "bootstrap-v1",
     games: 100_000,
@@ -2136,6 +2153,24 @@ function normalizeCardAnalysis(raw: unknown): CardAnalysisView | null {
     durationSeconds: asNumber(result.duration_seconds, 0),
     completedAt: asString(result.completed_at ?? raw.updated_at ?? raw.created_at, ""),
     leaderboard: rawLeaderboard.map((entry, index) => normalizeEloEntry(entry, index)),
+    turnStatCharts: (Array.isArray(result.turn_stat_charts) ? result.turn_stat_charts : []).map((rawChart): TurnStatChart => {
+      const chart = isRecord(rawChart) ? rawChart : {};
+      return {
+        key: asString(chart.key, ""), label: asString(chart.label, ""),
+        yLabel: asString(chart.y_label, ""), description: asString(chart.description, ""),
+        unit: asString(chart.unit, "percent"),
+        series: (Array.isArray(chart.series) ? chart.series : []).map((rawSeries) => {
+          const series = isRecord(rawSeries) ? rawSeries : {};
+          return { key: asString(series.key, ""), label: asString(series.label, ""),
+            points: (Array.isArray(series.points) ? series.points : []).map((rawPoint) => {
+              const point = isRecord(rawPoint) ? rawPoint : {};
+              return { turn: asNumber(point.turn, 1), value: asNumber(point.value, 0),
+                lower: asNumber(point.lower, 0), upper: asNumber(point.upper, 0), count: asNumber(point.count, 0) };
+            }),
+          };
+        }),
+      };
+    }),
     bucketedCharts: rawCharts.map((chart, chartIndex): CardEloChart => {
       const item = isRecord(chart) ? chart : {};
       const rawBuckets = Array.isArray(item.buckets) ? item.buckets : [];
@@ -2292,6 +2327,8 @@ function normalizeRemoteGame(raw: unknown, previous: GameState): {
           recommended: Boolean(item.model_recommended),
         };
       }),
+      observation,
+      tradeSpent: asNumber(raw.trade_spent_this_turn, 0),
       modelLabel: asString(raw.model_label, "Opponent"),
       scoreSemantics:
         raw.model_score_semantics === "policy_probability" || raw.model_score_semantics === "win_outcome"
@@ -3253,6 +3290,61 @@ function BucketedEloChart({
       </div>
     </article>
   );
+}
+
+function TurnStatisticsChart({ chart }: { chart: TurnStatChart }) {
+  const [active, setActive] = useState<string | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const width = 1920;
+  const height = 900 + Math.ceil(chart.series.length / 4) * 30;
+  const points = chart.series.flatMap((series) => series.points);
+  const min = chart.unit === "percent" ? 0 : Math.min(1000, ...points.map((point) => point.lower));
+  const max = chart.unit === "percent" ? 100 : Math.max(1001, ...points.map((point) => point.upper));
+  const x = (turn: number) => 120 + (turn - 1) / 29 * 1720;
+  const y = (value: number) => 740 - (value - min) / (max - min) * 580;
+  const color = (index: number) => `hsl(${index * 137.508 % 360} 72% 64%)`;
+  const download = () => {
+    if (!svgRef.current) return;
+    const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svgRef.current)], { type: "image/svg+xml" }));
+    const link = document.createElement("a");
+    link.href = url; link.download = `${chart.key.replaceAll(":", "-")}.svg`; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  return <article className="bucketed-chart-card">
+    <button type="button" className="button button-secondary" onClick={download}>Save {chart.label} as SVG</button>
+    <div className="bucketed-chart-frame">
+      <svg ref={svgRef} xmlns="http://www.w3.org/2000/svg" className="bucketed-elo-svg" width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={chart.label} onMouseLeave={() => setActive(null)}>
+        <rect width={width} height={height} rx="18" fill="#101827" />
+        <g fontFamily="sans-serif" fill="#d9e3ef">
+          <text x="120" y="48" fontSize="30">{chart.label}</text>
+          <text x="120" y="82" fontSize="20">{chart.description}</text>
+          <text x="120" y="115" fontSize="18">Turn 30+ includes all later turns. Hover a line or legend to highlight; bars show 95% confidence intervals.</text>
+          {Array.from({ length: 6 }, (_, index) => {
+            const value = min + (max - min) * index / 5;
+            return <g key={index}><line x1="120" x2="1840" y1={y(value)} y2={y(value)} stroke="#344155" /><text x="105" y={y(value) + 6} textAnchor="end" fontSize="18">{value.toFixed(0)}{chart.unit === "percent" ? "%" : ""}</text></g>;
+          })}
+          <text transform="translate(30 450) rotate(-90)" textAnchor="middle" fontSize="22">{chart.yLabel}</text>
+          {Array.from({ length: 30 }, (_, index) => <text key={index} x={x(index + 1)} y="775" textAnchor="middle" fontSize="18">{index === 29 ? "30+" : index + 1}</text>)}
+          <text x="980" y="815" textAnchor="middle" fontSize="22">Turn number</text>
+          {!points.length ? <text x="980" y="420" textAnchor="middle" fontSize="25">No eligible observations in this run</text> : null}
+          {chart.series.map((series, index) => {
+            const stroke = color(index);
+            const path = series.points.map((point, i) => `${i && series.points[i - 1].turn === point.turn - 1 ? "L" : "M"}${x(point.turn)},${y(point.value)}`).join(" ");
+            return <g key={series.key} opacity={active && active !== series.key ? 0.12 : 1} onMouseEnter={() => setActive(series.key)}>
+              <path d={path} stroke={stroke} strokeWidth="3" fill="none" />
+              {series.points.map((point) => <g key={point.turn}>
+                <path d={`M${x(point.turn)},${y(point.lower)}V${y(point.upper)}M${x(point.turn)-5},${y(point.lower)}h10M${x(point.turn)-5},${y(point.upper)}h10`} stroke={stroke} opacity="0.55" fill="none" />
+                <circle cx={x(point.turn)} cy={y(point.value)} r="5" fill={stroke}><title>{`${series.label}, turn ${point.turn === 30 ? "30+" : point.turn}: ${point.value.toFixed(2)} (95% CI ${point.lower.toFixed(2)}–${point.upper.toFixed(2)}), n=${point.count}`}</title></circle>
+              </g>)}
+              <g transform={`translate(${120 + index % 4 * 440} ${875 + Math.floor(index / 4) * 30})`} tabIndex={0} onFocus={() => setActive(series.key)} onBlur={() => setActive(null)} aria-label={series.label}>
+                <line x1="0" x2="28" y1="-6" y2="-6" stroke={stroke} strokeWidth="3" /><text x="38" fontSize="18">{series.label}</text>
+              </g>
+            </g>;
+          })}
+        </g>
+      </svg>
+    </div>
+  </article>;
 }
 
 function BucketedEloCharts({ charts }: { charts: CardEloChart[] }) {
@@ -4912,6 +5004,7 @@ export default function Home() {
           </button>
         ))}
         <Link href="/progressive" className="progressive-nav-link">Astro6 progress ↗</Link>
+        <Link href="/students" className="progressive-nav-link">Acquire students ↗</Link>
       </nav>
 
       <div className="workspace">
@@ -5431,6 +5524,7 @@ export default function Home() {
                 {analysisResult.error ? <p className="card-analysis-error">{analysisResult.error}</p> : null}
                 {analysisResult.leaderboard.length ? <div className="card-elo-results">
                   <div className="card-elo-summary"><span><small>Scored choices</small><strong>{numberFormatter.format(analysisResult.scoredDecisions)}</strong></span><span><small>Comparisons</small><strong>{numberFormatter.format(analysisResult.comparisons)}</strong></span><span><small>Truncations</small><strong>{numberFormatter.format(analysisResult.truncatedGames)}</strong></span><span><small>Duration</small><strong>{formatDuration(analysisResult.durationSeconds)}</strong></span></div>
+                  {analysisResult.turnStatCharts.map((chart) => <TurnStatisticsChart key={chart.key} chart={chart} />)}
                   {analysisResult.bucketedCharts.length ? <BucketedEloCharts charts={analysisResult.bucketedCharts} /> : <div className="card-elo-table" role="table" aria-label={`${analysisResult.kind} card Elo rankings`}><div className="card-elo-row card-elo-header" role="row"><span role="columnheader">Rank / card</span><span role="columnheader">Elo</span><span role="columnheader">± uncertainty</span><span role="columnheader">Decisions</span><span role="columnheader">Comparisons</span></div>{analysisResult.leaderboard.map((entry, index) => <div className="card-elo-row" role="row" key={entry.key}><span role="cell"><b>{index + 1}</b><CardArtHover name={entry.cardName}><strong>{entry.label}</strong></CardArtHover></span><span role="cell">{entry.elo.toFixed(2)}</span><span role="cell">{entry.uncertainty === null ? "—" : entry.uncertainty.toFixed(2)}</span><span role="cell">{numberFormatter.format(entry.decisions)}</span><span role="cell">{numberFormatter.format(entry.comparisons)}</span></div>)}</div>}
                 </div> : analysisRunning ? null : <EmptyState title="No comparable choices observed" detail="The candidate completed the sample without a single-card turn containing at least one alternate card choice." />}
               </> : <EmptyState title="Choose a candidate and a probe" detail="Scrap Elo combines hand and discard evidence with No Discard. Acquire Elo includes No Card while keeping its comparisons limited to actual purchases or affordable turn-end choices." />}
@@ -5520,6 +5614,7 @@ export default function Home() {
                   const recommendation = remoteGame.actions.find((action) => action.recommended);
                   return <><div className="model-hint-details"><span>Recommended action</span><strong>{recommendation ? titleCase(recommendation.label) : "Not exposed for this opponent"}</strong><b>{recommendation?.modelValue === null || recommendation?.modelValue === undefined ? "—" : `${formatPercent(recommendation.modelValue)} policy share`}</b></div>{remoteGame.expectedWinRate !== null ? <div className="model-hint-details"><span>Estimated win probability</span><strong>Current position</strong><b>{formatPercent(remoteGame.expectedWinRate)}</b></div> : null}</>;
                 })() : <><div className="model-hint-details"><span>Recommended action</span><strong>Play Federation Shuttle</strong><b>42% policy share</b></div><div className="model-hint-details"><span>Estimated win probability</span><strong>Current position</strong><b>56.4%</b></div></>}</div>
+                <AcquireStudentAdvice key={`${remoteGame?.id}-${game.turn}`} apiBase={API_BASE} observation={remoteGame?.status === "your_turn" ? remoteGame.observation : null} spent={remoteGame?.tradeSpent} positionKey={`${remoteGame?.id}-${game.turn}`} />
                 <div className="game-log"><header><span className="panel-kicker">Action log</span><button type="button" onClick={() => setGame((current) => ({ ...current, log: [] }))}>Clear</button></header>{game.log.length ? game.log.map((entry, index) => <p key={`${entry}-${index}`}><span>{String(game.turn - Math.min(index, 2)).padStart(2, "0")}</span>{entry}</p>) : <EmptyState title="No actions yet" detail="Play a card to begin the log." />}</div>
               </aside>
             </div>}

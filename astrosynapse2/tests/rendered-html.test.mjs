@@ -4,12 +4,12 @@ import test from "node:test";
 
 const projectRoot = new URL("../", import.meta.url);
 
-async function render() {
+async function render(path = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: handler } = await import(workerUrl.href);
 
-  const request = new Request("http://127.0.0.1:3000/", {
+  const request = new Request(`http://127.0.0.1:3000${path}`, {
     headers: { accept: "text/html" },
   });
   if (typeof handler === "function") return handler(request);
@@ -27,6 +27,17 @@ async function render() {
     },
   );
 }
+
+test("server-renders the acquire student training page", async () => {
+  const response = await render("/students");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Acquire students/);
+  assert.match(html, /Teacher checkpoint/);
+  assert.match(html, /Maximum tree nodes/);
+  assert.match(html, /Train acquire student/);
+  assert.match(html, /Training progress/);
+});
 
 test("server-renders the Astrosynapse 2 control center", async () => {
   const response = await render();

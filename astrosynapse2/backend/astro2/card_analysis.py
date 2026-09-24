@@ -217,6 +217,20 @@ def _scrap_option(action: Action) -> ChoiceOption | None:
     return ChoiceOption(f"card:{card.card_id}", card.name, "", card.name)
 
 
+def _source_scrap_option(action: Action) -> ChoiceOption | None:
+    option = _scrap_option(action)
+    if option is None or action.kind == ActionKind.DECLINE:
+        return option
+    source = action.source_zone
+    label = "discard pile" if source == "discard" else source
+    return ChoiceOption(
+        f"card:{action.card_id}:{source}",
+        option.card_name,
+        source,
+        f"{option.card_name} (from {label})",
+    )
+
+
 def _choice_decision(
     decision: Decision,
     selected: Action,
@@ -285,6 +299,8 @@ def _opponent_top_acquired_color(
 def extract_single_card_turn_decisions(
     events: Iterable[tuple[int, Decision, Action]],
     kind: AnalysisKind | str,
+    *,
+    separate_scrap_sources: bool = False,
 ) -> dict[str, Any]:
     """Extract eligible choices from one game of decision-hook events.
 
@@ -340,7 +356,12 @@ def extract_single_card_turn_decisions(
         if selected.kind in {ActionKind.SCRAP_CARD, ActionKind.SCRAP_FOR_ABILITY}:
             turn.scrapped_cards += 1
         if decision.family == DecisionFamily.SCRAP:
-            choice = _choice_decision(decision, selected, _scrap_option)
+            choice = _choice_decision(
+                decision,
+                selected,
+                _source_scrap_option if separate_scrap_sources else _scrap_option,
+                AcquisitionContext(max(1, int(decision.observation.turn)), 0, 0, 0, None),
+            )
             if choice is not None:
                 assert turn.scrap_decisions is not None
                 turn.scrap_decisions.append(choice)
@@ -404,8 +425,7 @@ def _initial_rating_state(kind: AnalysisKind) -> dict[str, Any]:
         options.append(NO_CARD_OPTION)
     else:
         options = [
-            ChoiceOption(f"card:{card.card_id}", card.name, "", card.name)
-            for card in ALL_CARDS
+            ChoiceOption(f"card:{card.card_id}", card.name, "", card.name) for card in ALL_CARDS
         ]
         options.append(NO_DISCARD_OPTION)
     return {
@@ -494,9 +514,9 @@ def _apply_scrap_result(state: dict[str, Any], decision: ChoiceDecision, base_k:
         expected = 1.0 / (1.0 + 10.0 ** ((ratings[loser.key] - base_winner) / 400.0))
         remainder = 1.0 - expected
         deltas[winner.key] += _adaptive_k(base_k, prior[winner.key]) * remainder
-        deltas[loser.key] = deltas.get(loser.key, 0.0) - _adaptive_k(
-            base_k, prior[loser.key]
-        ) * remainder
+        deltas[loser.key] = (
+            deltas.get(loser.key, 0.0) - _adaptive_k(base_k, prior[loser.key]) * remainder
+        )
         state["comparisons"][winner.key] += 1
         state["comparisons"][loser.key] += 1
         state["wins"][winner.key] += 1
@@ -548,7 +568,7 @@ def _leaderboard(state: dict[str, Any], kind: AnalysisKind, base_k: float) -> li
 
 def _card_color_for_option(option: ChoiceOption) -> str:
     try:
-        card_id = int(option.key.split(":", 1)[1])
+        card_id = int(option.key.split(":")[1])
     except (IndexError, ValueError):
         return "neutral"
     card = CARD_BY_ID.get(card_id)
@@ -559,7 +579,7 @@ def _card_color_for_option(option: ChoiceOption) -> str:
 
 def _card_cost_for_option(option: ChoiceOption) -> int:
     try:
-        card_id = int(option.key.split(":", 1)[1])
+        card_id = int(option.key.split(":")[1])
     except (IndexError, ValueError):
         return 0
     card = CARD_BY_ID.get(card_id)
@@ -635,9 +655,7 @@ def rate_bucketed_acquire_decisions(
         (max(0, decision.context.opponent_authority) for decision in contextual), default=0
     )
     own_authority_starts = list(range(0, maximum_own_authority // 10 * 10 + 1, 10))
-    opponent_authority_starts = list(
-        range(0, maximum_opponent_authority // 10 * 10 + 1, 10)
-    )
+    opponent_authority_starts = list(range(0, maximum_opponent_authority // 10 * 10 + 1, 10))
     definitions: list[tuple[str, str, list[tuple[str, str]]]] = [
         (
             "turn",
@@ -678,15 +696,11 @@ def rate_bucketed_acquire_decisions(
         context = decision.context
         assert context is not None
         grouped["turn"][str(min(30, max(1, context.turn)))].append(decision)
-        grouped["own_authority"][_ten_authority_bucket(context.own_authority)[0]].append(
+        grouped["own_authority"][_ten_authority_bucket(context.own_authority)[0]].append(decision)
+        grouped["acquired_cards"][_acquired_card_bucket(context.acquired_cards)[0]].append(decision)
+        grouped["opponent_authority"][_ten_authority_bucket(context.opponent_authority)[0]].append(
             decision
         )
-        grouped["acquired_cards"][_acquired_card_bucket(context.acquired_cards)[0]].append(
-            decision
-        )
-        grouped["opponent_authority"][
-            _ten_authority_bucket(context.opponent_authority)[0]
-        ].append(decision)
         if context.opponent_top_color is None:
             unbucketed_colors += 1
         else:
@@ -721,6 +735,160 @@ def rate_bucketed_acquire_decisions(
     return charts
 
 
+def _extra_turn_statistics(events: Sequence[tuple[int, Decision, Action]]) -> dict[str, Any]:
+    """Count each legal play-scrap card once per player-turn, not per action."""
+    opportunities: set[tuple[int, int, int]] = set()
+    scraps: set[tuple[int, int, int]] = set()
+    scrap_events = []
+    modes: Counter[tuple[int, int, str, bool]] = Counter()
+    for player, decision, selected in events:
+        turn = max(1, int(decision.observation.turn))
+        for action in decision.actions:
+            if action.kind == ActionKind.SCRAP_FOR_ABILITY:
+                opportunities.add((player, turn, action.card_id))
+        if selected.kind == ActionKind.SCRAP_FOR_ABILITY:
+            scraps.add((player, turn, selected.card_id))
+            scrap_events.append({"player": player, "turn": turn, "card_id": selected.card_id})
+        if selected.kind == ActionKind.CHOOSE_MODE:
+            # Ability identifies a branch even when its amount varies (Blob World).
+            for ability in dict.fromkeys(
+                action.ability
+                for action in decision.actions
+                if action.kind == ActionKind.CHOOSE_MODE
+            ):
+                modes[(turn, selected.card_id, ability, ability == selected.ability)] += 1
+    play_counts: Counter[tuple[int, int, bool]] = Counter()
+    for player, turn, card_id in opportunities:
+        play_counts[(turn, card_id, (player, turn, card_id) in scraps)] += 1
+    return {
+        "play_scrap_counts": play_counts,
+        "mode_counts": modes,
+        "play_scrap_events": scrap_events,
+        "scrap_decisions": extract_single_card_turn_decisions(
+            events, AnalysisKind.SCRAP, separate_scrap_sources=True
+        )["decisions"],
+    }
+
+
+def _empty_extra_statistics() -> dict[str, Any]:
+    return {
+        "play_scrap_counts": Counter(),
+        "mode_counts": Counter(),
+        "play_scrap_events": [],
+        "scrap_decisions": [],
+    }
+
+
+def _merge_extra_statistics(target: dict[str, Any], source: dict[str, Any]) -> None:
+    for field in ("play_scrap_counts", "mode_counts"):
+        target[field].update(source[field])
+    for field in ("play_scrap_events", "scrap_decisions"):
+        target[field].extend(source[field])
+
+
+def _percentage_point(turn: int, successes: int, total: int) -> dict[str, Any]:
+    # Wilson score interval behaves sensibly for rare cards and 0%/100% bins.
+    z = 1.959963984540054
+    fraction = successes / total
+    denominator = 1 + z * z / total
+    center = (fraction + z * z / (2 * total)) / denominator
+    half = z * math.sqrt(fraction * (1 - fraction) / total + z * z / (4 * total**2)) / denominator
+    return {
+        "turn": turn,
+        "value": 100 * fraction,
+        "lower": 100 * max(0, center - half),
+        "upper": 100 * min(1, center + half),
+        "count": total,
+        "selected": successes,
+    }
+
+
+def build_turn_stat_charts(extra: dict[str, Any], *, k_factor: float) -> list[dict[str, Any]]:
+    play: dict[int, Counter[tuple[int, bool]]] = {}
+    for (turn, card_id, chosen), count in extra["play_scrap_counts"].items():
+        play.setdefault(card_id, Counter())[(min(30, turn), chosen)] += count
+    modes: dict[int, dict[str, Counter[tuple[int, bool]]]] = {}
+    for (turn, card_id, ability, chosen), count in extra["mode_counts"].items():
+        modes.setdefault(card_id, {}).setdefault(ability, Counter())[(min(30, turn), chosen)] += (
+            count
+        )
+
+    def series(key: str, label: str, counts: Counter[tuple[int, bool]]) -> dict[str, Any]:
+        return {
+            "key": key,
+            "label": label,
+            "points": [
+                _percentage_point(
+                    turn, counts[(turn, True)], counts[(turn, True)] + counts[(turn, False)]
+                )
+                for turn in range(1, 31)
+                if counts[(turn, True)] + counts[(turn, False)]
+            ],
+        }
+
+    charts = [
+        {
+            "key": "play_scrap",
+            "label": "Scrapped from play by turn",
+            "y_label": "% of eligible turns scrapped from play",
+            "unit": "percent",
+            "description": "One observation per card per player-turn with a legal play-scrap action. 95% Wilson confidence intervals.",
+            "series": [
+                series(str(card_id), CARD_BY_ID[card_id].name, counts)
+                for card_id, counts in sorted(play.items())
+            ],
+        }
+    ]
+    grouped: dict[int, list[ChoiceDecision]] = {}
+    for choice in extra["scrap_decisions"]:
+        assert choice.context is not None
+        grouped.setdefault(min(30, choice.context.turn), []).append(choice)
+    scrap_series: dict[str, dict[str, Any]] = {}
+    for turn, choices in sorted(grouped.items()):
+        rated = rate_choice_decisions(choices, AnalysisKind.SCRAP, k_factor=k_factor)
+        for entry in rated["leaderboard"]:
+            if not entry["decision_count"] or entry["uncertainty"] is None:
+                continue
+            item = scrap_series.setdefault(
+                entry["key"], {"key": entry["key"], "label": entry["label"], "points": []}
+            )
+            half = 1.959963984540054 * entry["uncertainty"]
+            item["points"].append(
+                {
+                    "turn": turn,
+                    "value": entry["elo"],
+                    "lower": entry["elo"] - half,
+                    "upper": entry["elo"] + half,
+                    "count": entry["decision_count"],
+                }
+            )
+    charts.append(
+        {
+            "key": "scrap_elo",
+            "label": "Scrap Elo by turn",
+            "y_label": "Scrap Elo",
+            "unit": "elo",
+            "description": "Separate hand and discard ratings; zero-or-one-scrap turns. Approximate 95% Elo confidence intervals.",
+            "series": list(scrap_series.values()),
+        }
+    )
+    for card_id, branches in sorted(modes.items()):
+        charts.append(
+            {
+                "key": f"choice:{card_id}",
+                "label": f"{CARD_BY_ID[card_id].name} choices by turn",
+                "y_label": "% of choices",
+                "unit": "percent",
+                "description": "Each resolved A OR B decision is one observation. 95% Wilson confidence intervals.",
+                "series": [
+                    series(ability, ability.replace("_", " ").capitalize(), counts)
+                    for ability, counts in sorted(branches.items())
+                ],
+            }
+        )
+    return charts
+
+
 def _simulate_game_batch(
     actor_path: str,
     kind: AnalysisKind,
@@ -737,6 +905,7 @@ def _simulate_game_batch(
         raise ModelResolutionError("checkpoint actor decision families are incompatible")
 
     decisions: list[ChoiceDecision] = []
+    extra = _empty_extra_statistics()
     games_completed = 0
     truncated_games = 0
     turns_observed = 0
@@ -772,6 +941,11 @@ def _simulate_game_batch(
         result = game.run()
         games_completed += 1
         truncated_games += int(result.truncated)
+        if kind == AnalysisKind.ACQUIRE_BUCKETED:
+            game_extra = _extra_turn_statistics(events)
+            for event in game_extra["play_scrap_events"]:
+                event["game_index"] = game_index
+            _merge_extra_statistics(extra, game_extra)
         extracted = extract_single_card_turn_decisions(events, kind)
         turns_observed += int(extracted["turns_observed"])
         single_card_turns += int(extracted["single_card_turns"])
@@ -779,6 +953,7 @@ def _simulate_game_batch(
         if progress is not None:
             progress(games_completed, single_card_turns, len(decisions))
     return {
+        "extra_statistics": extra,
         "games_completed": games_completed,
         "truncated_games": truncated_games,
         "turns_observed": turns_observed,
@@ -872,6 +1047,7 @@ def _simulate_games(
         executor.shutdown(wait=True, cancel_futures=should_cancel)
 
     combined: dict[str, Any] = {
+        "extra_statistics": _empty_extra_statistics(),
         "games_completed": 0,
         "truncated_games": 0,
         "turns_observed": 0,
@@ -888,12 +1064,15 @@ def _simulate_games(
         ):
             combined[field] += int(batch[field])
         combined["decisions"].extend(batch["decisions"])
+        _merge_extra_statistics(combined["extra_statistics"], batch["extra_statistics"])
     return combined
 
 
 def format_analysis_report(result: dict[str, Any]) -> str:
     kind = AnalysisKind(result["kind"])
-    display_kind = "Bucketed Acquire" if kind == AnalysisKind.ACQUIRE_BUCKETED else kind.value.title()
+    display_kind = (
+        "Bucketed Acquire" if kind == AnalysisKind.ACQUIRE_BUCKETED else kind.value.title()
+    )
     lines = [
         f"{display_kind} Elo Test for {result['model']['label']}",
         f"Checkpoint: {result['model']['id']}",
@@ -919,7 +1098,8 @@ def format_analysis_report(result: dict[str, Any]) -> str:
                 "Turn 30 includes turn 30 and later; opponent color uses the most recently acquired tied leader.",
                 "Opponent-color states before any colored opponent acquisition are reported as unbucketed.",
                 "",
-                "Charts: turn, own authority, acquired-card count, opponent authority, opponent top-acquired color.",
+                "Charts: turn, own authority, acquired-card count, opponent authority, opponent top-acquired color, play-scrap frequency, source-specific scrap Elo, and card choices.",
+                "Play-scrap frequency uses eligible player-turns; choices use resolved mode decisions. New charts include 95% confidence intervals.",
             ]
         )
     lines.extend(["", "Rankings"])
@@ -958,6 +1138,7 @@ def run_card_analysis(
         cancelled=cancelled,
     )
     decisions = simulated.pop("decisions")
+    extra = simulated.pop("extra_statistics", _empty_extra_statistics())
     rated = rate_choice_decisions(decisions, resolved_kind, k_factor=resolved_config.k_factor)
     result: dict[str, Any] = {
         "kind": resolved_kind.value,
@@ -979,6 +1160,10 @@ def run_card_analysis(
         "completed_at": datetime.now(UTC).isoformat(),
     }
     if resolved_kind == AnalysisKind.ACQUIRE_BUCKETED:
+        result["turn_stat_charts"] = build_turn_stat_charts(
+            extra, k_factor=resolved_config.k_factor
+        )
+        result["play_scrap_events"] = extra["play_scrap_events"]
         result["bucketed_charts"] = rate_bucketed_acquire_decisions(
             decisions, k_factor=resolved_config.k_factor
         )

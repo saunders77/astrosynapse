@@ -65,7 +65,7 @@ export default function ProgressiveTraining() {
   const generationGames = (branch: Branch) => Object.entries(data?.evaluation_counts ?? {}).filter(([key]) => key.startsWith(`branches/${branch.id}/`)).reduce((total, [, count]) => total + count, 0) || branch.games;
   const phase = data?.running && data.stop_requested ? "Saving and pausing" : data?.phase?.replaceAll("_", " ");
   return <main className="progressive-page">
-    <header><Link href="/">← Astrosynapse 2 control center</Link><span>Refreshes every 5 seconds · Local M4</span></header>
+    <header><Link href="/">← Astrosynapse 2 control center</Link><Link href="/students">Acquire students ↗</Link><span>Refreshes every 5 seconds · Local M4</span></header>
     <div className="progressive-heading"><div><p className="progressive-kicker">ASTRO6 / SUCCESSIVE CHAMPIONS</p><h1>{evolution ? "Direct policy evolution" : autonomous ? "Autonomous improvement" : "Progressive champion training"}</h1><p>{evolution ? "Improve the policy that actually plays. Retain useful changes. Certify promotions on fresh games." : autonomous ? "Explore training approaches, replace stalled branches, and verify promising candidates." : "Learn, verify an improvement, then train against the new champion."}</p></div>
       {data?.available && <button disabled={busy || (data.running && data.stop_requested)} onClick={() => control(data.running ? "pause" : "resume")}>{data.running ? "Pause & save" : "Resume training"}</button>}
     </div>

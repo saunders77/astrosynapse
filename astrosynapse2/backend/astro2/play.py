@@ -237,6 +237,12 @@ class GameSession:
                 "expected_win_rate": expected_win_rate,
                 "human_player": self.human_player,
                 "observation": observation.to_dict(),
+                "trade_spent_this_turn": sum(
+                    entry["action"]["amount"] for entry in self._action_log
+                    if entry["player_id"] == self.human_player
+                    and entry["turn"] == observation.turn
+                    and entry["action"]["kind"] == "acquire"
+                ),
                 "board": self.game.state_dict(include_hidden=False),
                 "card_zones": self.game.unordered_card_zones(self.human_player),
                 "decision": (

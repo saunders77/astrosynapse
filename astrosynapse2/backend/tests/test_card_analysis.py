@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from astro2 import card_analysis
@@ -111,9 +112,7 @@ def test_no_card_wins_against_every_affordable_card_when_turn_ends_without_purch
         observation=replace(end_decision.observation, trade=2, own_authority=41),
     )
 
-    extracted = extract_single_card_turn_decisions(
-        [(0, end_decision, end)], AnalysisKind.ACQUIRE
-    )
+    extracted = extract_single_card_turn_decisions([(0, end_decision, end)], AnalysisKind.ACQUIRE)
 
     assert extracted["single_card_turns"] == 1
     assert len(extracted["decisions"]) == 1
@@ -155,9 +154,7 @@ def test_no_discard_can_win_an_optional_scrap_choice():
     decline = Action(ActionKind.DECLINE, card_id=20, ability="scrap_any")
     choice = _decision(7, DecisionFamily.SCRAP, (scout, viper, decline))
 
-    extracted = extract_single_card_turn_decisions(
-        [(0, choice, decline)], AnalysisKind.SCRAP
-    )
+    extracted = extract_single_card_turn_decisions([(0, choice, decline)], AnalysisKind.SCRAP)
 
     assert extracted["single_card_turns"] == 1
     assert len(extracted["decisions"]) == 1
@@ -282,7 +279,15 @@ def test_bucketed_acquire_rates_the_same_decisions_in_all_five_post_hoc_views():
     assert chart_by_key["turn"]["buckets"][-1]["captured_decisions"] == 1
     assert chart_by_key["own_authority"]["buckets"][1]["label"] == "10–19"
     assert [bucket["label"] for bucket in chart_by_key["acquired_cards"]["buckets"]] == [
-        "0", "1", "2", "3", "4–5", "6–8", "9–13", "14–21", "22+"
+        "0",
+        "1",
+        "2",
+        "3",
+        "4–5",
+        "6–8",
+        "9–13",
+        "14–21",
+        "22+",
     ]
     assert chart_by_key["opponent_top_color"]["unbucketed_decisions"] == 1
     green = chart_by_key["opponent_top_color"]["buckets"][1]
@@ -290,3 +295,114 @@ def test_bucketed_acquire_rates_the_same_decisions_in_all_five_post_hoc_views():
     scored_entries = [entry for entry in green["leaderboard"] if entry["decision_count"]]
     assert {entry["card_color"] for entry in scored_entries} == {"green", "neutral"}
     assert all(entry["uncertainty"] is not None for entry in scored_entries)
+
+
+def test_play_scrap_counts_turns_not_actions_and_records_every_scrap():
+    scrap = Action(ActionKind.SCRAP_FOR_ABILITY, card_id=2)
+    end = Action(ActionKind.END_TURN)
+    decision = _decision(31, DecisionFamily.MAIN, (scrap, end))
+    extra = card_analysis._extra_turn_statistics(
+        [
+            (0, decision, scrap),
+            (0, decision, scrap),
+            (0, decision, end),
+            (1, decision, end),
+        ]
+    )
+    assert len(extra["play_scrap_events"]) == 2
+    assert all(event["turn"] == 31 for event in extra["play_scrap_events"])
+    charts = card_analysis.build_turn_stat_charts(extra, k_factor=24)
+    assert len(charts[0]["series"]) == 1
+    point = charts[0]["series"][0]["points"][0]
+    assert point["turn"] == 30
+    assert point["count"] == 2
+    assert point["selected"] == 1
+    assert point["value"] == 50
+    assert point["lower"] == pytest.approx(9.453, abs=0.001)
+    assert point["upper"] == pytest.approx(90.547, abs=0.001)
+
+
+def test_bucketed_scrap_separates_same_card_by_source_and_keeps_existing_filter():
+    hand = Action(ActionKind.SCRAP_CARD, card_id=0, source_zone="hand")
+    discard = Action(ActionKind.SCRAP_CARD, card_id=0, source_zone="discard")
+    decline = Action(ActionKind.DECLINE)
+    decision = _decision(5, DecisionFamily.SCRAP, (hand, discard, decline))
+    excluded = _decision(6, DecisionFamily.SCRAP, (hand, discard, decline))
+    extra = card_analysis._extra_turn_statistics(
+        [
+            (0, decision, hand),
+            (0, excluded, hand),
+            (0, excluded, discard),
+        ]
+    )
+    charts = card_analysis.build_turn_stat_charts(extra, k_factor=24)
+    entries = {entry["key"]: entry for entry in charts[1]["series"]}
+    assert set(entries) == {"card:0:hand", "card:0:discard", "no_discard"}
+    assert entries["card:0:hand"]["points"][0]["value"] > 1000
+    assert entries["card:0:discard"]["points"][0]["value"] < 1000
+    for entry in entries.values():
+        assert [point["turn"] for point in entry["points"]] == [5]
+        point = entry["points"][0]
+        assert point["lower"] < point["value"] < point["upper"]
+
+
+def test_choice_percentages_include_unchosen_branches_and_merge_batches():
+    card_id = next(card.card_id for card in CARD_BY_ID.values() if card.name == "Patrol Mech")
+    combat = Action(ActionKind.CHOOSE_MODE, card_id=card_id, ability="gain_combat", amount=5)
+    trade = Action(ActionKind.CHOOSE_MODE, card_id=card_id, ability="gain_trade", amount=3)
+    decision = _decision(35, DecisionFamily.ABILITY_MODE, (combat, trade))
+    extra = card_analysis._empty_extra_statistics()
+    for selected in (combat, combat, trade):
+        card_analysis._merge_extra_statistics(
+            extra, card_analysis._extra_turn_statistics([(0, decision, selected)])
+        )
+    chart = card_analysis.build_turn_stat_charts(extra, k_factor=24)[2]
+    assert chart["label"] == "Patrol Mech choices by turn"
+    points = [series["points"][0] for series in chart["series"]]
+    assert sum(point["value"] for point in points) == pytest.approx(100)
+    assert all(point["count"] == 3 and point["turn"] == 30 for point in points)
+    assert points[0]["value"] == pytest.approx(200 / 3)
+    assert card_analysis._percentage_point(1, 0, 5)["upper"] > 0
+    assert card_analysis._percentage_point(1, 5, 5)["lower"] < 100
+
+
+def test_combined_run_saves_charts_and_raw_scrap_events(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    scrap = Action(ActionKind.SCRAP_FOR_ABILITY, card_id=2)
+    end = Action(ActionKind.END_TURN)
+    extra = card_analysis._extra_turn_statistics(
+        [
+            (0, _decision(2, DecisionFamily.MAIN, (scrap, end)), scrap),
+        ]
+    )
+    monkeypatch.setattr(
+        card_analysis,
+        "resolve_model",
+        lambda *args: SimpleNamespace(
+            kind="checkpoint", actor_path="unused", checkpoint_id="test", ref="test", label="Test"
+        ),
+    )
+    monkeypatch.setattr(
+        card_analysis,
+        "_simulate_games",
+        lambda *args, **kwargs: {
+            "decisions": [],
+            "extra_statistics": extra,
+            "games_completed": 1,
+            "truncated_games": 0,
+            "turns_observed": 1,
+            "single_card_turns": 0,
+        },
+    )
+    result = card_analysis.run_card_analysis(
+        None,
+        "test",
+        AnalysisKind.ACQUIRE_BUCKETED,
+        card_analysis.CardAnalysisConfig(games=1),
+        output_dir=tmp_path,
+    )
+    saved = json.loads(Path(result["json_path"]).read_text())
+    assert saved["turn_stat_charts"] == result["turn_stat_charts"]
+    assert saved["play_scrap_events"][0]["turn"] == 2
+    assert len(saved["bucketed_charts"]) == 5

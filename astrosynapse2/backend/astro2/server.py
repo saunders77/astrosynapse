@@ -18,11 +18,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from .acquire_student import StudentConfig, StudentManager
+from .acquire_student import recommend as recommend_acquisition
 from .advisor import (
     AdvisorEvaluateRequest,
     AdvisorEvaluation,
     AdvisorInputError,
     AdvisorModelError,
+    AdvisorObservation,
     CheckpointAdvisor,
     card_catalog,
 )
@@ -143,6 +146,7 @@ async def lifespan(app: FastAPI):
     app.state.store = store
     app.state.arena = ArenaManager(store)
     app.state.card_analysis = CardAnalysisManager(store, DATA_DIR / "analysis")
+    app.state.acquire_students = StudentManager(store, DATA_DIR / "acquire_students")
     app.state.advisor = CheckpointAdvisor()
     app.state.supervisor = Supervisor(
         store,
@@ -781,6 +785,81 @@ def arena_job(job_id: str, request: Request) -> dict[str, Any]:
         return _arena(request).get(job_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="arena job not found") from error
+
+
+class CreateStudentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    model_id: str
+    games: int = Field(default=1000, ge=20, le=10_000)
+    seed: int = Field(default=20260924, ge=0, le=9_007_199_254_740_991)
+    max_nodes: int = Field(default=11, ge=3, le=99)
+    rules_version: int = Field(default=2, ge=1, le=2)
+
+
+class StudentAdviceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    observation: AdvisorObservation
+    total_trade: float = Field(ge=0, le=10000, allow_inf_nan=False)
+    spent: float = Field(default=0, ge=0, le=10000, allow_inf_nan=False)
+
+
+@app.get("/api/acquire-students")
+def acquire_students(request: Request):
+    return request.app.state.acquire_students.list()
+
+
+@app.post("/api/acquire-students", status_code=201)
+def create_acquire_student(payload: CreateStudentRequest, request: Request):
+    try:
+        config = StudentConfig(**payload.model_dump(exclude={"model_id"}))
+        return request.app.state.acquire_students.create(payload.model_id, config)
+    except ModelResolutionError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get("/api/acquire-students/{student_id}")
+def acquire_student(student_id: str, request: Request):
+    try:
+        return request.app.state.acquire_students.get(student_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Student not found") from error
+
+
+@app.post("/api/acquire-students/{student_id}/cancel")
+def cancel_acquire_student(student_id: str, request: Request):
+    try:
+        return request.app.state.acquire_students.cancel(student_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Student not found") from error
+
+
+@app.post("/api/acquire-students/{student_id}/recommend")
+def acquire_student_advice(student_id: str, payload: StudentAdviceRequest, request: Request):
+    try:
+        artifact = request.app.state.acquire_students.artifact(student_id)
+        return recommend_acquisition(artifact, payload.observation.observation(),
+                                     payload.total_trade, payload.spent)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Student not found") from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get("/api/acquire-students/{student_id}/download/{kind}")
+def download_acquire_student(student_id: str, kind: str, request: Request):
+    names = {"tree": "tree.txt", "student": "student.json", "samples": "samples.jsonl.gz"}
+    try:
+        folder = request.app.state.acquire_students.folder(student_id)
+        request.app.state.acquire_students.artifact(student_id)
+        if kind not in names:
+            raise KeyError(kind)
+        return FileResponse(folder / names[kind], filename=f"acquire-{student_id}-{names[kind]}")
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Student artifact not found") from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @app.post("/api/card-analysis", status_code=201)

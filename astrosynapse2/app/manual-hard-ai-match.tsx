@@ -1,5 +1,7 @@
 "use client";
 
+import AcquireStudentAdvice from "./acquire-student-advice";
+
 /* eslint-disable @next/next/no-img-element -- Local card art has mixed portrait and landscape aspect ratios. */
 
 import {
@@ -1921,6 +1923,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
         </div>
 
         <aside className="relay-command" aria-label="Turn command center">
+          <AcquireStudentAdvice key={`${match.id}-${match.turn}`} apiBase={apiBase} observation={match.activeSide === "astro5" && !unresolved.length ? buildObservation(match, catalog, definitions) : null} positionKey={`${match.id}-${match.turn}`} />
           <div className="relay-command-head">
             <span>{match.activeSide === "astro5" ? "Checkpoint advisor" : "External turn recorder"}</span>
             <strong>{match.activeSide === "astro5" ? match.pendingDecision ? "Resolve the card effect" : "Next Astro5 action" : "What did the Hard AI do?"}</strong>
