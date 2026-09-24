@@ -1,5 +1,15 @@
 # Progressive champion training
 
+The active replacement is the [September 23 direct policy search](astro6-evolution-2026-09-23.md).
+It follows the unsuccessful [September 20 PPO supervisor](astro6-autonomous-2026-09-20.md)
+and searches portable greedy policies with independent promotion certification.
+It has produced the first new verified promotion to champion 10: 50.389% against
+champion 9 over 130,944 paired seeds, with a time-uniform lower bound of 50.00197%.
+The autonomous search continues against champion 10 under historical rules v1.
+The same progress page supplies pause/resume and resource controls. Earlier campaigns described
+below remain paused as historical evidence; their settings are not the active
+evolution campaign's settings.
+
 Open [Astro6 progress](http://127.0.0.1:3000/progressive) in the Astrosynapse 2 UI.
 The learner and supervisor continue independently of the browser. **Pause &
 save** finishes the current learning iteration or evaluation batch. **Resume
@@ -76,3 +86,9 @@ revision only after checks complete; `data/astro6-critic-20260919/result.json`
 records the outcome. Installation leaves the campaign paused and retains its
 champion and promotion evidence. New learner checkpoints include a separate
 critic optimizer sidecar and pre-fit calibration metrics.
+
+The [September 20 follow-up](astro6-counterfactual-2026-09-20.md) records the
+unsuccessful additional training block, corrects recording of engine-forced
+positions, and introduces a separate terminal action-comparison branch from
+champion 9. Its bounded trial and independent arena do not modify champion
+succession. The original campaign is paused while this intervention is tested.

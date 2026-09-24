@@ -41,6 +41,7 @@ from .card_analysis import (
     default_games_for_kind,
 )
 from .config import RunConfig, preset_config
+from .experiment_control import atomic_json
 from .hardware import system_snapshot
 from .model import regenerate_actor_snapshot
 from .play import PlayManager
@@ -237,6 +238,17 @@ def _tainted_checkpoint_ids(checkpoints: list[dict[str, Any]]) -> set[str]:
 
 def _model_document(checkpoint: dict[str, Any]) -> dict[str, Any]:
     result = dict(checkpoint)
+    evaluation = checkpoint.get("evaluation") or {}
+    latest_arena = evaluation.get("latest_arena") or {}
+    promotion = evaluation.get("promotion") or latest_arena.get("promotion") or {}
+    if not isinstance(promotion, dict):
+        promotion = {}
+    result["was_champion"] = bool(
+        checkpoint.get("was_champion")
+        or checkpoint.get("generation") is not None
+        or latest_arena.get("promoted")
+        or promotion.get("promoted")
+    )
     model_path = Path(str(checkpoint.get("path") or ""))
     actor_path = Path(str(checkpoint.get("actor_path") or ""))
     sidecar_path = Path(f"{model_path}.json")
@@ -330,7 +342,10 @@ def progressive_progress() -> dict[str, Any]:
         return {"available": False}
     state = json.loads((folder / "state.json").read_text())
     manifest = json.loads((folder / "manifest.json").read_text())
-    training = folder / f"stage-{state['stage']:03d}"
+    autonomous = manifest.get("mode") == "autonomous"
+    training = Path(state.get("training_dir") or folder / f"stage-{state['stage']:03d}")
+    if not training.resolve().is_relative_to(folder.resolve()):
+        raise HTTPException(400, "invalid training directory")
     metrics = training / "metrics.jsonl"
     rows = []
     if metrics.exists():
@@ -356,6 +371,11 @@ def progressive_progress() -> dict[str, Any]:
         "training",
         "verifying_candidate",
         "benchmarking_original_champion",
+        "preparing_history",
+        "confirming_candidate",
+        "evolving",
+        "selecting_candidate",
+        "validating_step",
     }
     return {
         "available": True,
@@ -364,12 +384,19 @@ def progressive_progress() -> dict[str, Any]:
         "stale": time.time() - state.get("heartbeat", 0) > 120,
         "latest": latest,
         "recent_metrics": rows[-120:],
-        "settings": manifest["settings"],
+        "settings": {
+            **manifest["settings"],
+            **(
+                json.loads((folder / "settings.json").read_text())
+                if autonomous and (folder / "settings.json").exists()
+                else {}
+            ),
+        },
         "promotion_contract": manifest["promotion_contract"],
         "path": str(folder),
         "run_name": f"{state.get('name', 'Astro6')} · {folder.name}",
         "checkpoint_name": str(
-            Path((latest or {}).get("checkpoint") or state.get("model", "—"))
+            Path((latest or {}).get("checkpoint") or state.get("learner_model") or state.get("model", "—"))
         ).replace(str(folder) + "/", ""),
         "champion_checkpoint_name": str(state.get("champion", "—")).replace(str(folder) + "/", ""),
         "stop_requested": (folder / "STOP").exists(),
@@ -383,15 +410,32 @@ def progressive_command(command: str) -> dict[str, Any]:
         raise HTTPException(404, "no progressive run")
     if command == "pause":
         (folder / "STOP").touch()
+    elif command == "skip":
+        state = json.loads((folder / "state.json").read_text())
+        if state.get("mode") != "autonomous" or not state.get("active_branch"):
+            raise HTTPException(409, "no active autonomous branch")
+        if state.get("pending_gate"):
+            raise HTTPException(
+                409, "pause to stop a promotion test; it must resume the same evidence"
+            )
+        atomic_json(folder / "skip.json", {"branch": state["active_branch"]})
     elif command == "resume":
         if not progressive_progress()["running"]:
+            manifest = json.loads((folder / "manifest.json").read_text())
+            manager = (
+                "evolution_training.py"
+                if manifest.get("algorithm") == "greedy_evolution"
+                else "autonomous_training.py"
+                if manifest.get("mode") == "autonomous"
+                else "progressive_training.py"
+            )
             with (folder / "manager.log").open("a") as log:
                 subprocess.Popen(
                     [
                         "/usr/bin/caffeinate",
                         "-i",
                         str(PROJECT_ROOT / ".venv/bin/python"),
-                        str(folder / "runtime/scripts/progressive_training.py"),
+                        str(folder / "runtime/scripts" / manager),
                         "--output",
                         str(folder),
                         "--resume",
@@ -404,8 +448,29 @@ def progressive_command(command: str) -> dict[str, Any]:
                     start_new_session=True,
                 )
     else:
-        raise HTTPException(400, "command must be pause or resume")
+        raise HTTPException(400, "command must be pause, resume, or skip")
     return {"ok": True, "command": command}
+
+
+class AutonomousSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    workers: int = Field(ge=1, le=16, strict=True)
+    hours: float = Field(gt=0, le=8760, allow_inf_nan=False)
+    max_rounds: int = Field(ge=1, le=16, strict=True)
+    max_stalled_generations: int | None = Field(default=None, ge=4, le=4096, strict=True)
+
+
+@app.patch("/api/progressive/settings")
+def progressive_settings(settings: AutonomousSettings) -> dict[str, Any]:
+    folder = _progressive_folder()
+    if (
+        folder is None
+        or json.loads((folder / "manifest.json").read_text()).get("mode") != "autonomous"
+    ):
+        raise HTTPException(409, "settings require an autonomous campaign")
+    updates = settings.model_dump(exclude_none=True)
+    atomic_json(folder / "settings.json", updates)
+    return {"ok": True, "settings": updates}
 
 
 @app.get("/api/presets")

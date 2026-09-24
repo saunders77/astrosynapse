@@ -33,12 +33,20 @@ def maintain(out: Path, project: Path, reason: str, *, separate_critic: bool = F
         learner_source = project / "backend/astro2/onpolicy.py"
         if (
             not separate_critic
+            and manifest.get("algorithm") != "greedy_evolution"
             and learner_source.exists()
             and learner_source.read_bytes() != (runtime / "astro2/onpolicy.py").read_bytes()
         ):
             raise ValueError("learner module changed; use an explicit --separate-critic revision")
         changes = {}
-        patchable = (*PATCHABLE, "astro2/onpolicy.py") if separate_critic else PATCHABLE
+        if manifest.get("algorithm") == "greedy_evolution":
+            patchable = (
+                "scripts/autonomous_training.py",
+                "scripts/evolution_training.py",
+                "astro2/evolution.py",
+            )
+        else:
+            patchable = (*PATCHABLE, "astro2/onpolicy.py") if separate_critic else PATCHABLE
         for name in patchable:
             source = project / ("backend" if name.startswith("astro2/") else "") / name
             content = source.read_bytes()

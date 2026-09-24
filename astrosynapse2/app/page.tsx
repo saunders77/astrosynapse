@@ -274,6 +274,7 @@ type ModelCheckpoint = {
   eloDelta: number;
   hasElo: boolean;
   isChampion: boolean;
+  wasChampion: boolean;
   isPinned: boolean;
   sizeMb: number | null;
   actorAvailable: boolean;
@@ -1725,6 +1726,7 @@ const emptyModel: ModelCheckpoint = {
   eloDelta: 0,
   hasElo: false,
   isChampion: false,
+  wasChampion: false,
   isPinned: false,
   sizeMb: null,
   actorAvailable: true,
@@ -1775,6 +1777,17 @@ function normalizeModel(raw: unknown, fallback: ModelCheckpoint = emptyModel): M
     || hasLegacyEvaluation
     || (item.evaluated === undefined && item.score !== undefined);
   const isChampion = Boolean(item.is_champion ?? fallback.isChampion);
+  const promotion = isRecord(evaluation.promotion) ? evaluation.promotion : {};
+  const latestPromotion = isRecord(latestArena.promotion) ? latestArena.promotion : {};
+  const wasChampion = Boolean(
+    item.was_champion
+    || item.wasChampion
+    || item.generation !== undefined
+    || latestArena.promoted
+    || promotion.promoted
+    || latestPromotion.promoted
+    || fallback.wasChampion
+  );
   const persistedLabel = asString(item.label ?? item.name, fallback.label);
   const displayLabel = isChampion && !evaluated
     ? persistedLabel.replace(/^Champion\b/i, "Anchor")
@@ -1818,6 +1831,7 @@ function normalizeModel(raw: unknown, fallback: ModelCheckpoint = emptyModel): M
     eloDelta: evaluated && hasElo ? asNumber(eloValue, 0) : 0,
     hasElo: evaluated && hasElo,
     isChampion,
+    wasChampion: isChampion || wasChampion,
     isPinned: Boolean(item.is_pinned ?? fallback.isPinned),
     sizeMb: sizeValue === null ? null : Math.max(0, sizeValue),
     actorAvailable: asOptionalBoolean(
@@ -3387,6 +3401,7 @@ export default function Home() {
   const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<CardAnalysisView | null>(null);
   const [analysisHistory, setAnalysisHistory] = useState<CardAnalysisView[]>([]);
+  const [championCheckpointsOnly, setChampionCheckpointsOnly] = useState(true);
   const [game, setGame] = useState<GameState>(initialGame);
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
   const [playModel, setPlayModel] = useState("champion-042");
@@ -3460,9 +3475,13 @@ export default function Home() {
     () => arenaModels.filter((model) => model.actorAvailable),
     [arenaModels],
   );
+  const selectableModels = useMemo(
+    () => availableModels.filter((model) => !championCheckpointsOnly || model.isChampion || model.wasChampion),
+    [availableModels, championCheckpointsOnly],
+  );
   const availableArenaModels = useMemo(
-    () => arenaModels.filter((model) => model.actorAvailable),
-    [arenaModels],
+    () => selectableModels,
+    [selectableModels],
   );
   const arenaModelGroups = useMemo(() => {
     const runNames = new Map(runChoices.map((run) => [run.id, run.name]));
@@ -4051,9 +4070,9 @@ export default function Home() {
   }, [connected, analysisJobId, analysisRunning]);
 
   useEffect(() => {
-    if (!availableModels.length) return;
-    const champion = availableModels.find((model) => model.isChampion) ?? availableModels[0];
-    if (playModel !== "baseline" && !availableModels.some((model) => model.id === playModel)) setPlayModel(champion?.id ?? "baseline");
+    if (!selectableModels.length) return;
+    const champion = selectableModels.find((model) => model.isChampion) ?? selectableModels[0];
+    if (playModel !== "baseline" && !selectableModels.some((model) => model.id === playModel)) setPlayModel(champion?.id ?? "baseline");
     const arenaChampion = availableArenaModels.find((model) => model.id === champion?.id)
       ?? availableArenaModels.find((model) => model.isChampion)
       ?? availableArenaModels[0];
@@ -4062,8 +4081,8 @@ export default function Home() {
     if (!availableArenaModels.some((model) => model.id === arenaB) && !arenaBaselines.some((model) => model.id === arenaB)) setArenaB(arenaChallenger?.id ?? "baseline:balanced");
     // Both pickers may temporarily select the same checkpoint while choosing
     // rivals from one run. Preserve that selection; Run arena requires distinct IDs.
-    if (!availableModels.some((model) => model.id === analysisModel)) setAnalysisModel(champion?.id ?? "");
-  }, [snapshot.models, availableModels, availableArenaModels, playModel, arenaA, arenaB, analysisModel]);
+    if (!selectableModels.some((model) => model.id === analysisModel)) setAnalysisModel(champion?.id ?? "");
+  }, [snapshot.models, selectableModels, availableArenaModels, playModel, arenaA, arenaB, analysisModel]);
 
   useEffect(() => {
     if (!connected || !remoteGame?.id || remoteGame.status !== "model_thinking") return;
@@ -5371,6 +5390,7 @@ export default function Home() {
               <article className="panel arena-console">
                 <header className="panel-header"><div><span className="panel-kicker">Head-to-head laboratory</span><h2>Arena match</h2></div><span className="paired-chip"><Jargon term="pairedSeeds">Paired randomness</Jargon></span></header>
                 {connected ? <div className="arena-watch-controls"><button type="button" className="button button-secondary" onClick={watchActiveArena} disabled={arenaWatchLoading}>{arenaWatchLoading ? "Loading match…" : "Watch active arena"}</button><small>Switch to the running match from any training run and follow its live progress.</small></div> : null}
+                <label className="toggle-label checkpoint-filter-toggle"><input type="checkbox" checked={championCheckpointsOnly} onChange={(event) => setChampionCheckpointsOnly(event.target.checked)} /><span />Champions only</label>
                 <div className="versus-row">
                   <ArenaModelPicker side="A" value={arenaA} groups={arenaModelGroups} onChange={setArenaA} />
                   <div className="versus-mark"><span>VS</span><i /></div>
@@ -5398,7 +5418,8 @@ export default function Home() {
               <header className="panel-header"><div><span className="panel-kicker">Candidate behavior probe</span><h2>Card scrap & acquire Elo</h2></div><span className="paired-chip">1,000 standard · 10,000 bucketed</span></header>
               <p className="card-analysis-intro">Choose one immutable candidate, then rank the card choices its greedy deployment policy actually makes. Acquire trials include No Card, compared only with the card actually bought or, when nothing was bought, cards affordable at turn end. Scrap trials include No Discard. Turns with multiple scraps or acquisitions are excluded. The bucketed Acquire test records choice state during 10,000 games, then groups and rates the choices after simulation.</p>
               <div className="card-analysis-controls">
-                <label><span>Candidate checkpoint</span><select value={availableModels.some((model) => model.id === analysisModel) ? analysisModel : ""} onChange={(event) => setAnalysisModel(event.target.value)} disabled={analysisRunning}>{arenaModelGroups.map((group) => <optgroup key={group.runId} label={group.runName}>{group.models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup>)}</select></label>
+                <label><span>Candidate checkpoint</span><select value={selectableModels.some((model) => model.id === analysisModel) ? analysisModel : ""} onChange={(event) => setAnalysisModel(event.target.value)} disabled={analysisRunning}>{arenaModelGroups.map((group) => <optgroup key={group.runId} label={group.runName}>{group.models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup>)}</select></label>
+                <label className="toggle-label checkpoint-filter-toggle"><input type="checkbox" checked={championCheckpointsOnly} onChange={(event) => setChampionCheckpointsOnly(event.target.checked)} /><span />Champions only</label>
                 <label><span>Saved 10k result</span><select value={analysisResult?.kind === "acquire_bucketed" ? analysisResult.id : ""} onChange={(event) => loadSavedAnalysis(event.target.value)} disabled={analysisRunning || !analysisHistory.length}><option value="">{analysisHistory.length ? "Select a completed test…" : "No saved tests found"}</option>{analysisHistory.map((item) => <option key={item.id} value={item.id}>{item.modelLabel} · Rules v{item.rulesVersion ?? 1} · {item.completedAt ? new Date(item.completedAt).toLocaleString() : `${numberFormatter.format(item.gamesCompleted)} games`}</option>)}</select></label>
                 <div><span>Fixed samples</span><strong>1,000 / 10,000 games</strong><small>candidate vs itself · greedy mean heads</small></div>
                 <button type="button" className="button" onClick={() => runCardAnalysis("scrap")} disabled={analysisRunning || !availableModels.length}>{analysisRunning && analysisResult?.kind === "scrap" ? "Running Scrap Elo…" : "Run Scrap Elo"}</button>
@@ -5454,7 +5475,7 @@ export default function Home() {
           <section className="tab-panel play-panel" aria-labelledby="play-title">
             <header className="section-heading play-heading">
               <div><span className="section-number">05 / PLAY</span><h1 id="play-title">Enter the arena yourself.</h1><p>Challenge any checkpoint through the same legal-action interface used in self-play.</p></div>
-              <div className="game-setup"><label><span>Opponent · corrected rules v2</span><select value={playModel === "baseline" || availableModels.some((model) => model.id === playModel) ? playModel : "baseline"} onChange={(event) => setPlayModel(event.target.value)}><option value="baseline">Balanced baseline</option>{arenaModelGroups.map((group) => <optgroup key={group.runId} label={group.runName}>{group.models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup>)}</select></label><label className="toggle-label"><input type="checkbox" checked={humanStarts} onChange={(event) => setHumanStarts(event.target.checked)} /><span />You start</label><button type="button" className="button card-visibility-button" onClick={() => setInventoryOpen(true)}>Hands & decks</button><button type="button" className="button button-primary" onClick={newGame} disabled={commandBusy !== null}>{commandBusy === "game-new" ? "Starting…" : "New game"}</button></div>
+              <div className="game-setup"><label><span>Opponent · corrected rules v2</span><select value={playModel === "baseline" || selectableModels.some((model) => model.id === playModel) ? playModel : "baseline"} onChange={(event) => setPlayModel(event.target.value)}><option value="baseline">Balanced baseline</option>{arenaModelGroups.map((group) => <optgroup key={group.runId} label={group.runName}>{group.models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup>)}</select></label><label className="toggle-label checkpoint-filter-toggle"><input type="checkbox" checked={championCheckpointsOnly} onChange={(event) => setChampionCheckpointsOnly(event.target.checked)} /><span />Champions only</label><label className="toggle-label"><input type="checkbox" checked={humanStarts} onChange={(event) => setHumanStarts(event.target.checked)} /><span />You start</label><button type="button" className="button card-visibility-button" onClick={() => setInventoryOpen(true)}>Hands & decks</button><button type="button" className="button button-primary" onClick={newGame} disabled={commandBusy !== null}>{commandBusy === "game-new" ? "Starting…" : "New game"}</button></div>
             </header>
 
             {connected && !remoteGame ? <div className="panel connected-game-empty"><EmptyState title="Start a live game" detail="Choose a checkpoint or the balanced baseline, then create a session. Every card and legal action will come from the engine." /></div> : <div className="game-shell">

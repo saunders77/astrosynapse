@@ -1665,7 +1665,7 @@ textarea:focus {
 
 .card-analysis-controls {
   display: grid;
-  grid-template-columns: minmax(260px, 1.5fr) minmax(170px, 0.75fr) auto auto auto;
+  grid-template-columns: minmax(260px, 1.5fr) auto minmax(170px, 0.75fr) auto auto auto;
   gap: 11px;
   align-items: end;
   padding: 16px;
@@ -2454,6 +2454,16 @@ textarea:focus {
 
 .toggle-label input:checked + span { background: rgba(95, 230, 202, 0.25); }
 .toggle-label input:checked + span::after { background: var(--mint); transform: translateX(11px); }
+
+.checkpoint-filter-toggle {
+  width: max-content;
+  color: var(--ink-soft) !important;
+  white-space: nowrap;
+}
+
+.arena-console > .checkpoint-filter-toggle {
+  margin-top: 18px;
+}
 
 .game-shell {
   display: grid;
@@ -5174,3 +5184,12 @@ button.game-card:hover:not(:disabled) {
 
 .arena-watch-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
 .arena-watch-controls small { color: var(--faint); }
+.progressive-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 18px; }
+.progressive-controls label { display: grid; gap: 7px; color: var(--muted); }
+.progressive-controls input { max-width: 180px; padding: 10px 12px; color: var(--ink); background: #0b1420; border: 1px solid #344458; border-radius: 6px; }
+.progressive-panel button { background: var(--surface-raised); border: 1px solid var(--line-strong); border-radius: 8px; padding: 10px 16px; color: var(--ink); }
+.progressive-panel dd { min-width: 0; overflow-wrap: anywhere; }
+.progressive-notice { padding: 12px 18px; border-left: 3px solid var(--mint); background: #142c30; }
+.progressive-events { padding-left: 22px; }
+.progressive-events li { padding: 6px 0; line-height: 1.5; }
+.progressive-events time { color: var(--muted); margin-right: 10px; }

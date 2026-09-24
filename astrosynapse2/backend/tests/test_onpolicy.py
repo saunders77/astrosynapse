@@ -177,6 +177,8 @@ def test_forced_positions_train_critic_but_not_policy(monkeypatch):
     import astro2.onpolicy as module
 
     decision = SimpleNamespace(actions=[object(), object()], observation=None)
+    forced = SimpleNamespace(actions=[object()], observation=None)
+    masked = SimpleNamespace(actions=[object(), object()], observation=None, masked=True)
     actor = SimpleNamespace(
         spec=SimpleNamespace(encoder_version=1),
         predict_options=lambda *_: np.array([[0.0], [0.0]]),
@@ -191,21 +193,72 @@ def test_forced_positions_train_critic_but_not_policy(monkeypatch):
             )
         ),
     )
-    indices = iter([[0], [0, 1]])
-    monkeypatch.setattr(module, "model_action_indices", lambda _: next(indices))
+    monkeypatch.setattr(
+        module,
+        "model_action_indices",
+        lambda d: [0] if getattr(d, "masked", False) else list(range(len(d.actions))),
+    )
 
     class Game:
-        def __init__(self, choosers, **_):
+        def __init__(self, choosers, decision_hook, **_):
             self.choose = choosers[0]
+            self.hook = decision_hook
 
         def run(self):
-            self.choose(0, decision)
-            self.choose(0, decision)
+            for current in [forced, masked, decision]:
+                # Match the engine: a single rules-legal action bypasses the
+                # chooser, while a dominance-masked choice still calls it.
+                action = (
+                    current.actions[0] if len(current.actions) == 1 else self.choose(0, current)
+                )
+                self.hook(0, current, action)
+            self.hook(1, forced, forced.actions[0])
             return SimpleNamespace(truncated=False, winner=0)
 
     monkeypatch.setattr(module, "Game", Game)
     trajectory = module.collect_trajectory(("actor", "opponent", 0.03, 17, 0, None, 1, True))
     assert len(trajectory.states) == 1
-    assert len(trajectory.value_states) == 2
-    assert trajectory.value_forced == [True, False]
+    assert len(trajectory.value_states) == 3
+    assert trajectory.value_forced == [True, True, False]
     assert trajectory.target == 1.0
+
+
+def test_real_engine_value_hook_covers_bypassed_decisions_without_changing_play(monkeypatch):
+    from types import SimpleNamespace
+
+    import astro2.onpolicy as module
+    from astro2.baselines import make_baseline
+    from astro2.engine import Game as RealGame
+
+    actor = SimpleNamespace(
+        spec=SimpleNamespace(encoder_version=1),
+        predict_options=lambda state, actions, family: np.zeros(
+            (len(actions), 1), dtype=np.float32
+        ),
+    )
+    monkeypatch.setattr(module, "cached_actor", lambda _: actor)
+    monkeypatch.setattr(
+        module, "_ActorChooser", lambda a, e, seed: make_baseline("balanced", seed=seed)
+    )
+    observed = []
+
+    def game_factory(**kwargs):
+        recorder = kwargs.pop("decision_hook")
+
+        def hook(pid, decision, action):
+            if pid == 0:
+                observed.append(len(decision.actions))
+            if recorder is not None:
+                recorder(pid, decision, action)
+
+        return RealGame(**kwargs, decision_hook=hook)
+
+    monkeypatch.setattr(module, "Game", game_factory)
+    enabled = module.collect_trajectory(("a", "b", 0.03, 1729, 0, None, 1, True))
+    assert 1 in observed  # These bypassed the chooser in the actual engine.
+    assert len(enabled.value_states) == len(observed)
+    disabled = module.collect_trajectory(("a", "b", 0.03, 1729, 0, None, 1, False))
+    assert not disabled.value_states
+    assert enabled.target == disabled.target and enabled.truncated == disabled.truncated
+    assert enabled.selected == disabled.selected
+    np.testing.assert_array_equal(enabled.states, disabled.states)

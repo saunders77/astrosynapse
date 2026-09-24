@@ -51,6 +51,7 @@ def collect_trajectory(task):
     encoder = EngineEncoder(version=actor.spec.encoder_version)
     rng = np.random.default_rng(_derived_seed(seed, index, "learner"))
     rows = Trajectory([], [], [], [], [], [], 0.0, False)
+    latest_decision = latest_encoded = None
     automatic = None
     if extra and extra[0]:
         auto = cached_actor(extra[0])
@@ -61,12 +62,10 @@ def collect_trajectory(task):
         )
 
     def choose(pid, decision):
+        nonlocal latest_decision, latest_encoded
         encoded = encoder.encode_decision(decision.observation, decision)
+        latest_decision, latest_encoded = decision, encoded
         eligible = np.asarray(model_action_indices(decision), dtype=np.int64)
-        if len(extra) > 2 and extra[2]:
-            rows.value_states.append(encoded.state)
-            rows.value_families.append(int(encoded.family))
-            rows.value_forced.append(len(eligible) == 1)
         if automatic is not None and not strategic_decision(decision):
             return automatic(pid, decision)
         if len(eligible) == 1:
@@ -89,6 +88,22 @@ def collect_trajectory(task):
         )
         return decision.actions[int(eligible[chosen])]
 
+    def record_value(pid, decision, _action):
+        if pid != seat:
+            return
+        # The engine bypasses choose() when there is just one legal action.
+        # Its decision hook still observes that state, before applying it.
+        encoded = (
+            latest_encoded
+            if decision is latest_decision
+            else encoder.encode_decision(decision.observation, decision)
+        )
+        rows.value_states.append(encoded.state)
+        rows.value_families.append(int(encoded.family))
+        rows.value_forced.append(
+            len(decision.actions) == 1 or len(model_action_indices(decision)) == 1
+        )
+
     other = _ActorChooser(
         opponent,
         EngineEncoder(version=opponent.spec.encoder_version),
@@ -97,6 +112,7 @@ def collect_trajectory(task):
     seat = index % 2
     result = Game(
         choosers=(choose, other) if seat == 0 else (other, choose),
+        decision_hook=record_value if len(extra) > 2 and extra[2] else None,
         config=GameConfig(
             seed=_derived_seed(seed, index, "game"),
             seating=Seating.FIXED,

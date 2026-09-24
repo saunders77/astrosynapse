@@ -19,6 +19,7 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 from dataclasses import asdict
 
 import numpy as np
+from astro2.autonomy import anchor_batch, anchor_loss, league_schedule
 from astro2.experiment_control import code_identity, next_learning_rate
 from astro2.model import (
     export_actor,
@@ -72,6 +73,11 @@ def main():
     p.add_argument("--separate-critic", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--critic-learning-rate", type=float, default=0.0003)
     p.add_argument("--critic-epochs", type=int, default=2)
+    p.add_argument("--opponent-pool", help="Immutable JSON list of historical actor paths")
+    p.add_argument("--anchor-dataset", help="Historical observations relabeled by the incumbent")
+    p.add_argument("--anchor-weight", type=float, default=0.0)
+    p.add_argument("--entropy-weight", type=float, default=0.0)
+    p.add_argument("--advantage-baseline", choices=["critic", "constant"], default="critic")
     args = p.parse_args()
     if args.temperature <= 0 or args.games < 2 or args.batch_size < 2:
         raise ValueError("invalid training settings")
@@ -108,6 +114,23 @@ def main():
         "select actor_path from checkpoints where id=?", (args.opponent,)
     ).fetchone()
     opponent_path = opponent_row[0] if opponent_row else str(Path(args.opponent).resolve())
+    c.close()
+    if min(args.anchor_weight, args.entropy_weight) < 0:
+        raise ValueError("regularization weights must be nonnegative")
+    opponents = json.loads(Path(args.opponent_pool).read_text()) if args.opponent_pool else []
+    extra_identity = dict(
+        historical_opponents={
+            path: hashlib.sha256(Path(path).read_bytes()).hexdigest() for path in opponents
+        },
+        anchor_sha256=hashlib.sha256(Path(args.anchor_dataset).read_bytes()).hexdigest()
+        if args.anchor_dataset
+        else None,
+    )
+    if args.resume and any(
+        manifest.get(k, {} if k == "historical_opponents" else None) != v
+        for k, v in extra_identity.items()
+    ):
+        raise ValueError("historical opponents or replay anchor changed")
     if not args.resume:
         manifest_path.write_text(
             json.dumps(
@@ -117,6 +140,7 @@ def main():
                     "code_identity": identity,
                     "source_sha256": hashlib.sha256(Path(model_path).read_bytes()).hexdigest(),
                     "opponent_sha256": hashlib.sha256(Path(opponent_path).read_bytes()).hexdigest(),
+                    **extra_identity,
                 },
                 indent=2,
             )
@@ -197,6 +221,16 @@ def main():
         else None
     )
     latest = {}
+    bank = None
+    if args.anchor_dataset and args.anchor_weight:
+        with np.load(args.anchor_dataset, allow_pickle=False) as archive:
+            bank = {key: archive[key] for key in archive.files}
+        if (
+            bank["states"].shape[1] != spec.state_size
+            or bank["actions"].shape[1] != spec.action_size
+        ):
+            raise ValueError("historical encoder dimensions do not match the learner")
+    anchor_arrays = None
 
     def loss(*arrays):
         nonlocal latest
@@ -205,7 +239,11 @@ def main():
             *arrays,
             temperature=args.temperature,
             value_weight=0.0 if args.separate_critic else 0.5,
+            entropy_weight=args.entropy_weight,
         )
+        if anchor_arrays is not None:
+            latest["history_kl"] = anchor_loss(model, *anchor_arrays)
+            value = value + args.anchor_weight * latest["history_kl"]
         return value
 
     gradient = nn.value_and_grad(model, loss)
@@ -220,10 +258,11 @@ def main():
                 break
             iteration_start = time.monotonic()
             seed = int(rng.integers(2**62))
+            scheduled_opponents = league_schedule(opponent_path, opponents, seed, args.games)
             tasks = [
                 (
                     str(runtime),
-                    opponent_path,
+                    scheduled_opponents[i],
                     args.temperature,
                     seed,
                     i,
@@ -259,6 +298,8 @@ def main():
                 ).mean(axis=1)
                 baseline.extend(np.asarray(values))
             advantages = targets - np.asarray(baseline)
+            if args.advantage_baseline == "constant":
+                advantages = targets - 0.5
             calibration = None
             if args.separate_critic:
                 value_states = np.asarray(
@@ -324,6 +365,15 @@ def main():
                             old_policy,
                         )
                     )
+                    if bank is not None:
+                        # Separate deterministic stream: anchor sampling never changes rollout seeds.
+                        anchor_rng = np.random.default_rng(
+                            np.random.SeedSequence([args.seed, iteration, updates, 0xA4C])
+                        )
+                        anchor_indices = anchor_rng.integers(len(bank["states"]), size=32)
+                        anchor_arrays = tuple(
+                            mx.array(x) for x in anchor_batch(bank, anchor_indices)
+                        )
                     value, grads = gradient(*arrays)
                     grads, norm = optim.clip_grad_norm(grads, 1.0)
                     mx.eval(value, norm, *latest.values())
@@ -479,6 +529,11 @@ def main():
                 critic_calibration=calibration,
                 critic_seconds=critic_seconds,
                 critic_updates=critic_updates,
+                historical_opponent_games=sum(
+                    path != opponent_path for path in scheduled_opponents
+                ),
+                advantage_baseline=args.advantage_baseline,
+                anchor_positions=len(bank["states"]) if bank is not None else 0,
                 **(
                     {k: float(np.mean([d[k] for d in diagnostics])) for k in diagnostics[0]}
                     if diagnostics
