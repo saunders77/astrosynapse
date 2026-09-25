@@ -22,7 +22,7 @@ export default function AcquireStudentsPage() {
   const [models, setModels] = useState<Model[]>([]);
   const [model, setModel] = useState("");
   const [games, setGames] = useState(1000);
-  const [nodes, setNodes] = useState(11);
+  const [nodes, setNodes] = useState(42);
   const [seed, setSeed] = useState(20260924);
   const [rules, setRules] = useState(2);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -87,12 +87,12 @@ export default function AcquireStudentsPage() {
         <div className="student-form">
           <label className="student-model-field"><span>Teacher checkpoint</span><select value={model} onChange={e => setModel(e.target.value)} required disabled={!models.length}>{models.map(m => <option key={m.id} value={m.id}>{m.label}{m.is_champion ? " · Champion" : ""}</option>)}</select></label>
           <label><span>Self-play games</span><input type="number" min="20" max="10000" required value={games} onChange={e => setGames(Number(e.target.value))} /></label>
-          <label><span>Maximum tree nodes</span><input type="number" min="3" max="99" step="2" required value={nodes} onChange={e => setNodes(Number(e.target.value))} /></label>
+          <label><span>Maximum tree nodes</span><input type="number" min="3" max="100" required value={nodes} onChange={e => setNodes(Number(e.target.value))} /></label>
           <label><span>Random seed</span><input type="number" min="0" max="9007199254740991" required value={seed} onChange={e => setSeed(Number(e.target.value))} /></label>
           <label><span>Game rules</span><select value={rules} onChange={e => setRules(Number(e.target.value))}><option value={2}>v2 · matches Play</option><option value={1}>v1 · historical Astro6 training</option></select></label>
         </div>
         <p>One uniformly sampled decision moment per player turn, including forced choices. The target is the next card actually acquired that turn, or None. Multi-purchase turns are included.</p>
-        <p>One tree scores the current market, Explorer, and None. The default cap is 11 total nodes, including leaves. A smaller tree is chosen when validation accuracy ties. Games are split 70% / 15% / 15% for fitting, size selection, and final testing.</p>
+        <p>One tree scores the current market, Explorer, and None. The default cap is 100 total nodes, including leaves. A smaller tree is chosen when validation accuracy ties. Games are split 70% / 15% / 15% for fitting, size selection, and final testing.</p>
         <p>Full-turn trade is an explicit hindsight input, including later draws and abilities. In Play, enter that total or your estimate. Students imitate the teacher; their accuracy does not measure playing strength.</p>
         <button type="submit" className="button button-primary" disabled={busy || running || !model}>{running ? "A student is training" : busy ? "Starting…" : "Train acquire student"}</button>
       </form>

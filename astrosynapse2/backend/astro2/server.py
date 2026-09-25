@@ -792,7 +792,7 @@ class CreateStudentRequest(BaseModel):
     model_id: str
     games: int = Field(default=1000, ge=20, le=10_000)
     seed: int = Field(default=20260924, ge=0, le=9_007_199_254_740_991)
-    max_nodes: int = Field(default=11, ge=3, le=99)
+    max_nodes: int = Field(default=100, ge=3, le=100)
     rules_version: int = Field(default=2, ge=1, le=2)
 
 

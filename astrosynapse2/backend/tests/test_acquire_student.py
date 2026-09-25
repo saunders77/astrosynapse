@@ -187,7 +187,7 @@ def test_full_training_persists_tree_and_auditable_rows(tmp_path, monkeypatch):
     saved = manager.get(job_id)
     assert saved["status"] == "complete"
     artifact = manager.artifact(job_id)
-    assert artifact["node_count"] <= 11
+    assert artifact["node_count"] <= 100
     assert "always_none_accuracy" in artifact["metrics"]["test"]
     with gzip.open(folder / "samples.jsonl.gz", "rt") as stream:
         rows = [json.loads(line) for line in stream]
@@ -200,7 +200,13 @@ def test_full_training_persists_tree_and_auditable_rows(tmp_path, monkeypatch):
 
 
 def asdict_config(games):
-    return {"games": games, "seed": 45, "max_nodes": 11, "rules_version": 2}
+    return {"games": games, "seed": 45, "max_nodes": 100, "rules_version": 2}
+
+
+def test_student_config_accepts_full_node_limit():
+    assert student.StudentConfig(max_nodes=100).max_nodes == 100
+    with pytest.raises(ValueError, match="between 3 and 100"):
+        student.StudentConfig(max_nodes=101)
 
 
 def test_student_api_create_recommend_download_and_validation(tmp_path, monkeypatch):
@@ -208,12 +214,12 @@ def test_student_api_create_recommend_download_and_validation(tmp_path, monkeypa
     with TestClient(server.app) as client:
         assert client.get("/api/acquire-students").json() == []
         assert client.get("/api/acquire-students/missing").status_code == 404
-        assert (
-            client.post(
-                "/api/acquire-students", json={"model_id": "missing", "max_nodes": 12}
-            ).status_code
-            == 422
-        )
+        assert client.post(
+            "/api/acquire-students", json={"model_id": "missing", "max_nodes": 100}
+        ).status_code == 404
+        assert client.post(
+            "/api/acquire-students", json={"model_id": "missing", "max_nodes": 101}
+        ).status_code == 422
         assert client.post("/api/acquire-students", json={"model_id": "missing"}).status_code == 404
         o = Game(config=GameConfig(seed=11, starting_player=0)).observation(0)
         artifact = {

@@ -58,14 +58,14 @@ SELECTION = (
 class StudentConfig:
     games: int = 1000
     seed: int = 20260924
-    max_nodes: int = 11
+    max_nodes: int = 100
     rules_version: int = 2
 
     def __post_init__(self):
         if not 20 <= self.games <= 10_000:
             raise ValueError("games must be between 20 and 10,000")
-        if not 3 <= self.max_nodes <= 99 or self.max_nodes % 2 != 1:
-            raise ValueError("max_nodes must be an odd number between 3 and 99")
+        if not 3 <= self.max_nodes <= 100:
+            raise ValueError("max_nodes must be between 3 and 100")
         if self.rules_version not in (1, 2):
             raise ValueError("rules_version must be 1 or 2")
         if not 0 <= self.seed < 2**63:
@@ -282,7 +282,7 @@ def predict_row(tree, row):
     return row["candidates"][int(np.argmax(scores))]
 
 
-def fit_tree(rows, names, max_nodes=11):
+def fit_tree(rows, names, max_nodes=100):
     """Deterministic weighted CART; one moment has total weight one.
 
     Histogram thresholds keep fitting bounded without another ML dependency.
@@ -515,7 +515,7 @@ def train_job(folder: Path):
             return
         update(status="fitting", progress=0.86)
         # Select tree size on separate source games; the test games stay untouched.
-        sizes = sorted({3, min(7, config.max_nodes), min(11, config.max_nodes), config.max_nodes})
+        sizes = sorted({3, min(7, config.max_nodes), min(100, config.max_nodes), config.max_nodes})
         choices = []
         selected_tree = None
         best_accuracy = -1.0

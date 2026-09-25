@@ -55,9 +55,11 @@ function wrap(text: string) {
 }
 
 export default function TreeFlowchart({ tree }: { tree: StudentTree }) {
+  const flowchart = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const [selected, setSelected] = useState<number | null>(null);
+  const [fullscreen, setFullscreen] = useState(false);
   const markerId = useId().replaceAll(":", "");
   const layout = layoutTree(tree);
   const byId = new Map(layout.nodes.map(n => [n.node.id, n]));
@@ -69,6 +71,11 @@ export default function TreeFlowchart({ tree }: { tree: StudentTree }) {
   useEffect(() => {
     if (viewport.current) viewport.current.scrollLeft = Math.max(0, rootX - viewport.current.clientWidth / 2);
   }, [treeKey, rootX]);
+  useEffect(() => {
+    const syncFullscreen = () => setFullscreen(document.fullscreenElement === flowchart.current);
+    document.addEventListener("fullscreenchange", syncFullscreen);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
+  }, []);
 
   function changeZoom(next: number) {
     const element = viewport.current;
@@ -83,7 +90,12 @@ export default function TreeFlowchart({ tree }: { tree: StudentTree }) {
     });
   }
 
-  return <div className="student-flowchart">
+  async function toggleFullscreen() {
+    if (document.fullscreenElement === flowchart.current) await document.exitFullscreen();
+    else await flowchart.current?.requestFullscreen();
+  }
+
+  return <div className="student-flowchart" ref={flowchart}>
     <div className="student-flow-toolbar" role="group" aria-label="Flowchart controls">
       <span>Yes → left · No → right</span>
       <div>
@@ -92,6 +104,7 @@ export default function TreeFlowchart({ tree }: { tree: StudentTree }) {
         <button type="button" aria-label="Zoom in" disabled={zoom >= 2} onClick={() => changeZoom(Math.min(2, zoom + .2))}>+</button>
         <button type="button" onClick={() => { changeZoom(Math.min(1, (viewport.current?.clientWidth ?? layout.width) / layout.width)); }}>Fit width</button>
         <button type="button" onClick={() => changeZoom(1)}>100%</button>
+        <button type="button" aria-pressed={fullscreen} onClick={() => void toggleFullscreen()}>{fullscreen ? "Exit full screen" : "Full screen"}</button>
       </div>
     </div>
     <p>Follow this tree for each available card and None, then choose the highest score. Select a node to highlight its path. Scroll to explore larger trees.</p>
