@@ -354,9 +354,24 @@ class HumanDecisionDialog(tk.Toplevel):
             title = "Your hand" if str(option[0]).startswith("scrapFromHand") else "Your discard pile"
             section_line = state_snapshot.splitlines().index(title) + 1
             card_line = section_line + int(option[1]) + 1
-            button = tk.Button(self.state_text, text="SCRAP", command=lambda index=option_index: self._choose_scrap(index))
+            button = tk.Button(self.state_text, text="SCRAP", command=lambda index=option_index: self._choose_card_action(index))
             self.state_text.window_create(f"{card_line}.end", window=button)
 
+        controls = chooser_ui._card_option_controls(self.request.options, self.request.state)
+        titles = {"hand": "Your hand", "tradeRow": "Trade row", "cardsInPlay": "Your battlefield", "opponentCardsInPlay": "Opponent battlefield"}
+        lines = state_snapshot.splitlines()
+        for zone, positions in controls.items():
+            section_line = lines.index(titles[zone]) + 1
+            for position, actions in positions.items():
+                if isinstance(position, tuple):
+                    faction, card_index = position
+                    faction_line = lines.index(f"  {faction.title()}:", section_line)
+                    card_line = faction_line + card_index + 2
+                else:
+                    card_line = section_line + position + 1
+                for option_index, label in actions:
+                    button = tk.Button(self.state_text, text=label, command=lambda index=option_index: self._choose_card_action(index))
+                    self.state_text.window_create(f"{card_line}.end", window=button)
         self.state_text.configure(state="disabled")
 
         self.option_list.delete(0, "end")
@@ -428,7 +443,7 @@ class HumanDecisionDialog(tk.Toplevel):
         lines.extend(self._cards_block("Opponent discard pile", state.get("opponentDiscardPile") or []))
         return "\n".join(lines)
 
-    def _choose_scrap(self, index: int) -> None:
+    def _choose_card_action(self, index: int) -> None:
         self.selection = index
         self.destroy()
 

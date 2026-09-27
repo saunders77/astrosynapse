@@ -5264,3 +5264,37 @@ button.game-card:hover:not(:disabled) {
 .student-flow-selection button { font-size: 13px; cursor: pointer; }
 .student-tree-text { margin-top: 12px; }
 .student-tree-text summary { cursor: pointer; color: var(--mint); font-size: 14px; }
+
+/* Keep simultaneous choices readable and separate from card inspection/editing. */
+.on-card-controls {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 6px;
+  background: rgba(4, 12, 22, 0.96);
+}
+.on-card-controls button {
+  white-space: normal;
+  padding: 7px 5px;
+  border: 1px solid var(--accent, #71c9d5);
+  border-radius: 4px;
+  color: #fff;
+  background: #163746;
+  font-size: 11px;
+  cursor: pointer;
+}
+.on-card-controls button:disabled { opacity: 0.5; cursor: default; }
+.game-card.has-card-controls { height: auto; overflow: visible; }
+.relay-card:has(.on-card-controls) { height: auto; padding-bottom: 28px; }
+
+.play-panel .game-card.has-card-controls,
+.relay-card.has-card-art:has(.on-card-controls) { aspect-ratio: auto; overflow: hidden; }
+.game-card.has-card-controls.card-landscape .game-card-art,
+.relay-card.card-landscape:has(.on-card-controls) .relay-card-art {
+  width: 100%;
+  margin-left: 0;
+  transform: none;
+}

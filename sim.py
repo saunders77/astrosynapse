@@ -145,6 +145,7 @@ class Player:
     def sendChoice(self, options):
         knownGameState = self.knownGameState
         opponent = self.opponent
+        knownGameState['abilitySource'] = getattr(self, '_ability_source', None)
         knownGameState['authority'] = self.authority
         knownGameState['attack'] = self.attack
         knownGameState['trade'] = self.trade
@@ -353,7 +354,15 @@ class Player:
             'totalTradeGained': total_trade_gained,
         })
 
-    def useAbility(self, abilityName, n = None):
+    def useAbility(self, abilityName, n = None, source = None):
+        previous_source = getattr(self, '_ability_source', None)
+        self._ability_source = source if source is not None else previous_source
+        try:
+            return self._useAbility(abilityName, n)
+        finally:
+            self._ability_source = previous_source
+
+    def _useAbility(self, abilityName, n = None):
         match abilityName:
             case 'gainattack': self.attack += n
             case 'trade': self.trade += n
@@ -484,7 +493,7 @@ class Player:
     def triggerAbilityOption(self, faction, position):
         card = self.cardsInPlay[faction][position]
         if card[3] == True and card[2] != 'used': # card is still in play and the ability has not been used
-            self.useAbility(card[2][1:]) # [1:] removes the '-' character at the beginning
+            self.useAbility(card[2][1:], source=(faction, position)) # [1:] removes the '-' character at the beginning
             card[2] = 'used'
 
     def acquire(self, i, cost):
@@ -536,7 +545,7 @@ class Player:
         elif card[0][7][0] == '-' and card[2] != None:
             raise ValueError('Option ability ' + str(card[0][7]) + ' could not be added because of an existing option: ' + str(card[2]))
         elif card[0][7] != 'none': 
-            self.useAbility(card[0][7])
+            self.useAbility(card[0][7], source=(faction, position))
         
         # trigger other ally cards
         def triggerOtherAllyCards(faction,position):
@@ -548,7 +557,7 @@ class Player:
                     elif allyAbility[0] == '-' and self.cardsInPlay[faction][i][2] != None:
                         raise ValueError('Option ability ' + str(allyAbility) + ' could not be added because of an existing option: ' + str(self.cardsInPlay[faction][i][2]))
                     else:
-                        self.useAbility(allyAbility, self.cardsInPlay[faction][i][0][9])
+                        self.useAbility(allyAbility, self.cardsInPlay[faction][i][0][9], source=(faction, i))
                     self.cardsInPlay[faction][i][1] = True # mark that that card's ally ability has already been used now
         triggerOtherAllyCards(faction,position)
         if card[0][7] == 'allally':
@@ -568,11 +577,11 @@ class Player:
             elif card[0][8][0] == '-' and card[2] != None:
                 raise ValueError('Option ability ' + str(card[0][8]) + ' could not be added because of an existing option: ' + str(card[2]))
             else:
-                self.useAbility(card[0][8],card[0][9])
+                self.useAbility(card[0][8],card[0][9], source=(faction, position))
             card[1] = True # the ally ability has now been used 
     
     def scrapFromPlay(self, faction, position, ability, abilityN):
-        self.useAbility(ability, abilityN)
+        self.useAbility(ability, abilityN, source=(faction, position))
         self.removeCardFromPlay(faction, position)
     
     def scrapAny(self, type, required=False):

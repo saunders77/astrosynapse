@@ -15,6 +15,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { matchesCardAction, cardActionLabel, type CardControl } from "./card-actions";
 import { cardArtUrl } from "./card-art";
 
 /**
@@ -3002,6 +3003,7 @@ function CardTile({
   ariaLabel,
   onScrap,
   scrapDisabled = false,
+  controls = [],
   onClick,
 }: {
   card: GameCard;
@@ -3012,6 +3014,7 @@ function CardTile({
   ariaLabel?: string;
   onScrap?: () => void;
   scrapDisabled?: boolean;
+  controls?: CardControl[];
   onClick?: () => void;
 }) {
   const artUrl = cardArtUrl(card.catalogId, card.name);
@@ -3022,10 +3025,10 @@ function CardTile({
       {count > 1 ? <span className="card-count" aria-label={`${count} copies`}>{count}×</span> : null}
       <span className="card-kind">{card.kind}</span>
       <strong className="card-title" title={card.name}>{card.name}</strong>
-      <span className="card-rule">{scrapParts.map((part, index) => part.toLowerCase().startsWith("scrap:") && onScrap
+      <span className="card-rule">{scrapParts.map((part, index) => part.toLowerCase().startsWith("scrap:") && onScrap && !controls.length
         ? <button key={`${part}-${index}`} type="button" className="card-scrap-action" onClick={onScrap} disabled={scrapDisabled} aria-label={`Scrap ${card.name}`}>SCRAP</button>
         : <span key={`${part}-${index}`}>{part}</span>)}</span>
-      {onScrap && !/Scrap:/i.test(card.text) ? <button type="button" className="card-scrap-action" onClick={onScrap} disabled={scrapDisabled} aria-label={`Scrap ${card.name}`}>SCRAP</button> : null}
+      {onScrap && !controls.length && !/Scrap:/i.test(card.text) ? <button type="button" className="card-scrap-action" onClick={onScrap} disabled={scrapDisabled} aria-label={`Scrap ${card.name}`}>SCRAP</button> : null}
       <span className="card-stats">
         {card.trade ? <span><b>{card.trade}</b> trade</span> : null}
         {card.attack ? <span><b>{card.attack}</b> combat</span> : null}
@@ -3043,10 +3046,13 @@ function CardTile({
         draggable={false}
       />
       {count > 1 ? <span className="card-count card-art-count" aria-label={`${count} copies`}>{count}×</span> : null}
-      {onScrap ? <button type="button" className="card-art-scrap-action" onClick={onScrap} disabled={scrapDisabled} aria-label={`Scrap ${card.name}`}>SCRAP</button> : null}
+      {onScrap && !controls.length ? <button type="button" className="card-art-scrap-action" onClick={onScrap} disabled={scrapDisabled} aria-label={`Scrap ${card.name}`}>SCRAP</button> : null}
     </>
   ) : fallbackContent;
   const className = `game-card faction-${card.faction}${artUrl ? " has-card-art" : ""}${card.kind === "ship" ? "" : " card-landscape"}${compact ? " card-compact" : ""}${selected ? " is-selected" : ""}`;
+  if (controls.length) {
+    return <div className={`${className} has-card-controls`}>{content}<div className="on-card-controls">{controls.map((control) => <button key={control.id} type="button" title={control.title} onClick={control.onClick} disabled={disabled}>{control.label}</button>)}{onScrap ? <button type="button" onClick={onScrap} disabled={scrapDisabled} aria-label={`Scrap ${card.name}`}>SCRAP</button> : null}</div></div>;
+  }
   if (onClick) {
     return (
       <button type="button" className={className} onClick={onClick} disabled={disabled} aria-pressed={selected} aria-label={ariaLabel ?? `Play or select ${card.name}`}>
@@ -4858,6 +4864,11 @@ export default function Home() {
     setSelectedCard(null);
   };
 
+  const controlsForCard = (card: GameCard, zone: string): CardControl[] => {
+    if (remoteGame?.status !== "your_turn") return [];
+    return remoteGame.actions.filter((action) => matchesCardAction({ ...action, card_id: action.cardId, target_card_id: action.targetCardId, source_zone: action.sourceZone }, card.catalogId, zone)).map((action) => ({ id: action.id, label: cardActionLabel(action), title: action.label, onClick: () => submitRemoteChoice(action.id) }));
+  };
+
   const scrapActionForCard = (card: GameCard, zone: string) => {
     const action = remoteGame?.status === "your_turn" ? remoteGame.actions.find((action) => action.kind === "scrap_card" && action.cardId === card.catalogId && action.sourceZone === zone) : undefined;
     return action ? () => submitRemoteChoice(action.id) : undefined;
@@ -5626,24 +5637,26 @@ export default function Home() {
               <div className="board-column">
                 <section className="player-zone opponent-zone" aria-label="Opponent board">
                   <header><div><span className="player-avatar opponent-avatar">AI</span><p><strong>Orion</strong><small>{remoteGame?.modelLabel ?? snapshot.models.find((model) => model.id === playModel)?.label ?? "Balanced baseline"}</small></p></div><DiscardNotice count={game.opponentPendingDiscard} subject="Opponent" /><button type="button" className="zone-cards-button" onClick={() => setInventoryOpen(true)}><b>{game.opponentHandCount}</b><span>hand</span></button><button type="button" className="authority-display attack-target" onClick={attackOpponent} disabled={!canAttackOpponent} aria-label={`Attack opponent authority with ${game.attack} combat`}><small>Authority</small><strong>{game.opponentAuthority}</strong></button><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View opponent hidden hand and deck pool"><i /><span>{game.opponentDeckCount}<small>deck</small></span></button></header>
-                  <div className="board-zone"><span className="zone-label">Opponent board · click an attackable card to attack it</span><div className="in-play-row">{game.opponentInPlay.map((card) => <CardTile key={card.id} card={card} compact disabled={!canAttackOpponentCard(card)} onClick={() => attackOpponentCard(card)} ariaLabel={`Attack ${card.name}`} />)}{!game.opponentInPlay.length ? <span className="empty-card-zone">No cards in play</span> : null}</div></div>
+                  <div className="board-zone"><span className="zone-label">Opponent board · click an attackable card to attack it</span><div className="in-play-row">{game.opponentInPlay.map((card) => <CardTile key={card.id} card={card} compact controls={controlsForCard(card, "opponent_in_play")} disabled={controlsForCard(card, "opponent_in_play").length ? commandBusy !== null : !canAttackOpponentCard(card)} onClick={() => attackOpponentCard(card)} ariaLabel={`Attack ${card.name}`} />)}{!game.opponentInPlay.length ? <span className="empty-card-zone">No cards in play</span> : null}</div></div>
                   <VisiblePile label="Opponent discard pile" cards={game.opponentDiscard} />
                 </section>
 
                 <section className="market-zone" aria-label="Trade row">
                   <header><span>Trade row</span><p>Click an affordable card to acquire it</p><div className="explorer-stack"><b>{game.explorersRemaining}</b><span>Explorers left</span><small>cost 2 each</small></div></header>
-                  <div className="market-row">{game.market.map((card) => <CardTile key={card.id} card={card} disabled={!canAcquireMarketCard(card)} onClick={() => acquireMarketCard(card)} />)}{game.market.length === 0 ? <EmptyState title="Trade row depleted" detail="Start a new game to restore the market." /> : null}</div>
+                  <div className="market-row">{game.market.map((card) => <CardTile key={card.id} card={card} controls={controlsForCard(card, "trade_row")} disabled={controlsForCard(card, "trade_row").length ? commandBusy !== null : !canAcquireMarketCard(card)} onClick={() => acquireMarketCard(card)} />)}{game.market.length === 0 ? <EmptyState title="Trade row depleted" detail="Start a new game to restore the market." /> : null}</div>
                 </section>
 
                 <section className="player-zone human-zone" aria-label="Your board">
                   <div className="board-zone"><span className="zone-label">Your board · all cards in play</span><div className="in-play-row">{game.humanInPlay.map((card) => {
                     const hasScrapAbility = /Scrap:/i.test(card.text);
-                    return <CardTile key={card.id} card={card} compact onScrap={hasScrapAbility ? () => scrapInPlayCard(card) : undefined} scrapDisabled={hasScrapAbility && !canScrapInPlayCard(card)} />;
+                    return <CardTile key={card.id} card={card} compact controls={controlsForCard(card, "in_play")} disabled={commandBusy !== null} onScrap={hasScrapAbility ? () => scrapInPlayCard(card) : undefined} scrapDisabled={hasScrapAbility && !canScrapInPlayCard(card)} />;
                   })}{!game.humanInPlay.length ? <span className="empty-card-zone">No cards in play</span> : null}</div></div>
                   <header><div><span className="player-avatar human-avatar">YOU</span><p><strong>Hand</strong><small>Turn {game.turn} · click a card to play it</small></p></div><DiscardNotice count={game.pendingDiscard} subject="You" /><div className="resource-pips"><span className="trade-pip"><b>{game.trade}</b>Trade</span><span className="attack-pip"><b>{game.attack}</b>Combat</span></div><div className="authority-display"><small>Authority</small><strong>{game.humanAuthority}</strong></div><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View your hand and unordered deck"><i /><span>{game.deckCount}<small>deck</small></span><span>{game.discardCount}<small>discard</small></span></button></header>
                   {remoteGame?.status === "your_turn" && remoteGame.canPlayAll ? <button type="button" className="button" disabled={commandBusy !== null} title="Play the current hand from left to right. Newly drawn cards stay in hand." onClick={() => submitRemoteChoice("play-all")}>Play all cards in hand</button> : null}
                   <div className="hand-row">{game.hand.map((card) => {
                     const canPlay = !remoteGame || (remoteGame.status === "your_turn" && remoteGame.actions.some((action) => action.kind === "play_card" && action.cardId === card.catalogId));
+                    const controls = controlsForCard(card, "hand");
+                    if (controls.length) return <CardTile key={card.id} card={card} controls={controls} disabled={commandBusy !== null} />;
                     const scrapAction = scrapActionForCard(card, "hand");
                     if (scrapAction) return <CardTile key={card.id} card={card} onScrap={scrapAction} scrapDisabled={commandBusy !== null} />;
                     return <CardTile key={card.id} card={card} disabled={!canPlay || commandBusy === "game-choice"} onClick={() => handleHandCardClick(card)} />;

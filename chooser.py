@@ -302,6 +302,37 @@ def _format_option(option: Sequence[Any], state: Dict[str, Any]) -> str:
             return str(option)
 
 
+def _card_option_controls(options, state):
+    """Map legal choices to exact visible zone positions, including their source."""
+    controls = {}
+    def add(zone, position, index, label):
+        controls.setdefault(zone, {}).setdefault(position, []).append((index, label))
+    for index, option in enumerate(options):
+        if not option:
+            continue
+        action = str(option[0])
+        if action == "abilityOption":
+            add("cardsInPlay", (str(option[1]), option[2]), index, _humanize_ability(str(option[3])))
+        elif action == "scrapFromPlay":
+            add("cardsInPlay", (str(option[1]), option[2]), index, "SCRAP FOR ABILITY")
+        elif action in ("killbase", "attack"):
+            add("opponentCardsInPlay", (str(option[1]), option[2]), index, "SELECT TARGET")
+        elif action in ("freeAcquire", "rowscrap"):
+            add("tradeRow", option[1], index, "SELECT TARGET")
+        elif action == "copyship":
+            for faction, cards in (state.get("cardsInPlay") or {}).items():
+                for position, card in enumerate(cards):
+                    if card[0] == option[1]:
+                        add("cardsInPlay", (faction, position), index, "SELECT TARGET")
+        elif action in ("gainattack", "draw", "trade", "authority", "switch"):
+            source = state.get("abilitySource")
+            if source is not None:
+                add("cardsInPlay", tuple(source), index, "Discard up to 2, then draw" if action == "switch" else _format_option(option, state))
+        elif action.startswith("discard"):
+            add("hand", option[1], index, "SELECT TARGET")
+    return controls
+
+
 if tk is not None:
     class ScrollableFrame(tk.Frame):
         def __init__(self, parent: tk.Widget, bg: str) -> None:
@@ -608,6 +639,7 @@ if tk is not None:
             mode_text: Optional[str] = None,
         ) -> None:
             self._prepare_interactions(options)
+            self._card_controls = _card_option_controls(options, state)
             summary_lines = [
                 f"You {state.get('authority')} auth | {state.get('attack')} atk | {state.get('trade')} trade | discard {state.get('mustDiscard')}",
                 f"Opp {state.get('opponentAuthority')} auth | opp discard {state.get('opponentMustDiscard')}",
@@ -786,6 +818,8 @@ if tk is not None:
             self._clear(section)
 
             battlefield_cards = []
+            control_lookup = {}
+            zone = "opponentCardsInPlay" if section == self.opponent_board_section else "cardsInPlay"
             option_lookup = None
             active_outline = None
             hover_outline = None
@@ -800,6 +834,7 @@ if tk is not None:
                 for index, card in enumerate(faction_cards):
                     flat_index = len(battlefield_cards)
                     battlefield_cards.append(card)
+                    control_lookup[flat_index] = self._card_controls.get(zone, {}).get((faction, index), [])
                     if option_lookup is not None:
                         option_lookup[flat_index] = self._attack_actions.get((faction, index))
 
@@ -824,6 +859,7 @@ if tk is not None:
                 battlefield_cards,
                 columns=max(1, len(battlefield_cards)),
                 in_play=True,
+                control_lookup=control_lookup,
                 option_lookup=option_lookup,
                 active_outline=active_outline,
                 hover_outline=hover_outline,
@@ -876,8 +912,11 @@ if tk is not None:
             option_lookup: Optional[Dict[int, int]] = None,
             active_outline: Optional[str] = None,
             hover_outline: Optional[str] = None,
+            control_lookup=None,
         ) -> None:
             self._clear(section)
+            zone = {self.hand_section: "hand", self.trade_row_section: "tradeRow"}.get(section)
+            control_lookup = self._card_controls.get(zone, {})
             self._render_cards_group(
                 section,
                 title,
@@ -886,6 +925,7 @@ if tk is not None:
                 option_lookup=option_lookup,
                 active_outline=active_outline,
                 hover_outline=hover_outline,
+                control_lookup=control_lookup,
             )
 
         def _render_cards_group(
@@ -897,6 +937,7 @@ if tk is not None:
             option_lookup: Optional[Dict[int, int]] = None,
             active_outline: Optional[str] = None,
             hover_outline: Optional[str] = None,
+            control_lookup=None,
         ) -> None:
             group = tk.Frame(parent, bg=SECTION_BG)
             group.pack(fill="x", pady=(0, 6))
@@ -922,6 +963,7 @@ if tk is not None:
                     option_lookup=option_lookup,
                     active_outline=active_outline,
                     hover_outline=hover_outline,
+                    control_lookup=control_lookup,
                 )
             else:
                 self._render_empty_text(group, "No known cards.")
@@ -935,6 +977,7 @@ if tk is not None:
             option_lookup: Optional[Dict[int, Optional[int]]] = None,
             active_outline: Optional[str] = None,
             hover_outline: Optional[str] = None,
+            control_lookup=None,
         ) -> None:
             for index, card in enumerate(cards):
                 row = index // columns
@@ -947,6 +990,7 @@ if tk is not None:
                     option_index=option_index,
                     active_outline=active_outline,
                     hover_outline=hover_outline,
+                    control_lookup=(control_lookup or {}).get(index, []),
                 )
                 tile.grid(row=row, column=column, sticky="nsew", padx=3, pady=3)
                 parent.grid_columnconfigure(column, weight=1)
@@ -959,6 +1003,7 @@ if tk is not None:
             option_index: Optional[int] = None,
             active_outline: Optional[str] = None,
             hover_outline: Optional[str] = None,
+            control_lookup=None,
         ) -> tk.Frame:
             faction = _faction_name(card)
             card_bg = FACTION_COLORS.get(faction, FACTION_COLORS["none"])
@@ -1011,6 +1056,9 @@ if tk is not None:
                 )
             if option_index in self._scrap_option_indices and self._selection_var is not None:
                 tk.Button(frame, text="SCRAP", command=lambda: self._selection_var.set(option_index)).pack(fill="x", pady=(4, 0))
+            if self._selection_var is not None:
+                for action_index, label in control_lookup or []:
+                    tk.Button(frame, text=label, wraplength=150, command=lambda i=action_index: self._selection_var.set(i)).pack(fill="x", pady=(4, 0))
             return frame
 
         def _wire_interaction(
