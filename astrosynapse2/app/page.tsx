@@ -325,6 +325,10 @@ type CardEloEntry = {
   rawElo: number;
   uncertainty: number | null;
   rawUncertainty: number | null;
+  ciLower: number | null;
+  ciUpper: number | null;
+  supported: boolean;
+  fixedAnchor: boolean;
   decisions: number;
   comparisons: number;
   wins: number;
@@ -341,6 +345,8 @@ type CardEloBucket = {
 };
 
 type CardEloChart = {
+  acquisitionValue: boolean;
+  scaleLabel: string;
   key: string;
   label: string;
   unbucketedDecisions: number;
@@ -357,6 +363,10 @@ type TurnStatChart = {
 };
 
 type CardAnalysisView = {
+  acquisitionValue: boolean;
+  scaleLabel: string;
+  acquisitionsRecorded: number;
+  calibrationMessage: string;
   rulesVersion?: number;
   id: string;
   status: string;
@@ -2090,6 +2100,16 @@ function normalizeArenaJob(raw: unknown): ArenaResultView | null {
   };
 }
 
+function acquisitionScaleLabel(result: Record<string, unknown>): string {
+  if (result.rating_model === "visible_bundle_acquisition_value_v1") return "Explorer = 2 at every turn (legacy)";
+  const calibration = isRecord(result.calibration) ? result.calibration : {};
+  return calibration.status === "calibrated" ? "Explorer at turn 3 = 2" : "Raw units · turn-3 calibration unavailable";
+}
+
+function isAcquisitionValueModel(value: unknown): boolean {
+  return value === "visible_bundle_acquisition_value_v1" || value === "visible_bundle_acquisition_value_v2";
+}
+
 function normalizeCardAnalysis(raw: unknown): CardAnalysisView | null {
   if (!isRecord(raw)) return null;
   const result = isRecord(raw.result) ? raw.result : {};
@@ -2126,6 +2146,10 @@ function normalizeCardAnalysis(raw: unknown): CardAnalysisView | null {
       rawElo: asNumber(item.raw_elo, asNumber(item.elo, 0)),
       uncertainty,
       rawUncertainty,
+      ciLower: asOptionalNumber(item.ci_lower),
+      ciUpper: asOptionalNumber(item.ci_upper),
+      supported: item.supported !== false,
+      fixedAnchor: item.fixed_anchor === true,
       decisions: asNumber(item.decision_count, 0),
       comparisons: asNumber(item.pairwise_comparisons, 0),
       wins: asNumber(item.wins, 0),
@@ -2137,6 +2161,10 @@ function normalizeCardAnalysis(raw: unknown): CardAnalysisView | null {
   const rawCharts = Array.isArray(result.bucketed_charts) ? result.bucketed_charts : [];
   const rawKind = asString(raw.kind ?? result.kind, "acquire");
   return {
+    acquisitionValue: isAcquisitionValueModel(result.rating_model),
+    scaleLabel: acquisitionScaleLabel(result),
+    calibrationMessage: isRecord(result.calibration) ? asString(result.calibration.message, "") : "",
+    acquisitionsRecorded: asNumber(result.acquisitions_recorded, 0),
     id: asString(raw.id, ""),
     status: asString(raw.status, "queued"),
     rulesVersion: asNumber(config.rules_version, 1),
@@ -2146,7 +2174,7 @@ function normalizeCardAnalysis(raw: unknown): CardAnalysisView | null {
     progress: Math.max(0, Math.min(100, rawProgress <= 1 ? rawProgress * 100 : rawProgress)),
     gamesCompleted,
     gamesRequested,
-    singleCardTurns: asNumber(result.single_card_turns, 0),
+    singleCardTurns: asNumber(result.eligible_turns ?? result.single_card_turns, 0),
     scoredDecisions: asNumber(result.scored_decisions ?? result.decisions_captured, 0),
     comparisons: asNumber(result.pairwise_comparisons, 0),
     truncatedGames: asNumber(result.truncated_games, 0),
@@ -2175,6 +2203,8 @@ function normalizeCardAnalysis(raw: unknown): CardAnalysisView | null {
       const item = isRecord(chart) ? chart : {};
       const rawBuckets = Array.isArray(item.buckets) ? item.buckets : [];
       return {
+        acquisitionValue: isAcquisitionValueModel(item.rating_model),
+        scaleLabel: acquisitionScaleLabel(item),
         key: asString(item.key, `bucket-chart-${chartIndex}`),
         label: asString(item.label, "Bucketed Acquire Elo"),
         unbucketedDecisions: asNumber(item.unbucketed_decisions, 0),
@@ -3181,17 +3211,17 @@ function BucketedEloChart({
   const series = useMemo(() => {
     const cards = new Map<string, CardEloEntry>();
     const bucketPoints = chart.buckets.map((bucket) => {
-      const scored = bucket.leaderboard.filter((entry) => entry.decisions > 0);
+      const scored = bucket.leaderboard.filter((entry) => entry.decisions > 0 && entry.supported);
       const sortedElos = scored.map((entry) => entry.rawElo).sort((a, b) => a - b);
       return new Map(scored.map((entry): [string, CardPercentilePoint] => {
         if (!cards.has(entry.key)) cards.set(entry.key, entry);
-        const percentile = percentileRank(entry.rawElo, sortedElos);
+        const percentile = chart.acquisitionValue ? entry.elo : percentileRank(entry.rawElo, sortedElos);
         const uncertainty = percentileUncertainty(entry, scored);
         return [entry.key, {
           entry,
           percentile,
-          lowerPercentile: Math.max(0, percentile - uncertainty),
-          upperPercentile: Math.min(100, percentile + uncertainty),
+          lowerPercentile: chart.acquisitionValue ? entry.ciLower ?? entry.elo : Math.max(0, percentile - uncertainty),
+          upperPercentile: chart.acquisitionValue ? entry.ciUpper ?? entry.elo : Math.min(100, percentile + uncertainty),
         }];
       }));
     });
@@ -3213,7 +3243,10 @@ function BucketedEloChart({
   }, [chart, selectedColors, selectedCosts]);
   const xAt = (index: number) => plot.left
     + (chart.buckets.length <= 1 ? plotWidth / 2 : index / (chart.buckets.length - 1) * plotWidth);
-  const yAt = (percentile: number) => plot.bottom - percentile / 100 * plotHeight;
+  const plotted = series.flatMap((item) => item.points.filter((point) => point !== null));
+  const minimum = chart.acquisitionValue ? Math.min(0, ...plotted.map((point) => point.lowerPercentile)) : 0;
+  const maximum = chart.acquisitionValue ? Math.max(3, ...plotted.map((point) => point.upperPercentile)) : 100;
+  const yAt = (value: number) => plot.bottom - (value - minimum) / (maximum - minimum) * plotHeight;
   const pathFor = (points: Array<CardPercentilePoint | null>) => {
     let drawing = false;
     return points.map((point, index) => {
@@ -3242,22 +3275,24 @@ function BucketedEloChart({
           width={width}
           height={height}
           role="img"
-          aria-label={`${chart.label} bucketed card percentile chart`}
+          aria-label={`${chart.label} card ${chart.acquisitionValue ? "acquisition value" : "percentile"} chart`}
           onMouseLeave={() => setActiveKey(null)}
         >
           <rect width={width} height={height} rx="18" className="bucketed-chart-background" />
           <text x={plot.left} y="48" className="bucketed-chart-title">{chart.label}</text>
           <text x={plot.left} y="76" className="bucketed-chart-subtitle">
-            {activeSeries
+            {chart.acquisitionValue
+              ? `${activeSeries?.label ?? "Acquisition Value"} · ${chart.scaleLabel} · hover for approximate 95% confidence intervals`
+              : activeSeries
               ? `${activeSeries.label} · percentile uncertainty bars visible`
               : `Within-bucket percentile · hover a line or legend name to show its ±1σ rank range${chart.unbucketedDecisions ? ` · ${numberFormatter.format(chart.unbucketedDecisions)} pre-color states omitted` : ""}`}
           </text>
           {Array.from({ length: 6 }, (_, row) => {
             const y = plot.top + row / 5 * plotHeight;
-            const value = 100 - row * 20;
-            return <g key={`grid-${row}`}><line x1={plot.left} x2={width - plot.right} y1={y} y2={y} className="bucketed-chart-grid" /><text x={plot.left - 16} y={y + 5} textAnchor="end" className="bucketed-chart-axis">{value}th</text></g>;
+            const value = maximum - row / 5 * (maximum - minimum);
+            return <g key={`grid-${row}`}><line x1={plot.left} x2={width - plot.right} y1={y} y2={y} className="bucketed-chart-grid" /><text x={plot.left - 16} y={y + 5} textAnchor="end" className="bucketed-chart-axis">{chart.acquisitionValue ? value.toFixed(1) : `${value}th`}</text></g>;
           })}
-          <text transform={`translate(31 ${(plot.top + plot.bottom) / 2}) rotate(-90)`} textAnchor="middle" className="bucketed-chart-axis-title">Percentile within bucket</text>
+          <text transform={`translate(31 ${(plot.top + plot.bottom) / 2}) rotate(-90)`} textAnchor="middle" className="bucketed-chart-axis-title">{chart.acquisitionValue ? `Acquisition Value (${chart.scaleLabel})` : "Percentile within bucket"}</text>
           {chart.buckets.map((bucket, index) => <g key={bucket.key}><line x1={xAt(index)} x2={xAt(index)} y1={plot.top} y2={plot.bottom} className="bucketed-chart-grid bucketed-chart-grid-vertical" /><text x={xAt(index)} y={plot.bottom + 30} textAnchor="middle" className="bucketed-chart-axis">{bucket.label}</text><text x={xAt(index)} y={plot.bottom + 50} textAnchor="middle" className="bucketed-chart-count">n={numberFormatter.format(bucket.capturedDecisions)}</text></g>)}
           {series.map((item) => {
             const active = resolvedActiveKey === item.key;
@@ -3273,7 +3308,9 @@ function BucketedEloChart({
               }) : null}
               <path d={path} fill="none" stroke={item.color} className="bucketed-card-line" />
               <path d={path} fill="none" stroke="transparent" strokeWidth="14" className="bucketed-card-hit" onMouseEnter={() => setActiveKey(item.key)} />
-              {active ? item.points.map((point, index) => point ? <circle key={`${item.key}-point-${index}`} cx={xAt(index)} cy={yAt(point.percentile)} r="5" fill={item.color}><title>{`${item.label} · ${chart.buckets[index].label}: ${point.percentile.toFixed(1)}th percentile (${numberFormatter.format(point.entry.decisions)} decisions)`}</title></circle> : null) : null}
+              {active ? item.points.map((point, index) => point ? <circle key={`${item.key}-point-${index}`} cx={xAt(index)} cy={yAt(point.percentile)} r="5" fill={item.color}><title>{chart.acquisitionValue
+                ? `${item.label} · ${chart.buckets[index].label}: ${point.entry.elo.toFixed(2)}; 95% CI [${point.lowerPercentile.toFixed(2)}, ${point.upperPercentile.toFixed(2)}]${point.entry.fixedAnchor ? " (fixed anchor)" : ""}; ${numberFormatter.format(point.entry.decisions)} decisions`
+                : `${item.label} · ${chart.buckets[index].label}: ${point.percentile.toFixed(1)}th percentile (${numberFormatter.format(point.entry.decisions)} decisions)`}</title></circle> : null) : null}
             </g>;
           })}
           <text x={plot.left} y="792" className="bucketed-chart-legend-title">Options · faction color</text>
@@ -3376,7 +3413,7 @@ function BucketedEloCharts({ charts }: { charts: CardEloChart[] }) {
   };
 
   return <div className="bucketed-elo-results">
-    <p>Five independent post-hoc views of the same acquisition choices. Each 1920×1080 view scales to the full available window width and ranks cards independently within every bucket.</p>
+    <p>{charts.some((chart) => chart.acquisitionValue) ? `Acquisition values use every purchase and available stopping decision, weighted equally per turn. Contexts are captured at turn start. No Card = 0. ${charts[0]?.scaleLabel}. Intervals are approximate 95% ranges clustered by game, conditional on the fitted scale. Values model visible-market bundles, not win contribution. Sparse buckets use weak regularization; unsupported estimates are omitted.` : "Five independent post-hoc views of the same acquisition choices. Each view ranks cards independently within every bucket."}</p>
     <section className="bucketed-chart-filters" aria-label="Filter cards shown in bucketed charts">
       <header><div><span>Chart filters</span><strong>{visibleCardCount} of {availableCards.length} options visible</strong></div><button type="button" onClick={resetFilters}>Reset filters</button></header>
       <fieldset><legend>Cost / special choice</legend><div>{chartCostOptions.map((cost) => <button type="button" key={cost} aria-pressed={selectedCosts.includes(cost)} onClick={() => toggleCost(cost)}>{cost === 0 ? "No Card" : `Cost ${cost}`}</button>)}</div></fieldset>
@@ -5508,25 +5545,28 @@ export default function Home() {
             </div>
 
             <article className="panel card-analysis-panel">
-              <header className="panel-header"><div><span className="panel-kicker">Candidate behavior probe</span><h2>Card scrap & acquire Elo</h2></div><span className="paired-chip">1,000 standard · 10,000 bucketed</span></header>
-              <p className="card-analysis-intro">Choose one immutable candidate, then rank the card choices its greedy deployment policy actually makes. Acquire trials include No Card, compared only with the card actually bought or, when nothing was bought, cards affordable at turn end. Scrap trials include No Discard. Turns with multiple scraps or acquisitions are excluded. The bucketed Acquire test records choice state during 10,000 games, then groups and rates the choices after simulation.</p>
+              <header className="panel-header"><div><span className="panel-kicker">Candidate behavior probe</span><h2>Card scrap & acquisition values</h2></div><span className="paired-chip">1,000 standard · 10,000 bucketed</span></header>
+              <p className="card-analysis-intro">Choose one immutable candidate to measure its greedy deployment choices. The 10,000-game Acquisition Value test includes multi-purchase turns and free acquisitions, fits additive values from affordable visible-card bundles, and reports 95% confidence intervals plus a whole-game ranking. The standard 1,000-game Elo probes retain their zero-or-one-card turn filter.</p>
               <div className="card-analysis-controls">
                 <label><span>Candidate checkpoint</span><select value={selectableModels.some((model) => model.id === analysisModel) ? analysisModel : ""} onChange={(event) => setAnalysisModel(event.target.value)} disabled={analysisRunning}>{arenaModelGroups.map((group) => <optgroup key={group.runId} label={group.runName}>{group.models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</optgroup>)}</select></label>
                 <label className="toggle-label checkpoint-filter-toggle"><input type="checkbox" checked={championCheckpointsOnly} onChange={(event) => setChampionCheckpointsOnly(event.target.checked)} /><span />Champions only</label>
-                <label><span>Saved 10k result</span><select value={analysisResult?.kind === "acquire_bucketed" ? analysisResult.id : ""} onChange={(event) => loadSavedAnalysis(event.target.value)} disabled={analysisRunning || !analysisHistory.length}><option value="">{analysisHistory.length ? "Select a completed test…" : "No saved tests found"}</option>{analysisHistory.map((item) => <option key={item.id} value={item.id}>{item.modelLabel} · Rules v{item.rulesVersion ?? 1} · {item.completedAt ? new Date(item.completedAt).toLocaleString() : `${numberFormatter.format(item.gamesCompleted)} games`}</option>)}</select></label>
+                <label><span>Saved 10k result</span><select value={analysisResult?.kind === "acquire_bucketed" ? analysisResult.id : ""} onChange={(event) => loadSavedAnalysis(event.target.value)} disabled={analysisRunning || !analysisHistory.length}><option value="">{analysisHistory.length ? "Select a completed test…" : "No saved tests found"}</option>{analysisHistory.map((item) => <option key={item.id} value={item.id}>{item.modelLabel} · {item.acquisitionValue ? `Acquisition Value · ${item.scaleLabel}` : "Legacy Elo"} · Rules v{item.rulesVersion ?? 1} · {item.completedAt ? new Date(item.completedAt).toLocaleString() : `${numberFormatter.format(item.gamesCompleted)} games`}</option>)}</select></label>
                 <div><span>Fixed samples</span><strong>1,000 / 10,000 games</strong><small>candidate vs itself · greedy mean heads</small></div>
                 <button type="button" className="button" onClick={() => runCardAnalysis("scrap")} disabled={analysisRunning || !availableModels.length}>{analysisRunning && analysisResult?.kind === "scrap" ? "Running Scrap Elo…" : "Run Scrap Elo"}</button>
                 <button type="button" className="button" onClick={() => runCardAnalysis("acquire")} disabled={analysisRunning || !availableModels.length}>{analysisRunning && analysisResult?.kind === "acquire" ? "Running Acquire Elo…" : "Run Acquire Elo"}</button>
-                <button type="button" className="button button-primary" onClick={() => runCardAnalysis("acquire_bucketed")} disabled={analysisRunning || !availableModels.length}>{analysisRunning && analysisResult?.kind === "acquire_bucketed" ? "Running 10k Bucketed Elo…" : "Run 10k Bucketed Acquire Elo"}</button>
+                <button type="button" className="button button-primary" onClick={() => runCardAnalysis("acquire_bucketed")} disabled={analysisRunning || !availableModels.length}>{analysisRunning && analysisResult?.kind === "acquire_bucketed" ? "Running 10k Acquisition Value…" : "Run 10k Acquisition Value"}</button>
               </div>
               {analysisResult ? <>
-                <div className="arena-progress card-analysis-progress" aria-live="polite"><div><span>{analysisResult.kind === "acquire_bucketed" ? "Bucketed Acquire" : titleCase(analysisResult.kind)} Elo · {analysisResult.modelLabel} · Rules v{analysisResult.rulesVersion ?? 1}</span><strong>{Math.round(analysisResult.progress)}%</strong></div><i><b style={{ width: `${analysisResult.progress}%` }} /></i><p>{numberFormatter.format(analysisResult.gamesCompleted)} of {numberFormatter.format(analysisResult.gamesRequested)} games · {numberFormatter.format(analysisResult.singleCardTurns)} eligible zero-or-one-card turns{analysisResult.status === "complete" ? ` · ${numberFormatter.format(analysisResult.comparisons)} alternative comparisons` : ""}</p></div>
+                <div className="arena-progress card-analysis-progress" aria-live="polite"><div><span>{analysisResult.acquisitionValue || (analysisRunning && analysisResult.kind === "acquire_bucketed") ? "Acquisition Value" : `${analysisResult.kind === "acquire_bucketed" ? "Legacy Bucketed Acquire" : titleCase(analysisResult.kind)} Elo`} · {analysisResult.modelLabel} · Rules v{analysisResult.rulesVersion ?? 1}</span><strong>{analysisRunning && analysisResult.kind === "acquire_bucketed" && analysisResult.gamesCompleted >= analysisResult.gamesRequested ? "Fitting values and intervals…" : `${Math.round(analysisResult.progress)}%`}</strong></div><i><b style={{ width: `${analysisResult.progress}%` }} /></i><p>{numberFormatter.format(analysisResult.gamesCompleted)} of {numberFormatter.format(analysisResult.gamesRequested)} games · {numberFormatter.format(analysisResult.singleCardTurns)} {analysisResult.acquisitionValue || analysisResult.kind === "acquire_bucketed" && analysisRunning ? "eligible turns (all acquisition counts)" : "eligible zero-or-one-card turns"}{analysisResult.status === "complete" ? analysisResult.acquisitionValue ? ` · ${numberFormatter.format(analysisResult.acquisitionsRecorded)} acquisitions` : ` · ${numberFormatter.format(analysisResult.comparisons)} alternative comparisons` : ""}</p></div>
                 {analysisResult.error ? <p className="card-analysis-error">{analysisResult.error}</p> : null}
                 {analysisResult.leaderboard.length ? <div className="card-elo-results">
-                  <div className="card-elo-summary"><span><small>Scored choices</small><strong>{numberFormatter.format(analysisResult.scoredDecisions)}</strong></span><span><small>Comparisons</small><strong>{numberFormatter.format(analysisResult.comparisons)}</strong></span><span><small>Truncations</small><strong>{numberFormatter.format(analysisResult.truncatedGames)}</strong></span><span><small>Duration</small><strong>{formatDuration(analysisResult.durationSeconds)}</strong></span></div>
+                  <div className="card-elo-summary"><span><small>Scored choices</small><strong>{numberFormatter.format(analysisResult.scoredDecisions)}</strong></span><span><small>{analysisResult.acquisitionValue ? "Acquisitions" : "Comparisons"}</small><strong>{numberFormatter.format(analysisResult.acquisitionValue ? analysisResult.acquisitionsRecorded : analysisResult.comparisons)}</strong></span><span><small>Truncations</small><strong>{numberFormatter.format(analysisResult.truncatedGames)}</strong></span><span><small>Duration</small><strong>{formatDuration(analysisResult.durationSeconds)}</strong></span></div>
+                  {analysisResult.acquisitionValue ? <h3>Whole-game acquisition values · all turns</h3> : null}
+                  {analysisResult.acquisitionValue ? <p>Refitted from all turns, with equal weight per eligible turn. Brackets show approximate 95% confidence intervals. {analysisResult.calibrationMessage || analysisResult.scaleLabel}</p> : null}
+                  {analysisResult.acquisitionValue || !analysisResult.bucketedCharts.length ? <div className="card-elo-table" role="table" aria-label={analysisResult.acquisitionValue ? "Whole-game acquisition values" : `${analysisResult.kind} card Elo rankings`}><div className="card-elo-row card-elo-header" role="row"><span role="columnheader">Rank / card</span><span role="columnheader">{analysisResult.acquisitionValue ? "Value" : "Elo"}</span><span role="columnheader">{analysisResult.acquisitionValue ? "95% CI" : "± uncertainty"}</span><span role="columnheader">Decisions</span><span role="columnheader">{analysisResult.acquisitionValue ? "Chosen" : "Comparisons"}</span></div>{analysisResult.leaderboard.map((entry, index) => <div className="card-elo-row" role="row" key={entry.key}><span role="cell"><b>{index + 1}</b><CardArtHover name={entry.cardName}><strong>{entry.label}</strong></CardArtHover></span><span role="cell">{entry.supported ? entry.elo.toFixed(2) : "—"}</span><span role="cell">{analysisResult.acquisitionValue ? entry.fixedAnchor ? "Fixed anchor" : entry.ciLower === null || entry.ciUpper === null ? "Insufficient evidence" : `[${entry.ciLower.toFixed(2)}, ${entry.ciUpper.toFixed(2)}]` : entry.uncertainty === null ? "—" : entry.uncertainty.toFixed(2)}</span><span role="cell">{numberFormatter.format(entry.decisions)}</span><span role="cell">{numberFormatter.format(analysisResult.acquisitionValue ? entry.wins : entry.comparisons)}</span></div>)}</div> : null}
                   {analysisResult.turnStatCharts.map((chart) => <TurnStatisticsChart key={chart.key} chart={chart} />)}
-                  {analysisResult.bucketedCharts.length ? <BucketedEloCharts charts={analysisResult.bucketedCharts} /> : <div className="card-elo-table" role="table" aria-label={`${analysisResult.kind} card Elo rankings`}><div className="card-elo-row card-elo-header" role="row"><span role="columnheader">Rank / card</span><span role="columnheader">Elo</span><span role="columnheader">± uncertainty</span><span role="columnheader">Decisions</span><span role="columnheader">Comparisons</span></div>{analysisResult.leaderboard.map((entry, index) => <div className="card-elo-row" role="row" key={entry.key}><span role="cell"><b>{index + 1}</b><CardArtHover name={entry.cardName}><strong>{entry.label}</strong></CardArtHover></span><span role="cell">{entry.elo.toFixed(2)}</span><span role="cell">{entry.uncertainty === null ? "—" : entry.uncertainty.toFixed(2)}</span><span role="cell">{numberFormatter.format(entry.decisions)}</span><span role="cell">{numberFormatter.format(entry.comparisons)}</span></div>)}</div>}
-                </div> : analysisRunning ? null : <EmptyState title="No comparable choices observed" detail="The candidate completed the sample without a single-card turn containing at least one alternate card choice." />}
+                  {analysisResult.bucketedCharts.length ? <BucketedEloCharts charts={analysisResult.bucketedCharts} /> : null}
+                </div> : analysisRunning ? null : <EmptyState title="No comparable choices observed" detail="The sample did not contain comparable choices with sufficient evidence." />}
               </> : <EmptyState title="Choose a candidate and a probe" detail="Scrap Elo combines hand and discard evidence with No Discard. Acquire Elo includes No Card while keeping its comparisons limited to actual purchases or affordable turn-end choices." />}
             </article>
 

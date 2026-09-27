@@ -89,13 +89,17 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /No Card/);
   assert.match(page, /Saved 10k result/);
   assert.match(page, /Run Acquire Elo/);
-  assert.match(page, /Run 10k Bucketed Acquire Elo/);
+  assert.match(page, /Run 10k Acquisition Value/);
   assert.match(page, /kind === "acquire_bucketed" \? 10_000 : 1_000/);
   assert.match(page, /BucketedEloChart/);
   assert.match(page, /width = 1_920/);
   assert.match(page, /Percentile within bucket/);
   assert.match(page, /percentileUncertainty/);
   assert.match(page, /percentile uncertainty bars visible/);
+  assert.match(page, /Whole-game acquisition values/);
+  assert.match(page, /Explorer at turn 3 = 2/);
+  assert.match(page, /visible_bundle_acquisition_value_v2/);
+  assert.match(page, /95% CI/);
   assert.match(page, /rawElo/);
   assert.match(page, /legacyNormalizationFactor/);
   assert.match(page, /Chart filters/);

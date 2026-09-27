@@ -1,10 +1,8 @@
-"""Candidate card-choice Elo probes for acquisition and deck-thinning decisions.
+"""Candidate card-choice probes measure checkpoint behavior, not game outcomes.
 
-The probes intentionally measure the policy that is present in a checkpoint,
-not game outcomes. A selected card wins against every other card that was
-legal in the same decision. Whole turns are retained only when zero or one
-card was acquired or scrapped, preventing a multi-card turn from being treated
-as several independent preferences.
+The standard Elo probes retain zero-or-one-card turns. The 10k acquisition
+probe retains every acquisition and rates additive visible-market bundles,
+with turn-level weights and game-clustered approximate confidence intervals.
 """
 
 from __future__ import annotations
@@ -27,6 +25,13 @@ from typing import Any
 
 import numpy as np
 
+from .acquisition_value import MODEL as ACQUISITION_VALUE_MODEL
+from .acquisition_value import (
+    AcquisitionSample,
+    calibrate_acquisition_report,
+    extract_acquisition_samples,
+    rate_acquisition_samples,
+)
 from .arena import ModelResolutionError, resolve_model
 from .cards import ALL_CARDS, CARD_BY_ID, Faction
 from .encoding import DecisionFamily as EncodedDecisionFamily
@@ -641,11 +646,12 @@ def _acquired_card_bucket(value: int) -> tuple[str, str]:
 
 
 def rate_bucketed_acquire_decisions(
-    decisions: Sequence[ChoiceDecision],
+    decisions: Sequence[ChoiceDecision | AcquisitionSample],
     *,
     k_factor: float = DEFAULT_K_FACTOR,
+    acquisition_values: bool = False,
 ) -> list[dict[str, Any]]:
-    """Rate the same captured choices independently in five context groupings."""
+    """Rate captured choices in five contexts; value samples use turn-start state."""
 
     contextual = [decision for decision in decisions if decision.context is not None]
     maximum_own_authority = max(
@@ -711,16 +717,14 @@ def rate_bucketed_acquire_decisions(
         bucket_results = []
         for bucket_key, bucket_label in buckets:
             bucket_decisions = grouped[key].get(bucket_key, [])
-            rated = rate_choice_decisions(
-                bucket_decisions,
-                AnalysisKind.ACQUIRE,
-                k_factor=k_factor,
-            )
+            rated = (rate_acquisition_samples(bucket_decisions) if acquisition_values else
+                     rate_choice_decisions(bucket_decisions, AnalysisKind.ACQUIRE, k_factor=k_factor))
             bucket_results.append(
                 {
                     "key": bucket_key,
                     "label": bucket_label,
-                    "captured_decisions": len(bucket_decisions),
+                    "captured_decisions": (rated["eligible_turns"] if acquisition_values
+                                           else len(bucket_decisions)),
                     **rated,
                 }
             )
@@ -728,6 +732,7 @@ def rate_bucketed_acquire_decisions(
             {
                 "key": key,
                 "label": label,
+                "rating_model": ACQUISITION_VALUE_MODEL if acquisition_values else "elo",
                 "buckets": bucket_results,
                 "unbucketed_decisions": unbucketed_colors if key == "opponent_top_color" else 0,
             }
@@ -904,7 +909,7 @@ def _simulate_game_batch(
     if actor.spec.families != len(EncodedDecisionFamily):
         raise ModelResolutionError("checkpoint actor decision families are incompatible")
 
-    decisions: list[ChoiceDecision] = []
+    decisions: list[ChoiceDecision | AcquisitionSample] = []
     extra = _empty_extra_statistics()
     games_completed = 0
     truncated_games = 0
@@ -946,7 +951,9 @@ def _simulate_game_batch(
             for event in game_extra["play_scrap_events"]:
                 event["game_index"] = game_index
             _merge_extra_statistics(extra, game_extra)
-        extracted = extract_single_card_turn_decisions(events, kind)
+        extracted = (extract_acquisition_samples(events, game_index)
+                     if kind == AnalysisKind.ACQUIRE_BUCKETED
+                     else extract_single_card_turn_decisions(events, kind))
         turns_observed += int(extracted["turns_observed"])
         single_card_turns += int(extracted["single_card_turns"])
         decisions.extend(extracted["decisions"])
@@ -1070,6 +1077,17 @@ def _simulate_games(
 
 def format_analysis_report(result: dict[str, Any]) -> str:
     kind = AnalysisKind(result["kind"])
+    if result.get("rating_model") == ACQUISITION_VALUE_MODEL:
+        lines = [f"Acquisition Value Test for {result['model']['label']}",
+                 f"Games: {result['games_completed']} / {result['games_requested']}",
+                 f"Eligible turns: {result['eligible_turns']}",
+                 f"Acquisitions recorded: {result['acquisitions_recorded']}",
+                 result["method_description"], "", "Whole-game acquisition values (95% CI)"]
+        for entry in result["leaderboard"]:
+            interval = (f"[{entry['ci_lower']:.2f}, {entry['ci_upper']:.2f}]"
+                        if entry["ci_lower"] is not None else "insufficient evidence")
+            lines.append(f"{entry['label']:<32} {entry['elo']:8.2f}  {interval}")
+        return "\n".join(lines)
     display_kind = (
         "Bucketed Acquire" if kind == AnalysisKind.ACQUIRE_BUCKETED else kind.value.title()
     )
@@ -1139,7 +1157,8 @@ def run_card_analysis(
     )
     decisions = simulated.pop("decisions")
     extra = simulated.pop("extra_statistics", _empty_extra_statistics())
-    rated = rate_choice_decisions(decisions, resolved_kind, k_factor=resolved_config.k_factor)
+    rated = (rate_acquisition_samples(decisions) if resolved_kind == AnalysisKind.ACQUIRE_BUCKETED
+             else rate_choice_decisions(decisions, resolved_kind, k_factor=resolved_config.k_factor))
     result: dict[str, Any] = {
         "kind": resolved_kind.value,
         "model": {
@@ -1152,6 +1171,7 @@ def run_card_analysis(
         **rated,
         "config": resolved_config.to_dict(),
         "rating_model": (
+            ACQUISITION_VALUE_MODEL if resolved_kind == AnalysisKind.ACQUIRE_BUCKETED else
             "multinomial_elo_plackett_luce_adaptive_k"
             if _is_acquire_kind(resolved_kind)
             else "pairwise_elo_adaptive_k"
@@ -1165,13 +1185,30 @@ def run_card_analysis(
         )
         result["play_scrap_events"] = extra["play_scrap_events"]
         result["bucketed_charts"] = rate_bucketed_acquire_decisions(
-            decisions, k_factor=resolved_config.k_factor
+            decisions, k_factor=resolved_config.k_factor, acquisition_values=True
         )
+    if resolved_kind == AnalysisKind.ACQUIRE_BUCKETED:
+        calibrate_acquisition_report(result)
+        result["acquisitions_recorded"] = sum(s.chosen != -1 for s in decisions)
+        result["method_description"] = (
+            "Additive visible-market bundles; next purchase marginalized over bundle copies. "
+            "Static-market continuation approximation; refill cards enter only after reveal. "
+            "Stop = 0; every card including Explorer is freely estimated at logit temperature 1. "
+            "Each player-turn has total weight one; contexts use turn-start state. "
+            "Weak zero-centered regularization (precision 0.25); independent bucket fits. "
+            "Approximate 95% game-cluster intervals with a model-curvature floor. "
+            "Fixed anchors have zero interval width by definition, not empirical certainty. "
+            "Whole-game values are refitted from all turns, not averaged bucket values. "
+            + result["calibration"]["message"]
+        )
+    result["duration_seconds"] = time.monotonic() - started
+    result["completed_at"] = datetime.now(UTC).isoformat()
     result["report_text"] = format_analysis_report(result)
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-        stem = f"card_{resolved_kind.value}_elo_{model_id}_{stamp}"
+        metric = "value" if resolved_kind == AnalysisKind.ACQUIRE_BUCKETED else "elo"
+        stem = f"card_{resolved_kind.value}_{metric}_{model_id}_{stamp}"
         report_path = output_dir / f"{stem}.txt"
         json_path = output_dir / f"{stem}.json"
         report_path.write_text(result["report_text"], encoding="utf-8")
@@ -1199,7 +1236,9 @@ class CardAnalysisManager:
         jobs: dict[str, dict[str, Any]] = {}
         if not self.output_dir.is_dir():
             return jobs
-        for path in sorted(self.output_dir.glob("card_*_elo_*.json")):
+        paths = [*self.output_dir.glob("card_*_elo_*.json"),
+                 *self.output_dir.glob("card_*_value_*.json")]
+        for path in sorted(paths):
             try:
                 result = json.loads(path.read_text(encoding="utf-8"))
                 kind = AnalysisKind(result["kind"])

@@ -16,6 +16,30 @@ from safetensors.numpy import save_file
 OPERATORS = ("main_output", "all_outputs", "head_mixture", "action_features")
 
 
+def extrapolate(parent, origin, tip, *, scale):
+    """Reuse a retained policy direction, without moving the critic.
+
+    A successful past direction is only a proposal. Its continuation must pass
+    the same fresh search checks and independent promotion test as a mutation.
+    """
+    if not np.isfinite(scale) or not scale:
+        raise ValueError("direction scale must be finite and nonzero")
+    if parent.keys() != origin.keys() or parent.keys() != tip.keys():
+        raise ValueError("incompatible direction tensors")
+    for key, value in parent.items():
+        if value.shape != origin[key].shape or value.shape != tip[key].shape:
+            raise ValueError("incompatible direction shapes")
+    if any(not np.array_equal(parent["__spec_json__"], w["__spec_json__"]) for w in (origin, tip)):
+        raise ValueError("incompatible direction model specs")
+    result = {key: value.copy() for key, value in parent.items()}
+    for key, value in parent.items():
+        if key != "__spec_json__" and not key.startswith("value_"):
+            result[key] = (
+                value.astype(np.float64) + scale * (tip[key].astype(np.float64) - origin[key])
+            ).astype(value.dtype)
+    return result
+
+
 def read_actor(path):
     with np.load(path, allow_pickle=False) as archive:
         return {key: archive[key].copy() for key in archive.files}

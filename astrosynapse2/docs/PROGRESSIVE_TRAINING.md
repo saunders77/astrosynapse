@@ -1,5 +1,10 @@
 # Progressive champion training
 
+The [September 26 investigation and repair](astro6-evolution-2026-09-26.md)
+addresses the stalled nomination funnel after champion 10. Revision 3 sends
+incumbent-parent nominees to independent certification, increases search sample
+sizes and starts a new 24-active-hour budget with the promotion contract intact.
+
 The active replacement is the [September 23 direct policy search](astro6-evolution-2026-09-23.md).
 It follows the unsuccessful [September 20 PPO supervisor](astro6-autonomous-2026-09-20.md)
 and searches portable greedy policies with independent promotion certification.

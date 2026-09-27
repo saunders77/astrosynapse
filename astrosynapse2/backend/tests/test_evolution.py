@@ -6,7 +6,15 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from astro2.evolution import OPERATORS, choose_survivor, mutate, read_actor, recombine, write_actor
+from astro2.evolution import (
+    OPERATORS,
+    choose_survivor,
+    extrapolate,
+    mutate,
+    read_actor,
+    recombine,
+    write_actor,
+)
 from astro2.experiment_control import atomic_json
 from safetensors.numpy import load_file
 
@@ -333,3 +341,169 @@ def test_population_uses_separate_screen_selection_and_confirmation_streams(camp
     assert calls[4][1] == calls[5][1]
     assert len({call[1] for call in calls}) == 3
     assert branch["seed"] + 10**9 not in {call[1] for call in calls}
+
+
+def test_direction_is_portable_and_preserves_critic_and_spec(weights, tmp_path):
+    tip = mutate(weights, seed=52, operator="all_outputs", scale=0.1)
+    tip["value_output.weight"] += 100  # Historical critic updates never guide policy proposals.
+    result = extrapolate(tip, weights, tip, scale=0.5)
+    key = "head_outputs.0.weight"
+    assert np.allclose(result[key], tip[key] + 0.5 * (tip[key] - weights[key]))
+    assert np.array_equal(result["value_output.weight"], tip["value_output.weight"])
+    assert np.array_equal(result["__spec_json__"], tip["__spec_json__"])
+    actor = tmp_path / "direction.actor.npz"
+    model = write_actor(result, actor)
+    assert np.array_equal(load_file(model)[key], read_actor(actor)[key])
+    with pytest.raises(ValueError, match="finite"):
+        extrapolate(tip, weights, tip, scale=float("nan"))
+    bad = {**weights, "action_in.weight": np.zeros((1, 1))}
+    with pytest.raises(ValueError, match="shapes"):
+        extrapolate(tip, bad, tip, scale=1)
+
+
+def test_guided_line_is_frozen_and_not_repeated_for_same_parent(campaign):
+    c = campaign
+    original = c.state["champion"]
+    actor = c.out / "champion.actor.npz"
+    model = write_actor(
+        mutate(read_actor(original), seed=21, operator="all_outputs", scale=0.1), actor
+    )
+    c.state.update(
+        champion=str(actor),
+        learner=str(actor),
+        model=model,
+        learner_model=model,
+        promotions=[dict(actor=original), dict(actor=str(actor))],
+    )
+    c.settings["search_version"] = 3
+    branch = c.new_branch()
+    assert branch["recipe"]["name"] == "lineage"
+    c.propose(branch)
+    assert branch["candidates"][1]["kind"] == "direction"
+    hashes = [p["sha256"] for p in branch["candidates"]]
+    c.propose(branch)
+    assert hashes == [p["sha256"] for p in branch["candidates"]]
+    assert c.search_direction() is None
+    Path(original).write_bytes(b"changed")
+    with pytest.raises(ValueError, match="direction artifact"):
+        c.propose(branch)
+
+
+def complete_rows(values):
+    return [
+        dict(pair=i, scores=list(value), seconds=0, searches=0, changes=0, branches=0, truncated=0)
+        for i, value in enumerate(values)
+    ]
+
+
+def test_positive_uncertain_step_gets_more_data_and_resumes_same_nominee(campaign):
+    c = campaign
+    c.settings.update(search_version=3, adoption_pairs=100, adoption_max_blocks=4)
+    branch = c.new_branch()
+    c.propose(branch)
+    nominee = branch["candidates"][1]
+    branch.update(winner=1, actor=nominee["actor"], model=nominee["model"], status="adopting")
+    parent = complete_rows([(1, 0)] * 100)
+    weak = complete_rows([(1, 1)] * 3 + [(0, 0)] + [(1, 0)] * 96)
+    strong = complete_rows([(1, 1)] * 12 + [(1, 0)] * 88)
+    calls = []
+    paused = True
+
+    def evaluate(b, indices, phase, pairs, block):
+        assert indices == [0, 1] and phase == "adopt" and pairs == 100
+        calls.append(block)
+        if block == 1 and paused:
+            return None
+        return [], [parent, weak if block == 0 else strong]
+
+    c.evaluate_set = evaluate
+    c.adopt(branch)
+    assert branch["status"] == "adopting" and c.state["accepted_steps"] == 0
+    assert branch["adoption_progress"]["blocks"] == 1
+    paused = False
+    c.adopt(branch)
+    assert calls == [0, 1, 0, 1]
+    assert branch["accepted"] and branch["adoption_comparison"]["pairs"] == 200
+    assert branch["status"] == "confirming" and c.state["accepted_steps"] == 1
+    assert c.state["attempt"] == 310 and c.state["pending_gate"] is None
+    saved = json.loads((c.out / "state.json").read_text())
+    assert saved["branches"][0]["status"] == "confirming"
+
+
+def test_extended_adoption_stops_negative_and_caps_uncertain_positive(campaign):
+    c = campaign
+    c.settings.update(search_version=3, adoption_pairs=100, adoption_max_blocks=2)
+    branch = c.new_branch()
+    c.propose(branch)
+    nominee = branch["candidates"][1]
+    branch.update(winner=1, actor=nominee["actor"], model=nominee["model"], status="adopting")
+    parent = complete_rows([(1, 0)] * 100)
+    calls = []
+    negative = complete_rows([(0, 0)] + [(1, 0)] * 99)
+
+    def evaluate(b, indices, phase, pairs, block):
+        calls.append(block)
+        return [], [parent, negative]
+
+    c.evaluate_set = evaluate
+    c.adopt(branch)
+    assert calls == [0] and not branch["accepted"]
+    weak = complete_rows([(1, 1)] * 3 + [(0, 0)] * 2 + [(1, 0)] * 95)
+    negative = weak
+    calls.clear()
+    branch["status"] = "adopting"
+    c.adopt(branch)
+    assert calls == [0, 1] and not branch["accepted"]
+    assert branch["adoption_comparison"]["pairs"] == 200
+    assert c.state["learner"] == branch["parent"] and c.state["pending_gate"] is None
+
+
+def test_extended_blocks_have_distinct_durable_evaluation_identities(campaign):
+    c = campaign
+    branch = c.new_branch()
+    c.propose(branch)
+    calls = []
+
+    def matches(actor, opponent, folder, seed, **kwargs):
+        calls.append((str(folder), seed))
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "pairs.jsonl").write_text(json.dumps(dict(pair=0, scores=[1.0, 0.0])) + "\n")
+        return dict(paused=False, pairs=1, score=0.5)
+
+    c.matches = matches
+    for block in range(4):
+        c.evaluate_set(branch, [0, 1], "adopt", 16, block)
+    assert len({folder for folder, _ in calls}) == 8
+    assert len({seed for _, seed in calls}) == 4
+    assert all(calls[i][1] == calls[i + 1][1] for i in range(0, 8, 2))
+    assert branch["seed"] + 10**9 not in {seed for _, seed in calls}
+
+
+def test_champion_parent_goes_to_independent_gate_without_false_adoption(campaign):
+    c = campaign
+    c.settings["search_version"] = 3
+    branch = c.new_branch()
+    c.propose(branch)
+    branch["finalists"] = [0, 1]
+    c.evaluate_set = lambda *a: (
+        [dict(score=0.5), dict(score=0.52)],
+        [rows([1, 0] * 50), rows([1] * 70 + [0] * 30)],
+    )
+    c.select(branch)
+    assert branch["status"] == "verifying" and not branch["accepted"]
+    assert c.state["learner"] == c.state["champion"] == branch["parent"]
+    assert c.state["accepted_steps"] == 0 and c.state["stage"] == 9
+    saved = json.loads((c.out / "state.json").read_text())
+    assert saved["attempt"] == saved["pending_gate"]["attempt"] == 311
+    assert saved["pending_gate"]["seed"] != branch["seed"] + 2 * 10**8
+    assert saved["branches"][0]["status"] == "verifying"
+    with pytest.raises(ValueError, match="already pending"):
+        c.nominate_gate(branch)
+    assert c.state["attempt"] == 311
+
+
+def test_unpromising_gate_stops_but_small_positive_keeps_full_budget(campaign):
+    c = campaign
+    assert not c.gate_complete(dict(pairs=8192, score=0.5, passed=False), 131072)
+    assert c.gate_complete(dict(pairs=16384, score=0.5, passed=False), 131072)
+    assert not c.gate_complete(dict(pairs=65536, score=0.5005, passed=False), 131072)

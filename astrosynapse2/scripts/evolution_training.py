@@ -1,8 +1,8 @@
 """Persistent greedy-policy evolution with independent promotion certification.
 
-Each generation races portable actors, rechecks finalists on fresh common seeds,
-and validates one nominated step on another independent block before adoption.
-Confirmation can then nominate it for the separately seeded promotion contract.
+Each generation races portable actors and rechecks finalists on fresh common
+seeds. An incumbent-parent nominee proceeds directly to fresh certification;
+exploratory learner changes use independent validation before adoption.
 """
 
 from __future__ import annotations
@@ -20,7 +20,15 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import numpy as np
 from astro2.autonomy import commit_gate, read_json
-from astro2.evolution import OPERATORS, choose_survivor, mutate, read_actor, recombine, write_actor
+from astro2.evolution import (
+    OPERATORS,
+    choose_survivor,
+    extrapolate,
+    mutate,
+    read_actor,
+    recombine,
+    write_actor,
+)
 from astro2.experiment_control import atomic_json, code_identity, sha256
 from autonomous_training import Campaign
 from autonomous_training import initialize as initialize_portfolio
@@ -41,13 +49,15 @@ def initialize(out, inherited, args):
         project / "scripts/evolution_training.py", runtime / "scripts/evolution_training.py"
     )
     manifest = read_json(out / "manifest.json")
-    manifest.update(algorithm="greedy_evolution", manager="evolution_training.py", search_version=2)
+    manifest.update(algorithm="greedy_evolution", manager="evolution_training.py", search_version=3)
     manifest["settings"].update(
+        search_version=3,
         population=13,
-        screen_pairs=128,
-        selection_pairs=1024,
+        screen_pairs=512,
+        selection_pairs=2048,
         adoption_pairs=4096,
-        confirm_pairs=4096,
+        adoption_max_blocks=4,
+        confirm_pairs=8192,
         max_rounds=16,
         max_stalled_generations=64,
         # Compatibility fields for the old progress reader. Evolution counts all
@@ -208,6 +218,7 @@ class EvolutionCampaign(Campaign):
             report.get("passed")
             or report.get("pairs", 0) >= maximum
             or (report.get("pairs", 0) >= 8192 and report.get("score", 0.5) <= 0.4975)
+            or (report.get("pairs", 0) >= 16384 and report.get("score", 0.5) <= 0.5)
         )
 
     def matches(self, actor, opponent, folder, seed, *, attempt=None, pairs=None):
@@ -234,6 +245,10 @@ class EvolutionCampaign(Campaign):
             main_output=0.006, all_outputs=0.004, head_mixture=0.35, action_features=0.001
         )[operator]
         scale *= (1, 0.5, 2, 4)[(index // self.settings["max_rounds"]) % 4]
+        version = self.settings.get("search_version", 2)
+        direction = self.search_direction() if version >= 3 else None
+        if direction:
+            operator, scale = direction["kind"], 1.0
         name = f"b{index + 1:04d}"
         folder = self.out / "branches" / name
         folder.mkdir(parents=True, exist_ok=True)
@@ -258,7 +273,9 @@ class EvolutionCampaign(Campaign):
             selection_pairs=self.settings["selection_pairs"],
             adoption_pairs=self.settings.get("adoption_pairs", 4096),
             confirm_pairs=self.settings["confirm_pairs"],
-            search_version=2,
+            search_version=version,
+            adoption_max_blocks=self.settings.get("adoption_max_blocks", 1),
+            direction=direction,
             population=self.settings["population"],
         )
         s["branches"].append(branch)
@@ -266,29 +283,81 @@ class EvolutionCampaign(Campaign):
         self.event(f"Generation {index + 1}: {operator}, mutation scale {scale:g}")
         return branch
 
+    def search_direction(self):
+        """Try each retained direction once per parent; do not reroll a failed line.
+
+        Prefer the last verified succession, then the learner's latest accepted
+        step. All endpoints and hashes are frozen before the population plays.
+        """
+        s = self.state
+        parent_hash = sha256(s["learner"])
+        choices = []
+        promotions = s.get("promotions", [])
+        if len(promotions) >= 2:
+            choices.append(("lineage", promotions[-2]["actor"], s["champion"]))
+        for branch in reversed(s["branches"]):
+            if branch.get("accepted") and branch.get("actor") == s["learner"]:
+                choices.append(("momentum", branch["parent"], branch["actor"]))
+                break
+        for kind, origin, tip in choices:
+            if not Path(origin).is_file() or not Path(tip).is_file():
+                continue
+            identity = dict(
+                kind=kind,
+                origin=origin,
+                tip=tip,
+                origin_sha256=sha256(origin),
+                tip_sha256=sha256(tip),
+                parent_sha256=parent_hash,
+            )
+            if identity["origin_sha256"] == identity["tip_sha256"]:
+                continue
+            if any(b.get("direction") == identity for b in s["branches"]):
+                continue
+            return identity
+        return None
+
     def propose(self, branch):
         s = self.state
         s.update(phase="evolving", evaluation=None)
         self.persist()
         folder = Path(branch["folder"])
         weights = read_actor(branch["parent"])
+        direction = branch.get("direction")
+        if direction:
+            for key in ("origin", "tip"):
+                if sha256(direction[key]) != direction[key + "_sha256"]:
+                    raise ValueError("search direction artifact changed")
+            if sha256(branch["parent"]) != direction["parent_sha256"]:
+                raise ValueError("search parent artifact changed")
+            origin, tip = read_actor(direction["origin"]), read_actor(direction["tip"])
         candidates = [dict(actor=branch["parent"], model=branch["source"], kind="parent")]
         for index in range(branch["population"] - 1):
             seed = branch["seed"] + index // 2
             sign = 1 if index % 2 == 0 else -1
             actor = folder / f"g{index + 1:08d}.actor.npz"
-            model = write_actor(
-                mutate(
+            amplitude = (0.125, 0.25, 0.5, 1.0, 1.5, 2.0)[(index // 2) % 6]
+            proposal = (
+                extrapolate(weights, origin, tip, scale=sign * amplitude)
+                if direction
+                else mutate(
                     weights,
                     seed=seed,
                     sign=sign,
                     operator=branch["recipe"]["name"],
                     scale=branch["recipe"]["scale"],
-                ),
-                actor,
+                )
             )
+            model = write_actor(proposal, actor)
             candidates.append(
-                dict(actor=str(actor), model=model, kind="mutation", seed=seed, sign=sign)
+                dict(
+                    actor=str(actor),
+                    model=model,
+                    kind="direction" if direction else "mutation",
+                    seed=seed,
+                    sign=sign,
+                    **(dict(amplitude=amplitude) if direction else {}),
+                )
             )
         if branch["parent"] != branch["opponent"]:
             candidates.append(dict(actor=branch["opponent"], model=s["model"], kind="champion"))
@@ -301,7 +370,7 @@ class EvolutionCampaign(Campaign):
         )
         self.persist()
 
-    def evaluate_set(self, branch, indices, phase, pairs):
+    def evaluate_set(self, branch, indices, phase, pairs, block=0):
         self.state.update(
             phase=dict(screen="evolving", select="selecting_candidate", adopt="validating_step")[
                 phase
@@ -311,13 +380,15 @@ class EvolutionCampaign(Campaign):
         records, rows = [], []
         # Each stage has fresh seeds; each candidate shares seeds within a stage.
         seed = branch["seed"] + dict(screen=10**8, select=2 * 10**8, adopt=3 * 10**8)[phase]
+        seed += block * 10**11
         for index in indices:
             if self.halt() or self.skip(branch):
                 return None
             candidate = branch["candidates"][index]
             if sha256(candidate["actor"]) != candidate["sha256"]:
                 raise ValueError("candidate artifact changed")
-            folder = Path(branch["folder"]) / f"{phase}-{index:02d}"
+            prefix = phase if not block else f"{phase}-block{block:02d}"
+            folder = Path(branch["folder"]) / f"{prefix}-{index:02d}"
             self.state["search_summary"] = dict(
                 generation=branch["round"],
                 operator=branch["recipe"]["name"],
@@ -327,6 +398,7 @@ class EvolutionCampaign(Campaign):
                 pairs_per_candidate=pairs,
                 accepted_steps=self.state["accepted_steps"],
                 stalled_generations=self.state["stalled_generations"],
+                block=block + 1,
             )
             result = self.matches(candidate["actor"], branch["opponent"], folder, seed, pairs=pairs)
             if result["paused"]:
@@ -428,15 +500,58 @@ class EvolutionCampaign(Campaign):
                 branch=branch["id"],
             )
         )
+        if (
+            winner
+            and branch.get("search_version", 2) >= 3
+            and branch["candidates"][0]["sha256"] == sha256(branch["opponent"])
+        ):
+            # With the incumbent as parent, the only durable update we need is
+            # a certified promotion. Two additional short significance screens
+            # blocked small improvements before the powered test could run.
+            # Nomination is exploratory; only the unchanged fresh gate can
+            # change champion or learner. Spend the attempt atomically with it.
+            self.nominate_gate(branch)
+            return
         self.event(f"{branch['id']}: {branch['reason']}; selection score {result['score']:.2%}")
 
     def adopt(self, branch):
+        if branch.get("search_version", 2) >= 3:
+            return self.adopt_extended(branch)
         evaluated = self.evaluate_set(
             branch, [0, branch["winner"]], "adopt", branch.get("adoption_pairs", 4096)
         )
         if evaluated is None:
             return
         records, rows = evaluated
+        self.commit_adoption(branch, records, rows)
+
+    def adopt_extended(self, branch):
+        """Allow a small positive nominee more independent training data.
+
+        Every block is predeclared, separately seeded and resumable. The same
+        nominee is retained throughout. Repeated descriptive looks guide search
+        only; promotion still starts a fresh time-uniform test.
+        """
+        from planning_experiment import summary
+
+        combined = [[], []]
+        pairs = branch["adoption_pairs"]
+        for block in range(branch["adoption_max_blocks"]):
+            evaluated = self.evaluate_set(branch, [0, branch["winner"]], "adopt", pairs, block)
+            if evaluated is None:
+                return
+            _, rows = evaluated
+            for accumulated, part in zip(combined, rows, strict=True):
+                accumulated.extend({**row, "pair": block * pairs + row["pair"]} for row in part)
+            winner, comparisons = choose_survivor(combined, standard_errors=2.0)
+            comparison = comparisons[1]
+            branch["adoption_progress"] = dict(**comparison, blocks=block + 1)
+            self.persist()
+            if winner or comparison["gain"] <= 0:
+                break
+        self.commit_adoption(branch, [summary(rows) for rows in combined], combined)
+
+    def commit_adoption(self, branch, records, rows):
         winner, comparisons = choose_survivor(rows, standard_errors=2.0)
         comparison = comparisons[1]
         branch.update(
@@ -478,28 +593,32 @@ class EvolutionCampaign(Campaign):
         if result["score"] > 0.5 and result["score"] - 0.5 >= 2 * (
             result["paired_standard_error"] or 0
         ):
-            s = self.state
-            s["attempt"] += 1
-            s["pending_gate"] = dict(
-                model=branch["model"],
-                actor=branch["actor"],
-                stage=s["stage"],
-                attempt=s["attempt"],
-                branch=branch["id"],
-                seed=self.settings["seed"] + 10**12 + s["stage"] * 10**7 + s["attempt"],
-            )
-            branch.update(
-                status="verifying", reason="Frozen candidate qualified for fresh promotion evidence"
-            )
-            self.event(
-                f"{branch['id']}: confirmation {result['score']:.2%}; promotion attempt {s['attempt']}"
-            )
+            self.nominate_gate(branch)
         else:
             branch.update(
                 status="complete",
                 reason=f"Confirmation {result['score']:.2%}; retain exploratory learner, no promotion claim",
             )
             self.event(f"{branch['id']}: {branch['reason']}")
+
+    def nominate_gate(self, branch):
+        s = self.state
+        if s["pending_gate"]:
+            raise ValueError("a promotion attempt is already pending")
+        s["attempt"] += 1
+        s["pending_gate"] = dict(
+            model=branch["model"],
+            actor=branch["actor"],
+            stage=s["stage"],
+            attempt=s["attempt"],
+            branch=branch["id"],
+            seed=self.settings["seed"] + 10**12 + s["stage"] * 10**7 + s["attempt"],
+        )
+        branch.update(
+            status="verifying",
+            reason="Frozen nominee; improvement awaits independent certification",
+        )
+        self.event(f"{branch['id']}: {branch['reason']}; promotion attempt {s['attempt']}")
 
     def gate(self):
         s = self.state
