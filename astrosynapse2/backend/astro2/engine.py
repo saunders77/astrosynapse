@@ -64,7 +64,7 @@ class ActionKind(StrEnum):
 
 
 AUTOMATIC_RESOURCE_EFFECTS = frozenset({"gain_combat", "gain_trade", "gain_authority"})
-AUTOMATIC_ALLY_EFFECTS = AUTOMATIC_RESOURCE_EFFECTS | {"draw", "draw_two", "ship_top"}
+AUTOMATIC_ALLY_EFFECTS = AUTOMATIC_RESOURCE_EFFECTS | {"draw", "draw_two", "ship_top", "opponent_discard"}
 
 
 def _json_value(value: Any) -> Any:

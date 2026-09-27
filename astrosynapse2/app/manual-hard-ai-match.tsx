@@ -302,7 +302,7 @@ function trackedHasFaction(tracked: TrackedCard, faction: string, definitions: M
     || (tracked.cardId === 23 && faction === "machine_cult");
 }
 
-const AUTOMATIC_RESOURCE_EFFECTS = new Set(["gain_combat", "gain_trade", "gain_authority"]);
+const AUTOMATIC_ALLY_EFFECTS = new Set(["gain_combat", "gain_trade", "gain_authority", "opponent_discard"]);
 
 function requiresManualPrimary(definition: CardDefinition): boolean {
   return Boolean(definition.primary && !["all_ally", "fleet_hq"].includes(definition.primary));
@@ -719,7 +719,7 @@ function buildMainActions(match: ManualMatch, definitions: Map<number, CardDefin
     const definition = effectiveDefinition(item, definitions);
     if (!definition) continue;
     const allied = match.astro.inPlay.some((other) => other.uid !== item.uid && (effectiveCardId(other) === 19 || trackedHasFaction(other, definition.faction, definitions)));
-    if (definition.ally && !AUTOMATIC_RESOURCE_EFFECTS.has(definition.ally) && !item.allyTriggered && allied) {
+    if (definition.ally && !AUTOMATIC_ALLY_EFFECTS.has(definition.ally) && !item.allyTriggered && allied) {
       add({ kind: "activate_ally", card_id: definition.card_id, ability: definition.ally, source_zone: "in_play", amount: definition.ally_amount, label: `Activate ${definition.name} ally · ${abilityLabel(definition.ally, definition.ally_amount)}` });
     }
     if (primaryAvailable(match.astro.inPlay, item, definition, definitions)) {
@@ -923,7 +923,7 @@ function triggerAutomaticHardAllies(match: ManualMatch, definitions: Map<number,
     const allAllied = next.hard.inPlay.some((item) => effectiveCardId(item) === 19);
     const candidate = next.hard.inPlay.find((item) => {
       const definition = effectiveDefinition(item, definitions);
-      if (item.allyTriggered || !definition?.ally || !AUTOMATIC_RESOURCE_EFFECTS.has(definition.ally) || definition.faction === "unaligned") return false;
+      if (item.allyTriggered || !definition?.ally || !AUTOMATIC_ALLY_EFFECTS.has(definition.ally) || definition.faction === "unaligned") return false;
       return allAllied || next.hard.inPlay.some((other) => other.uid !== item.uid && trackedHasFaction(other, definition.faction, definitions));
     });
     if (!candidate) return next;
@@ -934,6 +934,9 @@ function triggerAutomaticHardAllies(match: ManualMatch, definitions: Map<number,
       hard: { ...next.hard, inPlay: next.hard.inPlay.map((item) => item.uid === candidate.uid ? { ...item, allyTriggered: true } : item) },
     };
     next = applyAutomaticHardResource(next, definition.ally, definition.ally_amount);
+    if (definition.ally === "opponent_discard") {
+      next = { ...next, astro: { ...next.astro, pendingDiscard: next.astro.pendingDiscard + 1 } };
+    }
   }
 }
 
@@ -943,7 +946,7 @@ function triggerAutomaticAstroAllies(match: ManualMatch, definitions: Map<number
     const allAllied = next.astro.inPlay.some((item) => effectiveCardId(item) === 19);
     const candidate = next.astro.inPlay.find((item) => {
       const definition = effectiveDefinition(item, definitions);
-      if (item.allyTriggered || !definition?.ally || !AUTOMATIC_RESOURCE_EFFECTS.has(definition.ally) || definition.faction === "unaligned") return false;
+      if (item.allyTriggered || !definition?.ally || !AUTOMATIC_ALLY_EFFECTS.has(definition.ally) || definition.faction === "unaligned") return false;
       return allAllied || next.astro.inPlay.some((other) => other.uid !== item.uid && trackedHasFaction(other, definition.faction, definitions));
     });
     if (!candidate) return next;
@@ -956,7 +959,13 @@ function triggerAutomaticAstroAllies(match: ManualMatch, definitions: Map<number
       authority: next.astro.authority + (definition.ally === "gain_authority" ? definition.ally_amount : 0),
       inPlay: next.astro.inPlay.map((item) => item.uid === candidate.uid ? { ...item, allyTriggered: true } : item),
     };
-    next = { ...next, astro };
+    next = {
+      ...next,
+      astro,
+      hard: definition.ally === "opponent_discard"
+        ? { ...next.hard, pendingDiscard: next.hard.pendingDiscard + 1 }
+        : next.hard,
+    };
   }
 }
 
@@ -1137,7 +1146,7 @@ function affordableHardAcquisitions(match: ManualMatch, definitions: Map<number,
 
 function hardManualAllyAvailable(match: ManualMatch, item: TrackedCard, definitions: Map<number, CardDefinition>): boolean {
   const definition = effectiveDefinition(item, definitions);
-  if (!definition?.ally || AUTOMATIC_RESOURCE_EFFECTS.has(definition.ally) || item.allyTriggered || definition.faction === "unaligned") return false;
+  if (!definition?.ally || AUTOMATIC_ALLY_EFFECTS.has(definition.ally) || item.allyTriggered || definition.faction === "unaligned") return false;
   return match.hard.inPlay.some((other) => other.uid !== item.uid && (effectiveCardId(other) === 19 || trackedHasFaction(other, definition.faction, definitions)));
 }
 

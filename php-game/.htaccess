@@ -1,0 +1,5 @@
+DirectoryIndex index.html
+Options -Indexes
+<FilesMatch "^(config(?:\.local)?\.php|README\.md|\.gitignore)$">
+  Require all denied
+</FilesMatch>

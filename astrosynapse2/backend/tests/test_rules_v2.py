@@ -332,3 +332,33 @@ def test_mech_world_immediately_triggers_ship_ally_draw(version):
     game._play_card(player, 0)
     assert player.hand == [SCOUT]
     assert player.in_play[0].ally_triggered
+
+
+@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("name", ["Royal Redoubt", "Battlecruiser"])
+@pytest.mark.parametrize("ally_first", [False, True])
+def test_opponent_discard_ally_is_automatic_once_per_turn(version, name, ally_first):
+    game = Game(config=GameConfig(rules_version=version))
+    player, opponent = game.players
+    source = CARD_BY_NAME[name]
+    ally = CARD_BY_NAME["War World"]
+    player.in_play = []
+    player.deck = [SCOUT]
+    player.hand = [ally, source] if ally_first else [source, ally]
+    opponent.must_discard = 0
+
+    game._play_card(player, 0)
+    assert opponent.must_discard == 0
+    game._play_card(player, 0)
+    assert opponent.must_discard == 1
+    assert not any(a.kind == ActionKind.ACTIVATE_ALLY for a in game._main_actions(player))
+    game._trigger_automatic_allies(player)
+    assert opponent.must_discard == 1
+
+    # Surviving yellow bases trigger again at the start of their next turn.
+    if source.is_base:
+        game.choosers[0] = lambda _, decision: next(
+            a for a in decision.actions if a.kind == ActionKind.END_TURN
+        )
+        game._take_turn(player)
+        assert opponent.must_discard == 2

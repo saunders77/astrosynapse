@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Play Star Realms against ten Astrosynapse champions.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <title>Astrosynapse · Champion Arena</title>
+  <link rel="stylesheet" href="assets/style.css">
+  <script src="assets/game.js" defer></script>
+</head>
+<body>
+  <header class="masthead"><div><span class="eyebrow">ASTROSYNAPSE</span><h1>Champion Arena</h1></div><button id="models-open" class="quiet">Manage models</button></header>
+  <main>
+    <form id="new-game" class="setup">
+      <label>Opponent<select id="opponent" name="opponent" required><option value="">Loading champions…</option></select></label>
+      <label>First turn<select id="starts"><option value="human">You start · 3 cards</option><option value="computer">Computer starts · you get 5 cards</option></select></label>
+      <button type="submit" id="start" class="primary" disabled>New game</button>
+      <span class="setup-note">Ten generations of champions. Choose any level.</span>
+    </form>
+    <div id="error" class="error" role="alert" hidden></div>
+    <div id="status" class="status" role="status" aria-live="polite">Connecting to your game server…</div>
+    <div id="welcome" class="welcome" hidden><img src="assets/card-art/Star-Realms-Back.jpg" alt="Star Realms card back"><div><h2>Your next opponent is ready.</h2><p>Choose a champion and start a game. Play your hand, build your fleet, and reduce the opponent’s authority to zero.</p><p>Inspect any card with its <strong>Details</strong> button.</p></div></div>
+    <div id="board" hidden>
+      <section class="pilot opponent"><div><span class="eyebrow">OPPONENT</span><h2 id="opponent-name">Champion</h2></div><div class="counters"><span class="authority"><b id="opponent-authority">50</b> Authority</span><span><b id="opponent-hand">5</b> Hand</span><span><b id="opponent-deck">5</b> Deck</span></div></section>
+      <section class="zone"><div class="zone-title"><h3>Opponent’s fleet</h3><span id="opponent-discard-count"></span></div><div id="opponent-fleet" class="cards fleet"></div></section>
+      <section class="market zone"><div class="zone-title"><h3>Trade row</h3><span id="supply-count"></span></div><div id="market" class="cards"></div></section>
+      <section class="pilot human"><div><span class="eyebrow">YOUR FLEET</span><h2>You</h2></div><div class="counters"><span class="authority"><b id="authority">50</b> Authority</span><span class="trade"><b id="trade">0</b> Trade</span><span class="combat"><b id="combat">0</b> Combat</span><span><b id="deck">7</b> Deck</span></div></section>
+      <section class="decision" aria-labelledby="decision-title"><div class="decision-heading"><div><span id="turn" class="eyebrow"></span><h3 id="decision-title">Your turn</h3></div><div class="turn-controls"><button id="play-all" class="primary" hidden>Play all</button><button id="attack" hidden>Attack opponent</button><button id="end-turn" class="quiet" hidden>End turn</button></div></div><p id="choice-note" hidden></p><div id="choices" class="choices"></div></section>
+      <section class="zone"><div class="zone-title"><h3>Your hand</h3><span id="hand-count"></span></div><div id="hand" class="cards hand"></div></section>
+      <section class="zone"><div class="zone-title"><h3>In play</h3><span>Ships leave play at the end of your turn. Bases remain.</span></div><div id="own-fleet" class="cards fleet"></div></section>
+      <div class="inspectors"><details><summary>Your discard pile <span id="discard-count"></span></summary><div id="discard" class="cards compact"></div></details><details><summary>Opponent’s discard pile</summary><div id="opponent-discard" class="cards compact"></div></details><details><summary>Scrap heap</summary><div id="scrap" class="cards compact"></div></details><details open><summary>Game log</summary><ol id="log" class="log" reversed></ol></details></div>
+    </div>
+  </main>
+  <footer>Star Realms and card artwork © Wise Wizard Games LLC. Champion levels represent promotion history, not evenly spaced difficulty.</footer>
+  <dialog id="card-dialog"><button class="dialog-close" data-close="card-dialog" aria-label="Close card details">Close</button><img id="card-large" alt=""><h2 id="card-name"></h2><p id="card-description"></p></dialog>
+  <dialog id="models-dialog"><div class="dialog-heading"><h2>Models</h2><button data-close="models-dialog" class="quiet">Close</button></div><p id="admin-note"></p><div id="admin-error" class="error" role="alert" hidden></div><form id="login-form"><label>Administrator password<input type="password" id="admin-password" autocomplete="current-password" required></label><button class="primary">Sign in</button></form><div id="model-manager" hidden><form id="upload-form"><h3>Add an opponent</h3><label>Model name<input name="name" maxlength="100" required placeholder="My champion"></label><label>Model file<input name="model_file" type="file" accept=".npz,.php" required></label><p class="muted">Astro2 .actor.npz or exported .model.php. Model inference stays on this server.</p><button class="primary">Add model</button></form><h3>Opponent names</h3><div id="model-list"></div><button id="logout" class="quiet">Sign out</button></div></dialog>
+</body>
+</html>
