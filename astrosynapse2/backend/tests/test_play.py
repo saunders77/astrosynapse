@@ -88,3 +88,53 @@ def test_astro4_play_snapshot_exposes_separate_state_win_rate(tmp_path):
     policy_shares = [action["model_value"] for action in initial["decision"]["actions"]]
     assert sum(policy_shares) == pytest.approx(1.0)
     manager.shutdown()
+
+
+def test_play_all_batches_original_hand_and_logs_each_card():
+    manager = PlayManager()
+    try:
+        initial = manager.create(seed=17, human_starts=True)
+        session = manager.get(initial["id"])
+        assert initial["can_play_all"]
+        assert not any(a["kind"] == "play_all" for a in initial["decision"]["actions"])
+        state = session.play_all()
+        assert state["status"] == "your_turn"
+        assert state["observation"]["hand"] == []
+        assert len(state["action_log"]) == 3
+        assert all(entry["action"]["kind"] == "play_card" for entry in state["action_log"])
+        assert not state["can_play_all"]
+        with pytest.raises(ValueError):
+            session.play_all()
+    finally:
+        manager.shutdown()
+
+
+@pytest.mark.parametrize("card_id, available", [(10, True), (22, False)])
+def test_play_all_probe_preserves_state_and_stops_for_choices(card_id, available):
+    from astro2.cards import CARD_BY_ID
+
+    manager = PlayManager()
+    try:
+        initial = manager.create(seed=17, human_starts=True)
+        session = manager.get(initial["id"])
+        with session._condition:
+            player = session.game.players[0]
+            player.hand = [CARD_BY_ID[card_id], CARD_BY_ID[0]]
+            player.deck = [CARD_BY_ID[1], CARD_BY_ID[1]]
+            pending = session._pending
+            # Keep the decision object used by the waiting engine, updating its
+            # legal options to match this deliberately constructed position.
+            object.__setattr__(pending, "actions", session.game._main_actions(player))
+            before = session.game.state_dict(include_hidden=True)
+            assert bool(session._play_all_plan()) is available
+            assert session.game.state_dict(include_hidden=True) == before
+            assert not session._action_log
+        if available:
+            state = session.play_all()
+            assert len(state["observation"]["hand"]) == 1
+            assert len(state["action_log"]) == 2
+        else:
+            with pytest.raises(ValueError):
+                session.play_all()
+    finally:
+        manager.shutdown()

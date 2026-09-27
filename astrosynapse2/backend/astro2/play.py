@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 
 from .baselines import HeuristicChooser
-from .engine import Action, Decision, Game, GameConfig, model_action_indices
+from .engine import Action, Decision, Game, GameConfig, _TruncateGame, model_action_indices
 from .engine_encoding import EngineEncoder
 from .model import NumpyActor
 
@@ -93,6 +93,7 @@ class GameSession:
         self._condition = threading.Condition(threading.RLock())
         self._pending: Decision | None = None
         self._selected: int | None = None
+        self._play_all_cards: deque[int] = deque()
         self._cancelled = False
         self._error: str | None = None
         self._action_log: deque[dict[str, Any]] = deque(maxlen=300)
@@ -121,6 +122,13 @@ class GameSession:
 
     def _human_choose(self, _player_id: int, decision: Decision) -> int:
         with self._condition:
+            if self._play_all_cards and decision.family.value == "main":
+                card_id = self._play_all_cards[0]
+                for index, action in enumerate(decision.actions):
+                    if action.kind.value == "play_card" and action.card_id == card_id:
+                        self._play_all_cards.popleft()
+                        return index
+            self._play_all_cards.clear()
             self._pending = decision
             self._selected = None
             self.updated_at = time.time()
@@ -178,6 +186,54 @@ class GameSession:
             )
         return self.snapshot()
 
+    def _play_all_plan(self) -> list[int]:
+        pending = self._pending
+        if (pending is None or self._selected is not None
+                or pending.family.value != "main" or self.game.result is not None):
+            return []
+        hand = self.game.players[self.human_player].hand
+        if len(hand) < 2:
+            return []
+        probe = self.game.fork()
+        probe.decision_hook = None
+        probe.cancel_hook = None
+
+        class NeedsChoice(Exception):
+            pass
+
+        def stop_at_choice(_player_id: int, _decision: Decision) -> int:
+            raise NeedsChoice
+
+        probe.choosers = {0: stop_at_choice, 1: stop_at_choice}
+        plan = [card.card_id for card in hand]
+        try:
+            for card_id in plan:
+                player = probe.players[self.human_player]
+                index = next(i for i, card in enumerate(player.hand) if card.card_id == card_id)
+                probe._play_card(player, index)
+        except (NeedsChoice, _TruncateGame):
+            return []
+        return plan
+
+    def play_all(self) -> dict[str, Any]:
+        with self._condition:
+            plan = self._play_all_plan()
+            if not plan:
+                raise ValueError("Play all is not available for this hand")
+            pending = self._pending
+            assert pending is not None
+            first = next(i for i, action in enumerate(pending.actions)
+                         if action.kind.value == "play_card" and action.card_id == plan[0])
+            self._play_all_cards.extend(plan[1:])
+            self._selected = first
+            self._condition.notify_all()
+            self._condition.wait_for(
+                lambda: (self._pending is not pending and self._pending is not None)
+                or self.game.result is not None or self._error is not None,
+                timeout=0.25,
+            )
+        return self.snapshot()
+
     def stop(self) -> None:
         with self._condition:
             self._cancelled = True
@@ -222,6 +278,7 @@ class GameSession:
             return {
                 "id": self.id,
                 "seed": self.seed,
+                "can_play_all": bool(self._play_all_plan()),
                 "status": (
                     "error"
                     if self._error

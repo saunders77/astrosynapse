@@ -1008,6 +1008,16 @@ def game_choice(session_id: str, payload: GameChoiceRequest, request: Request) -
         raise HTTPException(status_code=409, detail=str(error)) from error
 
 
+@app.post("/api/games/{session_id}/play-all")
+def game_play_all(session_id: str, request: Request) -> dict[str, Any]:
+    try:
+        return _play(request).get(session_id).play_all()
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="game not found") from error
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
 @app.get("/api/events")
 async def events(
     request: Request,

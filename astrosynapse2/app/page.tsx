@@ -583,6 +583,7 @@ type RemoteGameAction = {
 };
 
 type RemoteGameSession = {
+  canPlayAll: boolean;
   observation: Record<string, unknown>;
   tradeSpent: number;
   id: string;
@@ -2359,6 +2360,7 @@ function normalizeRemoteGame(raw: unknown, previous: GameState): {
       }),
       observation,
       tradeSpent: asNumber(raw.trade_spent_this_turn, 0),
+      canPlayAll: raw.can_play_all === true,
       modelLabel: asString(raw.model_label, "Opponent"),
       scoreSemantics:
         raw.model_score_semantics === "policy_probability" || raw.model_score_semantics === "win_outcome"
@@ -4818,13 +4820,13 @@ export default function Home() {
     showToast("New preview game started");
   };
 
-  const submitRemoteChoice = async (actionId: number) => {
+  const submitRemoteChoice = async (actionId: number | "play-all") => {
     if (!remoteGame) return;
     setCommandBusy("game-choice");
     try {
-      const result = await fetchJson(`/games/${encodeURIComponent(remoteGame.id)}/choice`, {
+      const result = await fetchJson(`/games/${encodeURIComponent(remoteGame.id)}/${actionId === "play-all" ? "play-all" : "choice"}`, {
         method: "POST",
-        body: JSON.stringify({ action_id: actionId }),
+        body: JSON.stringify(actionId === "play-all" ? {} : { action_id: actionId }),
       });
       const normalized = normalizeRemoteGame(result, game);
       if (!normalized) throw new Error("The game service returned an invalid position");
@@ -5631,6 +5633,7 @@ export default function Home() {
                     return <CardTile key={card.id} card={card} compact onScrap={hasScrapAbility ? () => scrapInPlayCard(card) : undefined} scrapDisabled={hasScrapAbility && !canScrapInPlayCard(card)} />;
                   })}{!game.humanInPlay.length ? <span className="empty-card-zone">No cards in play</span> : null}</div></div>
                   <header><div><span className="player-avatar human-avatar">YOU</span><p><strong>Hand</strong><small>Turn {game.turn} · click a card to play it</small></p></div><DiscardNotice count={game.pendingDiscard} subject="You" /><div className="resource-pips"><span className="trade-pip"><b>{game.trade}</b>Trade</span><span className="attack-pip"><b>{game.attack}</b>Combat</span></div><div className="authority-display"><small>Authority</small><strong>{game.humanAuthority}</strong></div><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View your hand and unordered deck"><i /><span>{game.deckCount}<small>deck</small></span><span>{game.discardCount}<small>discard</small></span></button></header>
+                  {remoteGame?.status === "your_turn" && remoteGame.canPlayAll ? <button type="button" className="button" disabled={commandBusy !== null} title="Play the current hand from left to right. Newly drawn cards stay in hand." onClick={() => submitRemoteChoice("play-all")}>Play all cards in hand</button> : null}
                   <div className="hand-row">{game.hand.map((card) => {
                     const canPlay = !remoteGame || (remoteGame.status === "your_turn" && remoteGame.actions.some((action) => action.kind === "play_card" && action.cardId === card.catalogId));
                     return <CardTile key={card.id} card={card} disabled={!canPlay || commandBusy === "game-choice"} onClick={() => handleHandCardClick(card)} />;

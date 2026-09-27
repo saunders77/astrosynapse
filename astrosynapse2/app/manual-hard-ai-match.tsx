@@ -1603,12 +1603,13 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
   }, [applySimpleEffect, definitions, match.hard.pendingDiscard, match.tradeRow]);
 
   const playAll = useCallback(() => {
+    if (match.activeSide !== "astro5" || currentDecision.family !== "main" || !playAllIsDecisionFree(match, definitions)) return;
     for (const item of match.astro.hand) {
       if (item.cardId === null) return;
       const definition = definitions.get(item.cardId);
       applyAstroAction({ id: 0, kind: "play_card", card_id: item.cardId, source_zone: "hand", label: `Play ${definition?.name ?? "card"}` });
     }
-  }, [applyAstroAction, definitions, match.astro.hand]);
+  }, [applyAstroAction, currentDecision.family, definitions, match]);
 
   const recordHardAction = () => {
     const refilledTradeRowSlot = ((hardActionKind === "acquire" && hardTargetUid !== "explorer-supply") || hardActionKind === "scrap_row")
@@ -1940,6 +1941,8 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
             {match.activeSide === "astro5" && match.pendingDecision ? <button type="button" className="relay-clear-decision" onClick={() => { setMatch((current) => ({ ...current, pendingDecision: null })); setRecommendation(null); }}>Clear this prompted decision</button> : null}
           </div>
 
+          {match.activeSide === "astro5" && !unresolved.length && currentDecision.family === "main" && playAllIsDecisionFree(match, definitions) ? <button type="button" className="relay-play-all" title="Play the cards currently in hand from left to right." onClick={playAll}>Play all cards in hand</button> : null}
+
           {match.activeSide === "hard" ? (
             <div className="relay-hard-console">
               <div className="relay-hard-pulse"><i /><span>{match.hard.combat > 0 ? `${match.hard.combat} damage currently available` : "Hard AI turn is waiting for input"}</span></div>
@@ -1972,7 +1975,6 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
                 <strong>{formatPercent(recommendation.expected_win_rate)}</strong>
                 <small>Current position · before the next move</small>
               </div>
-              {currentDecision.family === "main" && playAllIsDecisionFree(match, definitions) ? <button type="button" className="relay-play-all" onClick={playAll}>Play all cards in hand</button> : null}
               {recommended ? (
                 <button type="button" className="relay-recommendation" onClick={() => applyAstroAction(recommended)}>
                   <span>Recommended</span>
