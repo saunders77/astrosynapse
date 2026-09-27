@@ -348,6 +348,15 @@ class HumanDecisionDialog(tk.Toplevel):
         self.state_text.configure(state="normal")
         self.state_text.delete("1.0", "end")
         self.state_text.insert("1.0", state_snapshot)
+        for option_index, option in enumerate(self.request.options):
+            if not option or not str(option[0]).startswith(("scrapFromHand", "scrapFromDiscard")):
+                continue
+            title = "Your hand" if str(option[0]).startswith("scrapFromHand") else "Your discard pile"
+            section_line = state_snapshot.splitlines().index(title) + 1
+            card_line = section_line + int(option[1]) + 1
+            button = tk.Button(self.state_text, text="SCRAP", command=lambda index=option_index: self._choose_scrap(index))
+            self.state_text.window_create(f"{card_line}.end", window=button)
+
         self.state_text.configure(state="disabled")
 
         self.option_list.delete(0, "end")
@@ -418,6 +427,10 @@ class HumanDecisionDialog(tk.Toplevel):
         lines.append("")
         lines.extend(self._cards_block("Opponent discard pile", state.get("opponentDiscardPile") or []))
         return "\n".join(lines)
+
+    def _choose_scrap(self, index: int) -> None:
+        self.selection = index
+        self.destroy()
 
     def _selected_index(self) -> Optional[int]:
         selection = self.option_list.curselection()

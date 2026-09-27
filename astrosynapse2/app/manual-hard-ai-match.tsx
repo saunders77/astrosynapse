@@ -472,6 +472,7 @@ function EditableCard({
   onDelete,
   onToggleActivated,
   showAllOptions = false,
+  onScrap,
 }: {
   tracked: TrackedCard;
   definition: CardDefinition | undefined;
@@ -482,6 +483,7 @@ function EditableCard({
   onDelete: () => void;
   onToggleActivated?: () => void;
   showAllOptions?: boolean;
+  onScrap?: () => void;
 }) {
   const [editing, setEditing] = useState(tracked.cardId === null && !tracked.knownEmpty);
   const artUrl = cardArtUrl(definition?.card_id, definition?.name);
@@ -537,6 +539,7 @@ function EditableCard({
         {definition?.authority ? <span><b>{definition.authority}</b> auth</span> : null}
         {definition?.defense ? <span><b>{definition.defense}</b> defense</span> : null}
       </div>
+      {onScrap ? <button type="button" className="card-art-scrap-action" onClick={onScrap} aria-label={`Scrap ${definition?.name}`}>SCRAP</button> : null}
       {tracked.activated !== undefined ? <button type="button" className={`relay-card-state ${tracked.activated ? "is-used" : ""}`} onClick={onToggleActivated} disabled={!onToggleActivated} title="Toggle activation state">{tracked.activated ? "activated" : "ready"}</button> : null}
       <div className="relay-card-controls">
         <button type="button" onClick={() => setEditing(true)} aria-label={`Edit ${definition?.name ?? "card"}`} title="Edit card">✎</button>
@@ -560,6 +563,7 @@ function CardZone({
   onAdd,
   onToggleActivated,
   catalogForCard,
+  scrapAction,
 }: {
   label: string;
   detail?: string;
@@ -574,6 +578,7 @@ function CardZone({
   onAdd: (zone: ZoneId) => void;
   onToggleActivated?: (zone: ZoneId, uid: string) => void;
   catalogForCard?: (card: TrackedCard) => CardDefinition[];
+  scrapAction?: (card: TrackedCard, zone: ZoneId) => (() => void) | undefined;
 }) {
   return (
     <section className="relay-zone">
@@ -594,6 +599,7 @@ function CardZone({
             onDelete={() => onDelete(zone, item.uid)}
             onToggleActivated={onToggleActivated ? () => onToggleActivated(zone, item.uid) : undefined}
             showAllOptions={Boolean(catalogForCard)}
+            onScrap={scrapAction?.(item, zone)}
           />
         ))}
         {!cards.length ? <span className="relay-zone-empty">{emptyText}</span> : null}
@@ -1852,6 +1858,12 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
         ? catalog.filter((definition) => definition.card_id === hardCardId)
         : catalog.filter((definition) => match.hard.inPlay.some((item) => effectiveCardId(item) === definition.card_id && ((requiresManualPrimary(definition) && primaryAvailable(match.hard.inPlay, item, definition, definitions)) || hardManualAllyAvailable(match, item, definitions))))
       : catalog;
+  const scrapActionForCard = (item: TrackedCard, zone: ZoneId) => {
+    if (match.activeSide !== "astro5" || unresolved.length) return undefined;
+    const sourceZone = zone === "astroHand" ? "hand" : zone === "astroDiscard" ? "discard" : null;
+    const action = currentDecision.actions.find((action) => action.kind === "scrap_card" && action.card_id === item.cardId && action.source_zone === sourceZone);
+    return action ? () => applyAstroAction(action) : undefined;
+  };
   const possibleAstroHandCards = (item: TrackedCard) => astroHandCandidateCatalog(match, item, catalog);
 
   return (
@@ -1927,8 +1939,8 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
               <button type="button" className="relay-hidden-button" onClick={() => setInventoryOpen(true)}><strong>{match.astro.hand.length}</strong><span>hand</span><strong>{match.astro.deck.length + match.astro.knownTop.length}</strong><span>deck</span></button>
             </header>
             {match.astro.pendingDiscard ? <div className="relay-alert"><span>Astro5 must discard {match.astro.pendingDiscard}</span><button type="button" onClick={() => updateAstroStat("pendingDiscard", 0)}>Clear</button></div> : null}
-            <CardZone label="Your hand" detail="One-click choices are limited to cards possible from the tracked deck" cards={match.astro.hand} zone="astroHand" catalog={catalog} catalogForCard={possibleAstroHandCards} definitions={definitions} compact={false} onChange={updateCard} onDelete={deleteCard} onAdd={addCard} />
-            <CardZone label="Astro5 discard" detail={`${match.astro.discard.length} cards`} cards={match.astro.discard} zone="astroDiscard" catalog={catalog} definitions={definitions} onChange={updateCard} onDelete={deleteCard} onAdd={addCard} />
+            <CardZone label="Your hand" detail="One-click choices are limited to cards possible from the tracked deck" cards={match.astro.hand} zone="astroHand" scrapAction={scrapActionForCard} catalog={catalog} catalogForCard={possibleAstroHandCards} definitions={definitions} compact={false} onChange={updateCard} onDelete={deleteCard} onAdd={addCard} />
+            <CardZone label="Astro5 discard" detail={`${match.astro.discard.length} cards`} cards={match.astro.discard} zone="astroDiscard" scrapAction={scrapActionForCard} catalog={catalog} definitions={definitions} onChange={updateCard} onDelete={deleteCard} onAdd={addCard} />
           </section>
         </div>
 
@@ -2016,7 +2028,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
               <header><span className="relay-avatar is-astro">A5</span><div><strong>Astro5 cards</strong><small>Your exact hand, unordered deck, and known top</small></div></header>
               <CardZone label="Known top cards" detail="Top to bottom" cards={match.astro.knownTop} zone="astroKnownTop" catalog={catalog} definitions={definitions} onChange={updateCard} onDelete={deleteCard} onAdd={addCard} />
               <CardZone label="Scrambled deck" detail={`${match.astro.deck.length} cards · unordered`} cards={match.astro.deck} zone="astroDeck" catalog={catalog} definitions={definitions} onChange={updateCard} onDelete={deleteCard} onAdd={addCard} />
-              <CardZone label="Hand" detail={`${match.astro.hand.length} cards · tracked possibilities only`} cards={match.astro.hand} zone="astroHand" catalog={catalog} catalogForCard={possibleAstroHandCards} definitions={definitions} onChange={updateCard} onDelete={deleteCard} onAdd={addCard} />
+              <CardZone label="Hand" detail={`${match.astro.hand.length} cards · tracked possibilities only`} cards={match.astro.hand} zone="astroHand" scrapAction={scrapActionForCard} catalog={catalog} catalogForCard={possibleAstroHandCards} definitions={definitions} onChange={updateCard} onDelete={deleteCard} onAdd={addCard} />
             </article>
             <article>
               <header><span className="relay-avatar is-hard">H</span><div><strong>Hard AI cards</strong><small>Unknown hand + deck stay combined; revealed top draws remain known</small></div></header>

@@ -41,7 +41,7 @@ function cardView(id, actions = [], state = '') {
   const meta = el('div', 'card-meta'); meta.append(el('span', 'card-name', c.name)); if (state) meta.append(el('span', 'card-state', state));
   const controls = el('div', 'card-actions');
   for (const a of actions) {
-    const names = { play_card: 'Play', acquire: `Buy · ${a.amount} trade`, activate_base: 'Use ability', activate_ally: 'Use ally', scrap_for_ability: 'Scrap for ability', attack_base: `Attack · ${a.amount} combat` };
+    const names = { scrap_card: 'SCRAP', play_card: 'Play', acquire: `Buy · ${a.amount} trade`, activate_base: 'Use ability', activate_ally: 'Use ally', scrap_for_ability: 'Scrap for ability', attack_base: `Attack · ${a.amount} combat` };
     const b = el('button', 'move', names[a.kind] || a.label); b.type = 'button'; b.title = a.label; b.addEventListener('click', () => move(a.id)); controls.append(b);
   }
   const detail = el('button', 'details', 'Details'); detail.type = 'button'; detail.setAttribute('aria-label', `Details for ${c.name}`); detail.addEventListener('click', () => inspect(c)); controls.append(detail);
@@ -59,12 +59,14 @@ function render() {
   $('supply-count').textContent = `${o.trade_deck_count} trade cards · ${o.explorers_remaining} Explorers`;
   $('discard-count').textContent = `(${o.own_discard.length})`;
   $('opponent-discard-count').textContent = `${o.opponent_discard.length} in discard`;
+  const scrapForCard = (id, zoneName) => game.status === 'your_turn' ? actions.filter(a => a.kind === 'scrap_card' && a.card_id === id && a.source_zone === zoneName).slice(0, 1) : [];
   const forCard = (id, kinds, field = 'card_id', zoneName) => main ? actions.filter(a => a[field] === id && kinds.includes(a.kind) && (!zoneName || a.source_zone === zoneName)) : [];
-  zone('hand', o.hand.map(id => cardView(id, forCard(id, ['play_card']))));
+  zone('hand', o.hand.map(id => cardView(id, [...forCard(id, ['play_card']), ...scrapForCard(id, 'hand')])));
   zone('market', [...o.trade_row.map(id => id === null ? el('span', 'empty', 'Empty slot') : cardView(id, forCard(id, ['acquire'], 'card_id', 'trade_row'), `Cost ${cards[id].cost}`)), ...(o.explorers_remaining ? [cardView(2, forCard(2, ['acquire'], 'card_id', 'explorer_supply'), `${o.explorers_remaining} available`)] : [])]);
   zone('own-fleet', o.own_in_play.map(i => cardView(i.card, forCard(i.card, ['activate_base', 'activate_ally', 'scrap_for_ability']), i.copied_from_stealth_needle ? 'Stealth Needle copy' : i.ally_triggered ? 'Ally used' : 'In play')));
   zone('opponent-fleet', o.opponent_in_play.map(i => cardView(i.card, forCard(i.card, ['attack_base'], 'target_card_id'), cards[i.card].defense ? `${cards[i.card].card_type} · ${cards[i.card].defense} defense` : 'Ship')));
-  zone('discard', o.own_discard.map(id => cardView(id)));
+  zone('discard', o.own_discard.map(id => cardView(id, scrapForCard(id, 'discard'))));
+  if (actions.some(a => a.kind === 'scrap_card' && a.source_zone === 'discard') && game.status === 'your_turn') $('discard').closest('details').open = true;
   zone('opponent-discard', o.opponent_discard.map(id => cardView(id)));
   zone('scrap', o.scrap_heap.map(id => cardView(id)));
   $('play-all').hidden = !game.can_play_all;

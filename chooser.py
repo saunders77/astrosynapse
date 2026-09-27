@@ -572,6 +572,9 @@ if tk is not None:
             return selected
 
         def _prepare_interactions(self, options: Sequence[Sequence[Any]]) -> None:
+            self._scrap_hand_actions = {}
+            self._scrap_discard_actions = {}
+            self._scrap_option_indices = set()
             self._play_actions = {}
             self._acquire_actions = {}
             self._attack_actions = {}
@@ -582,7 +585,11 @@ if tk is not None:
                     continue
 
                 action = option[0]
-                if action == "play":
+                if str(action).startswith(("scrapFromHand", "scrapFromDiscard")):
+                    lookup = self._scrap_hand_actions if str(action).startswith("scrapFromHand") else self._scrap_discard_actions
+                    lookup[option[1]] = option_index
+                    self._scrap_option_indices.add(option_index)
+                elif action == "play":
                     self._play_actions[option[1]] = option_index
                 elif action in ("acquire", "freeAcquire"):
                     self._acquire_actions[option[1]] = option_index
@@ -628,7 +635,7 @@ if tk is not None:
                 f"Hand ({_count_label(state.get('hand') or [])})",
                 state.get("hand") or [],
                 columns=6,
-                option_lookup=self._play_actions,
+                option_lookup={**self._play_actions, **self._scrap_hand_actions},
                 hover_outline=HOVER_OUTLINE,
             )
             self._render_player_deck(state)
@@ -637,6 +644,7 @@ if tk is not None:
                 f"Discard pile ({_count_label(state.get('discardPile') or [])})",
                 state.get("discardPile") or [],
                 columns=7,
+                option_lookup=self._scrap_discard_actions,
             )
             self._render_opponent_hidden(state)
             self._render_single_cards_section(
@@ -1001,6 +1009,8 @@ if tk is not None:
                     base_thickness=border_thickness,
                     hover_thickness=max(2, border_thickness),
                 )
+            if option_index in self._scrap_option_indices and self._selection_var is not None:
+                tk.Button(frame, text="SCRAP", command=lambda: self._selection_var.set(option_index)).pack(fill="x", pady=(4, 0))
             return frame
 
         def _wire_interaction(
