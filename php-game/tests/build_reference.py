@@ -57,8 +57,18 @@ def main():
     for d in samples.values():
         e=encoder.encode_decision(d.observation,d)
         neural.append({'family':d.family.value,'observation':observation(d.observation),'actions':[v.to_dict() for v in d.actions], 'state':e.state.tolist(),'encoded_actions':e.actions.tolist(),'scores':actor.predict_options(e.state,e.actions,int(e.family)).mean(axis=1).tolist()})
+    levels=[]
+    registry=json.loads((ROOT/'php-game/models/registry.json').read_text())
+    for entry in registry:
+        level_actor=NumpyActor.load(ROOT/entry['source'])
+        level_encoder=EngineEncoder(version=level_actor.spec.encoder_version)
+        checks=[]
+        for d in samples.values():
+            e=level_encoder.encode_decision(d.observation,d)
+            checks.append({'family':d.family.value,'state':e.state.tolist(),'encoded_actions':e.actions.tolist(),'scores':level_actor.predict_options(e.state,e.actions,int(e.family)).mean(axis=1).tolist()})
+        levels.append({'id':entry['id'],'checks':checks})
     Path(a.output).parent.mkdir(parents=True,exist_ok=True)
-    Path(a.output).write_text(json.dumps({'games':games,'neural':neural},separators=(',',':')))
+    Path(a.output).write_text(json.dumps({'games':games,'neural':neural,'levels':levels},separators=(',',':')))
     print(f'{len(games)} games, {sum(len(g["decisions"]) for g in games)} decisions; {len(played)} played card types, {len(families)} families, {len(kinds)} action kinds. Fixture: {a.output}')
     print('Missing played cards:',[c.name for i,c in CARD_BY_ID.items() if i not in played])
 if __name__=='__main__': main()

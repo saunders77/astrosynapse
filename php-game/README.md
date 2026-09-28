@@ -1,119 +1,103 @@
-# Astrosynapse PHP Champion Arena
+# Astrosynapse client-only Champion Arena
 
-A standalone HTML/CSS/JavaScript/PHP version of the simulated human-versus-computer game. Upload this folder to your PHP server. **No Python, Node, database, background worker, Composer package, external API, or model service is required on the server.**
+The former PHP arena now runs entirely in the browser: rules, shuffling, model encoding, float32 weights, neural inference, and lethal search. Upload the static files to an HTTPS host. **No PHP, API, database, Python, Node, or inference server is needed on the host.** The folder name is retained for continuity.
 
-## Install
+## Hosting
 
-1. Upload the contents of this folder, including `models/`, `assets/`, and dotfiles, into a directory such as `public_html/arena/`.
-2. Open `https://your-domain/arena/`. Pick an opponent and click **New game**.
-3. The server needs **64-bit PHP 7.4 or newer**, JSON and sessions (standard PHP features), a writable PHP session directory, and preferably **256 MB** of PHP memory. `.user.ini` includes suggested hosting settings. PHP must actually execute `.php` files; static hosting cannot run this game.
-4. The PHP worker needs read access to all model files. Only model management needs write access to `models/` and `models/registry.php`. Do not make the entire application world-writable.
+Upload `index.html`, `sw.js`, `assets/`, and `models/`, including `.htaccess` on Apache. The generated `php-game-upload.zip` in the parent directory contains the ready-to-upload distribution, without development sources or tests. Open the site over HTTPS; localhost HTTP also works for development. Opening `index.html` as a `file://` URL is not supported.
 
-On Apache, the included `.htaccess` files deny direct access to internal directories and disable directory listings. If your host does not allow `Options`, remove the `Options -Indexes` line and disable listings through the hosting panel. On Nginx or another server, deny URL access to `src/`, `models/`, `tools/`, `tests/`, and `config.php` in its site configuration. Example for an `/arena/` installation:
-
-```nginx
-location ~ ^/arena/(src|models|tools|tests)/ { deny all; }
-location = /arena/config.php { deny all; }
-location = /arena/config.local.php { deny all; }
-```
-
-Model and registry files also contain a fixed PHP guard that returns 404 before their data, even when per-directory access rules are unavailable. They are read as data, never included or evaluated as uploaded PHP code. Use HTTPS for public hosting.
-
-To preview on a computer that already has PHP:
+For a local preview from the repository root:
 
 ```sh
-php -S 127.0.0.1:8080 -t php-game
+python3 -m http.server 8088 --directory php-game
 ```
 
-Run that from the parent directory. Visit `http://127.0.0.1:8080/`. This command is for local testing, not production hosting.
+Visit `http://localhost:8088/`. Python only serves static files in this preview.
 
-## Included opponents
+Serve `.js` as JavaScript, `.json` as JSON, and `.astro.gz` as **application/gzip without a Content-Encoding header**. The browser reads and decompresses these model files itself. On non-Apache hosts configure:
 
-All ten actual promoted **Astro6 champion 1–10** checkpoints are included. Level 10 is the champion recorded in `evolution-20260923/state.json` at export time (September 26, 2026). These are snapshots: subsequent training does not alter the uploaded package. Each model's SHA-256 is recorded in `models/registry.php`.
+- `index.html` (including the directory index) and `sw.js`: `Cache-Control: no-cache, must-revalidate`.
+- `assets/*` and `models/*`: `Cache-Control: public, max-age=31536000, immutable`.
+- Preserve URL query strings in cache keys; they identify HTML releases.
 
-Levels represent successive champion promotions. They are not calibrated beginner-to-expert difficulty levels; adjacent champions can be close in strength. The PHP actor runs the learned weights, rather than substituting heuristics. It preserves encoder versions 1/2, objective versions 1/2, mean-head deployment, the dominated-end-turn mask, and the public-information lethal finisher. PHP uses double arithmetic around the original float32 weights; very close ties can differ from NumPy. Exact ties choose the first action for deterministic server replay.
+Do not carry forward the old blanket deny rule for `models/`. The included replacement permits static model downloads. When replacing an existing installation, remove the obsolete PHP endpoints and old `.model.php` files instead of leaving them on the server. Existing source training checkpoints are untouched.
 
-## Add or rename models
+## Levels
 
-Model management is initially disabled. Playing the included champions requires no configuration.
+Level 10 is selected and downloaded at startup. Levels 1–9 download only when selected. Selection loads the opponent for the **next new game**; it does not change an ongoing game's opponent. Downloaded actors remain in worker memory for the page's lifetime.
 
-1. Generate a password hash on a computer with PHP:
+| Level | Actual source | Compressed model |
+|---|---|---:|
+| 1 | First checkpoint in all Astrosynapse2: `df337885a4b74416`, untrained, 0 games | 1.78 MB |
+| 2 | Astro2 champion `1b822120f1634e46`, 3,303,168 games | 4.67 MB |
+| 3 | Astro3 champion `246e56c917644759`, 2,602,496 games | 4.69 MB |
+| 4 | Astro4 champion `05ef55aaf4c548c5`, 98,176 games | 7.44 MB |
+| 5 | Astro4 champion `0ecf69b96351463d`, 502,656 games | 7.44 MB |
+| 6 | Astro5 champion `08aa018c672847d9`, 5,954,048 games | 7.45 MB |
+| 7 | Astro6 generation 1 | 7.45 MB |
+| 8 | Astro6 generation 2 | 7.45 MB |
+| 9 | Astro6 generation 6 | 7.45 MB |
+| 10 | Astro6 generation 10, the existing PHP package's top champion | 7.45 MB |
 
-   ```sh
-   php -r 'echo password_hash("REPLACE-WITH-A-LONG-PASSWORD", PASSWORD_DEFAULT), PHP_EOL;'
-   ```
+“Generation” refers to the numbered Astro6 champion promotions in `astrosynapse2/data/progressive/evolution-20260923/state.json`. Levels 2–6 are earlier run champions chosen to span the preceding history; level 9 sits between generations 2 and 10. These are historical milestones, not calibrated, evenly spaced difficulty ratings. Level 1 is intentionally the very first, untrained checkpoint.
 
-2. Paste the resulting hash into `admin_password_hash` in `config.php`. Keep the surrounding single quotes. Alternatively create `config.local.php` returning an array with the same key; that file overrides the bundled defaults and is ignored by Git.
-3. Ensure PHP can write to `models/` and `models/registry.php`.
-4. Open **Manage models**, sign in, and upload an Astro2 `.actor.npz` plus a display name. Or rename any included opponent and select **Save name**. Existing games retain their original opponent label.
+`models/registry.json` records exact source paths, checkpoint/generation IDs, source hashes, packaged hashes, byte sizes, and architecture. Weights preserve float32 values without quantization. The actor supports encoder and objective versions 1 and 2, mean-head scoring, the dominated-end-turn mask, and public-information lethal search. Arithmetic uses JavaScript doubles around float32 weights; near ties can differ from NumPy.
 
-NPZ import requires the optional PHP **ZipArchive** extension. It is not needed for gameplay or for importing preconverted `.model.php` files. Tensor shapes, finite weights, architecture, and expanded size are validated. Legacy `starrealms_policies/*_policy.json` files use a different architecture and are not supported by this Astro2 version.
+## Resource caching and releases
 
-If ZipArchive is unavailable, convert on your training computer (the server still needs only PHP):
+- An inline bootstrap hashes the HTML document **before modifying it**. That hash is attached to every asset and model URL and used as the persistent cache version.
+- HTML is fetched from the network on navigation; a saved copy is the offline fallback. An open tab checks for changed HTML on focus and every five minutes. It offers **Load new version**, without interrupting a game automatically.
+- Any HTML change creates a fresh asset cache. The build script also stamps the HTML whenever bundles, card data, the model registry, artwork, or the service worker change.
+- Assets are cached on demand, never all prefetched. Card images load when near the viewport or opened in Details. Each downloaded image is retained as a reusable in-memory blob URL. Repeated images and re-renders share one request.
+- Models and artwork also live in browser Cache Storage, so subsequent visits can reuse them without network transfer. A model's SHA-256 is verified before it is used.
+- Old release caches are removed when no open client reports using them. If browser storage is unavailable or full, the game falls back to network plus memory caching. Browser eviction can require a later re-download.
+- Once initialized, a game works offline with downloaded models. Artwork never previously downloaded remains unavailable until reconnection; card names and actions still work. Undownloaded levels need a connection.
+
+**For every code, model, or artwork release, run the build script and deploy the resulting HTML together with the assets.** HTML edits alone also invalidate the cache. Deploy the new HTML last (or deploy atomically). A failed/mismatched model download displays an error instead of using unverified weights. Existing tabs offer an update; games from a previous release are reset upon loading it because their replay format may have changed.
+
+## Local state and model management
+
+Each tab stores its deterministic seed and action transcript in session storage. Refresh resumes the game without repeating past inference. Closing the tab ends its saved session; separate tabs can play independent games. No moves or hidden hands are sent to a server. All computation is visible to the device owner; this is a local single-player game, not a trusted ranked-game server.
+
+**Manage models** supports importing Astro2 `.actor.npz`, converted `.astro.gz`, and previous guarded `.model.php` model exports. These files are parsed as data, never executed or uploaded. Imports are validated and stored in IndexedDB. Renames live in local storage and apply to new games. No password is needed because the changes affect only this browser and site. Imported models and aliases survive a release; saved in-progress games do not. Model files are capped at 64 MB on import and 128 MB after expansion.
+
+The exporter is available for conversion outside the browser:
 
 ```sh
-python tools/export_models.py /path/to/checkpoint.actor.npz /path/to/new-champion.model.php
+astrosynapse2/.venv/bin/python php-game/tools/export_client_models.py checkpoint.actor.npz opponent.astro.gz
 ```
 
-The local exporter requires NumPy. Upload the resulting `.model.php` using the model manager. Do not manually add executable PHP to the models directory. NPZ uploads default to a 16 MB limit in `.user.ini`; the importer caps expanded weight data and rejects unsupported model sizes. Large architectures beyond the supported limits need a separate memory/performance review.
+Legacy `starrealms_policies/*_policy.json` files use a different architecture and are unsupported.
 
-For deployment without a web upload workflow, place a converted model in `models/` and add its entry to the JSON portion of `models/registry.php`, preserving the guard line. Each entry needs a unique `id`, `name`, and `file`; `description`, `level`, and `sha256` are optional metadata.
+## Gameplay and performance
 
-## Play all
+The UI runs on the main thread; all game rules and inference run in a module Web Worker. Computer turns advance one decision at a time, with visible progress. Card details, scrolling, and browser rendering do not share the inference thread. Download size is not a guarantee of performance on an older phone.
 
-**Play all** appears only at a human main-phase decision with at least two cards in hand when all of those cards can be played, left to right, without an additional user choice during their resolution. The server probes a cloned game using the real rules; it does not rely on a list of card names. Thus a single forced copy target is fine, multiple copy targets block it, and abilities with no legal targets do not block it. Optional choices count as choices even when declining is possible.
+Play all probes a cloned game using the actual rules. It appears only when the current hand has at least two cards that can resolve in visible order without another user choice. Newly drawn cards remain in hand. Each play is recorded separately, and batching is absent from the model's action space. Card choices, bases, Explorer recycling, and the 240-turn/220-action limits are preserved. The port also includes the current Python rule that automatically activates discard-triggering allies.
 
-It plays only the cards in the hand when clicked. Newly drawn cards stay in hand for the next decision, so a draw never silently authorizes playing a new choice-bearing card. Manual base or ally abilities that can be used later remain separate actions. Each played card is recorded individually. The engine's/model's legal-action list never contains a `play_all` action. The server independently validates availability; changing the button in the browser cannot bypass it.
+## Development and verification
 
-## Server state and performance
-
-The engine, shuffles, hidden card assignments, checkpoint weights, and computer decisions stay on the server. The browser receives a public observation and the current human's legal choices. Opponent hand/deck contents are pooled into an unordered information set, as in simulated mode; their hidden assignment and draw order are not sent. Own unknown deck and remaining trade deck are shown only as unordered multisets in API data.
-
-A PHP session stores a private seed and a transcript of ordinary legal decisions. Each request reconstructs the deterministic game without rerunning model inference for past decisions. Revision and game IDs reject duplicate or stale move submissions, and CSRF tokens protect mutations. The game can be refreshed and resumed while its PHP session remains available. Clearing cookies, server session expiry, or starting a new game ends that saved session. There is one active game per browser session; separate tabs share it.
-
-Computer turns advance one decision per HTTP request to avoid long requests on shared hosting. The browser shows progress while requests continue. Refresh to resume after a connection interruption. Pure PHP neural inference is slower than NumPy; response speed depends on the host. No client-side computation is trusted to choose or apply model moves. The default game limits match simulated play: 240 turns and 220 decisions per turn; a limit produces a draw.
-
-Shuffling uses a deterministic portable PHP generator with separate player/market streams. It preserves the game rules but does not reproduce Python's shuffle for the same numerical seed. Model ties use the first maximum; this also makes replay deterministic.
-
-## Verification results
-
-PHP 7.4 compatibility was checked with PHP 7.4.33 (WebAssembly): all PHP files parse, all 27 regression checks pass, all 20 reference games / 5,176 decisions match Python, and checkpoint validation, preconverted model import, renaming, and invalid-model rejection pass.
-
-Earlier validation with temporary PHP 8.1 and PHP 8.5 runtimes:
-
-- 20 complete games / 5,176 decisions matched the Python engine's legal actions, observations, and final results. These games exercised all eight decision families and 48 card types; separate checks cover Fleet HQ.
-- 40 bounded lethal-search cases, including 28 winning plans, matched the original Python finisher.
-- All eight neural decision families matched NumPy encodings, selected actions, and scores (maximum sampled logit difference approximately 0.000002).
-- 27 regression checks cover Play all, conditional copy/destroy/scrap effects, base timing, card draws, Explorer recycling, replay, illegal actions, and a complete champion turn.
-- All ten checkpoint hashes/shapes validate; native NPZ import, preconverted import, renaming, and invalid-model rejection pass.
-- HTTP tests cover cookie sessions, refresh/resume, CSRF, stale/illegal requests, computer turns, protected model files, and unauthorized administration.
-
-Neural regression peak PHP memory was approximately 57 MB on the PHP 8.5 runtime and 112 MB on PHP 8.1. Host performance and memory allocation can differ. The UI's JavaScript syntax, DOM references, and all 49 card-art paths were checked; no browser visual test was performed.
-
-## Source and verification
-
-- `index.html`, `assets/style.css`, `assets/game.js`: client interface and artwork.
-- `api.php`, `src/Session.php`: session protocol and human-only batching.
-- `src/Engine.php`: all 49 Core Set cards, rules version 2.
-- `src/Encoder.php`, `src/Actor.php`, `src/Lethal.php`: model inputs, inference and finisher.
-- `src/Models.php`: password-protected management support and validated model conversion.
-- `tools/export_models.py`: optional local checkpoint exporter.
-- `tests/`: regression and Python/PHP comparison tools; not needed on the web server.
-
-Run the PHP regression suite:
+Readable source is under `assets/runtime/`. The deployed `assets/game.js` and `assets/worker.js` are dependency-free bundles. The build requires the existing repository's esbuild; the host needs no build tooling.
 
 ```sh
-php -d memory_limit=256M tests/regression.php
+# Re-export the documented level selection (NumPy required locally).
+astrosynapse2/.venv/bin/python php-game/tools/export_client_models.py --levels
+# Bundle JS and stamp index.html; edit tools/index.template.html for HTML changes.
+python3 php-game/tools/build_client.py
+# Package just the static hosting files.
+python3 php-game/tools/package_client.py
+
+# Rules, batching, replay, inference and existing on-card controls.
+node php-game/tests/client-regression.mjs
+node php-game/tests/client-import.mjs
+node --test php-game/tests/scrap-ui.test.cjs
+# Differential verification against the original Python engine and all ten actors.
+astrosynapse2/.venv/bin/python php-game/tests/build_reference.py --games 20 --output /tmp/astro-js-reference.json
+node php-game/tests/client-reference.mjs /tmp/astro-js-reference.json
+# Browser verification (install Playwright and its Chromium browser locally first).
+node php-game/tests/client-browser.mjs
 ```
 
-To regenerate comparisons from the parent training repository, use its NumPy environment:
+Verified during this port: 20 complete games / 5,091 decisions, 40 lethal plans, all eight neural families for every level, 27 gameplay/session regressions, and four on-card UI regressions. Maximum sampled generation-10 logit error was approximately 0.000002. Browser checks cover lazy downloads, local AI turns, refresh/resume, offline play, HTML-only release invalidation, mobile layout, and native NPZ import persistence. The desktop and mobile layouts were inspected in Chromium; physical-device performance has not been measured.
 
-```sh
-../astrosynapse2/.venv/bin/python tests/build_reference.py --games 20 --output tests/generated/reference.json
-php -d memory_limit=768M tests/reference.php tests/generated/reference.json rules
-php -d memory_limit=768M tests/reference.php tests/generated/reference.json neural
-```
-
-The larger memory setting is for decoding the complete development fixture, not normal gameplay. `tests/generated/` is not part of the upload package. The port is isolated: it does not change the training engine, running trainer, original simulated mode, or source checkpoint files.
-
-The card artwork is copied from the existing project's official-gallery assets. Star Realms and its artwork are owned by Wise Wizard Games LLC; see `assets/card-art/README.md`.
+Artwork is from the existing project. Star Realms and card artwork belong to Wise Wizard Games LLC; see `assets/card-art/README.md`.

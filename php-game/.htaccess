@@ -1,5 +1,19 @@
 DirectoryIndex index.html
 Options -Indexes
-<FilesMatch "^(config(?:\.local)?\.php|README\.md|\.gitignore)$">
-  Require all denied
-</FilesMatch>
+<IfModule mod_mime.c>
+  AddType text/javascript .js .mjs
+  AddType application/gzip .gz
+  # Models are gzip FILES, not precompressed HTTP representations.
+  RemoveEncoding .gz
+</IfModule>
+<IfModule mod_headers.c>
+  <FilesMatch "^(index\.html|sw\.js)$">
+    Header set Cache-Control "no-cache, must-revalidate"
+  </FilesMatch>
+  <FilesMatch "\.(js|css|json|jpg|gz)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+  <Files "sw.js">
+    Header set Cache-Control "no-cache, must-revalidate"
+  </Files>
+</IfModule>

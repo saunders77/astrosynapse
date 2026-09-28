@@ -5,7 +5,7 @@ const test = require('node:test');
 
 function board(actions, status = 'your_turn', observation = {}, family = 'scrap') {
   class Element {
-    constructor() { this.children = []; this.listeners = {}; this.parent = { open: false }; }
+    constructor() { this.children = []; this.dataset = {}; this.listeners = {}; this.parent = { open: false }; }
     append(...children) { this.children.push(...children); }
     replaceChildren(...children) { this.children = children; }
     addEventListener(name, callback) { this.listeners[name] = callback; }
@@ -18,8 +18,8 @@ function board(actions, status = 'your_turn', observation = {}, family = 'scrap'
     createElement: () => new Element(),
     createTextNode: text => text,
   };
-  const context = vm.createContext({ document });
-  const source = fs.readFileSync(`${__dirname}/../assets/game.js`, 'utf8').split("$('new-game').addEventListener")[0];
+  const context = vm.createContext({ document, location: { pathname: '/' }, localStorage: { getItem: () => null }, IntersectionObserver: class { observe() {} disconnect() {} } });
+  const source = fs.readFileSync(`${__dirname}/../assets/runtime/ui.mjs`, 'utf8').split("$('new-game').addEventListener")[0].replace(/^import .*;$/gm, '');
   vm.runInContext(source, context);
   context.fixture = { status, decision: { family, actions }, observation: {
     hand: [0, 0, 1], own_discard: [0, 1], own_in_play: [], opponent_in_play: [],
