@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 namespace Astro;
-final class SearchBranch extends \RuntimeException { public function __construct(public int $choices) { parent::__construct(); } }
+final class SearchBranch extends \RuntimeException { public int $choices; public function __construct(int $choices) { $this->choices=$choices; parent::__construct(); } }
 final class SearchDeadEnd extends \RuntimeException {}
 
 // Same bounded, public-information finisher used by the deployed Python actor.

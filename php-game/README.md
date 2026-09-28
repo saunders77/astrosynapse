@@ -6,7 +6,7 @@ A standalone HTML/CSS/JavaScript/PHP version of the simulated human-versus-compu
 
 1. Upload the contents of this folder, including `models/`, `assets/`, and dotfiles, into a directory such as `public_html/arena/`.
 2. Open `https://your-domain/arena/`. Pick an opponent and click **New game**.
-3. The server needs **64-bit PHP 8.1 or newer**, JSON and sessions (standard PHP features), a writable PHP session directory, and preferably **256 MB** of PHP memory. `.user.ini` includes suggested hosting settings. PHP must actually execute `.php` files; static hosting cannot run this game.
+3. The server needs **64-bit PHP 7.4 or newer**, JSON and sessions (standard PHP features), a writable PHP session directory, and preferably **256 MB** of PHP memory. `.user.ini` includes suggested hosting settings. PHP must actually execute `.php` files; static hosting cannot run this game.
 4. The PHP worker needs read access to all model files. Only model management needs write access to `models/` and `models/registry.php`. Do not make the entire application world-writable.
 
 On Apache, the included `.htaccess` files deny direct access to internal directories and disable directory listings. If your host does not allow `Options`, remove the `Options -Indexes` line and disable listings through the hosting panel. On Nginx or another server, deny URL access to `src/`, `models/`, `tools/`, `tests/`, and `config.php` in its site configuration. Example for an `/arena/` installation:
@@ -77,7 +77,9 @@ Shuffling uses a deterministic portable PHP generator with separate player/marke
 
 ## Verification results
 
-Validated with temporary PHP 8.1 and PHP 8.5 runtimes:
+PHP 7.4 compatibility was checked with PHP 7.4.33 (WebAssembly): all PHP files parse, all 27 regression checks pass, all 20 reference games / 5,176 decisions match Python, and checkpoint validation, preconverted model import, renaming, and invalid-model rejection pass.
+
+Earlier validation with temporary PHP 8.1 and PHP 8.5 runtimes:
 
 - 20 complete games / 5,176 decisions matched the Python engine's legal actions, observations, and final results. These games exercised all eight decision families and 48 card types; separate checks cover Fleet HQ.
 - 40 bounded lethal-search cases, including 28 winning plans, matched the original Python finisher.

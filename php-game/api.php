@@ -13,7 +13,7 @@ try {
     } elseif($method==='POST') {
         if(!hash_equals($_SESSION['csrf'],$_SERVER['HTTP_X_CSRF_TOKEN']??'')) { http_response_code(403); throw new InvalidArgumentException('Refresh this page before continuing'); }
         $type=$_SERVER['CONTENT_TYPE']??'';
-        if(str_starts_with($type,'multipart/form-data')) $in=$_POST;
+        if(strncmp($type,'multipart/form-data',19)===0) $in=$_POST;
         else { if((int)($_SERVER['CONTENT_LENGTH']??0)>8192) throw new InvalidArgumentException('Request too large'); $in=json_decode(file_get_contents('php://input'),true,32,JSON_THROW_ON_ERROR); }
         if(!is_array($in)) throw new InvalidArgumentException('Invalid request');
         $op=$in['op']??'';

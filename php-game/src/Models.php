@@ -6,7 +6,7 @@ final class Models {
         // Writers replace the complete registry atomically; readers see one
         // coherent version and do not need a lock or write permissions.
         $raw=file_get_contents(__DIR__.'/../models/registry.php');
-        if($raw===false || !str_starts_with($raw,Actor::PREFIX)) throw new \RuntimeException('Cannot read model registry');
+        if($raw===false || strncmp($raw,Actor::PREFIX,strlen(Actor::PREFIX))!==0) throw new \RuntimeException('Cannot read model registry');
         return json_decode(substr($raw,strlen(Actor::PREFIX)),true,512,JSON_THROW_ON_ERROR);
     }
     public static function publicList(): array { return array_map(fn($m)=>array_intersect_key($m,array_flip(['id','name','level','description'])),self::read()); }
@@ -31,7 +31,7 @@ final class Models {
     // prefix from an upload; it is replaced with our fixed non-executing guard.
     public static function import(string $source,string $name): array {
         $name=self::name($name); $raw=file_get_contents($source); if(strlen($raw)>40*1024*1024) throw new \InvalidArgumentException('Model exceeds 40 MB');
-        if(str_starts_with($raw,Actor::PREFIX)) {
+        if((strncmp($raw,Actor::PREFIX,strlen(Actor::PREFIX))===0)) {
             $offset=strlen(Actor::PREFIX); $size=unpack('V',substr($raw,$offset,4))[1]; if($size>1000000) throw new \InvalidArgumentException('Invalid header');
             $header=json_decode(substr($raw,$offset+4,$size),true,512,JSON_THROW_ON_ERROR); $payload=substr($raw,$offset+4+$size);
         } elseif(substr($raw,0,2)==='PK') {

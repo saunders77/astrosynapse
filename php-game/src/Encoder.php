@@ -9,7 +9,8 @@ final class Encoder {
     const KINDS=['play_card'=>1,'activate_base'=>2,'activate_ally'=>2,'scrap_for_ability'=>3,'attack_base'=>4,'attack_player'=>5,'acquire'=>6,'end_turn'=>7,'discard_card'=>8,'scrap_card'=>10,'destroy_base'=>12,'scrap_trade_row'=>14,'copy_ship'=>16,'free_acquire'=>18,'decline'=>24];
     const MODES=['gain_combat'=>19,'gain_attack'=>19,'gain_trade'=>20,'gain_authority'=>21,'draw'=>22,'cycle'=>23,'recycle'=>23];
     const ZONES=['hand'=>0,'own_hand'=>0,'discard'=>3,'own_discard'=>3,'in_play'=>4,'own_in_play'=>4,'opponent_in_play'=>9,'trade_row'=>10,'explorer_supply'=>13];
-    public function __construct(public int $version=2) {}
+    public int $version;
+    public function __construct(int $version=2) { $this->version=$version; }
     public static function zones(array $o): array { return [$o['hand'],$o['own_deck'],$o['own_known_top'],$o['own_discard'],array_column($o['own_in_play'],'card'),$o['opponent_hidden'],$o['opponent_known_hand'],$o['opponent_known_top'],$o['opponent_discard'],array_column($o['opponent_in_play'],'card'),$o['trade_row'],$o['trade_deck'],$o['scrap_heap'],$o['explorer_supply']]; }
     public function state(array $o): array {
         $r=array_fill(0,1292,0.0);
@@ -29,18 +30,18 @@ final class Encoder {
     }
     private static function effect(string $s): int {
         if($s==='' || $s==='none' || $s==='used') return 0;
-        if(str_contains($s,'attack')||str_contains($s,'combat')) return 1;
-        if(str_contains($s,'trade')) return 2;
-        if(str_contains($s,'authority')) return 3;
-        if(str_contains($s,'draw') || $s==='recycle') return 4;
-        if(str_contains($s,'discard')) return 5;
-        if(str_contains($s,'scrap') && !str_contains($s,'row') && !str_contains($s,'destroy')) return 6;
-        if(str_contains($s,'kill') || str_contains($s,'destroy')) return 7;
-        if(str_contains($s,'row')) return 8;
-        if(str_contains($s,'free')) return 9;
-        if(str_contains($s,'copy')) return 10;
-        if(str_contains($s,'top')) return 11;
-        if(str_contains($s,'ally')) return 12;
+        if((strpos($s,'attack')!==false)||(strpos($s,'combat')!==false)) return 1;
+        if((strpos($s,'trade')!==false)) return 2;
+        if((strpos($s,'authority')!==false)) return 3;
+        if((strpos($s,'draw')!==false) || $s==='recycle') return 4;
+        if((strpos($s,'discard')!==false)) return 5;
+        if((strpos($s,'scrap')!==false) && !(strpos($s,'row')!==false) && !(strpos($s,'destroy')!==false)) return 6;
+        if((strpos($s,'kill')!==false) || (strpos($s,'destroy')!==false)) return 7;
+        if((strpos($s,'row')!==false)) return 8;
+        if((strpos($s,'free')!==false)) return 9;
+        if((strpos($s,'copy')!==false)) return 10;
+        if((strpos($s,'top')!==false)) return 11;
+        if((strpos($s,'ally')!==false)) return 12;
         return 13;
     }
     public function action(array $a,array $o): array {

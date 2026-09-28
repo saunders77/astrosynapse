@@ -7,7 +7,7 @@ require_once __DIR__.'/Lethal.php';
 require_once __DIR__.'/Models.php';
 require_once __DIR__.'/Session.php';
 function astro_boot(): array {
-    if(PHP_VERSION_ID<80100 || PHP_INT_SIZE<8) throw new \RuntimeException('64-bit PHP 8.1 or newer is required');
+    if(PHP_VERSION_ID<70400 || PHP_INT_SIZE<8) throw new \RuntimeException('64-bit PHP 7.4 or newer is required');
     $config=require __DIR__.'/../config.php';
     if(is_file(__DIR__.'/../config.local.php')) $config=array_replace($config,require __DIR__.'/../config.local.php');
     ini_set('display_errors','0');

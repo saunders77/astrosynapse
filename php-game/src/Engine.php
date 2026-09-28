@@ -5,7 +5,8 @@ namespace Astro;
 // Port of astro2/engine.py, rules version 2. Decisions remain ordinary single
 // actions; Play all is deliberately implemented by the human session adapter.
 final class Rng {
-    public function __construct(public int $state) { $this->state = ($state % 2147483646) + 1; }
+    public int $state;
+    public function __construct(int $state) { $this->state = ($state % 2147483646) + 1; }
     public function next(): int { return $this->state = (int)(($this->state * 48271) % 2147483647); }
     public function shuffle(array &$a): void { for ($i=count($a)-1;$i>0;$i--) { $j=$this->next()%($i+1); [$a[$i],$a[$j]]=[$a[$j],$a[$i]]; } }
 }
@@ -13,16 +14,20 @@ final class Player {
     public array $deck=[], $hand=[], $discard=[], $in_play=[], $known_top=[], $revealed_hand=[];
     public int $authority=50, $combat=0, $trade=0, $must_discard=0, $blob_cards_played=0;
     public bool $next_ship_top=false;
-    public function __construct(public int $id, public Rng $rng) {}
+    public int $id;
+    public Rng $rng;
+    public function __construct(int $id, Rng $rng) { $this->id=$id; $this->rng=$rng; }
     public function __clone() { $this->rng=clone $this->rng; $this->in_play=array_map(fn($i)=>clone $i,$this->in_play); }
 }
 final class InPlay {
     public bool $activated=false, $ally_triggered=false;
     public int $original;
-    public function __construct(public int $uid, public int $card) { $this->original=$card; }
+    public int $uid, $card;
+    public function __construct(int $uid, int $card) { $this->uid=$uid; $this->card=$card; $this->original=$card; }
 }
 class Pause extends \RuntimeException {
-    public function __construct(public array $decision) { parent::__construct('Waiting for a choice'); }
+    public array $decision;
+    public function __construct(array $decision) { $this->decision=$decision; parent::__construct('Waiting for a choice'); }
 }
 class Limit extends \RuntimeException {}
 final class Game {
@@ -55,7 +60,9 @@ final class Game {
         if($a['amount'] || $a['amount2']) $label.=' ['.$a['amount'].','.$a['amount2'].']';
         return ucfirst($label);
     }
-    public function __construct(public int $seed,int $starts=0,?callable $chooser=null) {
+    public int $seed;
+    public function __construct(int $seed,int $starts=0,?callable $chooser=null) {
+        $this->seed=$seed;
         $this->starting_player=$this->active_player=$starts;
         $this->chooser=$chooser ?? fn($g,$p,$d)=>0;
         $rng=new Rng($seed+101);
@@ -95,22 +102,22 @@ final class Game {
         while($this->winner===null) { $a=$this->choose($p,'main',$this->mainActions($p),'Main phase'); if($this->apply($p,$a)) break; }
         if($this->winner===null) $this->cleanup($p);
     }
-    public function handActions(Player $p,string $kind): array { $a=[]; foreach($p->hand as $j=>$c) $a[]=self::action($kind,card_id:$c,source_zone:'hand',opaque:[$j]); return $a; }
+    public function handActions(Player $p,string $kind): array { $a=[]; foreach($p->hand as $j=>$c) $a[]=self::action($kind,$c,-1,'','hand',0,0,[$j]); return $a; }
     public function targets(Player $p): array { $all=$this->players[1-$p->id]->in_play; $out=array_values(array_filter($all,fn($i)=>self::card($i->card)['card_type']==='outpost')); return $out ?: array_values(array_filter($all,fn($i)=>!self::ship($i->card))); }
     public function mainActions(Player $p): array {
         $a=$this->handActions($p,'play_card');
         foreach($p->in_play as $i) {
             $c=self::card($i->card);
-            if(!in_array($c['ally'],self::AUTO,true) && $this->allyAvailable($p,$i)) $a[]=self::action('activate_ally',$i->card,ability:$c['ally'],source_zone:'in_play',amount:$c['ally_amount'],opaque:[$i->uid]);
-            if(!$i->activated && self::manual($i->card)) $a[]=self::action('activate_base',$i->card,ability:$c['primary'],source_zone:'in_play',opaque:[$i->uid]);
-            if($c['scrap']) $a[]=self::action('scrap_for_ability',$i->card,ability:$c['scrap'],source_zone:'in_play',amount:$c['scrap_amount'],opaque:[$i->uid]);
+            if(!in_array($c['ally'],self::AUTO,true) && $this->allyAvailable($p,$i)) $a[]=self::action('activate_ally',$i->card,-1,$c['ally'],'in_play',$c['ally_amount'],0,[$i->uid]);
+            if(!$i->activated && self::manual($i->card)) $a[]=self::action('activate_base',$i->card,-1,$c['primary'],'in_play',0,0,[$i->uid]);
+            if($c['scrap']) $a[]=self::action('scrap_for_ability',$i->card,-1,$c['scrap'],'in_play',$c['scrap_amount'],0,[$i->uid]);
         }
         if($p->combat>0) {
-            foreach($this->targets($p) as $i) { $c=self::card($i->card); if($p->combat >= $c['defense']) $a[]=self::action('attack_base',target_card_id:$i->card,source_zone:'opponent_in_play',amount:$c['defense'],amount2:$p->combat,opaque:[$i->uid]); }
-            if(!array_filter($this->players[1-$p->id]->in_play,fn($i)=>self::card($i->card)['card_type']==='outpost')) $a[]=self::action('attack_player',amount:$p->combat);
+            foreach($this->targets($p) as $i) { $c=self::card($i->card); if($p->combat >= $c['defense']) $a[]=self::action('attack_base',-1,$i->card,'','opponent_in_play',$c['defense'],$p->combat,[$i->uid]); }
+            if(!array_filter($this->players[1-$p->id]->in_play,fn($i)=>self::card($i->card)['card_type']==='outpost')) $a[]=self::action('attack_player',-1,-1,'','',$p->combat);
         }
-        foreach($this->trade_row as $j=>$id) if($id!==null && self::card($id)['cost']<=$p->trade) $a[]=self::action('acquire',$id,source_zone:'trade_row',amount:self::card($id)['cost'],opaque:[$j]);
-        if($this->explorers_remaining>0 && $p->trade>=2) $a[]=self::action('acquire',2,source_zone:'explorer_supply',amount:2);
+        foreach($this->trade_row as $j=>$id) if($id!==null && self::card($id)['cost']<=$p->trade) $a[]=self::action('acquire',$id,-1,'','trade_row',self::card($id)['cost'],0,[$j]);
+        if($this->explorers_remaining>0 && $p->trade>=2) $a[]=self::action('acquire',2,-1,'','explorer_supply',2);
         $a[]=self::action('end_turn'); return self::dedup($a);
     }
     public function apply(Player $p,array $a): bool {
@@ -137,7 +144,7 @@ final class Game {
     public function primary(Player $p,InPlay $i): void {
         $c=self::card($i->card);
         if($c['primary']==='copy_ship') {
-            $a=[]; foreach($p->in_play as $t) if($t->uid!==$i->uid && self::ship($t->card)) $a[]=self::action('copy_ship',$i->original,$t->card,'copy_ship','in_play',opaque:[$t->uid]);
+            $a=[]; foreach($p->in_play as $t) if($t->uid!==$i->uid && self::ship($t->card)) $a[]=self::action('copy_ship',$i->original,$t->card,'copy_ship','in_play',0,0,[$t->uid]);
             if($a) { $s=$this->choose($p,'copy_ship',$a,'Stealth Needle: copy a ship'); $i->card=$this->find($p,$s['opaque'][0])->card; }
             if($i->card!==$c['card_id']) { $this->resources($p,$i->card); $this->primary($p,$i); } else $i->activated=true;
             return;
@@ -184,28 +191,28 @@ final class Game {
             case 'destroy_and_scrap': $this->destroy($p,$s); $this->rowChoice($p,$s,false); break;
             case 'draw_destroy': $this->draw($p,1); $this->destroy($p,$s); break;
             case 'recycle':
-                $a=$this->choose($p,'ability_mode',[self::action('choose_mode',$s->card,ability:'gain_trade',amount:1),self::action('choose_mode',$s->card,ability:'cycle',amount:2)],'Recycling Station: gain trade or cycle up to two cards');
+                $a=$this->choose($p,'ability_mode',[self::action('choose_mode',$s->card,-1,'gain_trade','',1),self::action('choose_mode',$s->card,-1,'cycle','',2)],'Recycling Station: gain trade or cycle up to two cards');
                 if($a['ability']==='gain_trade') { $p->trade++; break; }
-                $n=0; for($j=0;$j<2 && $p->hand;$j++) { $a=$this->handActions($p,'discard_card'); $a[]=self::action('decline',$s->card,ability:'cycle'); $v=$this->choose($p,'discard',$a,'Discard a card to replace'); if($v['kind']==='decline') break; $this->discardHand($p,$v['opaque'][0]); $n++; } $this->draw($p,$n); break;
+                $n=0; for($j=0;$j<2 && $p->hand;$j++) { $a=$this->handActions($p,'discard_card'); $a[]=self::action('decline',$s->card,-1,'cycle'); $v=$this->choose($p,'discard',$a,'Discard a card to replace'); if($v['kind']==='decline') break; $this->discardHand($p,$v['opaque'][0]); $n++; } $this->draw($p,$n); break;
             default: throw new \LogicException('Unknown effect '.$effect);
         }
     }
-    public function mode(Player $p,InPlay $s,array $modes): void { $a=[]; foreach($modes as $effect=>$amount) $a[]=self::action('choose_mode',$s->card,ability:$effect,amount:$amount); $v=$this->choose($p,'ability_mode',$a,self::card($s->card)['name'].': choose mode'); if($v['ability']==='draw') $this->draw($p,$v['amount']); else $this->effect($p,$v['ability'],$v['amount'],$s); }
+    public function mode(Player $p,InPlay $s,array $modes): void { $a=[]; foreach($modes as $effect=>$amount) $a[]=self::action('choose_mode',$s->card,-1,$effect,'',$amount); $v=$this->choose($p,'ability_mode',$a,self::card($s->card)['name'].': choose mode'); if($v['ability']==='draw') $this->draw($p,$v['amount']); else $this->effect($p,$v['ability'],$v['amount'],$s); }
     public function scrapAny(Player $p,InPlay $s): int {
-        $a=[]; foreach($p->discard as $j=>$id) $a[]=self::action('scrap_card',$id,source_zone:'discard',opaque:[$j]);
-        $a=array_merge($a,$this->handActions($p,'scrap_card')); $a[]=self::action('decline',$s->card,ability:'scrap_any');
+        $a=[]; foreach($p->discard as $j=>$id) $a[]=self::action('scrap_card',$id,-1,'','discard',0,0,[$j]);
+        $a=array_merge($a,$this->handActions($p,'scrap_card')); $a[]=self::action('decline',$s->card,-1,'scrap_any');
         $v=$this->choose($p,'scrap',$a,'Scrap a card from hand or discard'); if($v['kind']==='decline') return 0;
         $z=$v['source_zone']; $id=array_splice($p->$z,$v['opaque'][0],1)[0]; if($z==='hand') $this->forget($p,$id); $this->scrap($id); return 1;
     }
     public function destroy(Player $p,InPlay $s): void {
-        $a=[]; foreach($this->targets($p) as $t) $a[]=self::action('destroy_base',$s->card,$t->card,'destroy_base','opponent_in_play',opaque:[$t->uid]);
-        if(!$a) return; $a[]=self::action('decline',$s->card,ability:'destroy_base'); $v=$this->choose($p,'destroy_base',$a,'Optionally destroy a base');
+        $a=[]; foreach($this->targets($p) as $t) $a[]=self::action('destroy_base',$s->card,$t->card,'destroy_base','opponent_in_play',0,0,[$t->uid]);
+        if(!$a) return; $a[]=self::action('decline',$s->card,-1,'destroy_base'); $v=$this->choose($p,'destroy_base',$a,'Optionally destroy a base');
         if($v['kind']!=='decline') { $op=$this->players[1-$p->id]; $i=$this->find($op,$v['opaque'][0]); $this->remove($op,$i); $op->discard[]=$i->original; }
     }
     public function rowChoice(Player $p,InPlay $s,bool $free): void {
         $kind=$free?'free_acquire':'scrap_trade_row'; $effect=$free?'free_ship_to_top':'scrap_trade_row'; $a=[];
-        foreach($this->trade_row as $j=>$id) if($id!==null && (!$free || self::ship($id))) $a[]=self::action($kind,$s->card,$id,$effect,'trade_row',opaque:[$j]);
-        if(!$a) return; $a[]=self::action('decline',$s->card,ability:$effect); $v=$this->choose($p,$kind,$a,$free?'Optionally acquire a ship free onto your deck':'Optionally scrap a trade-row card');
+        foreach($this->trade_row as $j=>$id) if($id!==null && (!$free || self::ship($id))) $a[]=self::action($kind,$s->card,$id,$effect,'trade_row',0,0,[$j]);
+        if(!$a) return; $a[]=self::action('decline',$s->card,-1,$effect); $v=$this->choose($p,$kind,$a,$free?'Optionally acquire a ship free onto your deck':'Optionally scrap a trade-row card');
         if($v['kind']==='decline') return; $j=$v['opaque'][0];
         if($free) $this->acquire($p,$j,0,true); else { $this->scrap_heap[]=$this->trade_row[$j]; $this->trade_row[$j]=array_pop($this->trade_deck); }
     }
@@ -246,13 +253,13 @@ final class Game {
     // effects. Forced single options do not require additional user choices.
     public function playAllPlan(array $decision): array {
         if($this->active_player!==0 || $decision['family']!=='main' || count($this->players[0]->hand)<2) return [];
-        $probe=clone $this; $probe->chooser=fn($g,$p,$d)=>throw new Pause($d); $plan=[];
+        $probe=clone $this; $probe->chooser=function($g,$p,$d) { throw new Pause($d); }; $plan=[];
         try {
             // Only cards in the hand at click time; newly drawn cards stay for
             // the next human decision. Order is the visible left-to-right order.
             foreach($this->players[0]->hand as $id) {
                 $j=array_search($id,$probe->players[0]->hand,true);
-                $a=self::action('play_card',$id,source_zone:'hand',opaque:[$j]);
+                $a=self::action('play_card',$id,-1,'','hand',0,0,[$j]);
                 $plan[]=self::key($a); $probe->apply($probe->players[0],$a);
             }
         } catch(Pause|Limit $e) { return []; }
