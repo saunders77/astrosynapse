@@ -658,6 +658,7 @@ def models(
     request: Request,
     run_id: str | None = None,
     include_tainted: bool = False,
+    champions_only: bool = False,
 ) -> list[dict[str, Any]]:
     checkpoints = _store(request).checkpoints(run_id)
     checkpoints += [
@@ -673,6 +674,8 @@ def models(
     )
     result = []
     for item in visible:
+        if champions_only and not item.get("is_champion"):
+            continue
         document = _model_document(item)
         document["integrity_status"] = (
             "tainted_random_restart" if item["id"] in tainted_ids else "verified_lineage"

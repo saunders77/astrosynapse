@@ -1225,7 +1225,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
   const [catalog, setCatalog] = useState<CardDefinition[]>(FALLBACK_CARDS);
   const [match, setMatch] = useState<ManualMatch>(() => loadSavedMatch(createMatch(firstModelId, "astro5")));
   const [setupFirst, setSetupFirst] = useState<Side>("astro5");
-  const [setupCheckpoint, setSetupCheckpoint] = useState(firstModelId);
+  const [setupCheckpoint, setSetupCheckpoint] = useState("");
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [hardActionOpen, setHardActionOpen] = useState(match.activeSide === "hard");
   const [hardActionKind, setHardActionKind] = useState<HardActionKind>(match.hard.pendingDiscard > 0 ? "discard" : "play");

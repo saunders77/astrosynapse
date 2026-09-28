@@ -262,6 +262,7 @@ type HardwareView = {
 };
 
 type ModelCheckpoint = {
+  generation?: number;
   runName?: string;
   external?: boolean;
   id: string;
@@ -1838,6 +1839,7 @@ function normalizeModel(raw: unknown, fallback: ModelCheckpoint = emptyModel): M
     runName: asString(item.run_name, ""),
     external: Boolean(item.external),
     label: displayLabel,
+    generation: asOptionalNumber(item.generation) ?? undefined,
     parentId: typeof item.parent_id === "string" && item.parent_id ? item.parent_id : undefined,
     games: asNumber(item.games, fallback.games),
     created: displayTime(item.created ?? item.created_at ?? item.created_at_display, fallback.created),
@@ -3549,7 +3551,7 @@ export default function Home() {
   const [remoteRunId, setRemoteRunId] = useState<string | null>(null);
   const [trainerActiveRunId, setTrainerActiveRunId] = useState<string | null>(null);
   const [runChoices, setRunChoices] = useState<RunChoice[]>([]);
-  const [arenaModels, setArenaModels] = useState<ModelCheckpoint[]>(demoModels);
+  const [arenaModels, setArenaModels] = useState<ModelCheckpoint[]>([]);
   const [remoteGame, setRemoteGame] = useState<RemoteGameSession | null>(null);
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [playMode, setPlayMode] = useState<"companion" | "simulated">("companion");
@@ -3612,7 +3614,8 @@ export default function Home() {
     Math.floor(config.evaluateEveryGames / 2),
   );
   const availableModels = useMemo(
-    () => arenaModels.filter((model) => model.actorAvailable),
+    () => arenaModels.filter((model) => model.actorAvailable).sort((a, b) =>
+      (b.generation ?? 0) - (a.generation ?? 0) || Number(b.isChampion) - Number(a.isChampion) || b.games - a.games),
     [arenaModels],
   );
   const selectableModels = useMemo(
@@ -3636,7 +3639,7 @@ export default function Home() {
       group.models.push(model);
       groups.set(runId, group);
     }
-    return [...groups.values()].sort((left, right) => left.runName.localeCompare(right.runName));
+    return [...groups.values()];
   }, [availableArenaModels, runChoices]);
   useEffect(() => {
     if (branchSourceId && branchSources.some((model) => model.id === branchSourceId)) return;
@@ -3852,7 +3855,7 @@ export default function Home() {
       if (pollInFlight.current) return;
       pollInFlight.current = true;
       try {
-        const [healthRaw, systemRaw, presetsRaw, runsRaw, branchesRaw, branchModelsRaw] = await Promise.all([
+        const [healthRaw, systemRaw, presetsRaw, runsRaw, branchesRaw] = await Promise.all([
           fetchJson("/health"),
           fetchJson("/system"),
           Object.keys(presetCatalogRef.current).length
@@ -3860,7 +3863,6 @@ export default function Home() {
             : fetchJson("/presets").catch(() => ({})),
           fetchJson("/runs"),
           fetchJson("/branches").catch(() => []),
-          fetchJson("/models").catch(() => []),
         ]);
         if (cancelled) return;
         if (isRecord(presetsRaw) && Object.keys(presetsRaw).length) presetCatalogRef.current = presetsRaw;
@@ -3869,16 +3871,6 @@ export default function Home() {
             branchesRaw
               .map((raw) => normalizeBranchExperiment(raw))
               .filter((experiment): experiment is BranchExperiment => experiment !== null),
-          );
-        }
-        if (Array.isArray(branchModelsRaw)) {
-          const allModels = branchModelsRaw
-            .filter(isRecord)
-            .map((model) => normalizeModel(model));
-          setArenaModels(allModels);
-          setBranchSources(
-            allModels
-              .filter((model) => model.branchCompatible),
           );
         }
         const health = isRecord(healthRaw) ? healthRaw : {};
@@ -4070,6 +4062,33 @@ export default function Home() {
       cancelled = true;
       window.clearInterval(interval);
     };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let inFlight = false;
+    const loadModels = async (initial = false) => {
+      if (inFlight) return;
+      inFlight = true;
+      const apply = (raw: unknown) => {
+        if (cancelled || !Array.isArray(raw)) return;
+        const models = raw.filter(isRecord).map((model) => normalizeModel(model));
+        setArenaModels(models);
+        setBranchSources(models.filter((model) => model.branchCompatible));
+      };
+      try {
+        if (initial) {
+          try { apply(await fetchJson("/models?champions_only=true")); } catch { /* Try the complete registry below. */ }
+          // Render the main choices before requesting historical checkpoints.
+          await new Promise((resolve) => window.setTimeout(resolve, 250));
+        }
+        if (!cancelled) apply(await fetchJson("/models"));
+      } catch { /* Keep the last successful registry while offline. */ }
+      finally { inFlight = false; }
+    };
+    void loadModels(true);
+    const interval = window.setInterval(() => void loadModels(), 30_000);
+    return () => { cancelled = true; window.clearInterval(interval); };
   }, []);
 
   useEffect(() => {

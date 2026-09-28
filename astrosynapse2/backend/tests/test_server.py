@@ -482,3 +482,29 @@ def test_pinning_without_portable_weights_is_rejected(tmp_path, monkeypatch):
         assert response.status_code == 409
         assert "weights are unavailable" in response.json()["detail"]
         assert client.app.state.store.checkpoint(checkpoint["id"])["is_pinned"] is False
+
+
+def test_models_champions_only_skips_historical_documents(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    checkpoints = [
+        {"id": "old", "is_champion": False},
+        {"id": "gen10", "is_champion": True, "generation": 10},
+    ]
+    monkeypatch.setattr(server, "progressive_models", lambda _: checkpoints)
+    monkeypatch.setattr(server, "_tainted_checkpoint_ids", lambda _: set())
+    documented = []
+
+    def document(item):
+        documented.append(item["id"])
+        return dict(item)
+
+    monkeypatch.setattr(server, "_model_document", document)
+    with TestClient(server.app) as client:
+        response = client.get("/api/models?champions_only=true")
+        assert response.status_code == 200
+        assert [item["id"] for item in response.json()] == ["gen10"]
+        assert documented == ["gen10"]
+        documented.clear()
+        response = client.get("/api/models")
+        assert [item["id"] for item in response.json()] == ["old", "gen10"]
+        assert documented == ["old", "gen10"]
