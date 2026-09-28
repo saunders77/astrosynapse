@@ -35,7 +35,7 @@ export class Game {
     return s[0].toUpperCase()+s.slice(1);
   }
   constructor(seed,starts=0,chooser=()=>0) {
-    Object.assign(this,{seed,starting_player:starts,active_player:starts,chooser,players:[],trade_deck:[],trade_row:[],scrap_heap:[],log:[],explorers_remaining:10,turns:0,decisions:0,turn_actions:0,uid:0,winner:null,result:null,decision_hook:null,choose_override:null,searchDraw:false});
+    Object.assign(this,{seed,starting_player:starts,active_player:starts,chooser,players:[],trade_deck:[],trade_row:[],scrap_heap:[],log:[],explorers_remaining:10,turns:0,decisions:0,turn_actions:0,uid:0,winner:null,result:null,decision_hook:null,choose_override:null,manual_player:null,searchDraw:false});
     const rng=new Rng(seed+101);
     for(const c of Game.cards()) for(let i=0;i<c.copies;i++) this.trade_deck.push(c.card_id);
     rng.shuffle(this.trade_deck);
@@ -58,7 +58,8 @@ export class Game {
     if(this.turn_actions>=220) throw new Limit('Action limit');
     actions=Game.dedup(actions); if(!actions.length) throw new Error('Empty decision');
     const d={family,observation:this.observation(p.id),actions,prompt}; this.decisions++; this.turn_actions++;
-    const index=actions.length===1?0:this.chooser(this,p.id,d);
+    const manual = p.id === this.manual_player && (family === 'discard' || actions[0].kind === 'end_turn');
+    const index=actions.length===1&&!manual?0:this.chooser(this,p.id,d);
     if(!Number.isInteger(index)||!actions[index]) throw new Error('Illegal action');
     const a=actions[index]; this.log.push({player_id:p.id,turn:this.turns,family,label:Game.label(a)});
     if(this.decision_hook) this.decision_hook(this,p.id,d,a); return a;

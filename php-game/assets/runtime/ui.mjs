@@ -1,14 +1,14 @@
 import { configureResources, resource, resourceURL, sha256 } from './resources.mjs';
 import { localModels } from './local-models.mjs';
 const $ = id => document.getElementById(id);
-let cards = [], models = [], game = null, busy = false, timer = null, worker, release, base, savedKey;
+let cards = [], models = [], game = null, busy = false, timer = null, openPile = null, worker, release, base, savedKey;
 let requestId = 0; const waiting = new Map(), imageMemory = new Map();
 const aliasesKey = 'astro-model-names:' + location.pathname.replace(/index\.html$/, '');
 let aliases = {}; try { aliases = JSON.parse(localStorage.getItem(aliasesKey) || '{}'); } catch {}
 const art = c => `assets/card-art/${c.card_id === 4 ? 'BattlePod' : c.name.replaceAll(' ', '-')}.jpg`;
 const el = (tag, className, text) => { const n = document.createElement(tag); if (className) n.className = className; if (text !== undefined) n.textContent = text; return n; };
 const showError = (message, id = 'error') => { $(id).textContent = message; $(id).hidden = !message; };
-function lock(value) { busy = value; document.body.classList.toggle('busy', value); document.querySelectorAll('button, select, input').forEach(n => n.disabled = value); }
+function lock(value) { busy = value; document.body.classList.toggle('busy', value); document.querySelectorAll('button, select, input').forEach(n => n.disabled = (value && !n.matches('.details, .pile, [data-close], [data-inspect], [data-open]')) || n.dataset.unavailable === 'true'); }
 function api(payload) {
   return new Promise((resolve, reject) => {
     const id = ++requestId; waiting.set(id, { resolve, reject }); worker.postMessage({ ...payload, requestId: id });
@@ -43,7 +43,7 @@ async function request(payload, errorTarget = 'error') {
   finally { lock(false); if (game?.status === 'model_thinking' && !$('error').textContent) schedule(); }
 }
 function schedule() { clearTimeout(timer); timer = setTimeout(() => { if (!busy && game?.status === 'model_thinking') request({ op: 'advance', id: game.id, revision: game.revision }); }, 120); }
-function move(id) { request({ op: 'choose', id: game.id, revision: game.revision, action_id: id }); }
+function move(id) { if (openPile === 'hand') $('pile-dialog').close(); request({ op: 'choose', id: game.id, revision: game.revision, action_id: id }); }
 function inspect(card) {
   setImage($('card-large'), art(card), true); $('card-large').alt = card.name; $('card-name').textContent = card.name;
   $('card-description').textContent = `${card.faction.replaceAll('_', ' ')} · ${card.card_type} · Cost ${card.cost}${card.defense ? ` · Defense ${card.defense}` : ''}`;
@@ -52,7 +52,12 @@ function inspect(card) {
 function cardView(id, actions = [], state = '') {
   const c = cards[id]; if (!c) return el('span', 'empty', 'Empty trade slot');
   const node = el('article', `card ${c.card_type !== 'ship' ? 'base' : ''} ${actions.length ? 'actionable' : ''}`);
-  const img = el('img'); setImage(img, art(c)); img.alt = c.name; img.loading = 'lazy'; node.append(img);
+  const face = el('button', 'card-face'); face.type = 'button';
+  const play = actions.find(a => a.kind === 'play_card');
+  face.setAttribute('aria-label', `${play ? 'Play' : 'Details for'} ${c.name}`);
+  face.title = play ? `Play ${c.name}` : `Details for ${c.name}`;
+  face.addEventListener('click', () => play ? move(play.id) : inspect(c));
+  const img = el('img'); setImage(img, art(c)); img.alt = c.name; img.loading = 'lazy'; face.append(img); node.append(face);
   const meta = el('div', 'card-meta'); meta.append(el('span', 'card-name', c.name)); if (state) meta.append(el('span', 'card-state', state));
   const controls = el('div', 'card-actions');
   for (const a of actions) {
@@ -65,17 +70,20 @@ function cardView(id, actions = [], state = '') {
 function zone(id, entries) { const node = $(id); node.replaceChildren(...entries); if (!entries.length) node.append(el('span', 'empty', 'No cards')); }
 function render() {
   imageObserver.disconnect();
+  document.body.classList.toggle('playing', !!game);
   if (!game) setImage($('welcome-art'), 'assets/card-art/Star-Realms-Back.jpg');
+  $('opponent-bar').hidden = !game; $('player-bar').hidden = !game;
   $('welcome').hidden = !!game; $('board').hidden = !game;
   if (!game) { $('status').textContent = 'Choose your opponent to begin.'; return; }
   const o = game.observation, d = game.decision, actions = d?.actions || [], main = d?.family === 'main';
   $('opponent-name').textContent = game.model_label;
-  for (const [id, value] of Object.entries({ authority: o.own_authority, trade: o.trade, combat: o.combat, deck: o.own_deck_count, 'opponent-authority': o.opponent_authority, 'opponent-hand': o.opponent_hand_count, 'opponent-deck': o.opponent_deck_count })) $(id).textContent = value;
+  for (const [id, value] of Object.entries({ authority: o.own_authority, trade: o.trade, combat: o.combat, deck: o.own_deck_count, 'opponent-authority': o.opponent_authority, 'opponent-hand': o.opponent_hand_count, 'opponent-deck': o.opponent_deck_count, 'must-discard': o.pending_discard || 0, 'opponent-must-discard': o.opponent_pending_discard || 0, 'opponent-trade': game.opponent_trade || 0, 'opponent-combat': game.opponent_combat || 0, 'player-hand': o.hand.length })) $(id).textContent = value;
+  $('opponent-win').textContent = Number.isFinite(game.opponent_win_probability) ? `${(game.opponent_win_probability * 100).toFixed(1)}%` : '—';
   $('turn').textContent = `TURN ${o.turn}`;
   $('hand-count').textContent = `${o.hand.length} cards`;
   $('supply-count').textContent = `${o.trade_deck_count} trade cards · ${o.explorers_remaining} Explorers`;
-  $('discard-count').textContent = `(${o.own_discard.length})`;
-  $('opponent-discard-count').textContent = `${o.opponent_discard.length} in discard`;
+  $('discard-count').textContent = o.own_discard.length;
+  $('opponent-discard-count').textContent = o.opponent_discard.length;
   const decisionForCard = (id, zoneName) => game.status === 'your_turn' ? actions.filter(a => {
     if (a.kind === 'choose_mode') return zoneName === 'in_play' && a.card_id === id;
     if (['destroy_base', 'free_acquire', 'copy_ship', 'scrap_trade_row'].includes(a.kind)) return a.source_zone === zoneName && a.target_card_id === id;
@@ -83,19 +91,27 @@ function render() {
   }) : [];
   const scrapForCard = (id, zoneName) => game.status === 'your_turn' ? actions.filter(a => a.kind === 'scrap_card' && a.card_id === id && a.source_zone === zoneName).slice(0, 1) : [];
   const forCard = (id, kinds, field = 'card_id', zoneName) => main ? actions.filter(a => a[field] === id && kinds.includes(a.kind) && (!zoneName || a.source_zone === zoneName)) : [];
-  zone('hand', o.hand.map(id => cardView(id, [...forCard(id, ['play_card']), ...scrapForCard(id, 'hand'), ...decisionForCard(id, 'hand')])));
+  const handCards = () => o.hand.map(id => cardView(id, [...forCard(id, ['play_card']), ...scrapForCard(id, 'hand'), ...decisionForCard(id, 'hand')]));
+  zone('hand', handCards()); zone('hand-inspector', handCards());
   zone('market', [...o.trade_row.map(id => id === null ? el('span', 'empty', 'Empty slot') : cardView(id, [...forCard(id, ['acquire'], 'card_id', 'trade_row'), ...decisionForCard(id, 'trade_row')], `Cost ${cards[id].cost}`)), ...(o.explorers_remaining ? [cardView(2, forCard(2, ['acquire'], 'card_id', 'explorer_supply'), `${o.explorers_remaining} available`)] : [])]);
   zone('own-fleet', o.own_in_play.map(i => cardView(i.card, [...forCard(i.card, ['activate_base', 'activate_ally', 'scrap_for_ability']), ...decisionForCard(i.card, 'in_play')], i.copied_from_stealth_needle ? 'Stealth Needle copy' : i.ally_triggered ? 'Ally used' : 'In play')));
   zone('opponent-fleet', o.opponent_in_play.map(i => cardView(i.card, [...forCard(i.card, ['attack_base'], 'target_card_id'), ...decisionForCard(i.card, 'opponent_in_play')], cards[i.card].defense ? `${cards[i.card].card_type} · ${cards[i.card].defense} defense` : 'Ship')));
   zone('discard', o.own_discard.map(id => cardView(id, scrapForCard(id, 'discard'))));
-  if (actions.some(a => a.kind === 'scrap_card' && a.source_zone === 'discard') && game.status === 'your_turn') $('discard').closest('details').open = true;
+  const canScrapDiscard = actions.some(a => a.kind === 'scrap_card' && a.source_zone === 'discard') && game.status === 'your_turn';
+  $('own-discard-pile').classList.toggle('actionable', canScrapDiscard);
+  $('own-discard-pile').title = canScrapDiscard ? 'Open discard pile to choose a card to scrap' : 'Inspect your discard pile';
   zone('opponent-discard', o.opponent_discard.map(id => cardView(id)));
   zone('scrap', o.scrap_heap.map(id => cardView(id)));
   $('play-all').hidden = !game.can_play_all;
   $('play-all').title = 'Play the cards currently in your hand, from left to right. Newly drawn cards remain in your hand.';
-  const attack = actions.find(a => a.kind === 'attack_player'), end = actions.find(a => a.kind === 'end_turn');
+  const attack = game.status === 'your_turn' && actions.find(a => a.kind === 'attack_player'), end = actions.find(a => a.kind === 'end_turn');
   $('attack').hidden = !attack; $('attack').textContent = attack ? `Attack · ${attack.amount} combat` : 'Attack'; $('attack').onclick = () => attack && move(attack.id);
-  $('end-turn').hidden = !end; $('end-turn').onclick = () => { if (o.hand.length && !confirm('End your turn and discard the unplayed cards in your hand?')) return; if (end) move(end.id); };
+  $('opponent-attack').dataset.unavailable = String(!attack);
+  $('opponent-attack').disabled = !attack;
+  $('opponent-attack').title = attack ? `Attack opponent with ${attack.amount} combat` : 'Attack requires combat and no defending outposts; resolve any pending choice first.';
+  $('opponent-attack').setAttribute('aria-label', attack ? `Opponent authority ${o.opponent_authority}. Attack with ${attack.amount} combat` : `Opponent authority ${o.opponent_authority}. Attack unavailable`);
+  $('opponent-attack').onclick = () => attack && move(attack.id);
+  $('end-turn').hidden = false; $('end-turn').dataset.unavailable = String(!end); $('end-turn').disabled = !end; $('end-turn').onclick = () => { if (o.hand.length && !confirm('End your turn and discard the unplayed cards in your hand?')) return; if (end) move(end.id); };
   $('choices').replaceChildren();
   if (d && !main) for (const a of actions) {
     const button = el('button', 'choice'); const id = a.target_card_id >= 0 ? a.target_card_id : a.card_id;
@@ -107,7 +123,38 @@ function render() {
   let title = d ? (main ? 'Your move' : d.prompt) : 'Computer’s turn';
   if (game.status === 'complete') { status = game.result.truncated ? 'Draw · the game reached its turn or action limit.' : game.result.winner === 0 ? 'Victory! You defeated the champion.' : `${game.model_label} wins. Ready for a rematch?`; title = 'Game complete'; }
   $('status').textContent = status; $('decision-title').textContent = title;
+  if (openPile) renderPile();
   $('log').replaceChildren(...game.action_log.slice().reverse().map(entry => { const li = el('li', entry.player_id ? 'computer' : ''); li.append(el('b', '', `Turn ${entry.turn} · ${entry.player_id ? game.model_label : 'You'}`), document.createTextNode(entry.label)); return li; }));
+}
+// Shuffle only the public composition, never the game's RNG or hidden zone order.
+function shuffled(ids) {
+  const result = [...ids];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+function renderPile() {
+  const o = game.observation;
+  const views = {
+    'own-deck': ['Your hand + deck', 'own-deck-cards', [...o.hand, ...(o.own_deck || []), ...(o.own_known_top || [])]],
+    'opponent-deck': ['Opponent’s hand + deck', 'opponent-deck-cards', [...(o.opponent_hidden || []), ...(o.opponent_known_hand || []), ...(o.opponent_known_top || [])]],
+    hand: ['Your hand', 'hand-inspector', o.hand],
+    discard: ['Your discard pile', 'discard', o.own_discard],
+    'opponent-discard': ['Opponent’s discard pile', 'opponent-discard', o.opponent_discard],
+    scrap: ['Scrap heap', 'scrap', o.scrap_heap],
+    log: ['Game log', 'log', null],
+  };
+  const [title, id, ids] = views[openPile], deck = openPile.endsWith('-deck');
+  $('pile-title').textContent = title + (ids ? ` · ${ids.length} cards` : '');
+  $('pile-note').textContent = deck ? 'Hand and deck combined, shown in random order. This does not reveal which cards are in the opponent’s hand or the draw order.' : openPile === 'discard' ? 'Cards here may be chosen when a scrap ability allows it.' : '';
+  for (const view of Object.values(views)) $(view[1]).hidden = view[1] !== id;
+  if (deck) zone(id, shuffled(ids).map(card => cardView(card)));
+}
+function inspectPile(id) {
+  if (!game) return;
+  openPile = id; renderPile(); $('pile-dialog').showModal();
 }
 function renderModels() {
   const selected = $('opponent').value;
@@ -121,6 +168,11 @@ function renderModels() {
     form.append(el('p', 'muted', m.description)); return form;
   }));
 }
+// Fixed bars may wrap on narrow screens or with larger browser text sizes.
+const barObserver = new ResizeObserver(entries => {
+  for (const {target} of entries) document.documentElement.style.setProperty(`--${target.id}-height`, `${target.getBoundingClientRect().height}px`);
+});
+barObserver.observe($('opponent-bar')); barObserver.observe($('player-bar'));
 $('new-game').addEventListener('submit', e => { e.preventDefault(); if (game && game.status !== 'complete' && !confirm('Start a new game and replace this game?')) return; request({ op: 'new', model: $('opponent').value, label: aliases[$('opponent').value], starts: $('starts').value === 'human' }); });
 $('opponent').addEventListener('change', async () => {
   const id = $('opponent').value, m = models.find(m => m.id === id);
@@ -128,6 +180,9 @@ $('opponent').addEventListener('change', async () => {
   if (result) { $('status').textContent = `${aliases[id] || m.name} is ready. Start a new game to play this level.`; }
 });
 $('play-all').addEventListener('click', () => request({ op: 'play_all', id: game.id, revision: game.revision }));
+document.querySelectorAll('[data-inspect]').forEach(b => b.addEventListener('click', () => inspectPile(b.dataset.inspect)));
+$('pile-dialog').addEventListener('close', () => { openPile = null; });
+document.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => $(b.dataset.open).showModal()));
 $('models-open').addEventListener('click', () => $('models-dialog').showModal());
 document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => $(b.dataset.close).close()));
 $('upload-form').addEventListener('submit', async e => {

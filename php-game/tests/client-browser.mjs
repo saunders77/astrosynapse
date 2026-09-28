@@ -5,7 +5,26 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {Game, InPlay} from '../assets/runtime/engine.mjs';
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
+async function assertTableFits(page) {
+  const layout = await page.evaluate(() => {
+    const ids = ['opponent-fleet', 'market', 'hand', 'own-fleet'];
+    return {
+      scrollHeight: document.documentElement.scrollHeight, height: innerHeight,
+      bars: ['opponent-bar','player-bar'].map(id=>{const n=document.getElementById(id),r=n.getBoundingClientRect();return {id,position:getComputedStyle(n).position,top:r.top,bottom:r.bottom,left:r.left,right:r.right};}),
+      scrollWidth: document.documentElement.scrollWidth, width: innerWidth,
+      boxes: ids.flatMap(id => [document.getElementById(id), ...document.querySelectorAll(`#${id} .card`)]).map(n => {
+        const r = n.getBoundingClientRect(); return { name: n.id || n.className, top:r.top, bottom:r.bottom, left:r.left, right:r.right };
+      }),
+    };
+  });
+  assert.ok(layout.scrollHeight <= layout.height + 1, 'No vertical page scrolling');
+  assert.ok(layout.scrollWidth <= layout.width, 'No horizontal page scrolling');
+  assert.equal(layout.bars[0].position, 'fixed'); assert.equal(layout.bars[1].position, 'fixed');
+  assert.equal(layout.bars[0].top, 0); assert.equal(layout.bars[1].bottom, layout.height);
+  for (const r of layout.boxes) assert.ok(r.top >= layout.bars[0].bottom && r.left >= 0 && r.bottom <= layout.bars[1].top + 1 && r.right <= layout.width + 1, `${r.name} fits in viewport`);
+}
 const root=fileURLToPath(new URL('../',import.meta.url)),requests=[];
 let newRelease=false;
 const server=http.createServer(async(req,res)=> {
@@ -33,13 +52,36 @@ try {
   await page.waitForFunction(()=>document.getElementById('welcome-art').naturalWidth>0);
   assert.equal(requests.filter(x=>x.endsWith('.jpg')).length,1,'Only welcome image loads initially');
   console.log('PASS default level 10 only, lazy welcome artwork');
-  await page.locator('#start').click(); await page.locator('#play-all:not([hidden])').waitFor(); await page.locator('#play-all').click();
+  await page.locator('#start').click(); await page.locator('#play-all:not([hidden])').waitFor();
+  for (const [pile, title, count] of [['own-deck', 'Your hand + deck', 10], ['opponent-deck', 'Opponent’s hand + deck', 10], ['discard', 'Your discard pile', 0], ['opponent-discard', 'Opponent’s discard pile', 0]]) {
+    await page.locator(`[data-inspect="${pile}"]`).first().click();
+    assert.equal(await page.locator('#pile-title').textContent(), `${title} · ${count} cards`);
+    assert.equal(await page.locator('#pile-dialog .cards:not([hidden]) .card').count(), count);
+    await page.locator('[data-close="pile-dialog"]').click();
+  }
+  assert.match(await page.locator('#opponent-win').textContent(), /^\d+(\.\d+)?%$/);
+  await page.locator('[data-inspect=hand]').click();
+  assert.equal(await page.locator('#hand-inspector .card').count(), 3);
+  await page.locator('[data-close=pile-dialog]').click();
+  await page.locator('#hand .card-face').first().click();
+  await page.waitForFunction(()=>document.getElementById('hand-count').textContent==='2 cards');
+  await page.locator('#play-all').click();
   await page.waitForFunction(()=>document.getElementById('hand-count').textContent==='0 cards');
-  const before=await page.locator('#log').innerText();
-  await page.reload();await page.locator('#start:not([disabled])').waitFor();assert.equal(await page.locator('#log').innerText(),before);
+  if (await page.locator('#opponent-attack').isEnabled()) {
+    const authority = Number(await page.locator('#opponent-authority').textContent());
+    const combat = Number(await page.locator('#combat').textContent());
+    await page.locator('#opponent-attack').click();
+    await page.waitForFunction(expected=>Number(document.getElementById('opponent-authority').textContent)===expected, authority-combat);
+    assert.equal(await page.locator('#opponent-attack').isEnabled(), false);
+  }
+  console.log('PASS deck/discard inspectors, hand-face play, and authority attack availability');
+  const before=await page.locator('#log').textContent();
+  await page.reload();await page.locator('#start:not([disabled])').waitFor();assert.equal(await page.locator('#log').textContent(),before);
   assert.equal(requests.filter(x=>x.endsWith('.astro.gz')).length,1,'Model reused across refresh');
   await page.locator('#end-turn').click();
   await page.waitForFunction(()=>document.getElementById('status').textContent.startsWith('Your turn')&&document.getElementById('turn').textContent!=='TURN 1');
+  await page.setViewportSize({width:1440,height:900});
+  await assertTableFits(page);
   await page.screenshot({path:'/tmp/astro-client-desktop.png',fullPage:true});
   console.log('PASS Play all, refresh resume, full worker-driven AI turn');
   await page.locator('#opponent').selectOption('level-01');
@@ -69,7 +111,10 @@ try {
   await page.setViewportSize({width:390,height:844});await page.locator('#start').click();await page.locator('#play-all:not([hidden])').waitFor();
   for(const img of await page.locator('#market img, #hand img').all()) { await img.scrollIntoViewIfNeeded(); await img.evaluate(img=>new Promise((resolve,reject)=> { if(img.naturalWidth) return resolve(); img.addEventListener('load',resolve,{once:true}); setTimeout(()=>img.naturalWidth?resolve():reject(new Error('Image did not load')),5000); })); }
   await page.evaluate(()=>window.scrollTo(0,0));
+  await assertTableFits(page);
   await page.screenshot({path:'/tmp/astro-client-mobile.png',fullPage:true});
+  await page.setViewportSize({width:1280,height:720}); await assertTableFits(page);
+  await page.setViewportSize({width:390,height:844});
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'No mobile horizontal overflow');
   assert.ok(!requests.some(x=>x.endsWith('.php')),'No PHP requests');
   assert.deepEqual(errors,[]);
@@ -86,5 +131,50 @@ try {
   await page.reload();await page.locator('#start:not([disabled])').waitFor();
   assert.equal(await page.locator('#opponent-name').innerText(),'My local champion');
   console.log('PASS native NPZ import, local persistence, and imported-model gameplay');
+  // Render a dense, public game observation through a mock worker to exercise
+  // mixed ship/base/outpost rows and every on-card control at small sizes.
+  Game.catalog = JSON.parse(await fs.readFile(path.join(root, 'assets/cards.json')));
+  const dense = new Game(17);
+  Object.assign(dense.players[0], {hand:[0,1,2,8,15,16,17,18,19,29], trade:20, combat:12, must_discard:0,
+    in_play:[2,8,15,16,17,18,19,29].map((id,j)=>new InPlay(j+1,id))});
+  Object.assign(dense.players[1], {must_discard:3, in_play:[8,15,16,17,18,19,29,32].map((id,j)=>new InPlay(j+30,id))});
+  const fixture = {id:'dense', revision:0, model_label:'Crowded fleet', status:'your_turn',
+    opponent_win_probability:0.375,opponent_trade:0,opponent_combat:0,observation:dense.observation(0), action_log:[], result:null, can_play_all:false,
+    decision:{family:'main', actions:dense.mainActions(dense.players[0]).map((a,id)=>({...a,id,label:Game.label(a)}))}};
+  const denseContext = await browser.newContext({viewport:{width:1280,height:720}});
+  await denseContext.addInitScript(({fixture,cards})=>{
+    window.Worker = class {
+      postMessage(message) {
+        if (message.op === 'init') setTimeout(()=>this.onmessage({data:{requestId:message.requestId,data:{cards,models:[{id:'level-10',name:'Level 10'}],game:fixture,saved:null}}}),0);
+      }
+    };
+  }, {fixture,cards:Game.catalog});
+  const densePage = await denseContext.newPage();
+  await densePage.goto(url); await densePage.locator('#hand .card').first().waitFor();
+  for (const viewport of [{width:1280,height:720},{width:1440,height:900},{width:390,height:844}]) {
+    await densePage.setViewportSize(viewport); await assertTableFits(densePage);
+    const controls = await densePage.evaluate(()=>['hand','own-fleet','opponent-fleet','market'].flatMap(id=>{
+      const cards=[...document.querySelectorAll(`#${id} .card`)];
+      return cards.map(card=>{
+        const r=card.getBoundingClientRect();
+        return {zone:id,height:r.height,bottom:r.bottom,buttons:[...card.querySelectorAll('.card-actions button')].map(b=>{const q=b.getBoundingClientRect();return {top:q.top,bottom:q.bottom,left:q.left,right:q.right};}),top:r.top,left:r.left,right:r.right};
+      });
+    }));
+    for (const zone of ['hand','own-fleet','opponent-fleet','market']) {
+      const row=controls.filter(c=>c.zone===zone);
+      assert.ok(Math.max(...row.map(c=>c.height))-Math.min(...row.map(c=>c.height))<1, `${zone}: ships, bases, and outposts have equal height`);
+    }
+    for (const c of controls) for (const b of c.buttons) assert.ok(b.top>=c.top && b.bottom<=c.bottom+1 && b.left>=c.left && b.right<=c.right+1, 'Card controls fit inside their enclosing box');
+    assert.equal(await densePage.locator('#opponent-attack').isEnabled(), false, 'Outposts block authority attack');
+    assert.equal(await densePage.locator('#opponent-must-discard').textContent(), '3');
+    assert.equal(await densePage.locator('#opponent-win').textContent(), '37.5%');
+    assert.equal(await densePage.locator('#player-bar #end-turn').isVisible(), true);
+    if(viewport.width===1280) {
+      await densePage.locator('#own-fleet img').first().evaluate(img=>new Promise(resolve=>{if(img.naturalWidth)resolve();else img.addEventListener('load',resolve,{once:true});}));
+      await densePage.screenshot({path:'/tmp/astro-client-dense.png',fullPage:true});
+    }
+  }
+  await denseContext.close();
+  console.log('PASS crowded fleets, equal base/outpost height, on-card control bounds, discard counter, and outpost protection');
   await context.close();
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}

@@ -32,6 +32,14 @@ def observation(o):
                 d[k]=[i['card_id'] if isinstance(i,dict) and 'card_id' in i else i for i in v]
     return d
 
+def win_probability(actor, encoded):
+    if actor.spec.objective_version >= 2:
+        logits = actor.predict_values(encoded.state, np.asarray([int(encoded.family)]))[0]
+    else:
+        options = actor.predict_options(encoded.state, encoded.actions, int(encoded.family))
+        logits = options[options.mean(axis=1).argmax()]
+    return float(np.mean(1 / (1 + np.exp(-np.clip(logits, -40, 40)))))
+
 def main():
     p=argparse.ArgumentParser(); p.add_argument('--output',default='/tmp/astro-reference.json'); p.add_argument('--games',type=int,default=12); a=p.parse_args()
     games=[]; samples={}; kinds=set(); families=set(); played=set()
@@ -65,7 +73,7 @@ def main():
         checks=[]
         for d in samples.values():
             e=level_encoder.encode_decision(d.observation,d)
-            checks.append({'family':d.family.value,'state':e.state.tolist(),'encoded_actions':e.actions.tolist(),'scores':level_actor.predict_options(e.state,e.actions,int(e.family)).mean(axis=1).tolist()})
+            checks.append({'family':d.family.value,'state':e.state.tolist(),'encoded_actions':e.actions.tolist(),'scores':level_actor.predict_options(e.state,e.actions,int(e.family)).mean(axis=1).tolist(),'win_probability':win_probability(level_actor,e)})
         levels.append({'id':entry['id'],'checks':checks})
     Path(a.output).parent.mkdir(parents=True,exist_ok=True)
     Path(a.output).write_text(json.dumps({'games':games,'neural':neural,'levels':levels},separators=(',',':')))

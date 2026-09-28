@@ -73,6 +73,12 @@ Legacy `starrealms_policies/*_policy.json` files use a different architecture an
 
 The UI runs on the main thread; all game rules and inference run in a module Web Worker. Computer turns advance one decision at a time, with visible progress. Card details, scrolling, and browser rendering do not share the inference thread. Download size is not a guarantee of performance on an older phone.
 
+The table fits the viewport with the trade row beside the fleets on desktop and stacked card rows on smaller screens. Click a hand card’s face to play it, or the opponent’s authority to make a legal attack. A fixed opponent header and player footer keep authority, trade, combat, must-discard counts, card-count buttons, and player actions visible. The table reserves the actual height of both bars, including when they wrap on mobile. Clicking a deck or the opponent’s hand button shows the combined hand and deck in random order without revealing hidden hand membership or draw order; your hand button opens your playable hand. Discard piles, the scrap heap, and the game log open in dialogs. Must-discard counters remain visible, and discard piles are highlighted when they contain legal scrap targets. The ⓘ buttons open full-size card details.
+
+The opponent header also shows the opponent model’s estimated win probability. Objective-v2 models use the mean sigmoid of their state-value heads; earlier outcome models use the mean predicted outcome of their preferred action. The current decision is evaluated for the side to move and complemented on human turns to express the opponent’s probability. This is a model estimate, not a calibrated guarantee.
+
+Player End Turn and discard decisions always require manual input, including a lone End Turn action, a single remaining card, or a hand of identical cards. Play all cannot advance into the opponent’s turn automatically. End Turn remains visible and is disabled while another choice must be resolved or the opponent is playing.
+
 Play all probes a cloned game using the actual rules. It appears only when the current hand has at least two cards that can resolve in visible order without another user choice. Newly drawn cards remain in hand. Each play is recorded separately, and batching is absent from the model's action space. Card choices, bases, Explorer recycling, and the 240-turn/220-action limits are preserved. The port also includes the current Python rule that automatically activates discard-triggering allies.
 
 ## Development and verification
@@ -98,6 +104,6 @@ node php-game/tests/client-reference.mjs /tmp/astro-js-reference.json
 node php-game/tests/client-browser.mjs
 ```
 
-Verified during this port: 20 complete games / 5,091 decisions, 40 lethal plans, all eight neural families for every level, 27 gameplay/session regressions, and four on-card UI regressions. Maximum sampled generation-10 logit error was approximately 0.000002. Browser checks cover lazy downloads, local AI turns, refresh/resume, offline play, HTML-only release invalidation, mobile layout, and native NPZ import persistence. The desktop and mobile layouts were inspected in Chromium; physical-device performance has not been measured.
+Verified during this port: 20 complete games / 5,091 decisions, 40 lethal plans, all eight neural families and win-probability calculations for every level, 37 gameplay/session regressions, and six on-card UI regressions. Maximum sampled generation-10 logit error was approximately 0.000002. Browser checks cover lazy downloads, local AI turns, refresh/resume, offline play, HTML-only release invalidation, mobile layout, and native NPZ import persistence. The desktop and mobile layouts were inspected in Chromium; physical-device performance has not been measured.
 
 Artwork is from the existing project. Star Realms and card artwork belong to Wise Wizard Games LLC; see `assets/card-art/README.md`.

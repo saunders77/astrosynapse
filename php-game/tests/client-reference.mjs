@@ -44,8 +44,9 @@ for (const level of fixture.levels || []) {
     state.forEach((v,j)=>assert.ok(Math.abs(v-check.state[j])<1e-6));
     actions.forEach((a,i)=>a.forEach((v,j)=>assert.ok(Math.abs(v-check.encoded_actions[i][j])<1e-6)));
     const scores=actor.scores(state,actions,Encoder.FAMILIES[check.family]);
+    if(check.win_probability!==undefined) assert.ok(Math.abs(actor.winProbability(decision)-check.win_probability)<0.0001, `${level.id} ${check.family} win estimate matches Python`);
     scores.forEach((v,i)=>assert.ok(Math.abs(v-check.scores[i])<0.002,`${level.id} ${check.family}`));
     assert.equal(scores.indexOf(Math.max(...scores)),check.scores.indexOf(Math.max(...check.scores)),`${level.id} ${check.family} choice`);
   }
 }
-if(fixture.levels) console.log(`PASS all ${fixture.levels.length} levels: encodings, scores, and chosen actions match NumPy across eight families`);
+if(fixture.levels) console.log(`PASS all ${fixture.levels.length} levels: encodings, scores, win estimates (when included), and chosen actions match NumPy across eight families`);

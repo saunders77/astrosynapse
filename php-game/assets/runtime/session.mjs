@@ -8,6 +8,7 @@ export class Session {
   static advance(session,actor,operation='state',actionId=null) {
     const history=[...session.transcript]; let cursor=0,live=false,pending=null,pendingPlayer=null,budget=operation==='advance'?1:0,humanSubmitted=false,batch=[],batchStarted=false;
     const game=new Game(session.seed,session.starts);
+    game.manual_player=0;
     game.decision_hook=(g,pid,d,a)=> { if(!live||!session.lethal.length) return; if(session.lethal[0][0]===d.family&&session.lethal[0][1]===Game.key(a)) session.lethal.shift(); else session.lethal=[]; };
     game.chooser=(g,pid,d)=> {
       if(cursor<history.length) { const key=history[cursor++],j=d.actions.findIndex(a=>Game.key(a)===key); if(j<0) throw new Error('Game replay mismatch'); return j; }
@@ -36,6 +37,10 @@ export class Session {
     if(operation==='play_all'&&!batchStarted) throw new Error('Play all is not available now');
     if(session.transcript.length!==history.length) session.revision++;
     const actions=pendingPlayer===0?pending.actions.map((a,j)=> { const {opaque,...publicAction}=a; return {...publicAction,id:j,label:Game.label(a)}; }):[];
-    return {id:session.id,revision:session.revision,model_label:session.label,status:game.result!==null?'complete':pendingPlayer===0?'your_turn':'model_thinking',observation:game.observation(0),decision:pendingPlayer===0?{family:pending.family,prompt:pending.prompt,actions}:null,can_play_all:pendingPlayer===0&&game.playAllPlan(pending).length>0,action_log:game.log.slice(-180),result:game.result};
+    // Evaluate the side to move with the opponent's model, then express the
+    // estimate from the opponent's perspective. Never treat policy scores as odds.
+    const value=pending?actor.winProbability(pending):null;
+    const opponentWin=game.result ? (game.result.winner===null?0.5:game.result.winner===1?1:0) : pendingPlayer===1?value:1-value;
+    return {opponent_win_probability:opponentWin,opponent_trade:game.active_player===1?game.players[1].trade:0,opponent_combat:game.active_player===1?game.players[1].combat:0,id:session.id,revision:session.revision,model_label:session.label,status:game.result!==null?'complete':pendingPlayer===0?'your_turn':'model_thinking',observation:game.observation(0),decision:pendingPlayer===0?{family:pending.family,prompt:pending.prompt,actions}:null,can_play_all:pendingPlayer===0&&game.playAllPlan(pending).length>0,action_log:game.log.slice(-180),result:game.result};
   }
 }

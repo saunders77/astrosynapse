@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {gunzipSync} from 'node:zlib';
-import {Game,InPlay} from '../assets/runtime/engine.mjs';
+import {Game,InPlay,Pause} from '../assets/runtime/engine.mjs';
 import {Session} from '../assets/runtime/session.mjs';
 import {Actor} from '../assets/runtime/actor.mjs';
 import {Lethal} from '../assets/runtime/lethal.mjs';
@@ -28,4 +28,47 @@ s=structuredClone(original);assert.throws(()=>Session.advance(s,actor,'choose',9
 s=Session.start(m,false,1234);a=Session.advance(s,actor);let moves=0;
 const start=performance.now();while(a.status==='model_thinking'&&moves++<30)a=Session.advance(s,actor,'advance');ok(a.status==='your_turn','Full champion turn');
 const replay=Session.advance(structuredClone(s),actor);assert.deepEqual(replay,a);count++;
-console.log(`PASS ${count} regressions; champion opening turn ${(performance.now()-start).toFixed(1)} ms (${moves} decisions)`);
+const championTurnMs=performance.now()-start;
+// Human-only pauses must survive deduplication, batching, and replay.
+g=setup([0,0,0]); g.manual_player=0; g.players[0].must_discard=2;
+let discardChoices=0;
+g.chooser=(game,pid,d)=> {
+  if(d.family==='discard') { discardChoices++; return 0; }
+  throw new Pause(d);
+};
+assert.throws(()=>g.takeTurn(g.players[0]),Pause);
+ok(discardChoices===2&&g.players[0].hand.length===1,'Identical discards each require a human choice');
+g=setup([0]); g.manual_player=0; g.players[0].must_discard=1;
+g.chooser=()=> { throw new Pause({family:'discard'}); };
+assert.throws(()=>g.takeTurn(g.players[0]),Pause);
+ok(g.players[0].hand.length===1&&g.players[0].must_discard===1,'The last card is not automatically discarded');
+g=setup([]); g.manual_player=0; g.chooser=(game,pid,d)=> { throw new Pause(d); };
+assert.throws(()=>g.takeTurn(g.players[0]),e=>e instanceof Pause&&e.decision.actions.length===1&&e.decision.actions[0].kind==='end_turn');
+ok(g.active_player===0,'End Turn waits even when it is the only action');
+let manualEnd=false;
+for(let seed=1;seed<=100&&!manualEnd;seed++) {
+  const session=Session.start(m,true,seed);
+  let state=Session.advance(session,actor);
+  state=Session.advance(session,actor,'play_all');
+  const attack=state.decision?.actions.find(a=>a.kind==='attack_player');
+  if(attack) state=Session.advance(session,actor,'choose',attack.id);
+  if(state.decision?.actions.length!==1||state.decision.actions[0].kind!=='end_turn') continue;
+  ok(state.status==='your_turn','Play all and attack never auto-end a spent turn');
+  assert.deepEqual(Session.advance(structuredClone(session),actor),state);count++;
+  const next=Session.advance(session,actor,'choose',state.decision.actions[0].id);
+  ok(next.status==='model_thinking','Only explicit End Turn starts the opponent');
+  manualEnd=true;
+}
+ok(manualEnd,'Exercised a one-action end-turn session');
+// Check value-head semantics independently of action policy logits.
+const valueActor=Object.create(Actor.prototype);
+valueActor.spec={objective_version:2,bootstrap_heads:2};
+valueActor.encoder={state:()=>[]}; valueActor.stateFeatures=()=>[];
+valueActor.linear=()=>Float64Array.from([0,Math.log(3)]);
+assert.ok(Math.abs(valueActor.winProbability({observation:{},family:'main'})-0.625)<1e-12);count++;
+const view=Session.advance(Session.start(m,true,1234),actor);
+ok(view.opponent_win_probability>=0&&view.opponent_win_probability<=1,'Opponent win estimate is a probability');
+// Session advances into turn 1 before evaluation; compare to its actual observation.
+const evaluated=actor.winProbability({family:'main',observation:{...view.observation,action_number:view.observation.action_number-1},actions:view.decision.actions});
+ok(Math.abs(view.opponent_win_probability-(1-evaluated))<1e-12,'Human-turn estimate is complemented to opponent perspective');
+console.log(`PASS ${count} regressions; champion opening turn ${championTurnMs.toFixed(1)} ms (${moves} decisions)`);

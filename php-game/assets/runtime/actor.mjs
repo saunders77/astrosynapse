@@ -52,16 +52,41 @@ export class Actor {
   }
   static silu(x) { return x.map(v=>v/(1+Math.exp(-Math.max(-40,Math.min(40,v))))); }
   residual(x,prefix) { const y=this.linear(Actor.silu(this.linear(this.norm(x,prefix+'.norm'),prefix+'.fc1')),prefix+'.fc2'); return x.map((v,j)=>(v+y[j])*0.7071067811865475); }
-  scores(state,actions,family) {
+  stateFeatures(state) {
     let s=Actor.silu(this.norm(this.linear(state,'state_in'),'state_norm'));
     for(let i=0;i<this.spec.residual_blocks;i++) s=this.residual(s,'state_blocks.'+i);
+    return s;
+  }
+  scores(state,actions,family,probabilities=false) {
+    const s=this.stateFeatures(state);
     return actions.map(a=> {
       let v=this.residual(Actor.silu(this.norm(this.linear(a,'action_in'),'action_norm')),'action_blocks.0');
       v=Actor.silu(this.norm(this.linear([...s,...v],'fusion_in'),'fusion_norm'));
       for(let i=0;i<this.spec.residual_blocks;i++) v=this.residual(v,'fusion_blocks.'+i);
-      let sum=0; for(let i=0;i<this.spec.bootstrap_heads;i++) sum+=this.spec.objective_version>=2?this.linear(this.residual(v,'head_blocks.'+i),'head_outputs.'+i,family)[0]:this.linear(v,'output',family*this.spec.bootstrap_heads+i)[0];
+      let sum=0; for(let i=0;i<this.spec.bootstrap_heads;i++) {
+        const logit=this.spec.objective_version>=2?this.linear(this.residual(v,'head_blocks.'+i),'head_outputs.'+i,family)[0]:this.linear(v,'output',family*this.spec.bootstrap_heads+i)[0];
+        sum+=probabilities?Actor.sigmoid(logit):logit;
+      }
       return sum/this.spec.bootstrap_heads;
     });
+  }
+  static sigmoid(logit) { return 1 / (1 + Math.exp(-Math.max(-40, Math.min(40, logit)))); }
+  winProbability(d) {
+    const e=this.encoder, state=e.state(d.observation), family=Encoder.FAMILIES[d.family];
+    let probability;
+    if(this.spec.objective_version>=2) {
+      // Policy logits are not win probabilities. Use the trained state-value heads.
+      const values=this.linear(this.stateFeatures(state),'value_output');
+      const start=family*this.spec.bootstrap_heads;
+      probability=values.slice(start,start+this.spec.bootstrap_heads).reduce((sum,v)=>sum+Actor.sigmoid(v),0)/this.spec.bootstrap_heads;
+    } else {
+      // Earlier models predict outcomes for actions; evaluate their preferred move.
+      const actions=d.actions.map(a=>e.action(a,d.observation)), scores=this.scores(state,actions,family);
+      const best=scores.indexOf(Math.max(...scores));
+      probability=this.scores(state,[actions[best]],family,true)[0];
+    }
+    if(!Number.isFinite(probability)) throw new Error('Invalid model win estimate');
+    return probability;
   }
   choose(d,eligible=d.actions.map((_,i)=>i)) {
     if(eligible.length===1) return eligible[0];
