@@ -192,3 +192,22 @@ test('completed games have a prominent result for wins, losses, and draws', () =
   vm.runInContext("game.status = 'your_turn'; render()", context);
   assert.equal(nodes.get('result-banner').hidden, true);
 });
+
+test('resign requires confirmation and setup is hidden during play', () => {
+  const {context, nodes} = board([], 'your_turn', {}, 'main');
+  assert.equal(vm.runInContext("document.body.classes.has('active-game')", context), true);
+  vm.runInContext("confirm = message => { globalThis.prompt = message; return false; }; request = payload => { globalThis.sent = payload; };", context);
+  nodes.get('resign').onclick();
+  assert.equal(context.prompt, 'Are you sure you want to resign?');
+  assert.equal(context.sent, undefined);
+  vm.runInContext('confirm = () => true;', context);
+  nodes.get('resign').onclick();
+  assert.equal(context.sent.op, 'resign');
+});
+
+test('saved games are written to persistent localStorage', () => {
+  const {context} = board([]);
+  vm.runInContext("savedKey = 'game'; release = 'build'; localStorage.setItem = (key, value) => { globalThis.persisted = {key, value}; }; saveGame({id: 'resume-me', transcript: ['move']});", context);
+  assert.equal(context.persisted.key, 'game');
+  assert.deepEqual(JSON.parse(context.persisted.value), {release: 'build', saved: {id: 'resume-me', transcript: ['move']}});
+});

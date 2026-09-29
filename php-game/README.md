@@ -59,11 +59,11 @@ The UI descriptions use “trained on X games”, with cumulative training games
 
 ## Player stats
 
-Every new game randomly chooses who takes the first turn. The choice is saved with the game and stays the same after refresh. Open **Stats** beside New game to view wins, losses, draws, and win rate for each level (and imported opponents). Results are stored in localStorage on this browser and site, survive file replacements, and are counted once per completed game. Abandoned games do not count; draws are excluded from win rate. Clearing site data removes stats.
+Every new game randomly chooses who takes the first turn. The choice is saved with the game and stays the same after refresh. Open **Stats** beside New game to view wins, losses, draws, and win rate for each level (and imported opponents). Results are stored in localStorage on this browser and site, survive file replacements, and are counted once per completed game. Resigning requires confirmation and counts as a loss. Abandoned games do not count; draws are excluded from win rate. Clearing site data removes stats.
 
 ## Local state and model management
 
-Each tab stores its deterministic seed and action transcript in session storage. Refresh resumes the game without repeating past inference. Closing the tab ends its saved session; separate tabs can play independent games. No moves or hidden hands are sent to a server. All computation is visible to the device owner; this is a local single-player game, not a trusted ranked-game server.
+The browser stores the current game’s deterministic seed and action transcript in localStorage. Refreshing or reopening the site resumes the last saved game without repeating past inference. The saved slot is shared by tabs on this browser and site. No moves or hidden hands are sent to a server. All computation is visible to the device owner; this is a local single-player game, not a trusted ranked-game server.
 
 **Manage models** supports importing Astro2 `.actor.npz`, converted `.astro.gz`, and previous guarded `.model.php` model exports. These files are parsed as data, never executed or uploaded. Imports are validated and stored in IndexedDB. Renames live in local storage and apply to new games. No password is needed because the changes affect only this browser and site. Imported models and aliases survive file replacements; incompatible saved games do not. Model files are capped at 64 MB on import and 128 MB after expansion.
 

@@ -6,6 +6,9 @@ export class Session {
   }
   // Replay only applies recorded choices; it never repeats past model inference.
   static advance(session,actor,operation='state',actionId=null) {
+    if(session.resigned && operation !== 'state') throw new Error('This game is complete');
+    const resigning = operation === 'resign';
+    if(resigning) operation = 'state';
     const history=[...session.transcript]; let cursor=0,live=false,pending=null,pendingPlayer=null,budget=operation==='advance'?1:0,humanSubmitted=false,batch=[],batchStarted=false;
     const game=new Game(session.seed,session.starts);
     game.manual_player=0;
@@ -36,6 +39,8 @@ export class Session {
     if(operation==='choose'&&!humanSubmitted) throw new Error('The game is not waiting for your move');
     if(operation==='play_all'&&!batchStarted) throw new Error('Play all is not available now');
     if(session.transcript.length!==history.length) session.revision++;
+    if(resigning && !game.result) { session.resigned = true; session.revision++; session.lethal = []; }
+    if(session.resigned) { game.result = {winner:1,truncated:false,resigned:true}; pending = null; pendingPlayer = null; }
     const actions=pendingPlayer===0?pending.actions.map((a,j)=> { const {opaque,...publicAction}=a; return {...publicAction,id:j,label:Game.label(a)}; }):[];
     // Evaluate the side to move with the opponent's model, then express the
     // estimate from the opponent's perspective. Never treat policy scores as odds.

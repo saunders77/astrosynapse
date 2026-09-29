@@ -210,3 +210,22 @@ button.move:hover:not(:disabled),button.choice:hover:not(:disabled),.turn-contro
 #scrap-dialog .card,#scrap-dialog .card.base{width:100%;max-width:175px;height:auto;aspect-ratio:5/7}
 #scrap-dialog .card-actions .move{min-height:32px;font-size:.8rem}
 #scrap-decline{display:flex;gap:8px;position:sticky;bottom:-24px;background:var(--panel);padding:12px 0}
+
+/* Keep setup outside an active match and separate the destructive action. */
+body.active-game .masthead,body.active-game .setup{display:none}
+.game-bar .turn-controls #resign{margin-left:18px;background:#a52832!important;border-color:#ef7680;color:#fff}
+.game-bar .turn-controls #resign:hover:not(:disabled){background:#c33340!important;border-color:#ffadb4}
+
+/* Shared title overlay: faction tint and an equally prominent top-right cost. */
+.card-heading{display:flex;align-items:start;background:#08121ce0;font-size:.68rem;font-weight:650;line-height:1.25}
+.card-heading .card-name{flex:1;min-width:0;font-size:inherit;background:none;color:var(--card-title-color,var(--text))}
+.card-cost{flex:none;padding:3px 4px;font-size:inherit;color:var(--gold);font-variant-numeric:tabular-nums}
+.card[data-faction=machine_cult]{--card-title-color:#ffb8b3}
+.card[data-faction=blob]{--card-title-color:#b6f5bd}
+.card[data-faction=trade_federation]{--card-title-color:#b5d8ff}
+.card[data-faction=star_empire]{--card-title-color:#fff0a6}
+@media(max-width:760px){
+  #board .card-heading{font-size:.55rem}
+  #board .card-heading .card-name{font-size:inherit}
+  #board .market .card-heading{display:none}
+}

@@ -38,7 +38,7 @@ async function handle(p) {
   }
   if(!session) throw new Error('Start a game first');
   if(p.id!==session.id||p.revision!==session.revision) throw new Error('This move is out of date. Reload the saved game.');
-  if(!['choose','play_all','advance'].includes(p.op)) throw new Error('Unknown operation');
+  if(!['choose','play_all','advance','resign'].includes(p.op)) throw new Error('Unknown operation');
   const next=structuredClone(session),actor=await actorFor(next.model),game=Session.advance(next,actor,p.op,p.action_id);
   session=next; return {game,saved:session};
 }

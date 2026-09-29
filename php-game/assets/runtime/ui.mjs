@@ -17,8 +17,8 @@ function api(payload) {
   });
 }
 function saveGame(saved) {
-  try { if (saved) sessionStorage.setItem(savedKey, JSON.stringify({ release, saved })); else sessionStorage.removeItem(savedKey); }
-  catch { showError('Browser storage is unavailable. This game works, but cannot resume after a refresh.'); }
+  try { if (saved) localStorage.setItem(savedKey, JSON.stringify({ release, saved })); else localStorage.removeItem(savedKey); }
+  catch { showError('Browser storage is unavailable. This game works, but cannot resume after leaving this page.'); }
 }
 const imageObserver = new IntersectionObserver(entries => {
   for (const entry of entries) if (entry.isIntersecting) { imageObserver.unobserve(entry.target); loadImage(entry.target, entry.target.dataset.art); }
@@ -80,13 +80,18 @@ function renderScrap(actions) {
 function cardView(id, actions = [], state = '') {
   const c = cards[id]; if (!c) return el('span', 'empty', 'Empty trade slot');
   const node = el('article', `card ${c.card_type !== 'ship' ? 'base' : ''} ${actions.length ? 'actionable' : ''}`);
+  node.dataset.faction = c.faction;
   const face = el('button', 'card-face'); face.type = 'button';
   const action = actions.length === 1 ? actions[0] : null;
   face.setAttribute('aria-label', action ? (action.label || `${actionName(action)} ${c.name}`) : `Details for ${c.name}`);
   face.title = face.getAttribute('aria-label');
   face.addEventListener('click', () => action ? move(action.id) : inspect(c));
   const img = el('img'); setImage(img, art(c)); img.alt = c.name; img.loading = 'lazy'; face.append(img); node.append(face);
-  const meta = el('div', 'card-meta'); meta.append(el('span', 'card-name', c.name)); if (state) meta.append(el('span', 'card-state', state));
+  const meta = el('div', 'card-meta');
+  const heading = el('div', 'card-heading');
+  const cost = el('span', 'card-cost', c.cost); cost.setAttribute('aria-label', `Cost ${c.cost}`);
+  heading.append(el('span', 'card-name', c.name), cost); meta.append(heading);
+  if (state) meta.append(el('span', 'card-state', state));
   const controls = el('div', 'card-actions');
   for (const a of actions) {
     const b = el('button', 'move', actionName(a)); b.type = 'button'; b.title = a.label; b.addEventListener('click', () => move(a.id)); controls.append(b);
@@ -96,6 +101,7 @@ function cardView(id, actions = [], state = '') {
 }
 function zone(id, entries) { const node = $(id); node.replaceChildren(...entries); if (!entries.length) node.append(el('span', 'empty', 'No cards')); }
 function render() {
+  document.body.classList.toggle('active-game', !!game && game.status !== 'complete');
   recordStats();
   imageObserver.disconnect();
   document.body.classList.toggle('playing', !!game && location.hash !== '#stats');
@@ -121,7 +127,7 @@ function render() {
   const forCard = (id, kinds, field = 'card_id', zoneName) => main && game.status === 'your_turn' ? actions.filter(a => a[field] === id && kinds.includes(a.kind) && (!zoneName || a.source_zone === zoneName)) : [];
   const handCards = () => o.hand.map(id => cardView(id, [...forCard(id, ['play_card']), ...scrapForCard(id, 'hand'), ...decisionForCard(id, 'hand')]));
   zone('hand', handCards()); zone('hand-inspector', handCards());
-  zone('market', [...o.trade_row.map(id => id === null ? el('span', 'empty', 'Empty slot') : cardView(id, [...forCard(id, ['acquire'], 'card_id', 'trade_row'), ...decisionForCard(id, 'trade_row')], `Cost ${cards[id].cost}`)), ...(o.explorers_remaining ? [cardView(2, forCard(2, ['acquire'], 'card_id', 'explorer_supply'), `${o.explorers_remaining} available`)] : [])]);
+  zone('market', [...o.trade_row.map(id => id === null ? el('span', 'empty', 'Empty slot') : cardView(id, [...forCard(id, ['acquire'], 'card_id', 'trade_row'), ...decisionForCard(id, 'trade_row')])), ...(o.explorers_remaining ? [cardView(2, forCard(2, ['acquire'], 'card_id', 'explorer_supply'), `${o.explorers_remaining} available`)] : [])]);
   zone('own-fleet', o.own_in_play.map(i => cardView(i.card, [...forCard(i.card, ['activate_base', 'activate_ally', 'scrap_for_ability']), ...decisionForCard(i.card, 'in_play')], i.copied_from_stealth_needle ? 'Stealth Needle copy' : i.ally_triggered ? 'Ally used' : 'In play')));
   zone('opponent-fleet', o.opponent_in_play.map(i => cardView(i.card, [...forCard(i.card, ['attack_base'], 'target_card_id'), ...decisionForCard(i.card, 'opponent_in_play')], cards[i.card].defense ? `${cards[i.card].card_type} · ${cards[i.card].defense} defense` : 'Ship')));
   zone('discard', o.own_discard.map(id => cardView(id, scrapForCard(id, 'discard'))));
@@ -140,6 +146,8 @@ function render() {
   $('opponent-attack').setAttribute('aria-label', attack ? `Opponent authority ${o.opponent_authority}. Attack with ${attack.amount} combat` : `Opponent authority ${o.opponent_authority}. Attack unavailable`);
   $('opponent-attack').onclick = () => attack && move(attack.id);
   $('end-turn').hidden = false; $('end-turn').dataset.unavailable = String(!end); $('end-turn').disabled = !end; $('end-turn').onclick = () => { if (o.hand.length && !confirm('End your turn and discard the unplayed cards in your hand?')) return; if (end) move(end.id); };
+  $('resign').hidden = game.status === 'complete';
+  $('resign').onclick = () => { if (busy || game.status === 'complete' || !confirm('Are you sure you want to resign?')) return; request({ op: 'resign', id: game.id, revision: game.revision }); };
   $('choices').replaceChildren();
   if (d && !main) for (const a of actions) {
     const button = el('button', 'choice'); const id = a.target_card_id >= 0 ? a.target_card_id : a.card_id;
@@ -149,7 +157,7 @@ function render() {
   $('choice-note').hidden = !(d && !main); $('choice-note').textContent = 'Resolve this choice to continue. Other actions become available afterward.';
   let status = game.status === 'model_thinking' ? `${game.model_label} is playing…` : 'Your turn · Play cards, use abilities, buy cards, or attack.';
   let title = d ? (main ? 'Your move' : d.prompt) : 'Computer’s turn';
-  if (game.status === 'complete') { status = game.result.truncated ? 'Draw · the game reached its turn or action limit.' : game.result.winner === 0 ? 'Victory! You defeated the champion.' : `${game.model_label} wins. Ready for a rematch?`; title = 'Game complete'; }
+  if (game.status === 'complete') { status = game.result.resigned ? `You resigned. ${game.model_label} wins.` : game.result.truncated ? 'Draw · the game reached its turn or action limit.' : game.result.winner === 0 ? 'Victory! You defeated the champion.' : `${game.model_label} wins. Ready for a rematch?`; title = 'Game complete'; }
   $('status').textContent = status; $('decision-title').textContent = title;
   $('result-banner').hidden = game.status !== 'complete';
   if (game.status === 'complete') {
@@ -271,7 +279,7 @@ export async function start(options) {
   };
   worker.onerror = () => { for (const pending of waiting.values()) pending.reject(new Error('The game worker stopped. Reload to resume.')); waiting.clear(); lock(false); showError('The game worker stopped. Reload to resume.'); };
   let saved = null, changed = false;
-  try { const stored = JSON.parse(sessionStorage.getItem(savedKey) || 'null'); if (stored?.release === release) saved = stored.saved; else if (stored) changed = true; } catch {}
+  try { const stored = JSON.parse(localStorage.getItem(savedKey) || sessionStorage.getItem(savedKey) || 'null'); if (stored?.release === release) saved = stored.saved; else if (stored) changed = true; } catch {}
   lock(true);
   try {
     const data = await api({ op: 'init', base, release, saved }); cards = data.cards; models = data.models;

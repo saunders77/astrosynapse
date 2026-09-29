@@ -79,3 +79,20 @@ for(const humanStarts of [true,false]) {
     `AI win probability stays in AI perspective when ${humanStarts?'human':'AI'} starts`);
 }
 console.log(`PASS ${count} regressions; champion opening turn ${championTurnMs.toFixed(1)} ms (${moves} decisions)`);
+
+// Resignation is terminal, replayable, and does not advance either player's turn.
+for (const humanStarts of [true, false]) {
+  const session = Session.start(m, humanStarts, 1234);
+  const before = Session.advance(session, actor);
+  const transcript = [...session.transcript];
+  const resigned = Session.advance(session, actor, 'resign');
+  assert.equal(resigned.status, 'complete');
+  assert.deepEqual(resigned.result, {winner: 1, truncated: false, resigned: true});
+  assert.equal(resigned.revision, before.revision + 1);
+  assert.equal(resigned.decision, null);
+  assert.equal(resigned.can_play_all, false);
+  assert.deepEqual(session.transcript, transcript);
+  assert.deepEqual(Session.advance(JSON.parse(JSON.stringify(session)), actor), resigned);
+  assert.throws(() => Session.advance(session, actor, 'advance'), /complete/);
+}
+console.log('Resignation and restore regressions passed');
