@@ -13,7 +13,7 @@ self.addEventListener('fetch',event=> {
   if(r.mode==='navigate'&&(u.pathname===scope.pathname||u.pathname===scope.pathname+'index.html')) {
     event.respondWith((async()=> {
       try { const response=await fetch(r,{cache:'no-store',signal:AbortSignal.timeout(5000)}); if(response.ok) { try { const c=await caches.open(shell); await c.put(new URL('index.html',scope),response.clone()); } catch {} return response; } throw new Error('HTML unavailable'); }
-      catch { const hit=await caches.match(new URL('index.html',scope),{cacheName:shell}); return hit||new Response('Reconnect to load Champion Arena.',{status:503,headers:{'Content-Type':'text/plain'}}); }
+      catch { const hit=await caches.match(new URL('index.html',scope),{cacheName:shell}); return hit||new Response('Reconnect to load Astrosynapse.',{status:503,headers:{'Content-Type':'text/plain'}}); }
     })()); return;
   }
   const version=u.searchParams.get('v');

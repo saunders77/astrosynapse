@@ -71,4 +71,11 @@ ok(view.opponent_win_probability>=0&&view.opponent_win_probability<=1,'Opponent 
 // Session advances into turn 1 before evaluation; compare to its actual observation.
 const evaluated=actor.winProbability({family:'main',observation:{...view.observation,action_number:view.observation.action_number-1},actions:view.decision.actions});
 ok(Math.abs(view.opponent_win_probability-(1-evaluated))<1e-12,'Human-turn estimate is complemented to opponent perspective');
+// An asymmetric estimate makes a reversed perspective visible on either turn.
+const fixedValueActor={winProbability:()=>0.8};
+for(const humanStarts of [true,false]) {
+  const state=Session.advance(Session.start(m,humanStarts,1234),fixedValueActor);
+  ok(Math.abs(state.opponent_win_probability-(humanStarts?0.2:0.8))<1e-12,
+    `AI win probability stays in AI perspective when ${humanStarts?'human':'AI'} starts`);
+}
 console.log(`PASS ${count} regressions; champion opening turn ${championTurnMs.toFixed(1)} ms (${moves} decisions)`);

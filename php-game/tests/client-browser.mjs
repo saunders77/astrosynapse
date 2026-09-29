@@ -21,6 +21,8 @@ async function assertTableFits(page) {
   });
   assert.ok(layout.scrollHeight <= layout.height + 1, 'No vertical page scrolling');
   assert.ok(layout.scrollWidth <= layout.width, 'No horizontal page scrolling');
+  const rows = ['opponent-fleet', 'market', 'own-fleet', 'hand'].map(id => layout.boxes.find(b => b.name === id));
+  for (let i = 1; i < rows.length; i++) assert.ok(rows[i].top >= rows[i - 1].bottom, 'Fleets, trade row, and hand stay in vertical order');
   assert.equal(layout.bars[0].position, 'fixed'); assert.equal(layout.bars[1].position, 'fixed');
   assert.equal(layout.bars[0].top, 0); assert.equal(layout.bars[1].bottom, layout.height);
   for (const r of layout.boxes) assert.ok(r.top >= layout.bars[0].bottom && r.left >= 0 && r.bottom <= layout.bars[1].top + 1 && r.right <= layout.width + 1, `${r.name} fits in viewport`);
@@ -33,7 +35,7 @@ const server=http.createServer(async(req,res)=> {
   try {
     if(name.includes('..')) throw new Error('bad path');
     let data=await fs.readFile(path.join(root,name));
-    if(name==='index.html'&&newRelease) data=Buffer.from(data.toString().replace('Your next opponent is ready.','Your next opponent is ready for this release.'));
+    if(name==='index.html'&&newRelease) data=Buffer.from(data.toString().replace('Your opponent is ready.','Your opponent is ready for this release.'));
     const mime={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.json':'application/json','.css':'text/css','.jpg':'image/jpeg','.gz':'application/gzip'}[path.extname(name)]||'application/octet-stream';
     res.writeHead(200,{'Content-Type':mime,'Cache-Control':name==='index.html'||name==='sw.js'?'no-cache':'public, max-age=31536000, immutable'});res.end(data);
   } catch {res.writeHead(404);res.end();}
@@ -50,10 +52,21 @@ try {
   assert.equal(await page.locator('#opponent').inputValue(),'level-10');
   assert.deepEqual(requests.filter(x=>x.endsWith('.astro.gz')),['models/level-10.astro.gz']);
   await page.waitForFunction(()=>document.getElementById('welcome-art').naturalWidth>0);
-  assert.equal(requests.filter(x=>x.endsWith('.jpg')).length,1,'Only welcome image loads initially');
+  assert.equal(requests.filter(x=>/\.(jpg|webp)$/.test(x)).length,0,'No artwork loads from Astrosynapse');
+  assert.equal(await page.locator('#welcome-art').getAttribute('src'),'https://www.starrealms.com/card-gallery/images/content/card-gallery/scout.webp');
   console.log('PASS default level 10 only, lazy welcome artwork');
   await page.locator('#start').click(); await page.locator('#play-all:not([hidden])').waitFor();
-  for (const [pile, title, count] of [['own-deck', 'Your hand + deck', 10], ['opponent-deck', 'Opponent’s hand + deck', 10], ['discard', 'Your discard pile', 0], ['opponent-discard', 'Opponent’s discard pile', 0]]) {
+  const openingHand = Number(await page.locator('#player-hand').textContent());
+  const opponentCards = Number(await page.locator('#opponent-hand').textContent()) + Number(await page.locator('#opponent-deck').textContent());
+  const opponentDiscard = Number(await page.locator('#opponent-discard-count').textContent());
+  assert.equal(await page.locator('#starts').count(), 0);
+  await page.locator('.stats-link').click();
+  await page.locator('#stats-title').waitFor();
+  const configuredModels = JSON.parse(await fs.readFile(path.join(root, 'models/registry.json')));
+  const statsOpponents = new Set([...Array.from({length:10}, (_, i) => `level-${i + 1}`), ...configuredModels.map(m => m.id)]);
+  assert.equal(await page.locator('#stats-rows tr').count(), statsOpponents.size);
+  await page.locator('#stats-page a').click();
+  for (const [pile, title, count] of [['own-deck', 'Your hand + deck', 10], ['opponent-deck', 'Opponent’s hand + deck', opponentCards], ['discard', 'Your discard pile', 0], ['opponent-discard', 'Opponent’s discard pile', opponentDiscard]]) {
     await page.locator(`[data-inspect="${pile}"]`).first().click();
     assert.equal(await page.locator('#pile-title').textContent(), `${title} · ${count} cards`);
     assert.equal(await page.locator('#pile-dialog .cards:not([hidden]) .card').count(), count);
@@ -61,10 +74,10 @@ try {
   }
   assert.match(await page.locator('#opponent-win').textContent(), /^\d+(\.\d+)?%$/);
   await page.locator('[data-inspect=hand]').click();
-  assert.equal(await page.locator('#hand-inspector .card').count(), 3);
+  assert.equal(await page.locator('#hand-inspector .card').count(), openingHand);
   await page.locator('[data-close=pile-dialog]').click();
   await page.locator('#hand .card-face').first().click();
-  await page.waitForFunction(()=>document.getElementById('hand-count').textContent==='2 cards');
+  await page.waitForFunction(count=>document.getElementById('hand-count').textContent===`${count - 1} cards`, openingHand);
   await page.locator('#play-all').click();
   await page.waitForFunction(()=>document.getElementById('hand-count').textContent==='0 cards');
   if (await page.locator('#opponent-attack').isEnabled()) {
@@ -175,6 +188,55 @@ try {
     }
   }
   await denseContext.close();
+  const scrapFixture = structuredClone(fixture);
+  scrapFixture.decision = {family:'scrap', prompt:'Scrap up to 2 cards', actions:[
+    {id:0, kind:'scrap_card', card_id:0, source_zone:'hand', label:'Scrap Scout from hand'},
+    {id:1, kind:'scrap_card', card_id:1, source_zone:'discard', label:'Scrap Viper from discard'},
+    {id:2, kind:'decline', label:'Done scrapping'},
+  ]};
+  scrapFixture.observation.own_discard = [1];
+  const scrapContext = await browser.newContext({viewport:{width:1280,height:720}});
+  await scrapContext.addInitScript(({fixture,cards})=>{
+    window.Worker = class {
+      postMessage(message) {
+        if (message.op === 'choose') {
+          fixture.decision.actions = fixture.decision.actions.filter(a=>a.id!==message.action_id);
+          if (!fixture.decision.actions.some(a=>a.kind==='scrap_card')) {
+            fixture.status='complete'; fixture.result={winner:0,truncated:false}; fixture.decision=null;
+          }
+          fixture.revision++;
+        }
+        setTimeout(()=>this.onmessage({data:{requestId:message.requestId,data:{cards,models:[{id:'level-10',name:'Level 10'}],game:fixture,saved:null}}}),0);
+      }
+    };
+  }, {fixture:scrapFixture,cards:Game.catalog});
+  const scrapPage = await scrapContext.newPage();
+  await scrapPage.goto(url);
+  await scrapPage.locator('#scrap-dialog[open]').waitFor();
+  assert.equal(await scrapPage.locator('#scrap-dialog .card').count(), 2);
+  assert.equal(await scrapPage.locator('#scrap-decline button').textContent(), 'Done scrapping');
+  for (const viewport of [{width:1280,height:720},{width:390,height:844}]) {
+    await scrapPage.setViewportSize(viewport);
+    const bounds = await scrapPage.evaluate(()=>{
+      const dialog=document.getElementById('scrap-dialog'), r=dialog.getBoundingClientRect();
+      const button=dialog.querySelector('.move'), card=button.closest('.card'), info=card.querySelector('.details');
+      return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:innerWidth,height:innerHeight,
+        white:getComputedStyle(button).backgroundColor,cardLeft:card.getBoundingClientRect().left,infoLeft:info.getBoundingClientRect().left};
+    });
+    assert.ok(bounds.left>=0 && bounds.right<=bounds.width && bounds.top>=0 && bounds.bottom<=bounds.height);
+    assert.equal(bounds.white, 'rgb(255, 255, 255)');
+    assert.ok(bounds.infoLeft-bounds.cardLeft<5, 'Info icon is at the left edge');
+  }
+  await scrapPage.locator('#scrap-options-hand .card-face').click();
+  await scrapPage.locator('#scrap-options-hand').waitFor({state:'hidden'});
+  assert.equal(await scrapPage.locator('#scrap-dialog').isVisible(), true);
+  await scrapPage.locator('#scrap-options-discard .card-face').click();
+  await scrapPage.locator('#scrap-dialog').waitFor({state:'hidden'});
+  await scrapPage.locator('#result-banner').waitFor();
+  assert.equal(await scrapPage.locator('#result-title').textContent(), 'Victory!');
+  await scrapPage.screenshot({path:'/tmp/astro-client-result.png',fullPage:true});
+  await scrapContext.close();
+  console.log('PASS automatic scrap picker, grouped targets, card-face selection, white actions, left info icons, and victory banner');
   console.log('PASS crowded fleets, equal base/outpost height, on-card control bounds, discard counter, and outpost protection');
   await context.close();
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}

@@ -1,7 +1,7 @@
 import { Game, Pause } from './engine.mjs';
 import { Lethal } from './lethal.mjs';
 export class Session {
-  static start(model,humanStarts,seed=crypto.getRandomValues(new Uint32Array(1))[0]%2000000000+1) {
+  static start(model,humanStarts=crypto.getRandomValues(new Uint32Array(1))[0]%2===0,seed=crypto.getRandomValues(new Uint32Array(1))[0]%2000000000+1) {
     return {id:crypto.randomUUID(),seed,starts:humanStarts?0:1,model:model.id,label:model.name,transcript:[],revision:0,lethal:[]};
   }
   // Replay only applies recorded choices; it never repeats past model inference.
@@ -40,7 +40,7 @@ export class Session {
     // Evaluate the side to move with the opponent's model, then express the
     // estimate from the opponent's perspective. Never treat policy scores as odds.
     const value=pending?actor.winProbability(pending):null;
-    const opponentWin=game.result ? (game.result.winner===null?0.5:game.result.winner===1?1:0) : pendingPlayer===1?value:1-value;
-    return {opponent_win_probability:opponentWin,opponent_trade:game.active_player===1?game.players[1].trade:0,opponent_combat:game.active_player===1?game.players[1].combat:0,id:session.id,revision:session.revision,model_label:session.label,status:game.result!==null?'complete':pendingPlayer===0?'your_turn':'model_thinking',observation:game.observation(0),decision:pendingPlayer===0?{family:pending.family,prompt:pending.prompt,actions}:null,can_play_all:pendingPlayer===0&&game.playAllPlan(pending).length>0,action_log:game.log.slice(-180),result:game.result};
+    const opponentWin=game.result ? (game.result.winner===null?0.5:game.result.winner===1?1:0) : pending.observation.player_id===1?value:1-value;
+    return {opponent_win_probability:opponentWin,opponent_trade:game.active_player===1?game.players[1].trade:0,opponent_combat:game.active_player===1?game.players[1].combat:0,id:session.id,revision:session.revision,model_id:session.model,model_label:session.label,status:game.result!==null?'complete':pendingPlayer===0?'your_turn':'model_thinking',observation:game.observation(0),decision:pendingPlayer===0?{family:pending.family,prompt:pending.prompt,actions}:null,can_play_all:pendingPlayer===0&&game.playAllPlan(pending).length>0,action_log:game.log.slice(-180),result:game.result};
   }
 }

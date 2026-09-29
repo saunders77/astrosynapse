@@ -34,7 +34,7 @@ async function handle(p) {
   }
   if(p.op==='new') {
     const actor=await actorFor(p.model),m=models.find(m=>m.id===p.model)||await localModels('get',p.model);
-    const next=Session.start({...m,name:p.label||m.name},p.starts),game=Session.advance(next,actor); session=next; return {game,saved:session};
+    const next=Session.start({...m,name:p.label||m.name}),game=Session.advance(next,actor); session=next; return {game,saved:session};
   }
   if(!session) throw new Error('Start a game first');
   if(p.id!==session.id||p.revision!==session.revision) throw new Error('This move is out of date. Reload the saved game.');

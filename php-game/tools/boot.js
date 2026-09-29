@@ -19,6 +19,6 @@ try {
   const app = await import(new URL('assets/game.js?v=' + release, base));
   await app.start({ base, release });
 } catch (error) {
-  document.getElementById('status').textContent = 'Champion Arena could not start.';
+  document.getElementById('status').textContent = 'Astrosynapse could not start.';
   const box = document.getElementById('error'); box.textContent = error.message; box.hidden = false;
 }

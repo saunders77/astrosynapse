@@ -4,40 +4,43 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Play Star Realms entirely in your browser against ten Astrosynapse levels.">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob:; script-src 'self' 'sha256-{{BOOT_HASH}}'; worker-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
-  <title>Astrosynapse · Champion Arena</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://www.starrealms.com; script-src 'self' 'sha256-{{BOOT_HASH}}'; worker-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <title>Astrosynapse · Better AI for Star Realms</title>
   <meta name="arena-build" content="{{BUILD}}">
 </head>
 <body>
-  <header class="masthead"><div><span class="eyebrow">ASTROSYNAPSE</span><h1>Champion Arena</h1></div><button id="models-open" class="quiet">Manage models</button></header>
-  <header id="opponent-bar" class="game-bar opponent" hidden aria-label="Opponent statistics"><button id="opponent-name" type="button" class="quiet" data-open="models-dialog" title="Manage opponents">Champion</button><div class="bar-piles"><button class="pile" data-inspect="opponent-discard">Discard <b id="opponent-discard-count">0</b></button><button class="pile" data-inspect="opponent-deck">Hand <b id="opponent-hand">5</b></button><button class="pile" data-inspect="opponent-deck">Deck <b id="opponent-deck">5</b></button></div><div class="bar-stats"><button id="opponent-attack" class="authority" type="button">Authority <b id="opponent-authority">50</b></button><span class="trade">Trade <b id="opponent-trade">0</b></span><span class="combat">Combat <b id="opponent-combat">0</b></span><span class="discard-counter">Must discard <b id="opponent-must-discard">0</b></span><span id="win-estimate" title="Opponent model’s estimate of this position, evaluated for the side to move and expressed as the opponent’s chance of winning.">Win <b id="opponent-win">—</b></span></div></header>
-  <main>
+  <header class="masthead"><div><span class="eyebrow">ASTROSYNAPSE</span><h1>Better AI for Star Realms</h1></div><button id="models-open" class="quiet">Manage models</button></header>
+  <header id="opponent-bar" class="game-bar opponent" hidden aria-label="Opponent statistics"><button id="opponent-name" type="button" class="quiet" data-open="models-dialog" title="Manage opponents">Champion</button><div class="bar-piles"><button class="pile" data-inspect="opponent-discard">Discard <b id="opponent-discard-count">0</b></button><button class="pile" data-inspect="opponent-deck">Hand <b id="opponent-hand">5</b></button><button class="pile" data-inspect="opponent-deck">Deck <b id="opponent-deck">5</b></button></div><div class="bar-stats"><button id="opponent-attack" class="authority" type="button">Authority <b id="opponent-authority">50</b></button><span class="trade">Trade <b id="opponent-trade">0</b></span><span class="combat">Combat <b id="opponent-combat">0</b></span><span class="discard-counter">Must discard <b id="opponent-must-discard">0</b></span><span id="win-estimate" title="AI’s estimated probability that the AI will win, regardless of whose turn it is.">AI Win% <b id="opponent-win">—</b></span></div></header>
+  <main id="game-page">
     <form id="new-game" class="setup">
       <label>Opponent<select id="opponent" name="opponent" required><option value="">Loading champions…</option></select></label>
-      <label>First turn<select id="starts"><option value="human">You start · 3 cards</option><option value="computer">Computer starts · you get 5 cards</option></select></label>
       <button type="submit" id="start" class="primary" disabled>New game</button>
-      <span class="setup-note">Runs on your device. Level 10 loads by default; other levels download when selected.</span>
+      <a class="stats-link" href="#stats">Stats</a>
+      <span class="setup-note">First turn is chosen randomly. Runs on your device. Level 10 loads by default; other levels download when selected.</span>
     </form>
     <div id="update-banner" class="status" hidden>A new version is available. <button id="update-now">Load new version</button></div>
     <div id="error" class="error" role="alert" hidden></div>
     <div id="status" class="status" role="status" aria-live="polite">Loading your local game…</div>
-    <div id="welcome" class="welcome" hidden><img id="welcome-art" alt="Star Realms card back"><div><h2>Your next opponent is ready.</h2><p>Choose a champion and start a game. Play your hand, build your fleet, and reduce the opponent’s authority to zero.</p><p>Inspect any card with its <strong>ⓘ</strong> info button.</p></div></div>
+    <div id="welcome" class="welcome" hidden><img id="welcome-art" alt="Scout card from Star Realms"><div><h2>Your opponent is ready.</h2></div></div>
+    <section id="result-banner" role="status" aria-live="polite" hidden><h2 id="result-title"></h2><p id="result-message"></p></section>
     <div id="board" hidden>
 
       <section class="zone opponent-zone"><div class="zone-title"><h3>Opponent’s fleet</h3></div><div id="opponent-fleet" class="cards fleet"></div></section>
       <section class="market zone"><div class="zone-title"><h3>Trade row</h3><span id="supply-count"></span></div><div id="market" class="cards"></div></section>
 
 
-      <section class="zone hand-zone"><div class="zone-title"><h3>Your hand</h3><span id="hand-count"></span></div><div id="hand" class="cards hand"></div></section>
       <section class="zone own-zone"><div class="zone-title"><h3>In play</h3></div><div id="own-fleet" class="cards fleet"></div></section>
+      <section class="zone hand-zone"><div class="zone-title"><h3>Your hand</h3><span id="hand-count"></span></div><div id="hand" class="cards hand"></div></section>
       <div class="inspectors"><button data-inspect="scrap">Scrap heap</button><button data-inspect="log">Game log</button></div>
     </div>
   </main>
+  <main id="stats-page" hidden aria-labelledby="stats-title"><a href="#game">← Back to game</a><h1 id="stats-title" tabindex="-1">Your stats</h1><p>Completed games saved in this browser. Draws and unfinished games do not count as wins or losses.</p><p id="stats-error" role="alert" hidden></p><p id="stats-summary"></p><div class="stats-table"><table><caption>Results by opponent level</caption><thead><tr><th scope="col">Opponent</th><th scope="col">Wins</th><th scope="col">Losses</th><th scope="col">Draws</th><th scope="col">Win rate</th></tr></thead><tbody id="stats-rows"></tbody></table></div></main>
   <footer id="player-bar" class="game-bar human" hidden aria-label="Your statistics and actions"><div class="bar-piles"><button id="own-discard-pile" class="pile" data-inspect="discard">Discard <b id="discard-count">0</b></button><button class="pile" data-inspect="hand">Hand <b id="player-hand">0</b></button><button class="pile" data-inspect="own-deck">Deck <b id="deck">7</b></button></div><div class="bar-stats"><span class="authority">Authority <b id="authority">50</b></span><span class="trade">Trade <b id="trade">0</b></span><span class="combat">Combat <b id="combat">0</b></span><span class="discard-counter">Must discard <b id="must-discard">0</b></span></div><div class="turn-controls"><button id="play-all" class="primary" hidden>Play all</button><button id="attack" hidden>Attack opponent</button><button id="end-turn" class="quiet" disabled>End turn</button></div><section class="decision" aria-labelledby="decision-title"><div class="decision-heading"><div><span id="turn" class="eyebrow"></span><h3 id="decision-title">Your turn</h3></div></div><p id="choice-note" hidden></p><div id="choices" class="choices"></div></section></footer>
-  <footer>Star Realms and card artwork © Wise Wizard Games LLC. Champion levels represent promotion history, not evenly spaced difficulty.</footer>
+  <footer>Star Realms and card artwork © Wise Wizard Games LLC.</footer>
   <dialog id="pile-dialog"><div class="dialog-heading"><h2 id="pile-title"></h2><button data-close="pile-dialog" class="quiet">Close</button></div><p id="pile-note" class="muted"></p><div id="hand-inspector" class="cards compact" hidden></div><div id="own-deck-cards" class="cards compact" hidden></div><div id="opponent-deck-cards" class="cards compact" hidden></div><div id="discard" class="cards compact" hidden></div><div id="opponent-discard" class="cards compact" hidden></div><div id="scrap" class="cards compact" hidden></div><ol id="log" class="log" reversed hidden></ol></dialog>
+  <dialog id="scrap-dialog" aria-labelledby="scrap-prompt"><div class="dialog-heading"><h2 id="scrap-prompt">Choose a card to scrap</h2></div><p class="muted">Select a card to scrap. Each option is shown once per available target.</p><section id="scrap-options-hand"></section><section id="scrap-options-discard"></section><section id="scrap-options-trade_row"></section><div id="scrap-decline"></div></dialog>
   <dialog id="card-dialog"><button class="dialog-close" data-close="card-dialog" aria-label="Close card details">Close</button><img id="card-large" alt=""><h2 id="card-name"></h2><p id="card-description"></p></dialog>
-  <dialog id="models-dialog"><div class="dialog-heading"><h2>Local models</h2><button data-close="models-dialog" class="quiet">Close</button></div><p>Downloads, imports, and names stay in this browser. Imported models are never uploaded.</p><div id="admin-error" class="error" role="alert" hidden></div><form id="upload-form"><h3>Add an opponent</h3><label>Model name<input name="name" maxlength="100" required placeholder="My champion"></label><label>Model file<input name="model_file" type="file" accept=".gz,.astro,.php,.npz" required></label><p class="muted">Use an Astro2 .actor.npz, a converted .astro.gz model, or an existing .model.php export.</p><button class="primary">Add model</button></form><h3>Opponent names</h3><div id="model-list"></div></dialog>
+  <dialog id="models-dialog"><div class="dialog-heading"><h2>Local models</h2><button data-close="models-dialog" class="quiet">Close</button></div><p>Downloads, imports, and names stay in this browser. Imported models are never uploaded.</p><div id="admin-error" class="error" role="alert" hidden></div><form id="upload-form"><h3>Add an opponent</h3><label>Model name<input name="name" maxlength="100" required placeholder="My champion"></label><label>Model file<input name="model_file" type="file" accept=".gz,.astro,.php,.npz" required></label><p class="muted">.actor.npz, converted .astro.gz, or .model.php export</p><button class="primary">Add model</button></form><h3>Opponent names</h3><div id="model-list"></div></dialog>
   <noscript>This game requires JavaScript enabled in your browser.</noscript>
   <script type="module">{{BOOT}}</script>
 </body>

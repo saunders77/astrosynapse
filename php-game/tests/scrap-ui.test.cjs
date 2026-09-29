@@ -10,6 +10,8 @@ function board(actions, status = 'your_turn', observation = {}, family = 'scrap'
     replaceChildren(...children) { this.children = children; }
     addEventListener(name, callback) { this.listeners[name] = callback; }
     setAttribute(name, value) { this.attributes[name] = value; }
+    getAttribute(name) { return this.attributes[name]; }
+    close() { this.open = false; }
     showModal() { this.open = true; }
     closest() { return this.parent; }
   }
@@ -76,7 +78,7 @@ test('target buttons resolve destroy, free acquire, and copy decisions', () => {
       { id: 8, kind, card_id: 0, target_card_id: 1, source_zone },
     ], 'your_turn', { own_in_play: [{ card: 0 }, { card: 1 }], opponent_in_play: [{ card: 1 }], trade_row: [1] });
     for (const zone of ['own-fleet', 'opponent-fleet', 'market']) {
-      const targets = allButtons(zone).filter(b => b.textContent === 'SELECT TARGET');
+      const targets = allButtons(zone).filter(b => b.textContent === {destroy_base: 'DESTROY', free_acquire: 'ACQUIRE FREE', copy_ship: 'COPY'}[kind]);
       assert.equal(targets.length, zone === targetZone ? 1 : 0);
       if (targets.length) { targets[0].listeners.click(); assert.equal(context.chosen, 8); }
     }
@@ -126,4 +128,67 @@ test('pile counts and inspection include known cards exactly once without exposi
   assert.equal(nodes.get('discard').hidden, false);
   assert.equal(nodes.get('own-deck-cards').hidden, true);
   assert.equal(nodes.get('pile-title').textContent, 'Your discard pile · 2 cards');
+});
+
+
+test('single card actions dispatch from the face, including discard and scrap', () => {
+  for (const kind of ['discard_card', 'scrap_card']) {
+    const {context, nodes} = board([{id: 7, kind, card_id: 0, source_zone: 'hand'}]);
+    nodes.get('hand').children[0].children[0].listeners.click();
+    assert.equal(context.chosen, 7);
+  }
+  const {context, nodes} = board([{id: 8, kind: 'acquire', card_id: 1, source_zone: 'trade_row', amount: 2}], 'your_turn', {trade_row: [1]}, 'main');
+  nodes.get('market').children[0].children[0].listeners.click();
+  assert.equal(context.chosen, 8);
+});
+
+test('scrap picker opens automatically, updates across selections, and closes when resolved', () => {
+  const {context, nodes} = board([
+    {id: 3, kind: 'scrap_card', card_id: 0, source_zone: 'hand'},
+    {id: 4, kind: 'scrap_card', card_id: 1, source_zone: 'discard'},
+    {id: 5, kind: 'decline', label: 'Done scrapping'},
+  ]);
+  assert.equal(nodes.get('scrap-dialog').open, true);
+  assert.equal(nodes.get('scrap-options-hand').children[1].children.length, 1);
+  assert.equal(nodes.get('scrap-options-discard').children[1].children.length, 1);
+  nodes.get('scrap-options-discard').children[1].children[0].children[0].listeners.click();
+  assert.equal(context.chosen, 4);
+  vm.runInContext('game.decision.actions.splice(1, 1); render()', context);
+  assert.equal(nodes.get('scrap-dialog').open, true);
+  assert.equal(nodes.get('scrap-options-discard').hidden, true);
+  nodes.get('scrap-decline').children[0].listeners.click();
+  assert.equal(context.chosen, 5);
+  vm.runInContext('game.decision.actions = []; render()', context);
+  assert.equal(nodes.get('scrap-dialog').open, false);
+});
+
+test('multiple card actions keep the face as details', () => {
+  const {nodes} = board([
+    {id: 1, kind: 'activate_ally', card_id: 0},
+    {id: 2, kind: 'scrap_for_ability', card_id: 0},
+  ], 'your_turn', {own_in_play: [{card: 0}]}, 'main');
+  assert.equal(nodes.get('own-fleet').children[0].children[0].attributes['aria-label'], 'Details for Card 0');
+});
+
+
+test('trade-row scraps use target cards and inactive decisions do not open the picker', () => {
+  const actions = [{id: 9, kind: 'scrap_trade_row', target_card_id: 1, source_zone: 'trade_row'}];
+  const {context, nodes} = board(actions, 'your_turn', {trade_row: [1]});
+  const card = nodes.get('scrap-options-trade_row').children[1].children[0];
+  assert.equal(card.children[0].children[0].alt, 'Card 1');
+  card.children[0].listeners.click();
+  assert.equal(context.chosen, 9);
+  assert.equal(board(actions, 'model_thinking').nodes.get('scrap-dialog').open, undefined);
+});
+
+test('completed games have a prominent result for wins, losses, and draws', () => {
+  const {context, nodes} = board([]);
+  for (const [winner, truncated, heading] of [[0, false, 'Victory!'], [1, false, 'Defeat'], [null, true, 'Draw']]) {
+    context.result = {winner, truncated};
+    vm.runInContext("recordStats = () => {}; game.status = 'complete'; game.result = result; render()", context);
+    assert.equal(nodes.get('result-banner').hidden, false);
+    assert.equal(nodes.get('result-title').textContent, heading);
+  }
+  vm.runInContext("game.status = 'your_turn'; render()", context);
+  assert.equal(nodes.get('result-banner').hidden, true);
 });

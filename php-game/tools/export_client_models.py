@@ -21,25 +21,61 @@ def export(source,target):
     Path(target).write_bytes(compressed)
     return {'sha256':hashlib.sha256(compressed).hexdigest(),'bytes':len(compressed),'uncompressed_bytes':len(raw),'parameters':sum(v.size for v in tensors.values()),'spec':spec}
 
+def checkpoint_training_games(db, checkpoint_id):
+    """Count cumulative games once per ancestral run, including cross-run parents."""
+    runs, visited = {}, set()
+    while checkpoint_id:
+        if checkpoint_id in visited:
+            raise ValueError(f'Cyclic checkpoint ancestry: {checkpoint_id}')
+        visited.add(checkpoint_id)
+        row = db.execute('select run_id, games, parent_id from checkpoints where id=?',
+                         (checkpoint_id,)).fetchone()
+        if row is None:
+            raise ValueError(f'Missing checkpoint ancestor: {checkpoint_id}')
+        run_id, games, checkpoint_id = row
+        runs[run_id] = max(runs.get(run_id, 0), games)
+    return sum(runs.values())
+
+
+def model_training_games(db, model):
+    """Resolve database checkpoints and file-based training experiment sources."""
+    row = db.execute('select id from checkpoints where id=? or path=? or actor_path=?',
+                     (model, model, model)).fetchone()
+    if row:
+        return checkpoint_training_games(db, row[0])
+    path = Path(model)
+    if not path.is_absolute():
+        path = REPO / 'astrosynapse2' / path
+    manifest = json.loads((path.parent / 'manifest.json').read_text())
+    # Experiment filenames contain that experiment's cumulative game count.
+    games = int(path.name.split('.')[0].removeprefix('g'))
+    return games + model_training_games(db, manifest['model'])
+
+
 def levels():
     db=sqlite3.connect(f'file:{REPO}/astrosynapse2/data/astrosynapse2.sqlite3?immutable=1',uri=True)
     # Earliest checkpoint, then selected promoted champions spanning Astro2–Astro6.
     first=db.execute('select id from checkpoints order by created_at limit 1').fetchone()[0]
-    selections=[(first,'First Astrosynapse2 checkpoint · untrained'),('1b822120f1634e46','Astro2 · 3,303,168 games'),('246e56c917644759','Astro3 · 2,602,496 games'),('05ef55aaf4c548c5','Astro4 · 98,176 games'),('0ecf69b96351463d','Astro4 · 502,656 games'),('08aa018c672847d9','Astro5 · 5,954,048 games')]
+    selections=[first,'1b822120f1634e46','246e56c917644759','05ef55aaf4c548c5','0ecf69b96351463d','08aa018c672847d9']
     sources=[]
-    for cid,label in selections:
+    for cid in selections:
         row=db.execute('select actor_path from checkpoints where id=?',(cid,)).fetchone()
-        sources.append((Path(row[0]),label,{'checkpoint_id':cid}))
+        sources.append((Path(row[0]),checkpoint_training_games(db,cid),{'checkpoint_id':cid}))
     state=json.loads((REPO/'astrosynapse2/data/progressive/evolution-20260923/state.json').read_text())
+    manifest=json.loads((REPO/'astrosynapse2/data/progressive/20260910/manifest.json').read_text())
+    inherited_games=model_training_games(db,manifest['settings']['model'])
     for generation in [1,2,6,10]:
         p=state['promotions'][generation-1]
         assert p.get('passed') is True
-        sources.append((Path(p['actor']),f'Astro6 generation {generation}',{'generation':generation}))
+        # Promotion games already include preceding Astro6 stages and inherited
+        # campaigns (plus evolutionary search games), but not the original source.
+        sources.append((Path(p['actor']),inherited_games+p['games'],{'generation':generation}))
     entries=[]
-    for level,(source,label,provenance) in enumerate(sources,1):
+    for level,(source,games,provenance) in enumerate(sources,1):
         filename=f'level-{level:02d}.astro.gz'
+        label=f'trained on {games:,} games'
         meta=export(source,ROOT/'models'/filename)
-        entries.append({'id':f'level-{level:02d}','name':f'Level {level}','level':level,'file':filename,'description':label,'source':str(source.relative_to(REPO)),'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),**provenance,**meta})
+        entries.append({'id':f'level-{level:02d}','name':f'Level {level}','level':level,'file':filename,'description':label,'training_games':games,'source':str(source.relative_to(REPO)),'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),**provenance,**meta})
         print(f'Level {level}: {label}; {meta["bytes"]:,} bytes')
     (ROOT/'models/registry.json').write_text(json.dumps(entries,indent=2)+'\n')
 

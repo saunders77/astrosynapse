@@ -41,19 +41,25 @@ Level 10 is selected and downloaded at startup. Levels 1–9 download only when 
 
 “Generation” refers to the numbered Astro6 champion promotions in `astrosynapse2/data/progressive/evolution-20260923/state.json`. Levels 2–6 are earlier run champions chosen to span the preceding history; level 9 sits between generations 2 and 10. These are historical milestones, not calibrated, evenly spaced difficulty ratings. Level 1 is intentionally the very first, untrained checkpoint.
 
+The UI descriptions use “trained on X games”, with cumulative training games across the checkpoint’s ancestral runs. Each run is counted once; independently initialized models do not inherit unrelated older runs. Astro6 totals also include the 303,360-game source branch and 49,152-game managed experiment before progressive training, followed by the promotion’s cumulative campaign training/search count (excluding separate verification games). The registry stores this total as `training_games`.
+
 `models/registry.json` records exact source paths, checkpoint/generation IDs, source hashes, packaged hashes, byte sizes, and architecture. Weights preserve float32 values without quantization. The actor supports encoder and objective versions 1 and 2, mean-head scoring, the dominated-end-turn mask, and public-information lethal search. Arithmetic uses JavaScript doubles around float32 weights; near ties can differ from NumPy.
 
 ## Resource caching and releases
 
-- An inline bootstrap hashes the HTML document **before modifying it**. That hash is attached to every asset and model URL and used as the persistent cache version.
+- An inline bootstrap hashes the HTML document **before modifying it**. That hash is attached to every local asset and model URL and used as the persistent cache version.
 - HTML is fetched from the network on navigation; a saved copy is the offline fallback. An open tab checks for changed HTML on focus and every five minutes. It offers **Load new version**, without interrupting a game automatically.
-- Any HTML change creates a fresh asset cache. The build script also stamps the HTML whenever bundles, card data, the model registry, artwork, or the service worker change.
-- Assets are cached on demand, never all prefetched. Card images load when near the viewport or opened in Details. Each downloaded image is retained as a reusable in-memory blob URL. Repeated images and re-renders share one request.
+- Any HTML change creates a fresh asset cache. The build script also stamps the HTML whenever bundles, card data, the model registry or the service worker change.
+- Assets are cached on demand, never all prefetched. Card images load when near the viewport or opened in Details. Card image URLs are generated from card names and load WebP files directly from the official Star Realms gallery. Repeated images use normal browser HTTP caching.
 - Models and artwork also live in browser Cache Storage, so subsequent visits can reuse them without network transfer. A model's SHA-256 is verified before it is used.
 - Old release caches are removed when no open client reports using them. If browser storage is unavailable or full, the game falls back to network plus memory caching. Browser eviction can require a later re-download.
-- Once initialized, a game works offline with downloaded models. Artwork never previously downloaded remains unavailable until reconnection; card names and actions still work. Undownloaded levels need a connection.
+- Once initialized, a game works offline with downloaded models. Artwork availability offline depends on the browser HTTP cache; card names and actions still work. Undownloaded levels need a connection.
 
 **For every code, model, or artwork release, run the build script and deploy the resulting HTML together with the assets.** HTML edits alone also invalidate the cache. Deploy the new HTML last (or deploy atomically). A failed/mismatched model download displays an error instead of using unverified weights. Existing tabs offer an update; games from a previous release are reset upon loading it because their replay format may have changed.
+
+## Player stats
+
+Every new game randomly chooses who takes the first turn. The choice is saved with the game and stays the same after refresh. Open **Stats** beside New game to view wins, losses, draws, and win rate for each level (and imported opponents). Results are stored in localStorage on this browser and site, survive releases, and are counted once per completed game. Abandoned games do not count; draws are excluded from win rate. Clearing site data removes stats.
 
 ## Local state and model management
 
@@ -73,7 +79,7 @@ Legacy `starrealms_policies/*_policy.json` files use a different architecture an
 
 The UI runs on the main thread; all game rules and inference run in a module Web Worker. Computer turns advance one decision at a time, with visible progress. Card details, scrolling, and browser rendering do not share the inference thread. Download size is not a guarantee of performance on an older phone.
 
-The table fits the viewport with the trade row beside the fleets on desktop and stacked card rows on smaller screens. Click a hand card’s face to play it, or the opponent’s authority to make a legal attack. A fixed opponent header and player footer keep authority, trade, combat, must-discard counts, card-count buttons, and player actions visible. The table reserves the actual height of both bars, including when they wrap on mobile. Clicking a deck or the opponent’s hand button shows the combined hand and deck in random order without revealing hidden hand membership or draw order; your hand button opens your playable hand. Discard piles, the scrap heap, and the game log open in dialogs. Must-discard counters remain visible, and discard piles are highlighted when they contain legal scrap targets. The ⓘ buttons open full-size card details.
+The table fits the viewport with the trade row always between the opponent’s fleet and your In Play row, followed by your hand. Available game-action buttons have white backgrounds. When a card has exactly one available action, clicking its face performs that action; otherwise the face opens details. Click the opponent’s authority to make a legal attack. A fixed opponent header and player footer keep authority, trade, combat, must-discard counts, card-count buttons, and player actions visible. The table reserves the actual height of both bars, including when they wrap on mobile. Clicking a deck or the opponent’s hand button shows the combined hand and deck in random order without revealing hidden hand membership or draw order; your hand button opens your playable hand. Discard piles, the scrap heap, and the game log open in dialogs. Must-discard counters remain visible, and discard piles are highlighted when they contain legal scrap targets. The top-left ⓘ buttons open full-size card details. Scrap decisions automatically open a large picker grouping all legal targets by hand, discard pile, or trade row; it stays open across selections and closes once no targets remain. Optional scrap choices include their decline action. Completed games show a prominent victory, defeat, or draw banner.
 
 The opponent header also shows the opponent model’s estimated win probability. Objective-v2 models use the mean sigmoid of their state-value heads; earlier outcome models use the mean predicted outcome of their preferred action. The current decision is evaluated for the side to move and complemented on human turns to express the opponent’s probability. This is a model estimate, not a calibrated guarantee.
 
@@ -94,6 +100,7 @@ python3 php-game/tools/build_client.py
 python3 php-game/tools/package_client.py
 
 # Rules, batching, replay, inference and existing on-card controls.
+node php-game/tests/client-stats.mjs
 node php-game/tests/client-regression.mjs
 node php-game/tests/client-import.mjs
 node --test php-game/tests/scrap-ui.test.cjs
@@ -106,4 +113,4 @@ node php-game/tests/client-browser.mjs
 
 Verified during this port: 20 complete games / 5,091 decisions, 40 lethal plans, all eight neural families and win-probability calculations for every level, 37 gameplay/session regressions, and six on-card UI regressions. Maximum sampled generation-10 logit error was approximately 0.000002. Browser checks cover lazy downloads, local AI turns, refresh/resume, offline play, HTML-only release invalidation, mobile layout, and native NPZ import persistence. The desktop and mobile layouts were inspected in Chromium; physical-device performance has not been measured.
 
-Artwork is from the existing project. Star Realms and card artwork belong to Wise Wizard Games LLC; see `assets/card-art/README.md`.
+Artwork loads directly from the [official Star Realms Card Gallery](https://www.starrealms.com/card-gallery); card image files are excluded from the upload archive. The welcome screen uses the gallery’s Scout card. Star Realms and card artwork belong to Wise Wizard Games LLC.
