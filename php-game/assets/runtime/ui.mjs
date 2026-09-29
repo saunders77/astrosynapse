@@ -1,5 +1,5 @@
 import { recordResult, readStats } from './stats.mjs';
-import { configureResources, resourceURL, sha256 } from './resources.mjs';
+import { configureResources, resourceURL } from './resources.mjs';
 import { localModels } from './local-models.mjs';
 const $ = id => document.getElementById(id);
 let cards = [], models = [], game = null, busy = false, timer = null, openPile = null, worker, release, base, savedKey;
@@ -278,22 +278,7 @@ export async function start(options) {
     try { models.push(...(await localModels('list')).map(({ bytes, ...m }) => m)); } catch { /* Gameplay does not require IndexedDB. */ }
     game = data.game; renderModels(); render(); renderStats(); saveGame(data.saved);
     if (data.notice) showError(data.notice);
-    if (changed) $('status').textContent = 'A new release is ready. Start a new game with the updated version.';
+    if (changed) $('status').textContent = 'The previous saved game is incompatible with these files. Start a new game.';
   } catch (e) { showError(e.message); $('status').textContent = 'Could not load the game. Reconnect and refresh to retry.'; }
   finally { lock(false); $('start').disabled = !models.length; if (game?.status === 'model_thinking') schedule(); }
-  // A visible page checks for a new HTML release on focus and every five minutes.
-  let checking = false;
-  async function checkRelease() {
-    if (checking || document.hidden || !navigator.onLine) return;
-    checking = true;
-    try {
-      const response = await fetch(new URL('index.html', base), { cache: 'no-store' }); if (!response.ok) return;
-      const html = new DOMParser().parseFromString(await response.text(), 'text/html').documentElement.outerHTML;
-      if (await sha256(new TextEncoder().encode(html)) !== release) $('update-banner').hidden = false;
-    } catch { /* Offline play continues. */ } finally { checking = false; }
-  }
-  $('update-now').addEventListener('click', () => { if (!game || game.status === 'complete' || confirm('Load the new release? This will end the current game.')) location.reload(); });
-  window.addEventListener('focus', checkRelease); setInterval(checkRelease, 300000);
-  navigator.serviceWorker?.controller?.postMessage({ type: 'release', version: release });
-  navigator.serviceWorker?.addEventListener('controllerchange', () => navigator.serviceWorker.controller?.postMessage({ type: 'release', version: release }));
 }

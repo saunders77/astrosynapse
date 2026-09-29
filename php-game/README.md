@@ -4,7 +4,7 @@ The former PHP arena now runs entirely in the browser: rules, shuffling, model e
 
 ## Hosting
 
-Upload `index.html`, `sw.js`, `assets/`, and `models/`, including `.htaccess` on Apache. The generated `php-game-upload.zip` in the parent directory contains the ready-to-upload distribution, without development sources or tests. Open the site over HTTPS; localhost HTTP also works for development. Opening `index.html` as a `file://` URL is not supported.
+Upload `index.html`, `assets/`, and `models/`, including `.htaccess` on Apache. The generated `php-game-upload.zip` in the parent directory contains the ready-to-upload distribution, without development sources or tests. Open the site over HTTPS; localhost HTTP also works for development. Opening `index.html` as a `file://` URL is not supported.
 
 For a local preview from the repository root:
 
@@ -16,9 +16,9 @@ Visit `http://localhost:8088/`. Python only serves static files in this preview.
 
 Serve `.js` as JavaScript, `.json` as JSON, and `.astro.gz` as **application/gzip without a Content-Encoding header**. The browser reads and decompresses these model files itself. On non-Apache hosts configure:
 
-- `index.html` (including the directory index) and `sw.js`: `Cache-Control: no-cache, must-revalidate`.
+- `index.html` (including the directory index): `Cache-Control: no-cache, must-revalidate`.
 - `assets/*` and `models/*`: `Cache-Control: public, max-age=31536000, immutable`.
-- Preserve URL query strings in cache keys; they identify HTML releases.
+- Preserve URL query strings in cache keys; they ensure a changed HTML file requests fresh resources.
 
 Do not carry forward the old blanket deny rule for `models/`. The included replacement permits static model downloads. When replacing an existing installation, remove the obsolete PHP endpoints and old `.model.php` files instead of leaving them on the server. Existing source training checkpoints are untouched.
 
@@ -45,27 +45,27 @@ The UI descriptions use “trained on X games”, with cumulative training games
 
 `models/registry.json` records exact source paths, checkpoint/generation IDs, source hashes, packaged hashes, byte sizes, and architecture. Weights preserve float32 values without quantization. The actor supports encoder and objective versions 1 and 2, mean-head scoring, the dominated-end-turn mask, and public-information lethal search. Arithmetic uses JavaScript doubles around float32 weights; near ties can differ from NumPy.
 
-## Resource caching and releases
+## Resource caching
 
-- An inline bootstrap hashes the HTML document **before modifying it**. That hash is attached to every local asset and model URL and used as the persistent cache version.
-- HTML is fetched from the network on navigation; a saved copy is the offline fallback. An open tab checks for changed HTML on focus and every five minutes. It offers **Load new version**, without interrupting a game automatically.
-- Any HTML change creates a fresh asset cache. The build script also stamps the HTML whenever bundles, card data, the model registry or the service worker change.
+- An inline bootstrap hashes the HTML document **before modifying it**. That hash is attached to every local asset and model URL as a cache key.
+- `index.html` is revalidated on normal navigation. Replacing that one file changes the cache key, so the next page load requests the CSS, JavaScript, card data, model registry, and models under fresh URLs.
+- The build script stamps the HTML whenever bundles, card data, or the model registry changes.
 - Assets are cached on demand, never all prefetched. Card images load when near the viewport or opened in Details. Card image URLs are generated from card names and load WebP files directly from the official Star Realms gallery. Repeated images use normal browser HTTP caching.
 - Models and artwork also live in browser Cache Storage, so subsequent visits can reuse them without network transfer. A model's SHA-256 is verified before it is used.
-- Old release caches are removed when no open client reports using them. If browser storage is unavailable or full, the game falls back to network plus memory caching. Browser eviction can require a later re-download.
-- Once initialized, a game works offline with downloaded models. Artwork availability offline depends on the browser HTTP cache; card names and actions still work. Undownloaded levels need a connection.
+- If browser storage is unavailable or full, the game falls back to network plus memory caching. Browser eviction can require a later re-download.
+- Once initialized, an open game keeps working with downloaded models if the connection drops. A page load requires the static HTML; undownloaded levels need a connection.
 
-**For every code, model, or artwork release, run the build script and deploy the resulting HTML together with the assets.** HTML edits alone also invalidate the cache. Deploy the new HTML last (or deploy atomically). A failed/mismatched model download displays an error instead of using unverified weights. Existing tabs offer an update; games from a previous release are reset upon loading it because their replay format may have changed.
+**After changing code, models, or artwork, run the build script and deploy the generated files. Upload `index.html` last (or deploy atomically).** Uploading the new HTML is the only refresh mechanism; there is no polling, prompt, reload control, service worker, or server-side logic. A failed or mismatched model download displays an error instead of using unverified weights. A saved in-progress game is discarded when its HTML cache key no longer matches.
 
 ## Player stats
 
-Every new game randomly chooses who takes the first turn. The choice is saved with the game and stays the same after refresh. Open **Stats** beside New game to view wins, losses, draws, and win rate for each level (and imported opponents). Results are stored in localStorage on this browser and site, survive releases, and are counted once per completed game. Abandoned games do not count; draws are excluded from win rate. Clearing site data removes stats.
+Every new game randomly chooses who takes the first turn. The choice is saved with the game and stays the same after refresh. Open **Stats** beside New game to view wins, losses, draws, and win rate for each level (and imported opponents). Results are stored in localStorage on this browser and site, survive file replacements, and are counted once per completed game. Abandoned games do not count; draws are excluded from win rate. Clearing site data removes stats.
 
 ## Local state and model management
 
 Each tab stores its deterministic seed and action transcript in session storage. Refresh resumes the game without repeating past inference. Closing the tab ends its saved session; separate tabs can play independent games. No moves or hidden hands are sent to a server. All computation is visible to the device owner; this is a local single-player game, not a trusted ranked-game server.
 
-**Manage models** supports importing Astro2 `.actor.npz`, converted `.astro.gz`, and previous guarded `.model.php` model exports. These files are parsed as data, never executed or uploaded. Imports are validated and stored in IndexedDB. Renames live in local storage and apply to new games. No password is needed because the changes affect only this browser and site. Imported models and aliases survive a release; saved in-progress games do not. Model files are capped at 64 MB on import and 128 MB after expansion.
+**Manage models** supports importing Astro2 `.actor.npz`, converted `.astro.gz`, and previous guarded `.model.php` model exports. These files are parsed as data, never executed or uploaded. Imports are validated and stored in IndexedDB. Renames live in local storage and apply to new games. No password is needed because the changes affect only this browser and site. Imported models and aliases survive file replacements; incompatible saved games do not. Model files are capped at 64 MB on import and 128 MB after expansion.
 
 The exporter is available for conversion outside the browser:
 
@@ -111,6 +111,6 @@ node php-game/tests/client-reference.mjs /tmp/astro-js-reference.json
 node php-game/tests/client-browser.mjs
 ```
 
-Verified during this port: 20 complete games / 5,091 decisions, 40 lethal plans, all eight neural families and win-probability calculations for every level, 37 gameplay/session regressions, and six on-card UI regressions. Maximum sampled generation-10 logit error was approximately 0.000002. Browser checks cover lazy downloads, local AI turns, refresh/resume, offline play, HTML-only release invalidation, mobile layout, and native NPZ import persistence. The desktop and mobile layouts were inspected in Chromium; physical-device performance has not been measured.
+Verified during this port: 20 complete games / 5,091 decisions, 40 lethal plans, all eight neural families and win-probability calculations for every level, 37 gameplay/session regressions, and six on-card UI regressions. Maximum sampled generation-10 logit error was approximately 0.000002. Browser checks cover lazy downloads, local AI turns, refresh/resume, dropped-connection play, HTML cache invalidation, mobile layout, and native NPZ import persistence. The desktop and mobile layouts were inspected in Chromium; physical-device performance has not been measured.
 
 Artwork loads directly from the [official Star Realms Card Gallery](https://www.starrealms.com/card-gallery); card image files are excluded from the upload archive. The welcome screen uses the gallery’s Scout card. Star Realms and card artwork belong to Wise Wizard Games LLC.

@@ -37,7 +37,7 @@ const server=http.createServer(async(req,res)=> {
     let data=await fs.readFile(path.join(root,name));
     if(name==='index.html'&&newRelease) data=Buffer.from(data.toString().replace('Your opponent is ready.','Your opponent is ready for this release.'));
     const mime={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.json':'application/json','.css':'text/css','.jpg':'image/jpeg','.gz':'application/gzip'}[path.extname(name)]||'application/octet-stream';
-    res.writeHead(200,{'Content-Type':mime,'Cache-Control':name==='index.html'||name==='sw.js'?'no-cache':'public, max-age=31536000, immutable'});res.end(data);
+    res.writeHead(200,{'Content-Type':mime,'Cache-Control':name==='index.html'?'no-cache':'public, max-age=31536000, immutable'});res.end(data);
   } catch {res.writeHead(404);res.end();}
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
@@ -105,22 +105,19 @@ try {
   await page.waitForFunction(()=>document.getElementById('status').textContent.startsWith('Level 8 is ready.'));
   assert.deepEqual(requests.filter(x=>x.endsWith('.astro.gz')),['models/level-10.astro.gz','models/level-01.astro.gz','models/level-08.astro.gz']);
   console.log('PASS levels 1 and 8 download only on selection');
-  await context.setOffline(true);await page.reload();await page.locator('#start:not([disabled])').waitFor();
+  await context.setOffline(true);
   assert.equal(await page.locator('#opponent-name').innerText(),'Level 1');
   await page.locator('#play-all').click();await page.waitForFunction(()=>document.getElementById('hand-count').textContent==='0 cards');
   await page.locator('#end-turn').click();await page.waitForFunction(()=>document.getElementById('status').textContent.startsWith('Your turn')&&document.getElementById('turn').textContent!=='TURN 1');
-  console.log('PASS offline refresh and gameplay with downloaded models');
+  console.log('PASS dropped-connection gameplay with downloaded models');
   await context.setOffline(false);
-  // Trigger the same focus check with unchanged HTML: must not offer an update.
-  await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
-  await page.waitForTimeout(150);assert.equal(await page.locator('#update-banner').isVisible(),false);
-  newRelease=true;await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await page.locator('#update-banner:not([hidden])').waitFor();
+  newRelease=true;
   const downloaded=requests.filter(x=>x.endsWith('.astro.gz')).length;
-  await page.locator('#update-now').click();await page.locator('#start:not([disabled])').waitFor();
-  assert.equal(requests.filter(x=>x.endsWith('.astro.gz')).length,downloaded+1,'HTML release fetches default model anew');
+  await page.reload();await page.locator('#start:not([disabled])').waitFor();
+  assert.equal(requests.filter(x=>x.endsWith('.astro.gz')).length,downloaded+1,'Changed HTML fetches the default model anew');
   assert.equal(await page.locator('#board').isVisible(),false);
-  assert.match(await page.locator('#status').innerText(),/new release/);
-  console.log('PASS unchanged HTML keeps cache; changed HTML resets assets and saved game');
+  assert.match(await page.locator('#status').innerText(),/previous saved game is incompatible/);
+  console.log('PASS changed HTML resets resource URLs and the saved game');
   await page.setViewportSize({width:390,height:844});await page.locator('#start').click();await page.locator('#play-all:not([hidden])').waitFor();
   for(const img of await page.locator('#market img, #hand img').all()) { await img.scrollIntoViewIfNeeded(); await img.evaluate(img=>new Promise((resolve,reject)=> { if(img.naturalWidth) return resolve(); img.addEventListener('load',resolve,{once:true}); setTimeout(()=>img.naturalWidth?resolve():reject(new Error('Image did not load')),5000); })); }
   await page.evaluate(()=>window.scrollTo(0,0));

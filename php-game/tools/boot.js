@@ -4,17 +4,6 @@ try {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(originalHTML));
   const release = Array.from(new Uint8Array(digest), v => v.toString(16).padStart(2, '0')).join('');
   const base = new URL('./', location.href).href;
-  if ('serviceWorker' in navigator) {
-    try {
-      await navigator.serviceWorker.register(new URL('sw.js', base), { scope: base, updateViaCache: 'none' });
-      await navigator.serviceWorker.ready;
-      if (!navigator.serviceWorker.controller) await new Promise(resolve => {
-        const listener = () => { navigator.serviceWorker.removeEventListener('controllerchange', listener); resolve(); };
-        navigator.serviceWorker.addEventListener('controllerchange', listener);
-        setTimeout(listener, 3000);
-      });
-    } catch { /* Online play and in-memory caching still work. */ }
-  }
   const style = document.createElement('link'); style.rel = 'stylesheet'; style.href = new URL('assets/style.css?v=' + release, base); document.head.append(style);
   const app = await import(new URL('assets/game.js?v=' + release, base));
   await app.start({ base, release });

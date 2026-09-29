@@ -12,7 +12,7 @@ async function actorFor(id) {
   if(m) {
     postMessage({progress:`Loading ${m.name}… ${(m.bytes/1000000).toFixed(1)} MB on first use`});
     bytes=await resource('models/'+m.file);
-    if(await sha256(bytes)!==m.sha256) { await forgetResource('models/'+m.file); throw new Error('Model integrity check failed. Reload to check for a new release.'); }
+    if(await sha256(bytes)!==m.sha256) { await forgetResource('models/'+m.file); throw new Error('Model integrity check failed. Reload and retry.'); }
     bytes=await decompress(bytes);
   } else { const custom=await localModels('get',id); if(!custom) throw new Error('This local model is no longer available. Choose another level.'); bytes=custom.bytes; }
   const actor=new Actor(bytes); actors.set(id,actor); return actor;
