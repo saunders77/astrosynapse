@@ -31,7 +31,7 @@ export class Game {
     if(a.kind==='scrap_card') s+=' from '+a.source_zone.replaceAll('_',' ');
     if(a.target_card_id>=0) s+=' → '+this.card(a.target_card_id).name;
     if(a.ability) s+=' ('+a.ability.replaceAll('_',' ')+')';
-    if(a.amount || a.amount2) s+=` [${a.amount},${a.amount2}]`;
+    if(a.amount) s+=` (${a.amount})`;
     return s[0].toUpperCase()+s.slice(1);
   }
   constructor(seed,starts=0,chooser=()=>0) {
@@ -61,7 +61,7 @@ export class Game {
     const manual = p.id === this.manual_player && (family === 'discard' || actions[0].kind === 'end_turn');
     const index=actions.length===1&&!manual?0:this.chooser(this,p.id,d);
     if(!Number.isInteger(index)||!actions[index]) throw new Error('Illegal action');
-    const a=actions[index]; this.log.push({player_id:p.id,turn:this.turns,family,label:Game.label(a)});
+    const a=actions[index]; this.log.push({player_id:p.id,turn:this.turns,family,kind:a.kind,card_id:a.card_id,target_card_id:a.target_card_id,label:Game.label(a)});
     if(this.decision_hook) this.decision_hook(this,p.id,d,a); return a;
   }
   takeTurn(p) {

@@ -1,3 +1,4 @@
+import { opponentTurnSummary } from './turn-summary.mjs';
 import { recordResult, readStats } from './stats.mjs';
 import { configureResources, resourceURL } from './resources.mjs';
 import { localModels } from './local-models.mjs';
@@ -46,7 +47,7 @@ async function request(payload, errorTarget = 'error') {
   finally { lock(false); if (game?.status === 'model_thinking' && !$('error').textContent) schedule(); }
 }
 function schedule() { clearTimeout(timer); timer = setTimeout(() => { if (!busy && game?.status === 'model_thinking') request({ op: 'advance', id: game.id, revision: game.revision }); }, 120); }
-function move(id) { if (busy) return; if (openPile === 'hand') $('pile-dialog').close(); request({ op: 'choose', id: game.id, revision: game.revision, action_id: id }); }
+function move(id) { if (busy) return; if (openPile === 'hand') $('pile-dialog').close(); request({ op: 'choose', id: game.id, revision: game.revision, action_id: id }, $('decision-dialog').open ? 'decision-error' : 'error'); }
 function inspect(card) {
   setImage($('card-large'), art(card), true); $('card-large').alt = card.name; $('card-name').textContent = card.name;
   $('card-description').textContent = `${card.faction.replaceAll('_', ' ')} · ${card.card_type} · Cost ${card.cost}${card.defense ? ` · Defense ${card.defense}` : ''}`;
@@ -111,6 +112,7 @@ function render() {
   if (!game) { $('status').textContent = 'Choose your opponent to begin.'; return; }
   const o = game.observation, d = game.decision, actions = d?.actions || [], main = d?.family === 'main';
   $('opponent-name').textContent = game.model_label;
+  $('opponent-last-turn').textContent = opponentTurnSummary(game, cards);
   for (const [id, value] of Object.entries({ authority: o.own_authority, trade: o.trade, combat: o.combat, deck: o.own_deck_count, 'opponent-authority': o.opponent_authority, 'opponent-hand': o.opponent_hand_count, 'opponent-deck': o.opponent_deck_count, 'must-discard': o.pending_discard || 0, 'opponent-must-discard': o.opponent_pending_discard || 0, 'opponent-trade': game.opponent_trade || 0, 'opponent-combat': game.opponent_combat || 0, 'player-hand': o.hand.length })) $(id).textContent = value;
   $('opponent-win').textContent = Number.isFinite(game.opponent_win_probability) ? `${(game.opponent_win_probability * 100).toFixed(1)}%` : '—';
   $('turn').textContent = `TURN ${o.turn}`;
@@ -148,11 +150,14 @@ function render() {
   $('end-turn').hidden = false; $('end-turn').dataset.unavailable = String(!end); $('end-turn').disabled = !end; $('end-turn').onclick = () => { if (o.hand.length && !confirm('End your turn and discard the unplayed cards in your hand?')) return; if (end) move(end.id); };
   $('resign').hidden = game.status === 'complete';
   $('resign').onclick = () => { if (busy || game.status === 'complete' || !confirm('Are you sure you want to resign?')) return; request({ op: 'resign', id: game.id, revision: game.revision }); };
+  const decisionDialog = $('decision-dialog');
+  const needsDecision = game.status === 'your_turn' && d && !main && actions.length && !actions.some(a => ['scrap_card', 'scrap_trade_row'].includes(a.kind));
   $('choices').replaceChildren();
-  if (d && !main) for (const a of actions) {
+  $('decision-options').replaceChildren();
+  if (needsDecision) for (const a of actions) {
     const button = el('button', 'choice'); const id = a.target_card_id >= 0 ? a.target_card_id : a.card_id;
     if (id >= 0 && a.kind !== 'decline') { const img = el('img'); setImage(img, art(cards[id])); img.alt = ''; button.append(img); }
-    button.append(el('span', '', a.label)); button.addEventListener('click', () => move(a.id)); $('choices').append(button);
+    button.append(el('span', '', a.label)); button.addEventListener('click', () => move(a.id)); $('decision-options').append(button);
   }
   $('choice-note').hidden = !(d && !main); $('choice-note').textContent = 'Resolve this choice to continue. Other actions become available afterward.';
   let status = game.status === 'model_thinking' ? `${game.model_label} is playing…` : 'Your turn · Play cards, use abilities, buy cards, or attack.';
@@ -166,7 +171,15 @@ function render() {
     $('result-title').textContent = {win: 'Victory!', loss: 'Defeat', draw: 'Draw'}[outcome];
     $('result-message').textContent = status;
   }
+  if (!needsDecision && decisionDialog.open) decisionDialog.close();
   renderScrap(actions);
+  if (needsDecision) {
+    $('decision-prompt').textContent = d.prompt || 'Choose an option';
+    if (!decisionDialog.open) {
+      for (const id of ['pile-dialog', 'card-dialog']) if ($(id).open) $(id).close();
+      decisionDialog.showModal();
+    }
+  }
   if (openPile) renderPile();
   $('log').replaceChildren(...game.action_log.slice().reverse().map(entry => { const li = el('li', entry.player_id ? 'computer' : ''); li.append(el('b', '', `Turn ${entry.turn} · ${entry.player_id ? game.model_label : 'You'}`), document.createTextNode(entry.label)); return li; }));
 }
@@ -257,6 +270,7 @@ $('play-all').addEventListener('click', () => request({ op: 'play_all', id: game
 document.querySelectorAll('[data-inspect]').forEach(b => b.addEventListener('click', () => inspectPile(b.dataset.inspect)));
 $('pile-dialog').addEventListener('close', () => { if (!$('pile-dialog').open) openPile = null; });
 $('scrap-dialog').addEventListener('cancel', e => e.preventDefault());
+$('decision-dialog').addEventListener('cancel', e => e.preventDefault());
 document.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => $(b.dataset.open).showModal()));
 $('models-open').addEventListener('click', () => $('models-dialog').showModal());
 document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => $(b.dataset.close).close()));

@@ -229,3 +229,31 @@ body.active-game .masthead,body.active-game .setup{display:none}
   #board .card-heading .card-name{font-size:inherit}
   #board .market .card-heading{display:none}
 }
+
+#decision-dialog{width:720px;max-width:94vw;max-height:90dvh;padding:clamp(20px,4vw,36px)}
+#decision-prompt{font-size:clamp(1.4rem,3vw,2rem);line-height:1.25;margin-top:12px}
+#decision-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:16px}
+#decision-options .choice{width:100%;max-width:none;min-height:100px;padding:20px;font-size:1.15rem;background:#254a47;border-color:#69baac;overflow-wrap:anywhere}
+#decision-options .choice:hover:not(:disabled){background:#345f59}
+#decision-options .choice img{width:64px;max-height:90px;flex-shrink:0}
+
+/* Readable, wrapping statistics and controls in the persistent bars. */
+.game-bar{font-size:1rem;gap:12px;flex-wrap:wrap;padding:8px 12px}
+#opponent-name{font-size:1.1rem;padding:0;min-height:0}
+.game-bar .pile,.game-bar #opponent-attack,.game-bar .turn-controls button{font-size:1rem;min-height:36px;padding:6px 9px}
+.game-bar .pile b,.game-bar .bar-stats b{font-size:1.2rem}
+.game-bar .bar-stats{font-size:1rem;flex-wrap:wrap;gap:10px}
+#player-bar .decision-heading h3,#player-bar .eyebrow,#player-bar .choice{font-size:.9rem}
+#opponent-last-turn{margin-left:auto;flex:1 1 260px;max-width:460px;min-width:0;padding:4px 0;min-height:36px;border:0;background:transparent;color:var(--red);font-size:.95rem;font-weight:500;text-align:right;line-height:1.4;overflow-wrap:anywhere}
+#opponent-last-turn:hover{text-decoration:underline}
+@media(max-width:760px){
+  .game-bar{gap:6px;padding:6px}
+  .game-bar .pile,.game-bar #opponent-attack,.game-bar .turn-controls button{font-size:.8rem;min-height:32px;padding:4px 6px}
+  .game-bar .bar-stats{font-size:.8rem;gap:6px}
+  .game-bar .pile b,.game-bar .bar-stats b{font-size:1rem}
+  #opponent-last-turn{grid-column:1 / -1;max-width:none;width:100%;font-size:.85rem;min-height:28px}
+  #player-bar .bar-piles{grid-column:1 / -1;justify-content:center}
+  #player-bar .turn-controls{grid-column:1 / -1;grid-row:3;justify-content:center;margin:0;flex-wrap:wrap}
+  #player-bar .decision{grid-row:4}
+  #player-bar .decision-heading h3{font-size:.8rem}
+}

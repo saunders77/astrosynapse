@@ -24,6 +24,7 @@ function board(actions, status = 'your_turn', observation = {}, family = 'scrap'
   };
   const context = vm.createContext({ document, location: { pathname: '/' }, localStorage: { getItem: () => null }, IntersectionObserver: class { observe() {} disconnect() {} } });
   const source = fs.readFileSync(`${__dirname}/../assets/runtime/ui.mjs`, 'utf8').split("// Fixed bars may wrap")[0].replace(/^import .*;$/gm, '');
+  vm.runInContext(fs.readFileSync(`${__dirname}/../assets/runtime/turn-summary.mjs`, 'utf8').replace('export function', 'function'), context);
   vm.runInContext(source, context);
   context.fixture = { status, decision: { family, actions }, observation: {
     hand: [0, 0, 1], own_discard: [0, 1], own_in_play: [], opponent_in_play: [],
@@ -210,4 +211,28 @@ test('saved games are written to persistent localStorage', () => {
   vm.runInContext("savedKey = 'game'; release = 'build'; localStorage.setItem = (key, value) => { globalThis.persisted = {key, value}; }; saveGame({id: 'resume-me', transcript: ['move']});", context);
   assert.equal(context.persisted.key, 'game');
   assert.deepEqual(JSON.parse(context.persisted.value), {release: 'build', saved: {id: 'resume-me', transcript: ['move']}});
+});
+
+test('required decisions open a large picker, dispatch choices, and close after resolution', () => {
+  const actions = [
+    { id: 10, kind: 'choose_mode', card_id: 0, label: 'Gain trade (3)' },
+    { id: 11, kind: 'choose_mode', card_id: 0, label: 'Gain combat (5)' },
+  ];
+  const { context, nodes } = board(actions, 'your_turn', {}, 'ability_mode');
+  assert.equal(nodes.get('decision-dialog').open, true);
+  const options = nodes.get('decision-options').children;
+  assert.equal(options.length, 2);
+  options[1].listeners.click();
+  assert.equal(context.chosen, 11);
+  vm.runInContext("game.decision = {family: 'main', actions: []}; render();", context);
+  assert.equal(nodes.get('decision-dialog').open, false);
+  assert.equal(nodes.get('decision-options').children.length, 0);
+  assert.ok(!board(actions, 'model_thinking', {}, 'ability_mode').nodes.get('decision-dialog').open);
+  assert.ok(!board([{ id: 1, kind: 'scrap_card', card_id: 0, source_zone: 'hand' }]).nodes.get('decision-dialog').open);
+});
+
+test('action amounts use a single parenthesized number only when needed', async () => {
+  const { Game } = await import('../assets/runtime/engine.mjs');
+  assert.equal(Game.label(Game.action('choose_mode', -1, -1, 'gain_trade', '', 3)), 'Choose mode (gain trade) (3)');
+  assert.equal(Game.label(Game.action('end_turn')), 'End turn');
 });
