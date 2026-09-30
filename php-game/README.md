@@ -70,7 +70,7 @@ Legacy `starrealms_policies/*_policy.json` files use a different architecture an
 
 ## Audio
 
-Effects for both sides enqueue individually in rules order, including each card in Play all and separate primary, ally, and bonus gains. Sound starts are spaced at least 250 ms apart; longer clips overlap. Deck recycling sounds only when drawing requires shuffling the discard pile. Replay, restored history, and AI planning are silent. Browsers enable playback after the first user interaction. The fixed ♪ slider controls all sounds from mute to 100% (the default), without changing table layout.
+Effects for both sides enqueue individually in rules order, including each card in Play all and separate primary, ally, and bonus gains. Sound starts are spaced at least 250 ms apart; longer clips overlap. Deck recycling sounds only when drawing requires shuffling the discard pile. Replay, restored history, and AI planning are silent. Browsers enable playback after the first user interaction. Open Settings beside Game log to adjust sound volume from mute to 100% (the default).
 
 ## Gameplay and performance
 
