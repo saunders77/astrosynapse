@@ -9,6 +9,7 @@
   <meta name="arena-build" content="{{BUILD}}">
 </head>
 <body>
+  <label class="audio-control" title="Sound volume"><span aria-hidden="true">♪</span><input id="audio-volume" type="range" min="0" max="100" value="100" aria-label="Sound volume" aria-valuetext="100%"></label>
   <header class="masthead"><div><span class="eyebrow">ASTROSYNAPSE</span><h1>Better AI for Star Realms</h1></div><button id="models-open" class="quiet">Manage models</button></header>
   <header id="opponent-bar" class="game-bar opponent" hidden aria-label="Opponent statistics"><span id="opponent-name">Champion</span><div class="bar-piles"><button class="pile" data-inspect="opponent-discard">Discard <b id="opponent-discard-count">0</b></button><button class="pile" data-inspect="opponent-deck">Hand <b id="opponent-hand">5</b></button><button class="pile" data-inspect="opponent-deck">Deck <b id="opponent-deck">5</b></button></div><div class="bar-stats"><button id="opponent-attack" class="authority" type="button">Authority <b id="opponent-authority">50</b></button><span class="trade">Trade <b id="opponent-trade">0</b></span><span class="combat">Combat <b id="opponent-combat">0</b></span><span class="discard-counter">Must discard <b id="opponent-must-discard">0</b></span><span id="win-estimate" title="AI’s estimated probability that the AI will win, regardless of whose turn it is.">AI Win Probability <b id="opponent-win">—</b></span></div><button id="opponent-last-turn" type="button" data-inspect="log" title="View full game log">No AI turn yet · Game log</button></header>
   <main id="game-page">
@@ -16,7 +17,7 @@
       <label>Opponent<select id="opponent" name="opponent" required><option value="">Loading champions…</option></select></label>
       <button type="submit" id="start" class="primary" disabled>New game</button>
       <a class="stats-link" href="#stats">Stats</a>
-      <span class="setup-note">First turn is chosen randomly. Runs on your device. Level 10 loads by default; other levels download when selected.</span>
+      <span class="setup-note"></span>
     </form>
     <div id="error" class="error" role="alert" hidden></div>
     <div id="status" class="status" role="status" aria-live="polite">Loading your local game…</div>

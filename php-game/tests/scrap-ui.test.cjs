@@ -236,3 +236,23 @@ test('action amounts use a single parenthesized number only when needed', async 
   assert.equal(Game.label(Game.action('choose_mode', -1, -1, 'gain_trade', '', 3)), 'Choose mode (gain trade) (3)');
   assert.equal(Game.label(Game.action('end_turn')), 'End turn');
 });
+
+test('audio enqueues only new effects and clears the queue for a new game', async () => {
+  const { context } = board([]);
+  context.clearTimeout = () => {};
+  vm.runInContext(`
+    lock = () => {}; render = () => {}; renderStats = () => {};
+    globalThis.heard = []; globalThis.cleared = 0;
+    audio = { enqueue: sounds => heard.push(...sounds), clear: () => cleared++ };
+    game = {id: 'one', sounds: ['playerturn'], status: 'your_turn'};
+    api = async () => ({ game: {id: 'one', sounds: ['playerturn', 'combat', 'trade', 'combat'], status: 'your_turn'} });
+  `, context);
+  await vm.runInContext('request({})', context);
+  assert.deepEqual(Array.from(context.heard), ['combat', 'trade', 'combat']);
+  await vm.runInContext('request({})', context);
+  assert.equal(context.heard.length, 3, 'Repeated state does not replay sounds');
+  vm.runInContext(`api = async () => ({ game: {id: 'two', sounds: ['playerturn'], status: 'your_turn'} });`, context);
+  await vm.runInContext('request({})', context);
+  assert.equal(context.cleared, 1);
+  assert.deepEqual(Array.from(context.heard), ['combat', 'trade', 'combat', 'playerturn']);
+});

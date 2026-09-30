@@ -1,8 +1,10 @@
+import { GameAudio } from './audio.mjs';
 import { opponentTurnSummary } from './turn-summary.mjs';
 import { recordResult, readStats } from './stats.mjs';
 import { configureResources, resourceURL } from './resources.mjs';
 import { localModels } from './local-models.mjs';
 const $ = id => document.getElementById(id);
+let audio;
 let cards = [], models = [], game = null, busy = false, timer = null, openPile = null, worker, release, base, savedKey;
 let requestId = 0; const waiting = new Map();
 const aliasesKey = 'astro-model-names:' + location.pathname.replace(/index\.html$/, '');
@@ -11,7 +13,7 @@ let aliases = {}; try { aliases = JSON.parse(localStorage.getItem(aliasesKey) ||
 const art = c => `https://www.starrealms.com/card-gallery/images/content/card-gallery/${c.name.toLowerCase().replaceAll(' ', '-')}.webp`;
 const el = (tag, className, text) => { const n = document.createElement(tag); if (className) n.className = className; if (text !== undefined) n.textContent = text; return n; };
 const showError = (message, id = 'error') => { $(id).textContent = message; $(id).hidden = !message; };
-function lock(value) { busy = value; document.body.classList.toggle('busy', value); document.querySelectorAll('button, select, input').forEach(n => n.disabled = (value && !n.matches('.details, .pile, [data-close], [data-inspect], [data-open]')) || n.dataset.unavailable === 'true'); }
+function lock(value) { busy = value; document.body.classList.toggle('busy', value); document.querySelectorAll('button, select, input').forEach(n => n.disabled = (value && !n.matches('.details, .pile, [data-close], [data-inspect], [data-open], #audio-volume')) || n.dataset.unavailable === 'true'); }
 function api(payload) {
   return new Promise((resolve, reject) => {
     const id = ++requestId; waiting.set(id, { resolve, reject }); worker.postMessage({ ...payload, requestId: id });
@@ -41,7 +43,15 @@ async function request(payload, errorTarget = 'error') {
     if (data.models) { models = data.models; renderModels(); }
     if ('saved' in data) saveGame(data.saved);
     if (data.notice) showError(data.notice);
-    if ('game' in data) { game = data.game; render(); renderStats(); }
+    if ('game' in data) {
+      if (data.game) {
+        const sameGame = game?.id === data.game.id;
+        if (!sameGame) audio.clear();
+        // Reconstructed history is deterministic; only newly applied effects play.
+        audio.enqueue(data.game.sounds.slice(sameGame ? game.sounds.length : 0));
+      }
+      game = data.game; render(); renderStats();
+    }
     return data;
   } catch (e) { showError(e.message, errorTarget); $('status').textContent = 'Paused. Your last saved game is preserved. Retry or refresh to resume.'; }
   finally { lock(false); if (game?.status === 'model_thinking' && !$('error').textContent) schedule(); }
@@ -284,7 +294,15 @@ export async function start(options) {
   window.addEventListener('hashchange', navigate);
   window.addEventListener('storage', renderStats);
   navigate();
-  ({ release, base } = options); configureResources(base, release); savedKey = 'astro-game:' + new URL(base).pathname;
+  ({ release, base } = options); configureResources(base, release);
+  audio = new GameAudio();
+  audio.preload();
+  for (const event of ['pointerdown', 'keydown', 'click']) document.addEventListener(event, () => audio.unlock(), { capture: true });
+  $('audio-volume').addEventListener('input', e => {
+    audio.setVolume(Number(e.target.value) / 100);
+    e.target.setAttribute('aria-valuetext', e.target.value + '%');
+  });
+  savedKey = 'astro-game:' + new URL(base).pathname;
   worker = new Worker(resourceURL('assets/worker.js'), { type: 'module' });
   worker.onmessage = ({ data: message }) => {
     if (message.progress) { $('status').textContent = message.progress; return; }

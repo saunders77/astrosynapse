@@ -35,7 +35,7 @@ export class Game {
     return s[0].toUpperCase()+s.slice(1);
   }
   constructor(seed,starts=0,chooser=()=>0) {
-    Object.assign(this,{seed,starting_player:starts,active_player:starts,chooser,players:[],trade_deck:[],trade_row:[],scrap_heap:[],log:[],explorers_remaining:10,turns:0,decisions:0,turn_actions:0,uid:0,winner:null,result:null,decision_hook:null,choose_override:null,manual_player:null,searchDraw:false});
+    Object.assign(this,{seed,starting_player:starts,active_player:starts,chooser,players:[],trade_deck:[],trade_row:[],scrap_heap:[],sounds:[],log:[],explorers_remaining:10,turns:0,decisions:0,turn_actions:0,uid:0,winner:null,result:null,decision_hook:null,choose_override:null,manual_player:null,searchDraw:false});
     const rng=new Rng(seed+101);
     for(const c of Game.cards()) for(let i=0;i<c.copies;i++) this.trade_deck.push(c.card_id);
     rng.shuffle(this.trade_deck);
@@ -47,7 +47,7 @@ export class Game {
     const g=Object.assign(Object.create(Game.prototype),this);
     for(const k of ['trade_deck','trade_row','scrap_heap']) g[k]=[...this[k]];
     g.players=this.players.map(p=> { const q=Object.assign(Object.create(Player.prototype),p); q.rng=Object.assign(Object.create(Rng.prototype),p.rng); for(const k of ['deck','hand','discard','known_top','revealed_hand']) q[k]=[...p[k]]; q.in_play=p.in_play.map(i=>Object.assign(Object.create(InPlay.prototype),i)); return q; });
-    g.log=[]; g.decision_hook=null; return g;
+    g.log=[]; g.sounds=[]; g.decision_hook=null; return g;
   }
   run() {
     try { while(this.winner===null && this.turns<240) { this.takeTurn(this.players[this.active_player]); if(this.winner===null) this.active_player=1-this.active_player; } this.result={winner:this.winner,turns:this.turns,truncated:this.winner===null}; }
@@ -65,6 +65,7 @@ export class Game {
     if(this.decision_hook) this.decision_hook(this,p.id,d,a); return a;
   }
   takeTurn(p) {
+    if(p.id===0) this.sounds.push('playerturn');
     this.turns++; this.turn_actions=0; p.combat=p.trade=p.blob_cards_played=0; p.next_ship_top=false;
     for(const i of p.in_play) { i.ally_triggered=false; i.activated=!Game.manual(i.card); this.resources(p,i.card); if(Game.card(i.card).primary==='ship_top') p.next_ship_top=true; }
     while(p.must_discard>0 && p.hand.length) { const a=this.choose(p,'discard',this.handActions(p,'discard_card'),'Choose a card to discard'); this.discardHand(p,a.opaque[0]); p.must_discard--; }
@@ -94,8 +95,8 @@ export class Game {
       case 'activate_base': i=this.find(p,a.opaque[0]); i.activated=true; this.effect(p,Game.card(i.card).primary,0,i); this.allies(p); break;
       case 'activate_ally': i=this.find(p,a.opaque[0]); i.ally_triggered=true; c=Game.card(i.card); this.effect(p,c.ally,c.ally_amount,i); break;
       case 'scrap_for_ability': i=this.find(p,a.opaque[0]); this.remove(p,i); this.scrap(i.original); c=Game.card(i.card); this.effect(p,c.scrap,c.scrap_amount,i); break;
-      case 'attack_base': i=this.find(op,a.opaque[0]); p.combat-=Game.card(i.card).defense; this.remove(op,i); op.discard.push(i.original); break;
-      case 'attack_player': op.authority-=p.combat; p.combat=0; if(op.authority<=0) this.winner=p.id; break;
+      case 'attack_base': this.sounds.push('attack'); i=this.find(op,a.opaque[0]); p.combat-=Game.card(i.card).defense; this.remove(op,i); op.discard.push(i.original); break;
+      case 'attack_player': this.sounds.push('attack'); op.authority-=p.combat; p.combat=0; if(op.authority<=0) this.winner=p.id; break;
       case 'acquire': if(a.source_zone==='explorer_supply') { p.trade-=2; this.explorers_remaining--; this.place(p,2); } else this.acquire(p,a.opaque[0],a.amount); break;
       case 'end_turn': return true;
       default: throw new Error('Unknown main action');
@@ -104,7 +105,7 @@ export class Game {
   play(p,j) {
     const id=p.hand.splice(j,1)[0]; this.forget(p,id); const i=new InPlay(++this.uid,id); p.in_play.push(i);
     if(Game.card(id).faction==='blob' && id!==23) p.blob_cards_played++;
-    this.allies(p,true); this.resources(p,id); if(Game.ship(id)&&this.fleet(p)) p.combat++;
+    this.allies(p,true); this.resources(p,id); if(Game.ship(id)&&this.fleet(p)) this.gain(p,'combat',1);
     this.primary(p,i); this.allies(p);
   }
   primary(p,i) {
@@ -116,7 +117,8 @@ export class Game {
     if(c.primary==='embassy_yacht') { i.activated=false; return; }
     i.activated=!Game.manual(i.card); if(c.primary&&(Game.ship(i.card)||c.primary==='ship_top')) this.effect(p,c.primary,0,i);
   }
-  resources(p,id) { const c=Game.card(id); p.combat+=c.combat; p.trade+=c.trade; p.authority+=c.authority; }
+  gain(p,resource,amount) { p[resource]+=amount; if(amount>0) this.sounds.push(resource); }
+  resources(p,id) { const c=Game.card(id); for(const resource of ['combat','trade','authority']) this.gain(p,resource,c[resource]); }
   allyAvailable(p,i) { const c=Game.card(i.card); return !!c.ally && !i.ally_triggered && p.in_play.some(o=>o.uid!==i.uid&&(o.card===19||Game.card(o.card).faction===c.faction||(o.original===23&&c.faction==='machine_cult'))); }
   allies(p,resourcesOnly=false) {
     for(const i of p.in_play) { const c=Game.card(i.card);
@@ -127,9 +129,9 @@ export class Game {
   effect(p,effect,amount,s) {
     let a,n,v,id;
     switch(effect) {
-      case 'gain_combat': p.combat+=amount; break;
-      case 'gain_trade': p.trade+=amount; break;
-      case 'gain_authority': p.authority+=amount; break;
+      case 'gain_combat': this.gain(p,'combat',amount); break;
+      case 'gain_trade': this.gain(p,'trade',amount); break;
+      case 'gain_authority': this.gain(p,'authority',amount); break;
       case 'draw': this.draw(p,1); break;
       case 'draw_two': this.draw(p,2); break;
       case 'all_ally': case 'fleet_hq': case 'copy_ship': break;
@@ -151,7 +153,7 @@ export class Game {
       case 'draw_destroy': this.draw(p,1); this.destroy(p,s); break;
       case 'recycle':
         a=this.choose(p,'ability_mode',[Game.action('choose_mode',s.card,-1,'gain_trade','',1),Game.action('choose_mode',s.card,-1,'cycle','',2)],'Recycling Station: gain trade or cycle up to two cards');
-        if(a.ability==='gain_trade') { p.trade++; break; }
+        if(a.ability==='gain_trade') { this.gain(p,'trade',1); break; }
         n=0; for(let j=0;j<2&&p.hand.length;j++) { a=this.handActions(p,'discard_card'); a.push(Game.action('decline',s.card,-1,'cycle')); v=this.choose(p,'discard',a,'Discard a card to replace'); if(v.kind==='decline') break; this.discardHand(p,v.opaque[0]); n++; } this.draw(p,n); break;
       default: throw new Error('Unknown effect '+effect);
     }
@@ -165,19 +167,19 @@ export class Game {
   destroy(p,s) {
     const a=this.targets(p).map(t=>Game.action('destroy_base',s.card,t.card,'destroy_base','opponent_in_play',0,0,[t.uid])); if(!a.length) return;
     a.push(Game.action('decline',s.card,-1,'destroy_base')); const v=this.choose(p,'destroy_base',a,'Optionally destroy a base');
-    if(v.kind!=='decline') { const op=this.players[1-p.id],i=this.find(op,v.opaque[0]); this.remove(op,i); op.discard.push(i.original); }
+    if(v.kind!=='decline') { this.sounds.push('attack'); const op=this.players[1-p.id],i=this.find(op,v.opaque[0]); this.remove(op,i); op.discard.push(i.original); }
   }
   rowChoice(p,s,free) {
     const kind=free?'free_acquire':'scrap_trade_row',effect=free?'free_ship_to_top':'scrap_trade_row',a=[];
     this.trade_row.forEach((id,j)=> { if(id!==null&&(!free||Game.ship(id))) a.push(Game.action(kind,s.card,id,effect,'trade_row',0,0,[j])); });
     if(!a.length) return; a.push(Game.action('decline',s.card,-1,effect)); const v=this.choose(p,kind,a,free?'Optionally acquire a ship free onto your deck':'Optionally scrap a trade-row card');
-    if(v.kind==='decline') return; const j=v.opaque[0]; if(free) this.acquire(p,j,0,true); else { this.scrap_heap.push(this.trade_row[j]); this.trade_row[j]=pop(this.trade_deck); }
+    if(v.kind==='decline') return; const j=v.opaque[0]; if(free) this.acquire(p,j,0,true); else { this.sounds.push('scrap'); this.scrap_heap.push(this.trade_row[j]); this.trade_row[j]=pop(this.trade_deck); }
   }
-  scrap(id) { if(id===2) this.explorers_remaining++; else this.scrap_heap.push(id); }
+  scrap(id) { this.sounds.push('scrap'); if(id===2) this.explorers_remaining++; else this.scrap_heap.push(id); }
   acquire(p,slot,cost,top=false) { p.trade-=cost; this.place(p,this.trade_row[slot],top); this.trade_row[slot]=pop(this.trade_deck); }
   place(p,id,top=false) { if(Game.ship(id)&&(top||p.next_ship_top)) { p.deck.push(id); p.known_top.push(id); p.next_ship_top=false; } else p.discard.push(id); }
   draw(p,n) {
-    for(let j=0;j<n;j++) { if(!p.deck.length) { if(this.searchDraw||!p.discard.length) break; p.deck=p.discard; p.discard=[]; p.rng.shuffle(p.deck); p.known_top=[]; }
+    for(let j=0;j<n;j++) { if(!p.deck.length) { if(this.searchDraw||!p.discard.length) break; p.deck=p.discard; p.discard=[]; p.rng.shuffle(p.deck); this.sounds.push('shuffle'); p.known_top=[]; }
       const id=pop(p.deck); p.hand.push(id); if(p.known_top.length&&p.known_top.at(-1)===id) { p.known_top.pop(); p.revealed_hand.push(id); }
     }
   }
