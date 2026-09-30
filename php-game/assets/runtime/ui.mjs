@@ -128,7 +128,7 @@ function render() {
   if (!game) setImage($('welcome-art'), art({ name: 'Scout' }));
   $('opponent-bar').hidden = !game; $('player-bar').hidden = !game;
   $('welcome').hidden = !!game; $('board').hidden = !game;
-  if (!game) { $('status').textContent = 'Choose your opponent to begin.'; return; }
+  if (!game) { $('status').textContent = ''; return; }
   const o = game.observation, d = game.decision, actions = d?.actions || [], main = d?.family === 'main';
   $('opponent-name').textContent = game.model_label;
   $('opponent-last-turn').textContent = opponentTurnSummary(game, cards);
