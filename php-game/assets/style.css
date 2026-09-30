@@ -262,3 +262,51 @@ body.active-game .masthead,body.active-game .setup{display:none}
 /* Fixed footprint: volume changes never move the game table. */
 .audio-control{position:fixed;right:8px;top:50%;z-index:50;display:flex;align-items:center;gap:4px;width:104px;height:30px;padding:3px 7px;border:1px solid #536477;border-radius:16px;background:#14202eee;color:#fff;box-sizing:border-box}
 .audio-control input{width:72px;min-width:0;margin:0;padding:0;accent-color:#79c8ef;cursor:pointer}
+
+/* Simple, original monochrome theme. */
+:root{
+  --bg:#000;
+  --panel:#0d0d0d;
+  --panel2:#171717;
+  --line:#3a3a3a;
+  --text:#f5f5f5;
+  --muted:#aaa;
+  --accent:#fff;
+  --gold:#ddd;
+  --red:#ff7676;
+  font-family:Arial,Helvetica,sans-serif;
+}
+body{background:#000}
+button{background:#1b1b1b;border-color:#666}
+button:hover:not(:disabled){background:#2a2a2a;border-color:#fff}
+button.primary{background:#fff;border-color:#fff;color:#000}
+button.primary:hover:not(:disabled){background:#ddd}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline-color:#fff}
+select,input{background:#0d0d0d}
+.card img,.card-face{background:#000}
+.market{background:#090909}
+.decision{background:#111;border-color:#555}
+.card.actionable{border-color:#fff;box-shadow:0 0 0 1px #fff}
+.card.actionable .move,.card-actions .move{background:#222!important;border-color:#777}
+.pile{background:#0d0d0d}
+.pile-back{border-color:#aaa;background:repeating-linear-gradient(45deg,#444 0 3px,#181818 3px 6px);box-shadow:2px -2px 0 #050505,3px -3px 0 #777}
+.discard-pile .pile-back{background:repeating-linear-gradient(-45deg,#555 0 3px,#222 3px 6px)}
+.game-bar{background:#0d0d0df5}
+.card-name,.card-state,.card-heading{background:#050505e8}
+.card-actions .details{background:#181818e8;border-color:#888}
+dialog::backdrop{background:#000d}
+#decision-options .choice{background:#1b1b1b;border-color:#777}
+#decision-options .choice:hover:not(:disabled){background:#2a2a2a}
+#result-banner,#result-banner[data-outcome=loss],#result-banner[data-outcome=draw]{background:#111}
+.audio-control{border-color:#666;background:#0d0d0dee}
+.audio-control input{accent-color:#fff}
+button.move:not(:disabled),.card.actionable .move:not(:disabled),button.choice:not(:disabled),.turn-controls button:not(:disabled),#opponent-attack:not(:disabled),.pile.actionable:not(:disabled){color:#000}
+#opponent-attack:not(:disabled) b,.pile.actionable:not(:disabled) b{color:#000}
+.card[data-faction]{--card-title-color:var(--text)}
+
+/* Outlines make every interactive element obvious without shifting layout. */
+:is(button,a,summary,select,input[type="file"],input[type="range"],.card-face):hover:not(:disabled){
+  outline:2px solid #fff;
+  outline-offset:2px;
+}
+.card-face:hover:not(:disabled){outline-offset:-3px}

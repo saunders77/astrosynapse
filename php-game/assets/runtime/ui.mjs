@@ -332,7 +332,7 @@ export async function start(options) {
     try { models.push(...(await localModels('list')).map(({ bytes, ...m }) => m)); } catch { /* Gameplay does not require IndexedDB. */ }
     game = data.game; renderModels(); render(); renderStats(); saveGame(data.saved);
     if (data.notice) showError(data.notice);
-    if (changed) $('status').textContent = 'The previous saved game is incompatible with these files. Start a new game.';
+    if (changed) $('status').textContent = '';
   } catch (e) { showError(e.message); $('status').textContent = 'Could not load the game. Reconnect and refresh to retry.'; }
   finally { lock(false); $('start').disabled = !models.length; if (game?.status === 'model_thinking') schedule(); }
 }
