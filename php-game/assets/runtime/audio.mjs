@@ -4,7 +4,7 @@ export const SOUNDS = ['attack', 'authority', 'combat', 'playerturn', 'scrap', '
 // Buffers are decoded once; every playback gets its own overlapping source.
 export class GameAudio {
   constructor({ Context = globalThis.AudioContext || globalThis.webkitAudioContext, load = resource,
-    later = setTimeout, cancel = clearTimeout } = {}) {
+    later = globalThis.setTimeout.bind(globalThis), cancel = globalThis.clearTimeout.bind(globalThis) } = {}) {
     Object.assign(this, { load, later, cancel, buffers: new Map(), queue: [], sources: new Set(), lastStart: -Infinity, timer: null });
     try {
       this.context = new Context();

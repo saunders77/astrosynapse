@@ -64,4 +64,31 @@ audio.enqueue(['attack']); audio.clear(); tick(300); assert.equal(starts.length,
 const failed = new GameAudio({ Context, load: async () => { throw new Error('offline'); } });
 await failed.preload(); failed.enqueue(['trade']); failed.unlock(); await Promise.resolve();
 assert.equal(failed.queue.length,0,'Unavailable audio does not block the game');
-console.log('PASS audio effects for both players, replay, batching, shuffle, preload, volume and 250 ms overlapping queue');
+// Browser timers require the Window receiver, unlike Node's native timers.
+const nativeSetTimeout = globalThis.setTimeout, nativeClearTimeout = globalThis.clearTimeout;
+try {
+  globalThis.setTimeout = function(fn, delay) {
+    assert.equal(this, globalThis, 'setTimeout must receive the browser global');
+    timers.set(++timerId, {fn, at:now+delay}); return timerId;
+  };
+  globalThis.clearTimeout = function(id) {
+    assert.equal(this, globalThis, 'clearTimeout must receive the browser global');
+    timers.delete(id);
+  };
+  const browserAudio = new GameAudio({ Context, load: async () => new ArrayBuffer(1) });
+  await browserAudio.preload();
+  await browserAudio.context.resume();
+  const before = starts.length;
+  browserAudio.enqueue(['combat', 'trade', 'attack']);
+  assert.equal(starts.length, before + 1);
+  tick(250);
+  assert.equal(starts.length, before + 2);
+  browserAudio.clear();
+  tick(250);
+  assert.equal(starts.length, before + 2, 'Clearing cancels the pending browser timer');
+  assert.equal(timers.size, 0);
+} finally {
+  globalThis.setTimeout = nativeSetTimeout;
+  globalThis.clearTimeout = nativeClearTimeout;
+}
+console.log('PASS audio effects for both players, replay, batching, shuffle, preload, volume, 250 ms overlapping queue and browser timer receivers');
