@@ -7,6 +7,9 @@ export class Session {
   // Replay only applies recorded choices; it never repeats past model inference.
   static advance(session,actor,operation='state',actionId=null) {
     if(session.resigned && operation !== 'state') throw new Error('This game is complete');
+    const undoing = operation === 'undo';
+    if(undoing) operation = 'state';
+    let lastHuman = -1;
     const resigning = operation === 'resign';
     if(resigning) operation = 'state';
     const history=[...session.transcript]; let cursor=0,live=false,pending=null,pendingPlayer=null,budget=operation==='advance'?1:0,humanSubmitted=false,batch=[],batchStarted=false;
@@ -14,7 +17,7 @@ export class Session {
     game.manual_player=0;
     game.decision_hook=(g,pid,d,a)=> { if(!live||!session.lethal.length) return; if(session.lethal[0][0]===d.family&&session.lethal[0][1]===Game.key(a)) session.lethal.shift(); else session.lethal=[]; };
     game.chooser=(g,pid,d)=> {
-      if(cursor<history.length) { const key=history[cursor++],j=d.actions.findIndex(a=>Game.key(a)===key); if(j<0) throw new Error('Game replay mismatch'); return j; }
+      if(cursor<history.length) { if(pid===0) lastHuman=cursor; const key=history[cursor++],j=d.actions.findIndex(a=>Game.key(a)===key); if(j<0) throw new Error('Game replay mismatch'); return j; }
       live=true; let selected;
       if(pid===0) {
         if(operation==='choose'&&!humanSubmitted) { if(!Number.isInteger(actionId)||!d.actions[actionId]) throw new Error('This move is no longer available'); selected=actionId; humanSubmitted=true; }
@@ -32,10 +35,16 @@ export class Session {
           selected=indices.length===1?indices[0]:actor.choose(d,indices);
         }
       }
+      if(pid===0) lastHuman=session.transcript.length;
       session.transcript.push(Game.key(d.actions[selected])); return selected;
     };
     try { game.run(); } catch(e) { if(!(e instanceof Pause)) throw e; pending=e.decision; pendingPlayer=game.active_player; }
     if(cursor!==history.length) throw new Error('Saved game contains extra decisions');
+    if(undoing) {
+      if(game.result || pendingPlayer!==0 || pending.family==='main' || lastHuman<0) throw new Error('There is no selection to cancel');
+      session.transcript.length=lastHuman; session.lethal=[]; session.revision++;
+      return Session.advance(session,actor);
+    }
     if(operation==='choose'&&!humanSubmitted) throw new Error('The game is not waiting for your move');
     if(operation==='play_all'&&!batchStarted) throw new Error('Play all is not available now');
     if(session.transcript.length!==history.length) session.revision++;
@@ -46,6 +55,6 @@ export class Session {
     // estimate from the opponent's perspective. Never treat policy scores as odds.
     const value=pending?actor.winProbability(pending):null;
     const opponentWin=game.result ? (game.result.winner===null?0.5:game.result.winner===1?1:0) : pending.observation.player_id===1?value:1-value;
-    return {sounds:game.sounds,opponent_win_probability:opponentWin,opponent_trade:game.active_player===1?game.players[1].trade:0,opponent_combat:game.active_player===1?game.players[1].combat:0,id:session.id,revision:session.revision,model_id:session.model,model_label:session.label,status:game.result!==null?'complete':pendingPlayer===0?'your_turn':'model_thinking',observation:game.observation(0),decision:pendingPlayer===0?{family:pending.family,prompt:pending.prompt,actions}:null,can_play_all:pendingPlayer===0&&game.playAllPlan(pending).length>0,action_log:game.log,result:game.result};
+    return {sounds:game.sounds,opponent_win_probability:opponentWin,opponent_trade:game.active_player===1?game.players[1].trade:0,opponent_combat:game.active_player===1?game.players[1].combat:0,id:session.id,revision:session.revision,model_id:session.model,model_label:session.label,status:game.result!==null?'complete':pendingPlayer===0?'your_turn':'model_thinking',observation:game.observation(0),decision:pendingPlayer===0?{family:pending.family,prompt:pending.prompt,actions}:null,can_undo:!game.result&&pendingPlayer===0&&pending.family!=='main'&&lastHuman>=0,can_play_all:pendingPlayer===0&&game.playAllPlan(pending).length>0,action_log:game.log,result:game.result};
   }
 }

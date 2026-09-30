@@ -256,3 +256,45 @@ test('audio enqueues only new effects and clears the queue for a new game', asyn
   assert.equal(context.cleared, 1);
   assert.deepEqual(Array.from(context.heard), ['combat', 'trade', 'combat', 'playerturn']);
 });
+
+test('cancel undoes a choice, closes either picker, and leaves restored choices accessible', async () => {
+  for (const kind of ['scrap_card', 'choose_mode']) {
+    const {context, nodes} = board([{id: 2, kind, card_id: 0, source_zone: 'hand', label: 'Choose card'}]);
+    context.clearTimeout = () => {};
+    vm.runInContext(`
+      game.id = 'test'; game.revision = 2; game.can_undo = true; game.sounds = [];
+      lock = value => { busy = value; }; renderStats = () => {};
+      audio = {clear() {}, enqueue() {}};
+      api = async payload => {
+        globalThis.sent = payload;
+        return {game: {...game, revision: 3}};
+      };
+    `, context);
+    await vm.runInContext('cancelSelection()', context);
+    assert.equal(context.sent.op, 'undo');
+    assert.equal(context.sent.revision, 2);
+    assert.ok(!nodes.get('scrap-dialog').open);
+    assert.ok(!nodes.get('decision-dialog').open);
+    assert.equal(nodes.get('choices').children.length, 1);
+    nodes.get('choices').children[0].listeners.click();
+    assert.equal(context.chosen, 2);
+    vm.runInContext('game.revision++; render()', context);
+    assert.equal(nodes.get(kind === 'scrap_card' ? 'scrap-dialog' : 'decision-dialog').open, true);
+  }
+});
+
+test('failed cancel keeps selection open and busy cancel sends no request', async () => {
+  const {context, nodes} = board([{id: 2, kind: 'scrap_card', card_id: 0, source_zone: 'hand'}]);
+  context.clearTimeout = () => {};
+  vm.runInContext(`
+    game.can_undo = true; busy = true;
+    api = async () => { globalThis.sent = true; throw new Error('Retry cancellation'); };
+    lock = value => { busy = value; };
+  `, context);
+  await vm.runInContext('cancelSelection()', context);
+  assert.equal(context.sent, undefined);
+  vm.runInContext('busy = false', context);
+  await vm.runInContext('cancelSelection()', context);
+  assert.equal(nodes.get('scrap-dialog').open, true);
+  assert.equal(nodes.get('scrap-error').textContent, 'Retry cancellation');
+});

@@ -6,6 +6,8 @@ import { localModels } from './local-models.mjs';
 const $ = id => document.getElementById(id);
 let audio;
 let cards = [], models = [], game = null, busy = false, timer = null, openPile = null, worker, release, base, savedKey;
+let dismissedSelection = null;
+const selectionKey = () => game ? `${game.id}:${game.revision}` : null;
 let requestId = 0; const waiting = new Map();
 const aliasesKey = 'astro-model-names:' + location.pathname.replace(/index\.html$/, '');
 let aliases = {}; try { aliases = JSON.parse(localStorage.getItem(aliasesKey) || '{}'); } catch {}
@@ -46,11 +48,13 @@ async function request(payload, errorTarget = 'error') {
     if ('game' in data) {
       if (data.game) {
         const sameGame = game?.id === data.game.id;
-        if (!sameGame) audio.clear();
+        if (!sameGame || payload.op === 'undo') audio.clear();
         // Reconstructed history is deterministic; only newly applied effects play.
         audio.enqueue(data.game.sounds.slice(sameGame ? game.sounds.length : 0));
       }
-      game = data.game; render(); renderStats();
+      game = data.game;
+      if (payload.op === 'undo') dismissedSelection = selectionKey();
+      render(); renderStats();
     }
     return data;
   } catch (e) { showError(e.message, errorTarget); $('status').textContent = 'Paused. Your last saved game is preserved. Retry or refresh to resume.'; }
@@ -58,6 +62,11 @@ async function request(payload, errorTarget = 'error') {
 }
 function schedule() { clearTimeout(timer); timer = setTimeout(() => { if (!busy && game?.status === 'model_thinking') request({ op: 'advance', id: game.id, revision: game.revision }); }, 120); }
 function move(id) { if (busy) return; if (openPile === 'hand') $('pile-dialog').close(); request({ op: 'choose', id: game.id, revision: game.revision, action_id: id }, $('decision-dialog').open ? 'decision-error' : 'error'); }
+function cancelSelection() {
+  if (busy || !game?.can_undo) return;
+  const errorTarget = $('scrap-dialog').open ? 'scrap-error' : 'decision-error';
+  return request({ op: 'undo', id: game.id, revision: game.revision }, errorTarget);
+}
 function inspect(card) {
   setImage($('card-large'), art(card), true); $('card-large').alt = card.name; $('card-name').textContent = card.name;
   $('card-description').textContent = `${card.faction.replaceAll('_', ' ')} · ${card.card_type} · Cost ${card.cost}${card.defense ? ` · Defense ${card.defense}` : ''}`;
@@ -70,7 +79,7 @@ function actionName(a) {
 function renderScrap(actions) {
   const targets = game?.status === 'your_turn' ? actions.filter(a => ['scrap_card', 'scrap_trade_row'].includes(a.kind)) : [];
   const dialog = $('scrap-dialog');
-  if (!targets.length) { if (dialog.open) dialog.close(); return; }
+  if (!targets.length || dismissedSelection === selectionKey()) { if (dialog.open) dialog.close(); return; }
   $('scrap-prompt').textContent = game.decision.prompt || 'Choose a card to scrap';
   for (const [zoneName, title] of [['hand', 'Your hand'], ['discard', 'Your discard pile'], ['trade_row', 'Trade row']]) {
     const options = targets.filter(a => a.source_zone === zoneName);
@@ -161,13 +170,18 @@ function render() {
   $('resign').hidden = game.status === 'complete';
   $('resign').onclick = () => { if (busy || game.status === 'complete' || !confirm('Are you sure you want to resign?')) return; request({ op: 'resign', id: game.id, revision: game.revision }); };
   const decisionDialog = $('decision-dialog');
-  const needsDecision = game.status === 'your_turn' && d && !main && actions.length && !actions.some(a => ['scrap_card', 'scrap_trade_row'].includes(a.kind));
+  const selectionDismissed = dismissedSelection === selectionKey();
+  for (const id of ['scrap-close', 'scrap-cancel', 'decision-close', 'decision-cancel']) {
+    $(id).dataset.unavailable = String(!game.can_undo);
+    $(id).disabled = busy || !game.can_undo;
+  }
+  const needsDecision = !selectionDismissed && game.status === 'your_turn' && d && !main && actions.length && !actions.some(a => ['scrap_card', 'scrap_trade_row'].includes(a.kind));
   $('choices').replaceChildren();
   $('decision-options').replaceChildren();
-  if (needsDecision) for (const a of actions) {
+  if (needsDecision || (selectionDismissed && !main)) for (const a of actions) {
     const button = el('button', 'choice'); const id = a.target_card_id >= 0 ? a.target_card_id : a.card_id;
     if (id >= 0 && a.kind !== 'decline') { const img = el('img'); setImage(img, art(cards[id])); img.alt = ''; button.append(img); }
-    button.append(el('span', '', a.label)); button.addEventListener('click', () => move(a.id)); $('decision-options').append(button);
+    button.append(el('span', '', a.label)); button.addEventListener('click', () => move(a.id)); $(selectionDismissed ? 'choices' : 'decision-options').append(button);
   }
   $('choice-note').hidden = !(d && !main); $('choice-note').textContent = 'Resolve this choice to continue. Other actions become available afterward.';
   let status = game.status === 'model_thinking' ? `${game.model_label} is playing…` : 'Your turn · Play cards, use abilities, buy cards, or attack.';
@@ -279,8 +293,8 @@ $('opponent').addEventListener('change', async () => {
 $('play-all').addEventListener('click', () => request({ op: 'play_all', id: game.id, revision: game.revision }));
 document.querySelectorAll('[data-inspect]').forEach(b => b.addEventListener('click', () => inspectPile(b.dataset.inspect)));
 $('pile-dialog').addEventListener('close', () => { if (!$('pile-dialog').open) openPile = null; });
-$('scrap-dialog').addEventListener('cancel', e => e.preventDefault());
-$('decision-dialog').addEventListener('cancel', e => e.preventDefault());
+for (const id of ['scrap-dialog', 'decision-dialog']) $(id).addEventListener('cancel', e => { e.preventDefault(); cancelSelection(); });
+for (const id of ['scrap-close', 'scrap-cancel', 'decision-close', 'decision-cancel']) $(id).addEventListener('click', cancelSelection);
 document.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => $(b.dataset.open).showModal()));
 $('models-open').addEventListener('click', () => $('models-dialog').showModal());
 document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => $(b.dataset.close).close()));
