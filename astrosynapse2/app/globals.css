@@ -5298,3 +5298,15 @@ button.game-card:hover:not(:disabled) {
   margin-left: 0;
   transform: none;
 }
+
+.action-resource-icon {
+  display: inline-block;
+  width: 1.1em;
+  height: 1.1em;
+  margin-right: 0.35em;
+  vertical-align: -0.18em;
+  flex-shrink: 0;
+}
+.action-resource-authority { color: #22c55e; }
+.action-resource-combat { color: #ef4444; }
+.action-resource-trade { color: #facc15; }

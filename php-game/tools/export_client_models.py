@@ -54,28 +54,24 @@ def model_training_games(db, model):
 
 def levels():
     db=sqlite3.connect(f'file:{REPO}/astrosynapse2/data/astrosynapse2.sqlite3?immutable=1',uri=True)
-    # Earliest checkpoint, then selected promoted champions spanning Astro2–Astro6.
+    # Five measured opponents spanning the September 30 Elo field.
     first=db.execute('select id from checkpoints order by created_at limit 1').fetchone()[0]
-    selections=[first,'1b822120f1634e46','246e56c917644759','05ef55aaf4c548c5','0ecf69b96351463d','08aa018c672847d9']
+    selections=[(first,113),('a4a66dd88a0a41e7',743),('1b822120f1634e46',914)]
     sources=[]
-    for cid in selections:
+    for cid,elo in selections:
         row=db.execute('select actor_path from checkpoints where id=?',(cid,)).fetchone()
-        sources.append((Path(row[0]),checkpoint_training_games(db,cid),{'checkpoint_id':cid}))
+        sources.append((Path(row[0]),elo,{'checkpoint_id':cid}))
+    sources.append((REPO/'astrosynapse2/data/analysis/astro5-champion-8844ddc7295a4f60.actor.npz',1093,{'checkpoint_id':'8844ddc7295a4f60'}))
     state=json.loads((REPO/'astrosynapse2/data/progressive/evolution-20260923/state.json').read_text())
-    manifest=json.loads((REPO/'astrosynapse2/data/progressive/20260910/manifest.json').read_text())
-    inherited_games=model_training_games(db,manifest['settings']['model'])
-    for generation in [1,2,6,10]:
-        p=state['promotions'][generation-1]
-        assert p.get('passed') is True
-        # Promotion games already include preceding Astro6 stages and inherited
-        # campaigns (plus evolutionary search games), but not the original source.
-        sources.append((Path(p['actor']),inherited_games+p['games'],{'generation':generation}))
+    p=state['promotions'][9]
+    assert p.get('passed') is True
+    sources.append((Path(p['actor']),1265,{'generation':10}))
     entries=[]
-    for level,(source,games,provenance) in enumerate(sources,1):
+    for level,(source,elo,provenance) in enumerate(sources,1):
         filename=f'level-{level:02d}.astro.gz'
-        label=f'trained on {games:,} games'
+        label=f'{elo} ELO'
         meta=export(source,ROOT/'models'/filename)
-        entries.append({'id':f'level-{level:02d}','name':f'Level {level}','level':level,'file':filename,'description':label,'training_games':games,'source':str(source.relative_to(REPO)),'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),**provenance,**meta})
+        entries.append({'id':f'level-{level:02d}','name':f'Level {level}','level':level,'file':filename,'description':label,'elo':elo,'source':str(source.relative_to(REPO)),'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),**provenance,**meta})
         print(f'Level {level}: {label}; {meta["bytes"]:,} bytes')
     (ROOT/'models/registry.json').write_text(json.dumps(entries,indent=2)+'\n')
 

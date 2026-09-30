@@ -14,6 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import { matchesCardAction, cardActionLabel, type CardControl } from "./card-actions";
+import { ActionIcons } from "./action-icons";
 import { cardArtUrl } from "./card-art";
 
 export type ManualModelGroup = {
@@ -542,7 +543,7 @@ function EditableCard({
         {definition?.authority ? <span><b>{definition.authority}</b> auth</span> : null}
         {definition?.defense ? <span><b>{definition.defense}</b> defense</span> : null}
       </div>
-      {controls.length ? <div className="on-card-controls">{controls.map((control) => <button key={control.id} type="button" title={control.title} onClick={control.onClick}>{control.label}</button>)}</div> : null}
+      {controls.length ? <div className="on-card-controls">{controls.map((control) => <button key={control.id} type="button" title={control.title} onClick={control.onClick}><ActionIcons action={{ label: control.title }} />{control.label}</button>)}</div> : null}
       {onScrap ? <button type="button" className="card-art-scrap-action" onClick={onScrap} aria-label={`Scrap ${definition?.name}`}>SCRAP</button> : null}
       {tracked.activated !== undefined ? <button type="button" className={`relay-card-state ${tracked.activated ? "is-used" : ""}`} onClick={onToggleActivated} disabled={!onToggleActivated} title="Toggle activation state">{tracked.activated ? "activated" : "ready"}</button> : null}
       <div className="relay-card-controls">
@@ -1974,7 +1975,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
               <div className="relay-hard-pulse"><i /><span>{match.hard.combat > 0 ? `${match.hard.combat} damage currently available` : "Hard AI turn is waiting for input"}</span></div>
               {legalHardKinds.length ? <button type="button" className="relay-primary-command" onClick={() => { const kind = legalHardKinds[0]; setHardActionKind(kind); if (kind === "attack_player") setHardAmount(match.hard.combat); if (kind === "scrap" && !hardDecisionEffect) setHardSourceZone("in_play"); setHardActionOpen(true); }}>Record Hard AI action</button> : null}
               <div className="relay-quick-actions">
-                {legalHardKinds.map((kind) => <button key={kind} type="button" onClick={() => { setHardActionKind(kind); if (kind === "attack_player") setHardAmount(match.hard.combat); if (kind === "scrap" && !hardDecisionEffect) setHardSourceZone("in_play"); setHardAbilityChoice(""); setHardDeclined(false); setHardActionOpen(true); }}>{kind === "play" ? "Play from hand" : kind === "attack_player" ? `Attack Astro5 · ${match.hard.combat}` : kind === "attack_base" ? "Attack base" : kind === "end_turn" ? "End turn" : kind === "scrap" ? "Scrap for ability" : kind === "ability" ? "Activate ability" : titleCase(kind)}</button>)}
+                {legalHardKinds.map((kind) => <button key={kind} type="button" onClick={() => { setHardActionKind(kind); if (kind === "attack_player") setHardAmount(match.hard.combat); if (kind === "scrap" && !hardDecisionEffect) setHardSourceZone("in_play"); setHardAbilityChoice(""); setHardDeclined(false); setHardActionOpen(true); }}><ActionIcons action={{ kind }} />{kind === "play" ? "Play from hand" : kind === "attack_player" ? `Attack Astro5 · ${match.hard.combat}` : kind === "attack_base" ? "Attack base" : kind === "end_turn" ? "End turn" : kind === "scrap" ? "Scrap for ability" : kind === "ability" ? "Activate ability" : titleCase(kind)}</button>)}
               </div>
             </div>
           ) : unresolved.length ? (
@@ -2004,7 +2005,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
               {recommended ? (
                 <button type="button" className="relay-recommendation" onClick={() => applyAstroAction(recommended)}>
                   <span>Recommended</span>
-                  <strong>{recommended.label}</strong>
+                  <strong><ActionIcons action={recommended} />{recommended.label}</strong>
                   <p><b>{formatPercent(recommended.model_value)}</b>{recommendation.score_semantics === "policy_probability" ? " checkpoint action score" : " action value"}</p>
                 </button>
               ) : null}
@@ -2012,7 +2013,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
                 <header><span>All {recommendation.actions.length} legal {recommendation.actions.length === 1 ? "option" : "options"}</span><small>{recommendation.score_semantics === "policy_probability" ? "policy share" : "value"}</small></header>
                 {recommendation.actions.map((action) => (
                   <button key={action.id} type="button" className={action.model_recommended ? "is-best" : ""} onClick={() => applyAstroAction(action)}>
-                    <span>{action.label}{action.model_recommended ? <em>Recommended</em> : null}</span><b>{formatPercent(action.model_value)}</b>
+                    <span><ActionIcons action={action} />{action.label}{action.model_recommended ? <em>Recommended</em> : null}</span><b>{formatPercent(action.model_value)}</b>
                   </button>
                 ))}
               </div>

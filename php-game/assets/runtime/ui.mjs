@@ -240,7 +240,7 @@ function inspectPile(id) {
 function renderModels() {
   const selected = $('opponent').value;
   $('opponent').replaceChildren(...models.map(m => { const option = el('option', '', aliases[m.id] || m.name); option.value = m.id; return option; }));
-  $('opponent').value = models.some(m => m.id === selected) ? selected : 'level-10';
+  $('opponent').value = models.some(m => m.id === selected) ? selected : 'level-05';
   $('start').disabled = !models.length;
   $('model-list').replaceChildren(...models.map(m => {
     const form = el('form', 'rename-form'), input = el('input'); input.value = aliases[m.id] || m.name; input.maxLength = 100; input.required = true; input.setAttribute('aria-label', `Name for ${m.name}`);
@@ -249,7 +249,7 @@ function renderModels() {
     form.append(el('p', 'muted', m.description)); return form;
   }));
 }
-const statsPrefix = 'astro-results:' + location.pathname.replace(/index\.html$/, '') + ':';
+const statsPrefix = 'astro-results-v2:' + location.pathname.replace(/index\.html$/, '') + ':';
 function recordStats() {
   if (game?.status !== 'complete') return;
   try { recordResult(localStorage, statsPrefix, game); }
@@ -258,7 +258,7 @@ function recordStats() {
 function renderStats() {
   try {
     const stats = readStats(localStorage, statsPrefix);
-    const opponents = new Map(Array.from({length: 10}, (_, i) => [`level-${i + 1}`, `Level ${i + 1}`]));
+    const opponents = new Map(Array.from({length: 5}, (_, i) => [`level-${i + 1}`, `Level ${i + 1}`]));
     for (const m of models) opponents.set(m.id, aliases[m.id] || m.name);
     for (const [id, row] of stats) if (!opponents.has(id)) opponents.set(id, row.label);
     let wins = 0, losses = 0, draws = 0;

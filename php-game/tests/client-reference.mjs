@@ -23,7 +23,7 @@ for(const f of fixture.games) {
   g.run(); assert.equal(cursor,f.decisions.length); assert.deepEqual(g.result,f.result); total+=cursor;
 }
 console.log(`PASS ${fixture.games.length} games, ${total} decisions, ${lethal} lethal plans match Python`);
-const raw=gunzipSync(fs.readFileSync(new URL('../models/level-10.astro.gz',import.meta.url)));
+const raw=gunzipSync(fs.readFileSync(new URL('../models/level-05.astro.gz',import.meta.url)));
 const actor=new Actor(raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength)),enc=new Encoder(2); let maxError=0;
 for(const f of fixture.neural) {
   const state=enc.state(f.observation),actions=f.actions.map(a=>enc.action(a,f.observation));

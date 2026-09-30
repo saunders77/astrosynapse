@@ -24,24 +24,17 @@ Do not carry forward the old blanket deny rule for `models/`. The included repla
 
 ## Levels
 
-Level 10 is selected and downloaded at startup. Levels 1–9 download only when selected. Selection loads the opponent for the **next new game**; it does not change an ongoing game's opponent. Downloaded actors remain in worker memory for the page's lifetime.
+Level 5 is selected and downloaded at startup. Levels 1–4 download only when selected. Selection loads the opponent for the **next new game**; it does not change an ongoing game's opponent. Downloaded actors remain in worker memory for the page's lifetime.
 
 | Level | Actual source | Compressed model |
 |---|---|---:|
-| 1 | First checkpoint in all Astrosynapse2: `df337885a4b74416`, untrained, 0 games | 1.78 MB |
-| 2 | Astro2 champion `1b822120f1634e46`, 3,303,168 games | 4.67 MB |
-| 3 | Astro3 champion `246e56c917644759`, 2,602,496 games | 4.69 MB |
-| 4 | Astro4 champion `05ef55aaf4c548c5`, 98,176 games | 7.44 MB |
-| 5 | Astro4 champion `0ecf69b96351463d`, 502,656 games | 7.44 MB |
-| 6 | Astro5 champion `08aa018c672847d9`, 5,954,048 games | 7.45 MB |
-| 7 | Astro6 generation 1 | 7.45 MB |
-| 8 | Astro6 generation 2 | 7.45 MB |
-| 9 | Astro6 generation 6 | 7.45 MB |
-| 10 | Astro6 generation 10, the existing PHP package's top champion | 7.45 MB |
+| 1 | First Astrosynapse2 checkpoint `df337885a4b74416` · 113 Elo | 1.78 MB |
+| 2 | Astro4 champion `a4a66dd88a0a41e7` · 743 Elo | 7.44 MB |
+| 3 | Astro2 champion `1b822120f1634e46` · 914 Elo | 4.67 MB |
+| 4 | Astro5 champion `8844ddc7295a4f60` · 1,093 Elo | 7.46 MB |
+| 5 | Astro6 generation 10 · 1,265 Elo | 7.45 MB |
 
-“Generation” refers to the numbered Astro6 champion promotions in `astrosynapse2/data/progressive/evolution-20260923/state.json`. Levels 2–6 are earlier run champions chosen to span the preceding history; level 9 sits between generations 2 and 10. These are historical milestones, not calibrated, evenly spaced difficulty ratings. Level 1 is intentionally the very first, untrained checkpoint.
-
-The UI descriptions use “trained on X games”, with cumulative training games across the checkpoint’s ancestral runs. Each run is counted once; independently initialized models do not inherit unrelated older runs. Astro6 totals also include the 303,360-game source branch and 49,152-game managed experiment before progressive training, followed by the promotion’s cumulative campaign training/search count (excluding separate verification games). The registry stores this total as `training_games`.
+The displayed ratings shift the measured September 30 tournament scale so the weakest opponent is 113 Elo. The relative gaps are retained and rounded for a simple five-level difficulty ladder. The stats storage key is versioned with this lineup, so results from the former ten-level lineup do not appear in the new table.
 
 `models/registry.json` records exact source paths, checkpoint/generation IDs, source hashes, packaged hashes, byte sizes, and architecture. Weights preserve float32 values without quantization. The actor supports encoder and objective versions 1 and 2, mean-head scoring, the dominated-end-turn mask, and public-information lethal search. Arithmetic uses JavaScript doubles around float32 weights; near ties can differ from NumPy.
 
@@ -108,7 +101,7 @@ node php-game/tests/client-stats.mjs
 node php-game/tests/client-regression.mjs
 node php-game/tests/client-import.mjs
 node --test php-game/tests/scrap-ui.test.cjs
-# Differential verification against the original Python engine and all ten actors.
+# Differential verification against the original Python engine and all five actors.
 astrosynapse2/.venv/bin/python php-game/tests/build_reference.py --games 20 --output /tmp/astro-js-reference.json
 node php-game/tests/client-reference.mjs /tmp/astro-js-reference.json
 # Browser verification (install Playwright and its Chromium browser locally first).

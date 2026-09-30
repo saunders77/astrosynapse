@@ -49,8 +49,8 @@ try {
   page.on('console',m=> {if(m.type()==='error'&&!m.text().includes('404')&&!m.text().includes('ERR_INTERNET_DISCONNECTED')&&!m.text().includes('Failed to load resource: net::ERR_FAILED')) errors.push(m.text());});
   page.on('dialog',d=>d.accept());
   await page.goto(url); await page.locator('#start:not([disabled])').waitFor({timeout:30000});
-  assert.equal(await page.locator('#opponent').inputValue(),'level-10');
-  assert.deepEqual(requests.filter(x=>x.endsWith('.astro.gz')),['models/level-10.astro.gz']);
+  assert.equal(await page.locator('#opponent').inputValue(),'level-05');
+  assert.deepEqual(requests.filter(x=>x.endsWith('.astro.gz')),['models/level-05.astro.gz']);
   await page.waitForFunction(()=>document.getElementById('welcome-art').naturalWidth>0);
   assert.equal(requests.filter(x=>/\.(jpg|webp)$/.test(x)).length,0,'No artwork loads from Astrosynapse');
   assert.equal(await page.locator('#welcome-art').getAttribute('src'),'https://www.starrealms.com/card-gallery/images/content/card-gallery/scout.webp');
@@ -101,9 +101,9 @@ try {
   await page.waitForFunction(()=>document.getElementById('status').textContent==='Level 1 is ready. Start a new game to play this level.');
   await page.locator('#start').click();await page.waitForFunction(()=>document.getElementById('opponent-name').textContent==='Level 1');await page.locator('#play-all:not([hidden])').waitFor();
   assert.equal(await page.locator('#opponent-name').innerText(),'Level 1');
-  await page.locator('#opponent').selectOption('level-08');
+  await page.locator('#opponent').selectOption('level-04');
   await page.waitForFunction(()=>document.getElementById('status').textContent.startsWith('Level 8 is ready.'));
-  assert.deepEqual(requests.filter(x=>x.endsWith('.astro.gz')),['models/level-10.astro.gz','models/level-01.astro.gz','models/level-08.astro.gz']);
+  assert.deepEqual(requests.filter(x=>x.endsWith('.astro.gz')),['models/level-05.astro.gz','models/level-01.astro.gz','models/level-04.astro.gz']);
   console.log('PASS levels 1 and 8 download only on selection');
   await context.setOffline(true);
   assert.equal(await page.locator('#opponent-name').innerText(),'Level 1');

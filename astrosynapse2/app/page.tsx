@@ -16,6 +16,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { matchesCardAction, cardActionLabel, type CardControl } from "./card-actions";
+import { ActionIcons } from "./action-icons";
 import { cardArtUrl } from "./card-art";
 
 /**
@@ -3053,7 +3054,7 @@ function CardTile({
   ) : fallbackContent;
   const className = `game-card faction-${card.faction}${artUrl ? " has-card-art" : ""}${card.kind === "ship" ? "" : " card-landscape"}${compact ? " card-compact" : ""}${selected ? " is-selected" : ""}`;
   if (controls.length) {
-    return <div className={`${className} has-card-controls`}>{content}<div className="on-card-controls">{controls.map((control) => <button key={control.id} type="button" title={control.title} onClick={control.onClick} disabled={disabled}>{control.label}</button>)}{onScrap ? <button type="button" onClick={onScrap} disabled={scrapDisabled} aria-label={`Scrap ${card.name}`}>SCRAP</button> : null}</div></div>;
+    return <div className={`${className} has-card-controls`}>{content}<div className="on-card-controls">{controls.map((control) => <button key={control.id} type="button" title={control.title} onClick={control.onClick} disabled={disabled}><ActionIcons action={{ label: control.title }} />{control.label}</button>)}{onScrap ? <button type="button" onClick={onScrap} disabled={scrapDisabled} aria-label={`Scrap ${card.name}`}>SCRAP</button> : null}</div></div>;
   }
   if (onClick) {
     return (
@@ -5655,7 +5656,7 @@ export default function Home() {
             {connected && !remoteGame ? <div className="panel connected-game-empty"><EmptyState title="Start a live game" detail="Choose a checkpoint or the balanced baseline, then create a session. Every card and legal action will come from the engine." /></div> : <div className="game-shell">
               <div className="board-column">
                 <section className="player-zone opponent-zone" aria-label="Opponent board">
-                  <header><div><span className="player-avatar opponent-avatar">AI</span><p><strong>Orion</strong><small>{remoteGame?.modelLabel ?? snapshot.models.find((model) => model.id === playModel)?.label ?? "Balanced baseline"}</small></p></div><DiscardNotice count={game.opponentPendingDiscard} subject="Opponent" /><button type="button" className="zone-cards-button" onClick={() => setInventoryOpen(true)}><b>{game.opponentHandCount}</b><span>hand</span></button><button type="button" className="authority-display attack-target" onClick={attackOpponent} disabled={!canAttackOpponent} aria-label={`Attack opponent authority with ${game.attack} combat`}><small>Authority</small><strong>{game.opponentAuthority}</strong></button><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View opponent hidden hand and deck pool"><i /><span>{game.opponentDeckCount}<small>deck</small></span></button></header>
+                  <header><div><span className="player-avatar opponent-avatar">AI</span><p><strong>Orion</strong><small>{remoteGame?.modelLabel ?? snapshot.models.find((model) => model.id === playModel)?.label ?? "Balanced baseline"}</small></p></div><DiscardNotice count={game.opponentPendingDiscard} subject="Opponent" /><button type="button" className="zone-cards-button" onClick={() => setInventoryOpen(true)}><b>{game.opponentHandCount}</b><span>hand</span></button><button type="button" className="authority-display attack-target" onClick={attackOpponent} disabled={!canAttackOpponent} aria-label={`Attack opponent authority with ${game.attack} combat`}><small><ActionIcons action={{ kind: "attack_player" }} />Authority</small><strong>{game.opponentAuthority}</strong></button><button type="button" className="deck-display" onClick={() => setInventoryOpen(true)} aria-label="View opponent hidden hand and deck pool"><i /><span>{game.opponentDeckCount}<small>deck</small></span></button></header>
                   <div className="board-zone"><span className="zone-label">Opponent board · click an attackable card to attack it</span><div className="in-play-row">{game.opponentInPlay.map((card) => <CardTile key={card.id} card={card} compact controls={controlsForCard(card, "opponent_in_play")} disabled={controlsForCard(card, "opponent_in_play").length ? commandBusy !== null : !canAttackOpponentCard(card)} onClick={() => attackOpponentCard(card)} ariaLabel={`Attack ${card.name}`} />)}{!game.opponentInPlay.length ? <span className="empty-card-zone">No cards in play</span> : null}</div></div>
                   <VisiblePile label="Opponent discard pile" cards={game.opponentDiscard} />
                 </section>
@@ -5688,9 +5689,9 @@ export default function Home() {
                 <div className="decision-label"><span className="connection-pulse" /><p><small>{remoteGame?.status === "model_thinking" ? "Opponent thinking" : remoteGame?.status === "complete" ? "Game complete" : "Decision requested"}</small><strong>{remoteGame?.result ?? remoteGame?.prompt ?? "Your main phase"}</strong></p><b>Turn {game.turn}</b></div>
                 <div className="legal-actions">
                   <span className="panel-kicker"><Jargon term="actions">Legal actions</Jargon></span>
-                  {remoteGame ? remoteGame.actions.map((action, index) => <button key={action.id} type="button" className="action-button" onClick={() => submitRemoteChoice(action.id)} disabled={commandBusy === "game-choice" || remoteGame.status !== "your_turn"}><b>{titleCase(action.label)}</b><span className="action-policy-share">{action.modelValue === null ? "Policy share unavailable" : `${formatPercent(action.modelValue)} policy share`}</span><i>{index + 1}</i></button>) : <>
+                  {remoteGame ? remoteGame.actions.map((action, index) => <button key={action.id} type="button" className="action-button" onClick={() => submitRemoteChoice(action.id)} disabled={commandBusy === "game-choice" || remoteGame.status !== "your_turn"}><b><ActionIcons action={action} />{titleCase(action.label)}</b><span className="action-policy-share">{action.modelValue === null ? "Policy share unavailable" : `${formatPercent(action.modelValue)} policy share`}</span><i>{index + 1}</i></button>) : <>
                     {selectedCard && game.hand.some((card) => card.id === selectedCard) ? <button type="button" className="action-button is-recommended" onClick={() => playHandCard(game.hand.find((card) => card.id === selectedCard)!)}><b>Play selected card</b><span>Resolve its primary effect</span><i>↵</i></button> : null}
-                    <button type="button" className="action-button" onClick={attackOpponent} disabled={!canAttackOpponent}><b>Attack opponent</b><span>{game.opponentBases.length ? "Destroy the outpost first" : `${game.attack} combat available`}</span><i>A</i></button>
+                    <button type="button" className="action-button" onClick={attackOpponent} disabled={!canAttackOpponent}><b><ActionIcons action={{ kind: "attack_player" }} />Attack opponent</b><span>{game.opponentBases.length ? "Destroy the outpost first" : `${game.attack} combat available`}</span><i>A</i></button>
                     <button type="button" className="action-button" onClick={endTurn}><b>End turn</b><span>Discard hand and draw five</span><i>E</i></button>
                   </>}
                   {remoteGame && remoteGame.actions.length === 0 ? <EmptyState title={remoteGame.status === "model_thinking" ? "Opponent is thinking" : remoteGame.result ?? "No action pending"} detail={remoteGame.error ?? "The board will update automatically."} /> : null}

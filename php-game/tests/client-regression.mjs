@@ -21,7 +21,7 @@ g=setup([1,29,1]);for(let j=0;j<3;j++)g.play(g.players[0],0);ok(g.players[0].com
 g=setup([39]);g.players[0].deck=[0,1];g.play(g.players[0],0);ok(g.players[0].hand.length===2,'Command ship draws');
 g=setup([9]);g.play(g.players[0],0);g.players[0].blob_cards_played=3;g.players[0].deck=[0,0,1,1];g.chooser=()=>1;g.effect(g.players[0],'blob_world',0,g.players[0].in_play[0]);ok(g.players[0].hand.length===3,'Blob draw count');
 g=setup([1]);g.players[0].combat=9;g.players[1].authority=5;g.players[1].in_play=[new InPlay(50,48),new InPlay(51,8)];ok(!g.mainActions(g.players[0]).some(a=>a.kind==='attack_player'||a.target_card_id===8),'Outposts protect');ok(Lethal.plan(g,{family:'main',observation:g.observation(0)}).length>0,'Lethal outpost plan');
-const raw=gunzipSync(fs.readFileSync(new URL('../models/level-10.astro.gz',import.meta.url))),actor=new Actor(raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength)),m={id:'level-10',name:'Level 10'};
+const raw=gunzipSync(fs.readFileSync(new URL('../models/level-05.astro.gz',import.meta.url))),actor=new Actor(raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength)),m={id:'level-05',name:'Level 5'};
 let s=Session.start(m,true,1234),a=Session.advance(s,actor),b=Session.advance(s,actor);assert.deepEqual(a,b);count++;
 const original=structuredClone(s);a=Session.advance(s,actor,'play_all');ok(a.observation.hand.length===0&&s.transcript.length===3,'Batch records each move');ok(a.revision===1,'One batch revision');
 s=structuredClone(original);assert.throws(()=>Session.advance(s,actor,'choose',999));assert.deepEqual(s,original);count++;

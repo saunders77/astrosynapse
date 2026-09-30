@@ -21,7 +21,7 @@ async function handle(p) {
   if(p.op==='init') {
     configureResources(p.base,p.release);
     [Game.catalog,models]=await Promise.all(['assets/cards.json','models/registry.json'].map(async path=>JSON.parse(new TextDecoder().decode(await resource(path)))));
-    await actorFor('level-10');
+    await actorFor('level-05');
     if(p.saved) { session=p.saved; try { const actor=await actorFor(session.model); return {models,cards:Game.catalog,game:Session.advance(session,actor),saved:session}; } catch(e) { session=null; return {models,cards:Game.catalog,game:null,saved:null,notice:'The saved game could not be restored: '+e.message}; } }
     return {models,cards:Game.catalog,game:null,saved:null};
   }
