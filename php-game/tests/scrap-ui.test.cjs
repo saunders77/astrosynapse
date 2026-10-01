@@ -300,3 +300,21 @@ test('failed cancel keeps selection open and busy cancel sends no request', asyn
   assert.equal(nodes.get('scrap-dialog').open, true);
   assert.equal(nodes.get('scrap-error').textContent, 'Retry cancellation');
 });
+
+test('home hides the table without discarding the match and supports resuming', () => {
+  const { context, nodes } = board([], 'your_turn');
+  vm.runInContext("location.hash = '#home'; navigate();", context);
+  assert.equal(nodes.get('board').hidden, true);
+  assert.equal(nodes.get('opponent-bar').hidden, true);
+  assert.equal(nodes.get('player-bar').hidden, true);
+  assert.equal(nodes.get('welcome').hidden, false);
+  assert.equal(nodes.get('result-banner').hidden, true);
+  assert.equal(nodes.get('resume-game').hidden, false);
+  assert.equal(vm.runInContext('game === fixture', context), true);
+  assert.equal(vm.runInContext("document.body.classes.has('active-game')", context), false);
+  vm.runInContext("location.hash = '#game'; navigate();", context);
+  assert.equal(nodes.get('board').hidden, false);
+  assert.equal(nodes.get('welcome').hidden, true);
+  assert.equal(nodes.get('opponent-bar').hidden, false);
+  assert.equal(vm.runInContext("document.body.classes.has('active-game')", context), true);
+});

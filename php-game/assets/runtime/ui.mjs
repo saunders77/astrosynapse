@@ -53,6 +53,7 @@ async function request(payload, errorTarget = 'error') {
         audio.enqueue(data.game.sounds.slice(sameGame ? game.sounds.length : 0));
       }
       game = data.game;
+      if (payload.op === 'new' && game) location.hash = '#game';
       if (payload.op === 'undo') dismissedSelection = selectionKey();
       render(); renderStats();
     }
@@ -121,14 +122,16 @@ function cardView(id, actions = [], state = '') {
 }
 function zone(id, entries) { const node = $(id); node.replaceChildren(...entries); if (!entries.length) node.append(el('span', 'empty', 'No cards')); }
 function render() {
-  document.body.classList.toggle('active-game', !!game && game.status !== 'complete');
+  const home = location.hash === '#home';
+  document.body.classList.toggle('active-game', !!game && game.status !== 'complete' && !home);
   recordStats();
   imageObserver.disconnect();
-  document.body.classList.toggle('playing', !!game && location.hash !== '#stats');
-  if (!game) setImage($('welcome-art'), art({ name: 'Scout' }));
-  $('opponent-bar').hidden = !game; $('player-bar').hidden = !game;
-  $('welcome').hidden = !!game; $('board').hidden = !game;
-  if (!game) { $('status').textContent = ''; return; }
+  document.body.classList.toggle('playing', !!game && location.hash !== '#stats' && !home);
+  if (!game || home) setImage($('welcome-art'), art({ name: 'Scout' }));
+  $('opponent-bar').hidden = !game || home; $('player-bar').hidden = !game || home;
+  $('welcome').hidden = !!game && !home; $('board').hidden = !game || home;
+  $('resume-game').hidden = !home || !game || game.status === 'complete';
+  if (!game || home) { $('result-banner').hidden = true; $('status').textContent = ''; return; }
   const o = game.observation, d = game.decision, actions = d?.actions || [], main = d?.family === 'main';
   $('opponent-name').textContent = game.model_label;
   $('opponent-last-turn').textContent = opponentTurnSummary(game, cards);
@@ -276,7 +279,12 @@ function navigate() {
   const stats = location.hash === '#stats';
   $('game-page').hidden = stats; $('stats-page').hidden = !stats;
   document.body.classList.toggle('viewing-stats', stats);
-  document.body.classList.toggle('playing', !!game && !stats);
+  document.body.classList.toggle('playing', !!game && !stats && location.hash !== '#home');
+  if (location.hash === '#home') {
+    for (const id of ['pile-dialog', 'card-dialog', 'scrap-dialog', 'decision-dialog']) if ($(id).open) $(id).close();
+    openPile = null;
+  }
+  if (cards.length) render();
   if (stats) { renderStats(); $('stats-title').focus(); }
 }
 // Fixed bars may wrap on narrow screens or with larger browser text sizes.

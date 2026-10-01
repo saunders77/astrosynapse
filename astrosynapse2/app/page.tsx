@@ -7,6 +7,7 @@ import AcquireStudentAdvice from "./acquire-student-advice";
 import Link from "next/link";
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -362,7 +363,7 @@ type TurnStatChart = {
   yLabel: string;
   description: string;
   unit: string;
-  series: { key: string; label: string; points: { turn: number; value: number; lower: number; upper: number; count: number }[] }[];
+  series: { key: string; label: string; cost: number; cardColor: CardEloEntry["cardColor"]; source: string; points: { turn: number; value: number; lower: number; upper: number; count: number }[] }[];
 };
 
 type CardAnalysisView = {
@@ -2064,6 +2065,13 @@ function titleCase(value: string): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+const acquireChartContexts: Record<string, string> = {
+  turn: "turn number",
+  own_authority: "your authority",
+  acquired_cards: "cards already acquired",
+  opponent_authority: "opponent authority",
+};
+
 const legacyCardCosts = [
   0, 0, 2, 6, 2, 6, 4, 1, 3, 8, 7, 3, 5, 2, 5, 3, 8, 6, 7, 5, 2, 6, 4, 4, 3,
   1, 6, 2, 7, 8, 1, 3, 4, 6, 4, 3, 5, 4, 7, 8, 2, 5, 3, 1, 6, 4, 6, 5, 3,
@@ -2190,12 +2198,17 @@ function normalizeCardAnalysis(raw: unknown): CardAnalysisView | null {
     turnStatCharts: (Array.isArray(result.turn_stat_charts) ? result.turn_stat_charts : []).map((rawChart): TurnStatChart => {
       const chart = isRecord(rawChart) ? rawChart : {};
       return {
-        key: asString(chart.key, ""), label: asString(chart.label, ""),
+        key: asString(chart.key, ""), label: chart.key === "scrap_elo" ? "Scrap from hand/discard" : asString(chart.label, ""),
         yLabel: asString(chart.y_label, ""), description: asString(chart.description, ""),
         unit: asString(chart.unit, "percent"),
         series: (Array.isArray(chart.series) ? chart.series : []).map((rawSeries) => {
           const series = isRecord(rawSeries) ? rawSeries : {};
-          return { key: asString(series.key, ""), label: asString(series.label, ""),
+          const key = asString(series.key, "");
+          const cardId = Number(chart.key === "play_scrap" ? key : asString(chart.key, "").startsWith("choice:") ? asString(chart.key, "").split(":")[1] : key.split(":")[1]);
+          // Saved turn-stat reports predate card metadata; IDs share the base-set catalog.
+          const cardColor: CardEloEntry["cardColor"] = cardId >= 37 ? "blue" : cardId >= 26 ? "yellow" : cardId >= 14 ? "red" : cardId >= 3 ? "green" : "neutral";
+          return { key, label: asString(series.label, ""),
+            cost: legacyCardCosts[cardId] ?? 0, cardColor, source: key.split(":")[2] ?? "",
             points: (Array.isArray(series.points) ? series.points : []).map((rawPoint) => {
               const point = isRecord(rawPoint) ? rawPoint : {};
               return { turn: asNumber(point.turn, 1), value: asNumber(point.value, 0),
@@ -2205,14 +2218,14 @@ function normalizeCardAnalysis(raw: unknown): CardAnalysisView | null {
         }),
       };
     }),
-    bucketedCharts: rawCharts.map((chart, chartIndex): CardEloChart => {
+    bucketedCharts: rawCharts.filter((chart) => !isRecord(chart) || chart.key !== "opponent_top_color").map((chart, chartIndex): CardEloChart => {
       const item = isRecord(chart) ? chart : {};
       const rawBuckets = Array.isArray(item.buckets) ? item.buckets : [];
       return {
         acquisitionValue: isAcquisitionValueModel(item.rating_model),
         scaleLabel: acquisitionScaleLabel(item),
         key: asString(item.key, `bucket-chart-${chartIndex}`),
-        label: asString(item.label, "Bucketed Acquire Elo"),
+        label: `Acquire ELO by ${acquireChartContexts[asString(item.key, "")] ?? asString(item.label, "bucket")}`,
         unbucketedDecisions: asNumber(item.unbucketed_decisions, 0),
         buckets: rawBuckets.map((bucket, bucketIndex): CardEloBucket => {
           const bucketItem = isRecord(bucket) ? bucket : {};
@@ -3261,6 +3274,9 @@ function BucketedEloChart({
   const minimum = chart.acquisitionValue ? Math.min(0, ...plotted.map((point) => point.lowerPercentile)) : 0;
   const maximum = chart.acquisitionValue ? Math.max(3, ...plotted.map((point) => point.upperPercentile)) : 100;
   const yAt = (value: number) => plot.bottom - (value - minimum) / (maximum - minimum) * plotHeight;
+  const xAxisY = yAt(0);
+  const yTicks = Array.from({ length: 6 }, (_, row) => maximum - row / 5 * (maximum - minimum));
+  if (!yTicks.some((value) => Math.abs(value) < 1e-8)) yTicks.push(0);
   const pathFor = (points: Array<CardPercentilePoint | null>) => {
     let drawing = false;
     return points.map((point, index) => {
@@ -3301,13 +3317,13 @@ function BucketedEloChart({
               ? `${activeSeries.label} · percentile uncertainty bars visible`
               : `Within-bucket percentile · hover a line or legend name to show its ±1σ rank range${chart.unbucketedDecisions ? ` · ${numberFormatter.format(chart.unbucketedDecisions)} pre-color states omitted` : ""}`}
           </text>
-          {Array.from({ length: 6 }, (_, row) => {
-            const y = plot.top + row / 5 * plotHeight;
-            const value = maximum - row / 5 * (maximum - minimum);
+          {yTicks.map((value, row) => {
+            const y = yAt(value);
             return <g key={`grid-${row}`}><line x1={plot.left} x2={width - plot.right} y1={y} y2={y} className="bucketed-chart-grid" /><text x={plot.left - 16} y={y + 5} textAnchor="end" className="bucketed-chart-axis">{chart.acquisitionValue ? value.toFixed(1) : `${value}th`}</text></g>;
           })}
           <text transform={`translate(31 ${(plot.top + plot.bottom) / 2}) rotate(-90)`} textAnchor="middle" className="bucketed-chart-axis-title">{chart.acquisitionValue ? `Acquisition Value (${chart.scaleLabel})` : "Percentile within bucket"}</text>
-          {chart.buckets.map((bucket, index) => <g key={bucket.key}><line x1={xAt(index)} x2={xAt(index)} y1={plot.top} y2={plot.bottom} className="bucketed-chart-grid bucketed-chart-grid-vertical" /><text x={xAt(index)} y={plot.bottom + 30} textAnchor="middle" className="bucketed-chart-axis">{bucket.label}</text><text x={xAt(index)} y={plot.bottom + 50} textAnchor="middle" className="bucketed-chart-count">n={numberFormatter.format(bucket.capturedDecisions)}</text></g>)}
+          <line x1={plot.left} x2={width - plot.right} y1={xAxisY} y2={xAxisY} stroke="#d4dbe5" strokeWidth="2" />
+          {chart.buckets.map((bucket, index) => <g key={bucket.key}><line x1={xAt(index)} x2={xAt(index)} y1={plot.top} y2={plot.bottom} className="bucketed-chart-grid bucketed-chart-grid-vertical" /><text x={xAt(index)} y={xAxisY + 30} textAnchor="middle" className="bucketed-chart-axis">{bucket.label}</text><text x={xAt(index)} y={xAxisY + 50} textAnchor="middle" className="bucketed-chart-count">n={numberFormatter.format(bucket.capturedDecisions)}</text></g>)}
           {series.map((item) => {
             const active = resolvedActiveKey === item.key;
             const dimmed = resolvedActiveKey !== null && !active;
@@ -3346,14 +3362,18 @@ function BucketedEloChart({
 function TurnStatisticsChart({ chart }: { chart: TurnStatChart }) {
   const [active, setActive] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const clipId = useId();
   const width = 1920;
   const height = 900 + Math.ceil(chart.series.length / 4) * 30;
   const points = chart.series.flatMap((series) => series.points);
-  const min = chart.unit === "percent" ? 0 : Math.min(1000, ...points.map((point) => point.lower));
-  const max = chart.unit === "percent" ? 100 : Math.max(1001, ...points.map((point) => point.upper));
+  const min = 0;
+  const max = chart.unit === "percent" ? 100 : 3000;
   const x = (turn: number) => 120 + (turn - 1) / 29 * 1720;
   const y = (value: number) => 740 - (value - min) / (max - min) * 580;
-  const color = (index: number) => `hsl(${index * 137.508 % 360} 72% 64%)`;
+  const color = (series: TurnStatChart["series"][number], index: number) => chart.key === "play_scrap"
+    ? cardLineColors[series.cardColor]
+    : chart.key === "scrap_elo" ? series.source === "hand" ? "#64adff" : "#f1c75b"
+    : `hsl(${index * 137.508 % 360} 72% 64%)`;
   const download = () => {
     if (!svgRef.current) return;
     const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svgRef.current)], { type: "image/svg+xml" }));
@@ -3365,10 +3385,11 @@ function TurnStatisticsChart({ chart }: { chart: TurnStatChart }) {
     <button type="button" className="button button-secondary" onClick={download}>Save {chart.label} as SVG</button>
     <div className="bucketed-chart-frame">
       <svg ref={svgRef} xmlns="http://www.w3.org/2000/svg" className="bucketed-elo-svg" width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={chart.label} onMouseLeave={() => setActive(null)}>
+        <defs><clipPath id={clipId}><rect x="115" y="160" width="1730" height="580" /></clipPath></defs>
         <rect width={width} height={height} rx="18" fill="#101827" />
         <g fontFamily="sans-serif" fill="#d9e3ef">
           <text x="120" y="48" fontSize="30">{chart.label}</text>
-          <text x="120" y="82" fontSize="20">{chart.description}</text>
+          <text x="120" y="82" fontSize="20">{chart.key === "scrap_elo" ? "Hand = blue · Discard = yellow. Separate ratings; 95% Elo confidence intervals." : chart.description}</text>
           <text x="120" y="115" fontSize="18">Turn 30+ includes all later turns. Hover a line or legend to highlight; bars show 95% confidence intervals.</text>
           {Array.from({ length: 6 }, (_, index) => {
             const value = min + (max - min) * index / 5;
@@ -3379,14 +3400,16 @@ function TurnStatisticsChart({ chart }: { chart: TurnStatChart }) {
           <text x="980" y="815" textAnchor="middle" fontSize="22">Turn number</text>
           {!points.length ? <text x="980" y="420" textAnchor="middle" fontSize="25">No eligible observations in this run</text> : null}
           {chart.series.map((series, index) => {
-            const stroke = color(index);
+            const stroke = color(series, index);
             const path = series.points.map((point, i) => `${i && series.points[i - 1].turn === point.turn - 1 ? "L" : "M"}${x(point.turn)},${y(point.value)}`).join(" ");
             return <g key={series.key} opacity={active && active !== series.key ? 0.12 : 1} onMouseEnter={() => setActive(series.key)}>
+              <g clipPath={`url(#${clipId})`}>
               <path d={path} stroke={stroke} strokeWidth="3" fill="none" />
               {series.points.map((point) => <g key={point.turn}>
                 <path d={`M${x(point.turn)},${y(point.lower)}V${y(point.upper)}M${x(point.turn)-5},${y(point.lower)}h10M${x(point.turn)-5},${y(point.upper)}h10`} stroke={stroke} opacity="0.55" fill="none" />
                 <circle cx={x(point.turn)} cy={y(point.value)} r="5" fill={stroke}><title>{`${series.label}, turn ${point.turn === 30 ? "30+" : point.turn}: ${point.value.toFixed(2)} (95% CI ${point.lower.toFixed(2)}–${point.upper.toFixed(2)}), n=${point.count}`}</title></circle>
               </g>)}
+              </g>
               <g transform={`translate(${120 + index % 4 * 440} ${875 + Math.floor(index / 4) * 30})`} tabIndex={0} onFocus={() => setActive(series.key)} onBlur={() => setActive(null)} aria-label={series.label}>
                 <line x1="0" x2="28" y1="-6" y2="-6" stroke={stroke} strokeWidth="3" /><text x="38" fontSize="18">{series.label}</text>
               </g>
@@ -3398,20 +3421,26 @@ function TurnStatisticsChart({ chart }: { chart: TurnStatChart }) {
   </article>;
 }
 
-function BucketedEloCharts({ charts }: { charts: CardEloChart[] }) {
+function BucketedEloCharts({ charts, turnCharts }: { charts: CardEloChart[]; turnCharts: TurnStatChart[] }) {
   const [selectedCosts, setSelectedCosts] = useState<number[]>(chartCostOptions);
   const [selectedColors, setSelectedColors] = useState<CardEloEntry["cardColor"][]>(
     chartColorOptions.map((option) => option.key),
   );
   const availableCards = useMemo(() => {
-    const cards = new Map<string, CardEloEntry>();
+    const cards = new Map<string, Pick<CardEloEntry, "cost" | "cardColor">>();
     charts.forEach((chart) => chart.buckets.forEach((bucket) => {
       bucket.leaderboard.forEach((entry) => {
         if (entry.decisions > 0) cards.set(entry.key, entry);
       });
     }));
+    turnCharts.forEach((chart) => chart.series.forEach((series) => {
+      if (chart.key === "scrap_elo" && !["hand", "discard"].includes(series.source)) return;
+      const cardKey = chart.key.startsWith("choice:") ? chart.key.replace("choice:", "card:")
+        : chart.key === "play_scrap" ? `card:${series.key}` : series.key.split(":").slice(0, 2).join(":");
+      cards.set(cardKey, series);
+    }));
     return [...cards.values()];
-  }, [charts]);
+  }, [charts, turnCharts]);
   const visibleCardCount = availableCards.filter((card) => (
     selectedCosts.includes(card.cost) && selectedColors.includes(card.cardColor)
   )).length;
@@ -3426,14 +3455,24 @@ function BucketedEloCharts({ charts }: { charts: CardEloChart[] }) {
     setSelectedColors(chartColorOptions.map((option) => option.key));
   };
 
+  const filteredTurnCharts = turnCharts.map((chart) => ({ ...chart, series: chart.series.filter((series) =>
+    selectedCosts.includes(series.cost) && selectedColors.includes(series.cardColor)
+    && (chart.key !== "scrap_elo" || ["hand", "discard"].includes(series.source))),
+  }));
+  const renderAcquire = (chart: CardEloChart) => <BucketedEloChart key={chart.key} chart={chart} selectedCosts={selectedCosts} selectedColors={selectedColors} />;
+  const renderTurn = (chart: TurnStatChart) => <TurnStatisticsChart key={chart.key} chart={chart} />;
+
   return <div className="bucketed-elo-results">
-    <p>{charts.some((chart) => chart.acquisitionValue) ? `Acquisition values use every purchase and available stopping decision, weighted equally per turn. Contexts are captured at turn start. No Card = 0. ${charts[0]?.scaleLabel}. Intervals are approximate 95% ranges clustered by game, conditional on the fitted scale. Values model visible-market bundles, not win contribution. Sparse buckets use weak regularization; unsupported estimates are omitted.` : "Five independent post-hoc views of the same acquisition choices. Each view ranks cards independently within every bucket."}</p>
-    <section className="bucketed-chart-filters" aria-label="Filter cards shown in bucketed charts">
+    <p>{charts.some((chart) => chart.acquisitionValue) ? `Acquisition values use every purchase and available stopping decision, weighted equally per turn. Contexts are captured at turn start. No Card = 0. ${charts[0]?.scaleLabel}. Intervals are approximate 95% ranges clustered by game, conditional on the fitted scale. Values model visible-market bundles, not win contribution. Sparse buckets use weak regularization; unsupported estimates are omitted.` : "Independent post-hoc views of the same acquisition choices. Each view ranks cards independently within every bucket."}</p>
+    <section className="bucketed-chart-filters" aria-label="Filter cards shown in all charts">
       <header><div><span>Chart filters</span><strong>{visibleCardCount} of {availableCards.length} options visible</strong></div><button type="button" onClick={resetFilters}>Reset filters</button></header>
-      <fieldset><legend>Cost / special choice</legend><div>{chartCostOptions.map((cost) => <button type="button" key={cost} aria-pressed={selectedCosts.includes(cost)} onClick={() => toggleCost(cost)}>{cost === 0 ? "No Card" : `Cost ${cost}`}</button>)}</div></fieldset>
+      <fieldset><legend>Cost / special choice</legend><div>{chartCostOptions.map((cost) => <button type="button" key={cost} aria-pressed={selectedCosts.includes(cost)} onClick={() => toggleCost(cost)}>{cost === 0 ? "Cost 0 / No Card" : `Cost ${cost}`}</button>)}</div></fieldset>
       <fieldset><legend>Colour</legend><div>{chartColorOptions.map((option) => <button type="button" key={option.key} className={`filter-color-${option.key}`} aria-pressed={selectedColors.includes(option.key)} onClick={() => toggleColor(option.key)}><i style={{ background: cardLineColors[option.key] }} />{option.label}</button>)}</div></fieldset>
     </section>
-    {visibleCardCount ? charts.map((chart) => <BucketedEloChart key={chart.key} chart={chart} selectedCosts={selectedCosts} selectedColors={selectedColors} />) : <EmptyState title="No options match these filters" detail="Select at least one cost or special choice and one colour to restore chart lines." />}
+    {charts.filter((chart) => chart.key === "turn").map(renderAcquire)}
+    {filteredTurnCharts.filter((chart) => !chart.key.startsWith("choice:")).map(renderTurn)}
+    {charts.filter((chart) => chart.key !== "turn").map(renderAcquire)}
+    {filteredTurnCharts.filter((chart) => chart.key.startsWith("choice:") && chart.series.length > 0).map(renderTurn)}
   </div>;
 }
 
@@ -5605,8 +5644,7 @@ export default function Home() {
                   {analysisResult.acquisitionValue ? <h3>Whole-game acquisition values · all turns</h3> : null}
                   {analysisResult.acquisitionValue ? <p>Refitted from all turns, with equal weight per eligible turn. Brackets show approximate 95% confidence intervals. {analysisResult.calibrationMessage || analysisResult.scaleLabel}</p> : null}
                   {analysisResult.acquisitionValue || !analysisResult.bucketedCharts.length ? <div className="card-elo-table" role="table" aria-label={analysisResult.acquisitionValue ? "Whole-game acquisition values" : `${analysisResult.kind} card Elo rankings`}><div className="card-elo-row card-elo-header" role="row"><span role="columnheader">Rank / card</span><span role="columnheader">{analysisResult.acquisitionValue ? "Value" : "Elo"}</span><span role="columnheader">{analysisResult.acquisitionValue ? "95% CI" : "± uncertainty"}</span><span role="columnheader">Decisions</span><span role="columnheader">{analysisResult.acquisitionValue ? "Chosen" : "Comparisons"}</span></div>{analysisResult.leaderboard.map((entry, index) => <div className="card-elo-row" role="row" key={entry.key}><span role="cell"><b>{index + 1}</b><CardArtHover name={entry.cardName}><strong>{entry.label}</strong></CardArtHover></span><span role="cell">{entry.supported ? entry.elo.toFixed(2) : "—"}</span><span role="cell">{analysisResult.acquisitionValue ? entry.fixedAnchor ? "Fixed anchor" : entry.ciLower === null || entry.ciUpper === null ? "Insufficient evidence" : `[${entry.ciLower.toFixed(2)}, ${entry.ciUpper.toFixed(2)}]` : entry.uncertainty === null ? "—" : entry.uncertainty.toFixed(2)}</span><span role="cell">{numberFormatter.format(entry.decisions)}</span><span role="cell">{numberFormatter.format(analysisResult.acquisitionValue ? entry.wins : entry.comparisons)}</span></div>)}</div> : null}
-                  {analysisResult.turnStatCharts.map((chart) => <TurnStatisticsChart key={chart.key} chart={chart} />)}
-                  {analysisResult.bucketedCharts.length ? <BucketedEloCharts charts={analysisResult.bucketedCharts} /> : null}
+                  {analysisResult.bucketedCharts.length || analysisResult.turnStatCharts.length ? <BucketedEloCharts charts={analysisResult.bucketedCharts} turnCharts={analysisResult.turnStatCharts} /> : null}
                 </div> : analysisRunning ? null : <EmptyState title="No comparable choices observed" detail="The sample did not contain comparable choices with sufficient evidence." />}
               </> : <EmptyState title="Choose a candidate and a probe" detail="Scrap Elo combines hand and discard evidence with No Discard. Acquire Elo includes No Card while keeping its comparisons limited to actual purchases or affordable turn-end choices." />}
             </article>
