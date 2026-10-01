@@ -351,7 +351,7 @@ function abilityLabel(effect: string, amount = 0): string {
     ship_top: "Next acquired ship goes on top",
     all_ally: "All factions count as allied",
     fleet_hq: "Ships gain one combat",
-    embassy_yacht: "Draw two with two bases",
+    embassy_yacht: "On play: draw two with two bases/outposts",
   };
   return labels[effect] ?? titleCase(effect);
 }

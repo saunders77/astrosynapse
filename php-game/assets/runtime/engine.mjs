@@ -114,7 +114,6 @@ export class Game {
       if(a.length) { const s=this.choose(p,'copy_ship',a,'Stealth Needle: copy a ship'); i.card=this.find(p,s.opaque[0]).card; }
       if(i.card!==c.card_id) { this.resources(p,i.card); this.primary(p,i); } else i.activated=true; return;
     }
-    if(c.primary==='embassy_yacht') { i.activated=false; return; }
     i.activated=!Game.manual(i.card); if(c.primary&&(Game.ship(i.card)||c.primary==='ship_top')) this.effect(p,c.primary,0,i);
   }
   gain(p,resource,amount) { p[resource]+=amount; if(amount>0) this.sounds.push(resource); }
@@ -122,7 +121,6 @@ export class Game {
   allyAvailable(p,i) { const c=Game.card(i.card); return !!c.ally && !i.ally_triggered && p.in_play.some(o=>o.uid!==i.uid&&(o.card===19||Game.card(o.card).faction===c.faction||(o.original===23&&c.faction==='machine_cult'))); }
   allies(p,resourcesOnly=false) {
     for(const i of p.in_play) { const c=Game.card(i.card);
-      if(!resourcesOnly && c.primary==='embassy_yacht'&&!i.activated&&p.in_play.filter(v=>!Game.ship(v.card)).length>=2) { i.activated=true; this.draw(p,2); }
       if((resourcesOnly?Game.RESOURCE:Game.AUTO).includes(c.ally)&&this.allyAvailable(p,i)) { i.ally_triggered=true; this.effect(p,c.ally,c.ally_amount,i); }
     }
   }

@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-type Student = { id: string; model_label: string; status: string; config: { max_nodes: number; rules_version: number } };
-type Candidate = { card_id: number; name: string; score: number; leaf: number; path: { node: number; feature: string; value: number; threshold: number; answer: string }[] };
-type Advice = { recommendation: Candidate; candidates: Candidate[]; rules_version: number; selection_rule: string };
+type Student = { id: string; model_label: string; status: string; config: { max_nodes: number; rules_version: number; student_type?: string; parameter_budget?: number } };
+type Candidate = { card_id: number; name: string; score: number; policy_share?: number; contributions?: { name: string; value: number }[]; leaf?: number; path?: { node: number; feature: string; value: number; threshold: number; answer: string }[] };
+type Advice = { student_type?: string; recommendation: Candidate; candidates: Candidate[]; rules_version: number; selection_rule: string };
 
 export default function AcquireStudentAdvice({ apiBase, observation, spent: knownSpent, positionKey }: {
   apiBase: string; observation: Record<string, unknown> | null; spent?: number; positionKey: string;
@@ -21,6 +21,7 @@ export default function AcquireStudentAdvice({ apiBase, observation, spent: know
   const body = observation ? JSON.stringify({ observation, total_trade: Number(total), spent }) : "";
   const requestKey = JSON.stringify([positionKey, student, body, total]);
   const advice = reply?.key === requestKey ? reply.advice : null;
+  const runnerUp = advice ? [...advice.candidates].sort((a, b) => b.score - a.score)[1] : null;
 
   useEffect(() => {
     let stopped = false;
@@ -64,7 +65,7 @@ export default function AcquireStudentAdvice({ apiBase, observation, spent: know
     <div className="student-advice-heading"><strong>Acquire student</strong><Link href="/students">Train & inspect ↗</Link></div>
     <label><span>Student</span><select value={students.some(s => s.id === student) ? student : ""} onChange={e => { setStudent(e.target.value); window.localStorage.setItem("astro-acquire-student", e.target.value); }}>
       <option value="">No student selected</option>
-      {students.map(s => <option key={s.id} value={s.id}>{s.model_label} · {s.id.slice(0, 6)} · rules v{s.config.rules_version}</option>)}
+      {students.map(s => <option key={s.id} value={s.id}>{s.config.student_type === "miniastro" ? `MiniAstro ${s.config.parameter_budget?.toLocaleString()} · ` : "Tree · "}{s.model_label} · {s.id.slice(0, 6)} · rules v{s.config.rules_version}</option>)}
     </select></label>
     {!students.length ? <p>No trained students yet. Train one on the Students page.</p> : null}
     {student ? <>
@@ -72,7 +73,7 @@ export default function AcquireStudentAdvice({ apiBase, observation, spent: know
       {knownSpent === undefined ? <label><span>Trade already spent this turn</span><input type="number" min="0" max="10000" step="1" value={manualSpent} onChange={e => setManualSpent(e.target.value)} /></label> : <p>Trade already spent: {knownSpent}</p>}
       <p>Include trade from cards still to be played or drawn. Training uses the teacher’s actual full-turn total. This forecast follows that same convention.</p>
       {!observation ? <p>Available during your turn once the visible position is complete.</p> : total === "" ? <p>Enter the full-turn trade total to see a recommendation.</p> : null}
-      {loading && !advice && observation && total !== "" ? <p role="status">Following the tree…</p> : null}
+      {loading && !advice && observation && total !== "" ? <p role="status">Scoring acquisition options…</p> : null}
       {error?.key === requestKey ? <p role="alert">{error.message}</p> : null}
       {advice ? <div aria-live="polite">
         <p className="student-choice">Next acquisition: <strong>{advice.recommendation.name}</strong></p>
@@ -80,8 +81,8 @@ export default function AcquireStudentAdvice({ apiBase, observation, spent: know
         {advice.rules_version !== 2 ? <p>Trained under historical rules v1; this Play experience uses rules v2.</p> : null}
         <details><summary>Why this choice?</summary>
           <p>{advice.selection_rule}</p>
-          <ol>{advice.recommendation.path.map(step => <li key={step.node}>{step.feature} ≤ {step.threshold.toLocaleString()}? <strong>{step.answer}</strong> (here: {step.value.toLocaleString()})</li>)}<li>Leaf {advice.recommendation.leaf}: score {advice.recommendation.score.toFixed(6)}.</li></ol>
-          <table><thead><tr><th>Candidate</th><th>Tree score</th><th>Leaf</th></tr></thead><tbody>{advice.candidates.map(c => <tr key={c.card_id}><td>{c.name}</td><td>{c.score.toFixed(6)}</td><td>{c.leaf}</td></tr>)}</tbody></table>
+          {advice.student_type === "miniastro" ? <><p>Exact score contributions{runnerUp ? ` compared with ${runnerUp.name}` : ""}:</p><table><thead><tr><th>Term</th><th>{advice.recommendation.name}</th><th>Alternative</th><th>Difference</th></tr></thead><tbody>{advice.recommendation.contributions?.map(c => { const other = runnerUp?.contributions?.find(v => v.name === c.name)?.value ?? 0; return <tr key={c.name}><td>{c.name}</td><td>{c.value.toFixed(3)}</td><td>{runnerUp ? other.toFixed(3) : "—"}</td><td>{runnerUp ? (c.value - other).toFixed(3) : "—"}</td></tr>; })}</tbody></table><p>Contributions explain this model’s arithmetic; they are not win probabilities or proven causes.</p></> : <ol>{advice.recommendation.path?.map(step => <li key={step.node}>{step.feature} ≤ {step.threshold.toLocaleString()}? <strong>{step.answer}</strong> (here: {step.value.toLocaleString()})</li>)}<li>Leaf {advice.recommendation.leaf}: score {advice.recommendation.score.toFixed(6)}.</li></ol>}
+          <table><thead><tr><th>Candidate</th><th>{advice.student_type === "miniastro" ? "Logit" : "Tree score"}</th><th>{advice.student_type === "miniastro" ? "Choice share" : "Leaf"}</th></tr></thead><tbody>{advice.candidates.map(c => <tr key={c.card_id}><td>{c.name}</td><td>{c.score.toFixed(6)}</td><td>{advice.student_type === "miniastro" ? `${((c.policy_share ?? 0) * 100).toFixed(1)}%` : c.leaf}</td></tr>)}</tbody></table>
         </details>
       </div> : null}
     </> : null}

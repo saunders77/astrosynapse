@@ -44,6 +44,8 @@ from .card_analysis import (
     default_games_for_kind,
 )
 from .config import RunConfig, preset_config
+from .critic import CriticManager
+from .critic_api import router as critic_router
 from .experiment_control import atomic_json
 from .hardware import system_snapshot
 from .model import regenerate_actor_snapshot
@@ -147,6 +149,7 @@ async def lifespan(app: FastAPI):
     app.state.arena = ArenaManager(store)
     app.state.card_analysis = CardAnalysisManager(store, DATA_DIR / "analysis")
     app.state.acquire_students = StudentManager(store, DATA_DIR / "acquire_students")
+    app.state.critics = CriticManager(store, DATA_DIR / "critics")
     app.state.advisor = CheckpointAdvisor()
     app.state.supervisor = Supervisor(
         store,
@@ -169,6 +172,7 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+app.include_router(critic_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -797,6 +801,10 @@ class CreateStudentRequest(BaseModel):
     seed: int = Field(default=20260924, ge=0, le=9_007_199_254_740_991)
     max_nodes: int = Field(default=100, ge=3, le=100)
     rules_version: int = Field(default=2, ge=1, le=2)
+    student_type: str = "tree"
+    parameter_budget: int = Field(default=10000, ge=1000, le=100000)
+    epochs: int = Field(default=40, ge=1, le=200)
+    source_student_id: str | None = None
 
 
 class StudentAdviceRequest(BaseModel):
@@ -852,17 +860,45 @@ def acquire_student_advice(student_id: str, payload: StudentAdviceRequest, reque
 
 @app.get("/api/acquire-students/{student_id}/download/{kind}")
 def download_acquire_student(student_id: str, kind: str, request: Request):
-    names = {"tree": "tree.txt", "student": "student.json", "samples": "samples.jsonl.gz"}
+    names = {"tree": "tree.txt", "student": "student.json", "samples": "samples.jsonl.gz",
+             "weights": "miniastro.npz", "errors": "errors.jsonl.gz", "report": "report.txt"}
     try:
         folder = request.app.state.acquire_students.folder(student_id)
         request.app.state.acquire_students.artifact(student_id)
-        if kind not in names:
+        if kind not in names or not (folder / names[kind]).is_file():
             raise KeyError(kind)
         return FileResponse(folder / names[kind], filename=f"acquire-{student_id}-{names[kind]}")
     except KeyError as error:
         raise HTTPException(status_code=404, detail="Student artifact not found") from error
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.get("/api/acquire-students/{student_id}/unit")
+def miniastro_unit(student_id: str, request: Request,
+                   group: int = Query(ge=0, le=4), unit: int = Query(ge=0, le=2000)):
+    from .miniastro import load_weights
+
+    try:
+        artifact = request.app.state.acquire_students.artifact(student_id)
+        if artifact.get("student_type") != "miniastro":
+            raise ValueError("Unit inspection requires a MiniAstro student")
+        spec = artifact["architecture"]["groups"][group]
+        if unit >= spec["width"]:
+            raise ValueError("Unit does not exist in this group")
+        weights = load_weights(artifact["weights_path"])
+        inputs = [{"feature": artifact["feature_names"][index],
+                   "weight": float(weights[f"w{group}"][j, unit]),
+                   "mean": float(weights["mean"][index]), "scale": float(weights["scale"][index])}
+                  for j, index in enumerate(spec["indices"])]
+        return {"group": spec["name"], "unit": unit,
+                "bias": float(weights[f"b{group}"][unit]),
+                "output_weight": float(weights[f"v{group}"][unit]),
+                "inputs": sorted(inputs, key=lambda item: abs(item["weight"]), reverse=True)}
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Student not found") from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @app.post("/api/card-analysis", status_code=201)

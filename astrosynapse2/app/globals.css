@@ -5199,7 +5199,8 @@ button.game-card:hover:not(:disabled) {
 .student-model-field { grid-column: 1 / -1; }
 .student-form label, .student-advice label { display: grid; gap: 8px; min-width: 0; font-size: 14px; color: var(--ink-soft); }
 .student-form input, .student-form select, .student-advice input, .student-advice select { width: 100%; min-width: 0; padding: 10px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font: inherit; }
-.student-workspace { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 3fr); gap: 20px; align-items: start; }
+.students-page { max-width: none; width: 100%; }
+.student-workspace { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 20px; align-items: start; }
 .student-history-item { display: grid; gap: 8px; width: 100%; text-align: left; padding: 14px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink-soft); overflow-wrap: anywhere; cursor: pointer; }
 .student-history-item.selected { border-color: var(--mint); background: rgba(99, 224, 190, .06); }
 .student-history-item span, .student-history-item small { font-size: 13px; line-height: 1.5; }
@@ -5234,7 +5235,7 @@ button.game-card:hover:not(:disabled) {
 .student-flow-toolbar output { min-width: 46px; text-align: center; font-variant-numeric: tabular-nums; }
 .student-flow-toolbar button { padding: 6px 10px; font-size: 14px; cursor: pointer; }
 .student-flow-toolbar button:disabled { opacity: .4; cursor: default; }
-.student-flow-viewport { width: 100%; max-height: 650px; overflow: auto; border: 1px solid var(--line-strong); border-radius: 10px; background: radial-gradient(circle, #253143 1px, transparent 1px) 0 0 / 20px 20px, #080e17; }
+.student-flow-viewport { width: 100%; max-height: 80vh; overflow: auto; border: 1px solid var(--line-strong); border-radius: 10px; background: radial-gradient(circle, #253143 1px, transparent 1px) 0 0 / 20px 20px, #080e17; }
 .student-flowchart:fullscreen { box-sizing: border-box; display: flex; flex-direction: column; width: 100vw; height: 100vh; height: 100dvh; padding: 18px; overflow: hidden; color: var(--ink); background: var(--surface); }
 .student-flowchart:fullscreen .student-flow-viewport { flex: 1 1 auto; min-height: 0; max-height: none; }
 .student-flowchart:fullscreen .student-flow-selection { flex: 0 0 auto; }
@@ -5310,3 +5311,18 @@ button.game-card:hover:not(:disabled) {
 .action-resource-authority { color: #22c55e; }
 .action-resource-combat { color: #ef4444; }
 .action-resource-trade { color: #facc15; }
+
+/* MiniAstro architecture and weight inspection. */
+.miniastro-architecture { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 20px 0; }
+.miniastro-architecture > div { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-raised); }
+.miniastro-architecture span, .miniastro-architecture small { color: var(--ink-soft); font-size: 14px; line-height: 1.5; }
+.miniastro-equation { padding: 16px; border-left: 3px solid var(--mint); background: #102825; }
+.miniastro-inspector details { margin: 18px 0; }
+.miniastro-inspector summary { cursor: pointer; color: var(--mint); font-size: 14px; }
+.miniastro-inspector .miniastro-learning-curve { display: block; width: min(100%, 900px); margin: 18px 0; }
+.miniastro-weights { max-height: 460px; overflow: auto; }
+.miniastro-weights thead { position: sticky; top: 0; background: var(--surface); }
+.miniastro-positive { color: var(--mint); }
+.miniastro-negative { color: var(--pink); }
+
+.critic-history { max-height: 22rem; overflow: auto; }

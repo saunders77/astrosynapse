@@ -74,7 +74,7 @@ function inspect(card) {
   $('card-dialog').showModal();
 }
 function actionName(a) {
-  const names = { scrap_card: 'SCRAP', play_card: 'Play', acquire: `Acquire · ${a.amount} trade`, activate_base: 'Use ability', activate_ally: 'Use ally', scrap_for_ability: 'Scrap for ability', attack_base: `Attack base · ${a.amount} combat`, destroy_base: 'DESTROY', free_acquire: 'ACQUIRE FREE', copy_ship: 'COPY', scrap_trade_row: 'SCRAP', discard_card: 'DISCARD' };
+  const names = { scrap_card: 'SCRAP', play_card: 'Play', acquire: `Acquire · ${a.amount} trade`, activate_base: 'Use ability', activate_ally: 'Use ally', scrap_for_ability: '🗑️ Scrap for ability', attack_base: `Attack base · ${a.amount} combat`, destroy_base: 'DESTROY', free_acquire: 'ACQUIRE FREE', copy_ship: 'COPY', scrap_trade_row: 'SCRAP', discard_card: 'DISCARD' };
   return names[a.kind] || a.label;
 }
 function renderScrap(actions) {
@@ -103,7 +103,7 @@ function cardView(id, actions = [], state = '') {
   const node = el('article', `card ${c.card_type !== 'ship' ? 'base' : ''} ${actions.length ? 'actionable' : ''}`);
   node.dataset.faction = c.faction;
   const face = el('button', 'card-face'); face.type = 'button';
-  const action = actions.length === 1 ? actions[0] : null;
+  const action = actions.length === 1 && actions[0].kind !== 'scrap_for_ability' ? actions[0] : null;
   face.setAttribute('aria-label', action ? (action.label || `${actionName(action)} ${c.name}`) : `Details for ${c.name}`);
   face.title = face.getAttribute('aria-label');
   face.addEventListener('click', () => action ? move(action.id) : inspect(c));

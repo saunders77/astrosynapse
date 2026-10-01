@@ -1,12 +1,13 @@
 # Acquire students
 
 Open **Acquire students** from the control center or Astro6 progress page, or visit
-`http://127.0.0.1:3000/students`. Select any retained playable checkpoint. The default
-run is 1,000 games, corrected rules v2, and at most 11 total tree nodes (including
-leaves). Historical rules v1 can be selected explicitly. An odd node budget up to
-99 is supported; maximum path depth is seven tests. This is one weighted CART
-regression tree, applied to every candidate, followed by a transparent maximum-score
-selection. There are no neural scores or additional learned models at inference.
+`http://127.0.0.1:3000/students`. Select any retained playable checkpoint. Choose
+**MiniAstro** for the shallow neural student (the default), or **Decision tree** for
+one bounded CART tree. See [MiniAstro architecture and results](MINIASTRO.md).
+The GUI defaults to 10,000 games with corrected rules v2. The tree node budget
+starts at 42; the fitted binary tree has at most 99 total nodes and path depth seven.
+Historical rules v1 remain selectable. The tree-specific fitting details below
+apply when Decision tree is selected; both architectures share sampling and labels.
 
 ## Sampling and labels
 

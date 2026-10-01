@@ -1,4 +1,4 @@
-"""A single, bounded CART tree that ranks next-acquisition candidates.
+"""Acquire-student sampling, jobs, and bounded CART/MiniAstro policies.
 
 Training uses one uniformly sampled pre-action decision boundary per player
 turn. Labels are subsequent *actual* acquisitions, never teacher logits. The
@@ -29,10 +29,11 @@ from .card_analysis import _GreedyChooser, _load_actor_encoder
 from .cards import ALL_CARDS, CARD_BY_ID, EXPLORER, Faction
 from .engine import ActionKind, Game, GameConfig, Observation
 from .experiment_control import atomic_json
+from .miniastro import TrainingCancelled
 
 SCHEMA_VERSION = 1
 NONE = -1
-ACTIVE = {"queued", "collecting", "fitting", "evaluating"}
+ACTIVE = {"queued", "collecting", "preparing", "fitting", "evaluating"}
 SAMPLING = (
     "One uniformly random pre-action decision boundary per player turn, including forced "
     "decisions. The action at that boundary is in the future. The label is the first paid "
@@ -60,16 +61,28 @@ class StudentConfig:
     seed: int = 20260924
     max_nodes: int = 100
     rules_version: int = 2
+    student_type: str = "tree"
+    parameter_budget: int = 10_000
+    epochs: int = 40
+    source_student_id: str | None = None
+    resume_student_id: str | None = None
 
     def __post_init__(self):
-        if not 20 <= self.games <= 10_000:
-            raise ValueError("games must be between 20 and 10,000")
+        limit = 100_000 if self.student_type == "miniastro" else 10_000
+        if not 20 <= self.games <= limit:
+            raise ValueError(f"games must be between 20 and {limit:,}")
         if not 3 <= self.max_nodes <= 100:
             raise ValueError("max_nodes must be between 3 and 100")
         if self.rules_version not in (1, 2):
             raise ValueError("rules_version must be 1 or 2")
         if not 0 <= self.seed < 2**63:
             raise ValueError("seed must be between 0 and 2^63 - 1")
+        if self.student_type not in {"tree", "miniastro"}:
+            raise ValueError("student_type must be tree or miniastro")
+        if self.parameter_budget not in {1000, 10_000, 100_000}:
+            raise ValueError("parameter_budget must be 1000, 10000, or 100000")
+        if not 1 <= self.epochs <= 200:
+            raise ValueError("epochs must be between 1 and 200")
 
 
 def candidate_ids(observation: Observation, total_trade=None, spent=0) -> list[int]:
@@ -419,6 +432,10 @@ def recommend(artifact, observation, total_trade, spent):
         raise ValueError("Total turn trade must cover trade already spent plus the current pool")
     if artifact.get("schema_version") != SCHEMA_VERSION:
         raise ValueError("Unsupported student feature schema")
+    if artifact.get("student_type") == "miniastro":
+        from .miniastro import recommend as miniastro_recommend
+
+        return miniastro_recommend(artifact, observation, total_trade, spent)
     candidates = []
     for cid in candidate_ids(observation, total_trade, spent):
         vector = features(observation, cid, total_trade, spent)
@@ -445,6 +462,75 @@ def recommend(artifact, observation, total_trade, spent):
     }
 
 
+def prepare_dataset(folder, config, update, cancelled):
+    saved = folder / "dataset.json"
+    if saved.exists():
+        meta = json.loads(saved.read_text())
+        update(
+            games_completed=config.games,
+            counts=meta["counts"],
+            progress=0.85,
+            dataset_source=config.source_student_id,
+        )
+        return meta
+    actor, encoder = _load_actor_encoder(str(folder / "teacher.actor.npz"))
+    splits = split_games(config.games, config.seed)
+    feature_names = None
+    counts = {
+        "turns": 0,
+        "future_market_card": 0,
+        "unavailable_target": 0,
+        "unfinished_turn": 0,
+        "truncated_games": 0,
+    }
+    with gzip.open(folder / "samples.jsonl.gz", "wt", encoding="utf-8") as output:
+        for game_index in range(config.games):
+            if cancelled():
+                raise TrainingCancelled
+            sampler = TurnSampler(_derived_seed(config.seed, game_index, "student-moment"))
+            chooser = _GreedyChooser(
+                actor, encoder, _derived_seed(config.seed, game_index, "student-policy")
+            )
+            game = Game(
+                choosers=(chooser, chooser),
+                config=GameConfig(
+                    seed=_derived_seed(config.seed, game_index, "student-game"),
+                    rules_version=config.rules_version,
+                    max_turns=240,
+                    max_actions_per_turn=220,
+                ),
+                decision_hook=sampler.observe,
+                cancel_hook=cancelled,
+            )
+            result = game.run()
+            rows = sampler.rows(game_index, truncated=result.truncated)
+            counts["truncated_games"] += int(result.truncated)
+            for row in rows:
+                row["split"] = splits[game_index]
+                output.write(json.dumps(row, separators=(",", ":")) + "\n")
+                if feature_names is None:
+                    o = next(iter(sampler.turns.values()))["observation"]
+                    feature_names = list(features(o, NONE, 0, 0))
+                counts["turns"] += 1
+                if row["excluded_reason"]:
+                    counts[row["excluded_reason"]] += 1
+            update(
+                games_completed=game_index + 1,
+                counts=counts,
+                progress=0.85 * (game_index + 1) / config.games,
+            )
+    meta = {
+        "feature_names": feature_names,
+        "counts": counts,
+        "split_games": {
+            name: sorted(g for g, split in splits.items() if split == name)
+            for name in ("train", "validation", "test")
+        },
+    }
+    atomic_json(saved, meta)
+    return meta
+
+
 def train_job(folder: Path):
     job_path = folder / "job.json"
     job = json.loads(job_path.read_text())
@@ -459,57 +545,41 @@ def train_job(folder: Path):
 
     try:
         update(status="collecting", pid=os.getpid())
-        actor, encoder = _load_actor_encoder(str(folder / "teacher.actor.npz"))
-        splits = split_games(config.games, config.seed)
+        from .miniastro import train as train_miniastro
+
+        meta = prepare_dataset(folder, config, update, cancelled)
+        if cancelled():
+            update(status="cancelled")
+            return
+        if config.student_type == "miniastro":
+            result = train_miniastro(folder, config, meta, update, cancelled)
+            artifact = {
+                "schema_version": SCHEMA_VERSION,
+                "id": job["id"],
+                "model_id": job["model_id"],
+                "model_label": job["model_label"],
+                "teacher_sha256": job["teacher_sha256"],
+                "config": asdict(config),
+                "dataset_feature_names": meta["feature_names"],
+                "counts": meta["counts"],
+                "split_games": meta["split_games"],
+                "sampling": SAMPLING,
+                "trade_definition": TRADE,
+                "limitations": "Agreement measures imitation, not playing strength. Future market targets outside the candidate set count as misses in all-turn agreement; unfinished turns are censored. Named contributions explain model arithmetic, not causal strategic value.",
+                **result,
+            }
+            atomic_json(folder / "student.json", artifact)
+            (folder / "report.txt").write_text(artifact["report_text"] + "\n", encoding="utf-8")
+            update(status="complete", progress=1.0, result=artifact)
+            return
+        feature_names, counts = meta["feature_names"], meta["counts"]
         partitions = {name: [] for name in ("train", "validation", "test")}
-        feature_names = None
-        counts = {
-            "turns": 0,
-            "future_market_card": 0,
-            "unavailable_target": 0,
-            "unfinished_turn": 0,
-            "truncated_games": 0,
-        }
-        with gzip.open(folder / "samples.jsonl.gz", "wt", encoding="utf-8") as output:
-            for game_index in range(config.games):
-                if cancelled():
-                    update(status="cancelled")
-                    return
-                sampler = TurnSampler(_derived_seed(config.seed, game_index, "student-moment"))
-                chooser = _GreedyChooser(
-                    actor, encoder, _derived_seed(config.seed, game_index, "student-policy")
-                )
-                game = Game(
-                    choosers=(chooser, chooser),
-                    config=GameConfig(
-                        seed=_derived_seed(config.seed, game_index, "student-game"),
-                        rules_version=config.rules_version,
-                        max_turns=240,
-                        max_actions_per_turn=220,
-                    ),
-                    decision_hook=sampler.observe,
-                    cancel_hook=cancelled,
-                )
-                result = game.run()
-                rows = sampler.rows(game_index, truncated=result.truncated)
-                counts["truncated_games"] += int(result.truncated)
-                for row in rows:
-                    row["split"] = splits[game_index]
-                    output.write(json.dumps(row, separators=(",", ":")) + "\n")
-                    if feature_names is None:
-                        o = next(iter(sampler.turns.values()))["observation"]
-                        feature_names = list(features(o, NONE, 0, 0))
-                    counts["turns"] += 1
-                    if row["excluded_reason"]:
-                        counts[row["excluded_reason"]] += 1
-                    # Full observations remain in the audit dataset, not in fitting RAM.
-                    row.pop("observation")
-                    partitions[row["split"]].append(row)
-                update(
-                    games_completed=game_index + 1,
-                    counts=counts,
-                    progress=0.85 * (game_index + 1) / config.games,
-                )
+        splits = {g: name for name, games in meta["split_games"].items() for g in games}
+        with gzip.open(folder / "samples.jsonl.gz", "rt") as source:
+            for line in source:
+                row = json.loads(line)
+                row.pop("observation")
+                partitions[row["split"]].append(row)
         if cancelled():
             update(status="cancelled")
             return
@@ -557,6 +627,8 @@ def train_job(folder: Path):
         atomic_json(folder / "student.json", artifact)
         (folder / "tree.txt").write_text(artifact["tree_text"] + "\n", encoding="utf-8")
         update(status="complete", progress=1.0, result=artifact)
+    except TrainingCancelled:
+        update(status="cancelled")
     except Exception as error:
         update(status="failed", error=f"{type(error).__name__}: {error}")
         raise
@@ -601,7 +673,12 @@ class StudentManager:
             job = self.get(path.parent.name)
             result = job.pop("result", None)
             if result:
-                job["summary"] = {"node_count": result["node_count"], "metrics": result["metrics"]}
+                job["summary"] = {
+                    "node_count": result.get("node_count"),
+                    "parameter_count": result.get("parameter_count"),
+                    "student_type": result.get("student_type", "tree"),
+                    "metrics": result["metrics"],
+                }
             jobs.append(job)
         return sorted(jobs, key=lambda j: j["created_at"], reverse=True)
 
@@ -613,11 +690,60 @@ class StudentManager:
             resolved = resolve_model(self.store, model_id)
             if resolved.kind != "checkpoint":
                 raise ModelResolutionError("Select a checkpoint to teach the acquire student")
+            source = None
+            if config.source_student_id:
+                try:
+                    source = self.artifact(config.source_student_id)
+                except KeyError as error:
+                    raise ValueError("Source dataset student does not exist") from error
+                if source["model_id"] != model_id:
+                    raise ValueError("Dataset must come from the selected teacher checkpoint")
+                if (
+                    source["config"]["games"] != config.games
+                    or source["config"]["rules_version"] != config.rules_version
+                ):
+                    raise ValueError("Games and rules must match the reused dataset")
+            resume = None
+            if config.resume_student_id:
+                resume = self.artifact(config.resume_student_id)
+                if (resume.get("student_type") != "miniastro"
+                        or config.student_type != "miniastro"
+                        or resume["model_id"] != model_id
+                        or resume["config"]["rules_version"] != config.rules_version
+                        or resume["config"]["parameter_budget"] != config.parameter_budget):
+                    raise ValueError("Continuation must preserve architecture, teacher and rules")
             job_id = uuid.uuid4().hex
             folder = self.output_dir / job_id
             folder.mkdir()
             shutil.copyfile(resolved.actor_path, folder / "teacher.actor.npz")
             digest = hashlib.sha256((folder / "teacher.actor.npz").read_bytes()).hexdigest()
+            if resume:
+                if digest != resume["teacher_sha256"]:
+                    raise ValueError("Continuation teacher contents changed")
+                shutil.copyfile(resume["weights_path"], folder / "resume.npz")
+                atomic_json(folder / "resume.json", {
+                    "student_id": config.resume_student_id,
+                    "feature_names": resume["feature_names"],
+                    "architecture": resume["architecture"],
+                })
+            if source:
+                if digest != source["teacher_sha256"]:
+                    raise ValueError("Teacher contents changed since the dataset was collected")
+                shutil.copyfile(
+                    self.folder(config.source_student_id) / "samples.jsonl.gz",
+                    folder / "samples.jsonl.gz",
+                )
+                atomic_json(
+                    folder / "dataset.json",
+                    {
+                        "feature_names": source.get(
+                            "dataset_feature_names", source["feature_names"]
+                        ),
+                        "counts": source["counts"],
+                        "split_games": source["split_games"],
+                        "source_student_id": config.source_student_id,
+                    },
+                )
             job = {
                 "id": job_id,
                 "model_id": model_id,

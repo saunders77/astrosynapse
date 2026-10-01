@@ -1091,9 +1091,6 @@ class Game:
             else:
                 item.activated = True  # No target: the copy cannot be saved for later.
             return
-        if card.primary == "embassy_yacht":
-            item.activated = False
-            return  # Automatically draw as soon as the two-base condition is met.
         item.activated = not self._requires_manual_primary(card)
         if card.primary and (card.is_ship or card.primary == "ship_top"):
             self._execute_effect(player, card.primary, 0, item)
@@ -1118,14 +1115,6 @@ class Game:
     def _trigger_automatic_allies(self, player: _Player, *, resources_only: bool = False) -> None:
         effects = AUTOMATIC_RESOURCE_EFFECTS if resources_only else AUTOMATIC_ALLY_EFFECTS
         for item in list(player.in_play):
-            if (
-                not resources_only
-                and item.card.primary == "embassy_yacht"
-                and not item.activated
-                and sum(other.card.is_base for other in player.in_play) >= 2
-            ):
-                item.activated = True
-                self._execute_effect(player, "embassy_yacht", 0, item)
             if (
                 item.card.ally in effects
                 and self._ally_available(player, item)

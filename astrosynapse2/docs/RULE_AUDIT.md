@@ -41,7 +41,7 @@ Corrected behavior resolves forced discard before main-phase actions. Unconditio
 Every mode and both rules versions use the digital app timing requested for training, evaluation, simulated games, arena, and acquire tests:
 
 - Ship primary effects resolve during play, including draws, scrap/destroy target prompts, Patrol Mech's resource choice, and Stealth Needle's copy choice. A Needle with no target cannot save its copy for later; copied primaries also resolve immediately.
-- Resource-only allies and ally draws resolve automatically once enabled, including allies enabled by Mech World. Embassy Yacht automatically draws two cards once two bases are in play, including when the second base enters later that turn; it draws only once.
+- Resource-only allies and ally draws resolve automatically once enabled, including allies enabled by Mech World. Embassy Yacht checks for two bases/outposts only when played and draws two cards if that condition is met. Adding a second base/outpost later does not trigger the draw.
 - Freighter's ally and Central Office's primary automatically arm next-ship top-deck placement. The next acquired ship (including Explorer) consumes it; buying a base does not. It cannot be delayed or declined.
 - Scrap/destroy effects retain their target choices and printed optional declines, but ship primary prompts must be answered immediately. Scrap-for-ability actions and other base choices remain explicit.
 - Turn-start discard pressure resolves before automatic base ally draws.

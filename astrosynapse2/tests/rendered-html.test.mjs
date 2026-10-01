@@ -34,7 +34,8 @@ test("server-renders the acquire student training page", async () => {
   const html = await response.text();
   assert.match(html, /Acquire students/);
   assert.match(html, /Teacher checkpoint/);
-  assert.match(html, /Maximum tree nodes/);
+  assert.match(html, /Parameter budget/);
+  assert.match(html, /MiniAstro/);
   assert.match(html, /Train acquire student/);
   assert.match(html, /Training progress/);
 });
@@ -287,4 +288,16 @@ test("ships the complete local Core Set art catalog and wires it into play and a
   assert.match(styles, /\.game-card\.has-card-art\.card-landscape \.game-card-art[\s\S]*?margin-left:\s*-20%[\s\S]*?transform:\s*rotate\(-90deg\)/);
   assert.match(styles, /\.relay-card\.has-card-art[\s\S]*?max-width:\s*132px[\s\S]*?aspect-ratio:\s*5 \/ 7/);
   assert.match(styles, /\.relay-card\.has-card-art\.card-landscape \.relay-card-art[\s\S]*?margin-left:\s*-20%[\s\S]*?transform:\s*rotate\(-90deg\)/);
+});
+
+
+test("server-renders independent critic training controls", async () => {
+  const response = await render("/critics");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Independent critic/);
+  assert.match(html, /Playing policy/);
+  assert.match(html, /Training epochs/);
+  assert.match(html, /Progress &amp; calibration/);
+  assert.match(html, /Start critic training/);
 });

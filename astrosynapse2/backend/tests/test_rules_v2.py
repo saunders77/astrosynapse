@@ -210,7 +210,8 @@ def test_scrapping_copied_explorer_returns_needle_not_an_extra_explorer():
 
 @pytest.mark.parametrize("version", [1, 2])
 @pytest.mark.parametrize("late_base", [False, True])
-def test_embassy_yacht_draws_automatically_once_two_bases_are_present(version, late_base):
+@pytest.mark.parametrize("ship", ["Embassy Yacht", "Stealth Needle"])
+def test_embassy_yacht_checks_two_bases_only_when_played(version, late_base, ship):
     game = Game(config=GameConfig(rules_version=version))
     player = game.players[0]
     base = CARD_BY_NAME["Battle Station"]
@@ -218,16 +219,21 @@ def test_embassy_yacht_draws_automatically_once_two_bases_are_present(version, l
     if not late_base:
         player.in_play.append(_InPlay(101, base, base, True))
     player.deck = [SCOUT, EXPLORER, SCOUT]
-    player.hand = [CARD_BY_NAME["Embassy Yacht"]]
+    if ship == "Stealth Needle":
+        yacht = CARD_BY_NAME["Embassy Yacht"]
+        player.in_play.append(_InPlay(102, yacht, yacht, True))
+    player.hand = [CARD_BY_NAME[ship]]
     game._play_card(player, 0)
+    assert player.in_play[-1].activated
     if late_base:
         assert not player.hand
         assert not any(a.kind == ActionKind.ACTIVATE_BASE for a in game._main_actions(player))
         player.hand.append(base)
         game._play_card(player, 0)
-    assert player.hand == [SCOUT, EXPLORER]
+    expected = [] if late_base else [SCOUT, EXPLORER]
+    assert player.hand == expected
     game._trigger_automatic_allies(player)
-    assert player.hand == [SCOUT, EXPLORER]
+    assert player.hand == expected
 
 
 @pytest.mark.parametrize("version", [1, 2])

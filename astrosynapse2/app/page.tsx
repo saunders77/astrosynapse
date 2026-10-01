@@ -2260,7 +2260,7 @@ const abilityDescriptions: Record<string, string> = {
   draw_destroy: "Draw 1 card, then you may destroy a base",
   draw_then_scrap: "Draw 1 card, then scrap a card from your hand",
   draw_two: "Draw 2 cards",
-  embassy_yacht: "If you control at least 2 bases, draw 2 cards",
+  embassy_yacht: "When played, if you control at least 2 bases/outposts, draw 2 cards",
   fleet_hq: "Each ship you play this turn gains 1 combat",
   free_ship: "Acquire a ship from the trade row for free and put it on top of your deck",
   opponent_discard: "Opponent discards 1 card at the start of their next turn",
@@ -5121,6 +5121,7 @@ export default function Home() {
           </button>
         ))}
         <Link href="/progressive" className="progressive-nav-link">Astro6 progress ↗</Link>
+        <Link href="/critics" className="progressive-nav-link">Critic training ↗</Link>
         <Link href="/students" className="progressive-nav-link">Acquire students ↗</Link>
       </nav>
 
