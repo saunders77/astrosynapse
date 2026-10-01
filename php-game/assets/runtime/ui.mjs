@@ -132,7 +132,7 @@ function render() {
   const o = game.observation, d = game.decision, actions = d?.actions || [], main = d?.family === 'main';
   $('opponent-name').textContent = game.model_label;
   $('opponent-last-turn').textContent = opponentTurnSummary(game, cards);
-  for (const [id, value] of Object.entries({ authority: o.own_authority, trade: o.trade, combat: o.combat, deck: o.own_deck_count, 'opponent-authority': o.opponent_authority, 'opponent-hand': o.opponent_hand_count, 'opponent-deck': o.opponent_deck_count, 'must-discard': o.pending_discard || 0, 'opponent-must-discard': o.opponent_pending_discard || 0, 'opponent-trade': game.opponent_trade || 0, 'opponent-combat': game.opponent_combat || 0, 'player-hand': o.hand.length })) $(id).textContent = value;
+  for (const [id, value] of Object.entries({ authority: o.own_authority, trade: o.trade, combat: o.combat, deck: o.own_deck_count, 'opponent-authority': o.opponent_authority, 'opponent-deck': o.opponent_hand_count + o.opponent_deck_count, 'must-discard': o.pending_discard || 0, 'opponent-must-discard': o.opponent_pending_discard || 0, 'opponent-trade': game.opponent_trade || 0, 'opponent-combat': game.opponent_combat || 0 })) $(id).textContent = value;
   $('opponent-win').textContent = Number.isFinite(game.opponent_win_probability) ? `${(game.opponent_win_probability * 100).toFixed(1)}%` : '—';
   $('turn').textContent = `TURN ${o.turn}`;
   $('hand-count').textContent = `${o.hand.length} cards`;
@@ -219,7 +219,7 @@ function shuffled(ids) {
 function renderPile() {
   const o = game.observation;
   const views = {
-    'own-deck': ['Your hand + deck', 'own-deck-cards', [...o.hand, ...(o.own_deck || []), ...(o.own_known_top || [])]],
+    'own-deck': ['Your deck', 'own-deck-cards', [...(o.own_deck || []), ...(o.own_known_top || [])]],
     'opponent-deck': ['Opponent’s hand + deck', 'opponent-deck-cards', [...(o.opponent_hidden || []), ...(o.opponent_known_hand || []), ...(o.opponent_known_top || [])]],
     hand: ['Your hand', 'hand-inspector', o.hand],
     discard: ['Your discard pile', 'discard', o.own_discard],
@@ -229,7 +229,7 @@ function renderPile() {
   };
   const [title, id, ids] = views[openPile], deck = openPile.endsWith('-deck');
   $('pile-title').textContent = title + (ids ? ` · ${ids.length} cards` : '');
-  $('pile-note').textContent = deck ? 'Hand and deck combined, shown in random order. This does not reveal which cards are in the opponent’s hand or the draw order.' : openPile === 'discard' ? 'Cards here may be chosen when a scrap ability allows it.' : '';
+  $('pile-note').textContent = openPile === 'own-deck' ? 'Your deck, shown in random order without revealing draw order.' : deck ? 'Hand and deck combined, shown in random order. This does not reveal which cards are in the opponent’s hand or the draw order.' : openPile === 'discard' ? 'Cards here may be chosen when a scrap ability allows it.' : '';
   for (const view of Object.values(views)) $(view[1]).hidden = view[1] !== id;
   if (deck) zone(id, shuffled(ids).map(card => cardView(card)));
 }

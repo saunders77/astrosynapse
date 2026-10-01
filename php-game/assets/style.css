@@ -308,3 +308,29 @@ button.move:not(:disabled),.card.actionable .move:not(:disabled),button.choice:n
   outline-offset:2px;
 }
 .card-face:hover:not(:disabled){outline-offset:-3px}
+
+/* Setup precedes the HUD outside active play. */
+.home-link{text-decoration:none}
+.home-link:hover{text-decoration:underline}
+body > .setup{width:100%;max-width:1460px;margin:0 auto;padding:12px clamp(16px,3vw,44px) 20px}
+body.playing:not(.active-game){padding-top:0;height:auto;min-height:100dvh;overflow:auto}
+.playing:not(.active-game) .masthead{display:flex}
+.playing:not(.active-game) #opponent-bar{position:relative;flex:none}
+.playing:not(.active-game) #board{min-height:600px}
+.viewing-stats > .setup{display:none}
+.game-bar .bar-stats .authority,.game-bar .bar-stats .authority b{color:#b6efbd}
+.game-bar .bar-stats .trade,.game-bar .bar-stats .trade b{color:#fff0ad}
+.game-bar .bar-stats .combat,.game-bar .bar-stats .combat b{color:#ffb3b3}
+.game-bar #opponent-attack:not(:disabled){background:#b6efbd;color:#000}
+.game-bar #opponent-attack:not(:disabled) b{color:#000}
+
+/* Keep selection feedback above artwork and on-card controls. */
+body:not(.busy) .card.actionable:has(.card-face:not(:disabled)):is(:hover,:focus-within)::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:3;
+  border:3px solid #fff;
+  border-radius:inherit;
+  pointer-events:none;
+}

@@ -112,7 +112,7 @@ test('pile counts and inspection include known cards exactly once without exposi
     pending_discard: 1, opponent_pending_discard: 2,
   });
   assert.equal(nodes.get('deck').textContent, 2);
-  assert.equal(nodes.get('opponent-deck').textContent, 3);
+  assert.equal(nodes.get('opponent-deck').textContent, 5);
   assert.equal(nodes.get('discard-count').textContent, 2);
   assert.equal(nodes.get('opponent-discard-count').textContent, 1);
   assert.equal(nodes.get('opponent-must-discard').textContent, 2);
@@ -124,7 +124,9 @@ test('pile counts and inspection include known cards exactly once without exposi
   assert.deepEqual(names, ['Card 0', 'Card 0', 'Card 1', 'Card 1', 'Card 1']);
   assert.equal(nodes.get('discard').hidden, true);
   vm.runInContext("inspectPile('own-deck')", context);
-  assert.equal(nodes.get('own-deck-cards').children.length, 5);
+  assert.equal(nodes.get('own-deck-cards').children.length, 2);
+  assert.equal(nodes.get('pile-title').textContent, 'Your deck · 2 cards');
+  assert.deepEqual(nodes.get('own-deck-cards').children.map(c => c.children[0].children[0].alt).sort(), ['Card 0', 'Card 1']);
   vm.runInContext("inspectPile('discard')", context);
   assert.equal(nodes.get('discard').hidden, false);
   assert.equal(nodes.get('own-deck-cards').hidden, true);
