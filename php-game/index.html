@@ -5,19 +5,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Play Star Realms entirely in your browser against five Astrosynapse levels.">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://www.starrealms.com; script-src 'self' 'sha256-KyZLX6poqlzE332jeMZV9cQfKplqh1/uos0nETbBGZ0='; worker-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
-  <title>Astrosynapse · Better AI for Star Realms</title>
+  <title>Machine Learning for Star Realms</title>
   <meta name="arena-build" content="9aed08b18e1c6e195e5bd6edb2c6a549d67d3b1ba72f60ea252f5713de5b26f5">
 </head>
 <body>
-  <header class="masthead"><div><a class="eyebrow home-link" href="#home" aria-label="Astrosynapse home">ASTROSYNAPSE</a><h1>Better AI for Star Realms</h1></div><button id="models-open" class="quiet">Manage models</button></header>
+  <header class="masthead"><div><a class="eyebrow home-link" href="#home" aria-label="Machine Learning for Star Realms home">HOME</a><h1>Machine Learning for Star Realms</h1></div></header>
+    <p>
+      I love the deckbuilding game <a href="https://starrealms.com">Star Realms</a>. 
+      To learn more about strategy, I used machine learning techniques to train computer models that play better than I can.  
+      If you're not familiar with Star Realms, <a href="https://starrealms.com">learn to play it first</a> before reading this page, or else this info won't make much sense.
+    </p>
+    <p>
+      I trained the models using a 2-million-parameter neural net architecture inspired by the <a href="https://www.nature.com/articles/nature16961">original AlphaGo paper</a> and subsequent AlphaZero research. 
+      They are entirely trained on self-play, with zero human training or influence except for the ability to check for obvious game-winning moves within a single turn. 
+      The best model I trained, <b>Level 5 (ELO 1265)</b> is trained on 23 million self-play games and it beats me in around 65% of games (71% of the time when it goes first and 59% of the time when it goes second).
+    </p>
+    <p>
+      On this page you can <b>try playing against some of the computer models</b> I trained and <b>see statistics about their strategy</b>. 
+      The models below <b>do not cheat</b>, but they <b>do constantly make use of all available information according to the digital game rules</b>, including the cards in both discard piles, the cards in their deck (but not their order), and the (combined unordered) cards in your deck+hand. 
+      Hopefully you'll find it interesting or learn better strategies and ideas for your own games too! 
+      Note that the variance of Star Realms is very high, so a handful of games won't reveal your true playing strength. 
+      For example, hypothetically, if you're good enough to win exactly 60% of games against a specific ML model, then you'll need to play <b>at least 92 games</b> to be confident (95% confident) that you're actually better. 
+      Fortunately, it's possible to finish a game quickly in just a few minutes (though you'll want to think longer to play your best).
+    </p>
     <form id="new-game" class="setup">
-      <label>Opponent<select id="opponent" name="opponent" required><option value="">Loading champions…</option></select></label>
+      <label>Opponent<select id="opponent" name="opponent" required><option value="">Loading ML computer opponent…</option></select></label>
       <button type="submit" id="start" class="primary" disabled>New game</button>
-      <a class="stats-link" href="#stats">Stats</a>
-      <a id="resume-game" href="#game" hidden>Resume game</a>
+      <p><a class="stats-link" href="#stats">Stats on your games against machine learning model opponents.</a></p>
+      <p><a id="resume-game" href="#game" hidden>Resume game</a></p>
       <span class="setup-note"></span>
     </form>
-  <header id="opponent-bar" class="game-bar opponent" hidden aria-label="Opponent statistics"><span id="opponent-name">Champion</span><div class="bar-piles"><button class="pile" data-inspect="opponent-discard">Discard <b id="opponent-discard-count">0</b></button><button class="pile" data-inspect="opponent-deck">Hand+deck <b id="opponent-deck">5</b></button></div><div class="bar-stats"><button id="opponent-attack" class="authority" type="button">Authority <b id="opponent-authority">50</b></button><span class="trade">Trade <b id="opponent-trade">0</b></span><span class="combat">Combat <b id="opponent-combat">0</b></span><span class="discard-counter">Must discard <b id="opponent-must-discard">0</b></span><span id="win-estimate" title="AI’s estimated probability that the AI will win, regardless of whose turn it is.">AI Win Probability <b id="opponent-win">—</b></span></div><button id="opponent-last-turn" type="button" data-inspect="log" title="View full game log">No AI turn yet · Game log</button></header>
+  <header id="opponent-bar" class="game-bar opponent" hidden aria-label="Opponent statistics"><span id="opponent-name">ML Computer Opponent</span><div class="bar-piles"><button class="pile" data-inspect="opponent-discard">Discard <b id="opponent-discard-count">0</b></button><button class="pile" data-inspect="opponent-deck">Hand+deck <b id="opponent-deck">5</b></button></div><div class="bar-stats"><button id="opponent-attack" class="authority" type="button">Authority <b id="opponent-authority">50</b></button><span class="trade">Trade <b id="opponent-trade">0</b></span><span class="combat">Combat <b id="opponent-combat">0</b></span><span class="discard-counter">Must discard <b id="opponent-must-discard">0</b></span><span id="win-estimate" title="AI’s estimated probability that the AI will win, regardless of whose turn it is.">AI Win Probability <b id="opponent-win">—</b></span></div><button id="opponent-last-turn" type="button" data-inspect="log" title="View full game log">No AI turn yet · Game log</button></header>
   <main id="game-page">
 
     <div id="error" class="error" role="alert" hidden></div>
@@ -37,7 +55,7 @@
   </main>
   <main id="stats-page" hidden aria-labelledby="stats-title"><a href="#home">← Home</a><h1 id="stats-title" tabindex="-1">Your stats</h1><p>Completed games saved in this browser. Draws and unfinished games do not count as wins or losses.</p><p id="stats-error" role="alert" hidden></p><p id="stats-summary"></p><div class="stats-table"><table><caption>Results by opponent level</caption><thead><tr><th scope="col">Opponent</th><th scope="col">Wins</th><th scope="col">Losses</th><th scope="col">Draws</th><th scope="col">Win rate</th></tr></thead><tbody id="stats-rows"></tbody></table></div></main>
   <footer id="player-bar" class="game-bar human" hidden aria-label="Your statistics and actions"><div class="bar-piles"><button id="own-discard-pile" class="pile" data-inspect="discard">Discard <b id="discard-count">0</b></button><button class="pile" data-inspect="own-deck">Deck <b id="deck">7</b></button></div><div class="bar-stats"><span class="authority">Authority <b id="authority">50</b></span><span class="trade">Trade <b id="trade">0</b></span><span class="combat">Combat <b id="combat">0</b></span><span class="discard-counter">Must discard <b id="must-discard">0</b></span></div><div class="turn-controls"><button id="play-all" class="primary" hidden>Play all</button><button id="attack" hidden>Attack opponent</button><button id="end-turn" class="quiet" disabled>End turn</button><button id="resign" type="button" hidden>Resign</button></div><section class="decision" aria-labelledby="decision-title"><div class="decision-heading"><div><span id="turn" class="eyebrow"></span><h3 id="decision-title">Your turn</h3></div></div><p id="choice-note" hidden></p><div id="choices" class="choices"></div></section></footer>
-  <footer>Star Realms and card artwork © Wise Wizard Games LLC.  Please send any feedback, comments, ideas, and questions about Astrosynapse to michaelsaunders@outlook.com.</footer>
+  <footer>This page is a personal game-analysis project about the card game Star Realms (available in digital and physical versions on starrealms.com). Star Realms and card artwork are © Wise Wizard Games LLC, and I have no relationship with the company or the official game, apart from being interested in using computers and statistics to learn about the strategy. Please send any feedback, comments, ideas, and questions about this project to michaelsaunders@outlook.com.</footer>
   <dialog id="settings-dialog" aria-labelledby="settings-title"><div class="dialog-heading"><h2 id="settings-title">Settings</h2><button type="button" data-close="settings-dialog" class="quiet">Close</button></div><label class="audio-control" for="audio-volume">Sound volume<input id="audio-volume" type="range" min="0" max="100" value="100" aria-valuetext="100%"></label></dialog>
   <dialog id="pile-dialog"><div class="dialog-heading"><h2 id="pile-title"></h2><button data-close="pile-dialog" class="quiet">Close</button></div><p id="pile-note" class="muted"></p><div id="hand-inspector" class="cards compact" hidden></div><div id="own-deck-cards" class="cards compact" hidden></div><div id="opponent-deck-cards" class="cards compact" hidden></div><div id="discard" class="cards compact" hidden></div><div id="opponent-discard" class="cards compact" hidden></div><div id="scrap" class="cards compact" hidden></div><ol id="log" class="log" reversed hidden></ol></dialog>
   <dialog id="scrap-dialog" aria-labelledby="scrap-prompt"><div class="dialog-heading"><h2 id="scrap-prompt">Choose a card to scrap</h2><button id="scrap-close" class="quiet" aria-label="Cancel selection and undo last choice">X</button></div><p class="muted">Select a card to scrap. Each option is shown once per available target.</p><section id="scrap-options-hand"></section><section id="scrap-options-discard"></section><section id="scrap-options-trade_row"></section><div id="scrap-decline"></div><button id="scrap-cancel" class="quiet">Cancel</button><p id="scrap-error" class="error" role="alert" hidden></p></dialog>
