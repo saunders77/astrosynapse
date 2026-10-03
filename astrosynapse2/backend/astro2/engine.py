@@ -64,7 +64,12 @@ class ActionKind(StrEnum):
 
 
 AUTOMATIC_RESOURCE_EFFECTS = frozenset({"gain_combat", "gain_trade", "gain_authority"})
-AUTOMATIC_ALLY_EFFECTS = AUTOMATIC_RESOURCE_EFFECTS | {"draw", "draw_two", "ship_top", "opponent_discard"}
+AUTOMATIC_ALLY_EFFECTS = AUTOMATIC_RESOURCE_EFFECTS | {
+    "draw",
+    "draw_two",
+    "ship_top",
+    "opponent_discard",
+}
 
 
 def _json_value(value: Any) -> Any:
@@ -93,7 +98,8 @@ class _JsonMixin:
     def to_dict(self) -> dict[str, Any]:
         return {
             item.name: _json_value(getattr(self, item.name))
-            for item in fields(self) if item.name != "opaque"
+            for item in fields(self)
+            if item.name != "opaque"
         }
 
     def to_json(self, *, indent: int | None = None) -> str:
@@ -200,6 +206,8 @@ class Observation(_JsonMixin):
     blob_cards_played: int
     all_allied: bool
     fleet_active: bool
+    # Arch3: public deductions, kept separate to preserve legacy encodings.
+    opponent_inferred_hand: tuple[Card, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -381,6 +389,7 @@ class _Player:
     must_discard: int = 0
     known_top: list[Card] = field(default_factory=list)
     revealed_hand: list[Card] = field(default_factory=list)
+    inferred_hand: list[Card] = field(default_factory=list)
     combat: int = 0
     trade: int = 0
     next_ship_top: bool = False
@@ -512,6 +521,7 @@ class Game:
                     must_discard=player.must_discard,
                     known_top=list(player.known_top),
                     revealed_hand=list(player.revealed_hand),
+                    inferred_hand=list(player.inferred_hand),
                     combat=player.combat,
                     trade=player.trade,
                     next_ship_top=player.next_ship_top,
@@ -639,6 +649,7 @@ class Game:
             own_in_play=self._in_play_observation(own.in_play),
             opponent_hand_count=len(opponent.hand),
             opponent_known_hand=tuple(opponent.revealed_hand),
+            opponent_inferred_hand=self._known_hand(opponent),
             opponent_hidden=_card_multiset(opponent_unknown_deck + unrevealed_hand),
             opponent_deck_count=len(opponent.deck),
             opponent_known_top=tuple(reversed(opponent.known_top)),
@@ -684,7 +695,7 @@ class Game:
         # hidden cards may move between hand and deck.
         hand_slots: list[Card | None] = list(opponent.hand)
         unmatched_indices = list(range(len(hand_slots)))
-        for known in opponent.revealed_hand:
+        for known in self._known_hand(opponent):
             matched = next(
                 (
                     index
@@ -890,7 +901,10 @@ class Game:
             return lethal_index[0]
 
         decision = Decision(
-            family, self.observation(player.player_id), options, prompt,
+            family,
+            self.observation(player.player_id),
+            options,
+            prompt,
             opaque=model_override,
         )
         self.decisions += 1
@@ -1115,17 +1129,13 @@ class Game:
     def _trigger_automatic_allies(self, player: _Player, *, resources_only: bool = False) -> None:
         effects = AUTOMATIC_RESOURCE_EFFECTS if resources_only else AUTOMATIC_ALLY_EFFECTS
         for item in list(player.in_play):
-            if (
-                item.card.ally in effects
-                and self._ally_available(player, item)
-            ):
+            if item.card.ally in effects and self._ally_available(player, item):
                 item.ally_triggered = True
                 self._execute_effect(player, item.card.ally, item.card.ally_amount, item)
 
     def _manual_ally_available(self, player: _Player, item: _InPlay) -> bool:
         return bool(
-            item.card.ally not in AUTOMATIC_ALLY_EFFECTS
-            and self._ally_available(player, item)
+            item.card.ally not in AUTOMATIC_ALLY_EFFECTS and self._ally_available(player, item)
         )
 
     @staticmethod
@@ -1550,6 +1560,7 @@ class Game:
             player.discard.append(card)
         player.hand.clear()
         player.revealed_hand.clear()
+        player.inferred_hand.clear()
         ships = [item for item in player.in_play if item.card.is_ship]
         for item in ships:
             player.in_play.remove(item)
@@ -1558,7 +1569,26 @@ class Game:
         player.trade = 0
         player.next_ship_top = False
         player.blob_cards_played = 0
+        # Cleanup has exposed the old hand; the remaining deck multiset is
+        # public. If all of it is drawn, every one of those cards is certain,
+        # even when the rest of the new hand comes from a shuffled discard.
+        if len(player.deck) <= 5:
+            # Known top copies are recorded by _draw in revealed_hand.
+            # Keep the records disjoint, even when they share a card type.
+            unknown = player.deck[: -len(player.known_top)] if player.known_top else player.deck
+            player.inferred_hand.extend(unknown)
         self._draw(player, 5)
+
+    @staticmethod
+    def _known_hand(player: _Player) -> tuple[Card, ...]:
+        if len(player.deck) == len(player.known_top):
+            return _card_multiset(player.hand)
+        # The inference and publicly drawn top-card records are disjoint.
+        from collections import Counter
+
+        counts = Counter(c.card_id for c in player.inferred_hand)
+        counts += Counter(c.card_id for c in player.revealed_hand)
+        return tuple(CARD_BY_ID[i] for i in sorted(counts) for _ in range(counts[i]))
 
     @staticmethod
     def _find_in_play(player: _Player, uid: int) -> _InPlay:
@@ -1569,10 +1599,11 @@ class Game:
 
     @staticmethod
     def _forget_revealed(player: _Player, card: Card) -> None:
-        for index, known in enumerate(player.revealed_hand):
-            if known.card_id == card.card_id:
-                player.revealed_hand.pop(index)
-                break
+        for cards in (player.revealed_hand, player.inferred_hand):
+            for index, known in enumerate(cards):
+                if known.card_id == card.card_id:
+                    cards.pop(index)
+                    return
 
     def _discard_from_hand(self, player: _Player, index: int) -> None:
         card = player.hand.pop(index)
@@ -1585,7 +1616,11 @@ class Game:
 
     @staticmethod
     def _requires_manual_primary(card: Card) -> bool:
-        return bool(card.is_base and card.primary and card.primary not in {"all_ally", "fleet_hq", "ship_top"})
+        return bool(
+            card.is_base
+            and card.primary
+            and card.primary not in {"all_ally", "fleet_hq", "ship_top"}
+        )
 
     @staticmethod
     def _primary_available(player: _Player, item: _InPlay) -> bool:

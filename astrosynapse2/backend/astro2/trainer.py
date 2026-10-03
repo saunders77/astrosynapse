@@ -753,11 +753,13 @@ def _checkpoint_model_is_loadable(path: str | Path, config: RunConfig | None) ->
         if (
             not isinstance(spec.encoder_version, int)
             or isinstance(spec.encoder_version, bool)
-            or spec.encoder_version not in {1, 2}
+            or spec.encoder_version not in {1, 2, 3}
         ):
             return False
         if config is not None:
-            encoder = Encoder(version=2 if config.training_generation >= 3 else 1)
+            encoder = Encoder(
+                version=config.encoder_version or (2 if config.training_generation >= 3 else 1)
+            )
             if (
                 spec.encoder_version != encoder.version
                 or spec.state_size != encoder.state_size
@@ -1819,12 +1821,15 @@ def _schedule_evaluation(
     retry = _evaluation_retry_state(store, run_id, checkpoint["id"], plan.tier)
     seed_origin = config.seed
     if config.paired_branch_evaluation_seeds and config.branch_experiment_id:
-        seed_origin = int.from_bytes(
-            hashlib.blake2b(
-                config.branch_experiment_id.encode("utf-8"), digest_size=8
-            ).digest(),
-            "little",
-        ) % 2_000_000_000
+        seed_origin = (
+            int.from_bytes(
+                hashlib.blake2b(
+                    config.branch_experiment_id.encode("utf-8"), digest_size=8
+                ).digest(),
+                "little",
+            )
+            % 2_000_000_000
+        )
     evaluation_seed = (
         seed_origin
         + int(checkpoint["games"])
@@ -2345,7 +2350,7 @@ def _submit_rollout(
         policy_replay_decisions_per_player_game=(
             config.policy_replay_decisions_per_player_game if config.training_generation >= 5 else 0
         ),
-        encoder_version=2 if config.training_generation >= 3 else 1,
+        encoder_version=config.encoder_version or (2 if config.training_generation >= 3 else 1),
     )
 
 
@@ -2867,9 +2872,7 @@ def _train_updates(
                             actor_advantages=actor_advantages,
                             actor_advantage_valid=actor_advantage_valid,
                             behavior_heads=behavior_heads,
-                            behavior_head_only_actor_loss=(
-                                config.behavior_head_only_actor_loss
-                            ),
+                            behavior_head_only_actor_loss=(config.behavior_head_only_actor_loss),
                             mean_policy_actor_loss=config.mean_policy_actor_loss,
                             reference_model=(reference_model if kind == "reference_kl" else None),
                             reference_policy_kl_weight=(1.0 if kind == "reference_kl" else 0.0),
@@ -2962,9 +2965,7 @@ def _train_updates(
                         * resolved_actor_weights
                         * (last_policy_arrays[17] < 0).astype(last_policy_arrays[8].dtype)
                     )
-                all_actor_weight = mx.maximum(
-                    mx.sum(actor_weight_by_sample), mx.array(1e-12)
-                )
+                all_actor_weight = mx.maximum(mx.sum(actor_weight_by_sample), mx.array(1e-12))
                 source_actor_shares = {
                     source_name: mx.sum(
                         actor_weight_by_sample
@@ -3341,7 +3342,9 @@ def run_training(
     import mlx.core as mx
     import mlx.optimizers as optim
 
-    encoder = Encoder(version=2 if config.training_generation >= 3 else 1)
+    encoder = Encoder(
+        version=config.encoder_version or (2 if config.training_generation >= 3 else 1)
+    )
     # Keep artifacts beside the configured SQLite store so ASTRO2_DATA_DIR and
     # the CLI's --data-dir remain self-contained.
     checkpoint_root = store.path.parent / "checkpoints" / run_id
@@ -4407,9 +4410,7 @@ def run_training(
                 policy_reference_kl_controller=policy_reference_kl_controller,
             ),
         )
-        checkpoint = attach_checkpoint_rollout_window(
-            checkpoint, start_games=last_checkpoint_games
-        )
+        checkpoint = attach_checkpoint_rollout_window(checkpoint, start_games=last_checkpoint_games)
         parent_checkpoint_id = checkpoint["id"]
         last_checkpoint_games = totals.games
         checkpoint_artifacts = (checkpoint.get("evaluation") or {}).get("artifacts") or {}
@@ -4712,9 +4713,7 @@ def run_training(
                     policy_replay.extend_compact(
                         result.policy_samples,
                         rollout_source=(
-                            "fixed_champion"
-                            if plan.kind == "fixed_champion_mean"
-                            else plan.kind
+                            "fixed_champion" if plan.kind == "fixed_champion_mean" else plan.kind
                         ),
                         opponent_key=policy_opponent_key(plan.opponent_id),
                         collected_at_game=totals.games + result.games,

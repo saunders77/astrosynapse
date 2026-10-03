@@ -533,8 +533,8 @@ class Encoder:
         self.card_names = tuple(card_names)
         self.card_count = len(self.card_names)
         self.strict = strict
-        if version not in {1, 2}:
-            raise ValueError("encoder version must be 1 or 2")
+        if version not in {1, 2, 3}:
+            raise ValueError("encoder version must be 1, 2 or 3")
         self.version = int(version)
         self._name_to_id = {_snake(name): index for index, name in enumerate(self.card_names)}
         self._catalog: dict[int, Any] = {}
@@ -605,7 +605,13 @@ class Encoder:
     def state_size(self) -> int:
         ordered_top = 2 * KNOWN_TOP_SLOTS * self.card_count
         in_play_status = len(_IN_PLAY_STATUS_SIDES) * len(_IN_PLAY_STATUS_FIELDS) * self.card_count
-        return len(_STATE_SCALARS) + ZONE_COUNT * self.card_count + ordered_top + in_play_status
+        return (
+            len(_STATE_SCALARS)
+            + ZONE_COUNT * self.card_count
+            + ordered_top
+            + in_play_status
+            + (self.card_count if self.version >= 3 else 0)
+        )
 
     @property
     def action_size(self) -> int:
@@ -800,6 +806,15 @@ class Encoder:
                     if enabled:
                         block[card_id] += 1.0
                 cursor += self.card_count
+        if self.version >= 3:
+            self._count_cards(
+                _lookup(
+                    observation,
+                    "opponent_inferred_hand",
+                    default=self._zone_value(observation, Zone.OPPONENT_KNOWN_HAND),
+                ),
+                result[-self.card_count :],
+            )
         return result
 
     def zone_counts(self, encoded_state: np.ndarray, zone: Zone) -> np.ndarray:

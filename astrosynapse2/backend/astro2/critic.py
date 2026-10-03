@@ -37,10 +37,18 @@ class CriticConfig:
     rules_version: int = 2
     positions_per_game: int = 64
     learning_rate: float = 0.001
+    encoder_version: int | None = None
+    workers: int = 1
+    batch_games: int = 1
+    patience: int = 20
 
     def __post_init__(self):
-        if not 20 <= self.games <= 10000 or not 1 <= self.epochs <= 200:
-            raise ValueError("Use 20–10,000 games and 1–200 epochs")
+        if not 20 <= self.games <= 100000 or not 1 <= self.epochs <= 2000:
+            raise ValueError("Use 20–100,000 games and 1–2,000 epochs")
+        if self.encoder_version not in (None, 1, 2, 3):
+            raise ValueError("Invalid architecture version")
+        if not 1 <= self.workers <= 8 or not 1 <= self.batch_games <= 64 or self.patience < 1:
+            raise ValueError("Invalid workers, batch games or early stopping patience")
         if self.hidden_size not in (32, 64, 128, 256):
             raise ValueError("Hidden width must be 32, 64, 128 or 256")
         if self.rules_version not in (1, 2) or not 0 <= self.seed < 2**53:
@@ -96,10 +104,15 @@ class IndependentCritic:
     def predict(self, x):
         return sigmoid(self.forward(np.asarray(x, dtype=np.float32))[0])
 
-    def train_batch(self, x, y, lr):
+    def train_batch(self, x, y, lr, weights=None):
         logits, (x, h1, h2) = self.forward(x)
-        loss = float(np.mean(np.logaddexp(0, logits) - y * logits))
-        delta = ((sigmoid(logits) - y) / len(y))[:, None]
+        weights = (
+            np.full(len(y), 1 / len(y), dtype=np.float32)
+            if weights is None
+            else np.asarray(weights / weights.sum(), dtype=np.float32)
+        )
+        loss = float(np.sum(weights * (np.logaddexp(0, logits) - y * logits)))
+        delta = ((sigmoid(logits) - y) * weights)[:, None]
         grads = {"w2": h2.T @ delta, "b2": delta.sum(axis=0)}
         delta = (delta @ self.weights["w2"].T) * (1 - h2 * h2)
         grads.update(w1=h1.T @ delta, b1=delta.sum(axis=0))
@@ -181,6 +194,11 @@ class Paused(Exception):
 
 def collect_game(folder, index, config, actor, encoder, check):
     rng = np.random.default_rng(_derived_seed(config.seed, index, "critic-sample"))
+    from .engine_encoding import EngineEncoder
+
+    critic_encoder = (
+        EngineEncoder(version=config.encoder_version) if config.encoder_version else encoder
+    )
     samples = []
     seen = 0
 
@@ -195,7 +213,14 @@ def collect_game(folder, index, config, actor, encoder, check):
         family = int(encoded.family)
         baseline = float(sigmoid(actor.predict_values(encoded.state, np.array([family]))).mean())
         row = (
-            np.concatenate((encoded.state, np.eye(actor.spec.families, dtype=np.float32)[family])),
+            np.concatenate(
+                (
+                    critic_encoder.encode_state(decision.observation)
+                    if critic_encoder is not encoder
+                    else encoded.state,
+                    np.eye(actor.spec.families, dtype=np.float32)[family],
+                )
+            ),
             player,
             baseline,
             len(decision.actions) == 1,
@@ -224,7 +249,9 @@ def collect_game(folder, index, config, actor, encoder, check):
     )
     result = game.run()
     check()
-    size = actor.spec.state_size + actor.spec.families
+    size = (
+        critic_encoder.state_size if config.encoder_version else actor.spec.state_size
+    ) + actor.spec.families
     usable = samples if not result.truncated else []
     save_npz(
         folder / f"game-{index:05d}.npz",
@@ -277,6 +304,23 @@ def evaluate(model, folder, indices, check):
     }
 
 
+def collect_task(task):
+    folder, index, config = task
+    from .engine_encoding import EngineEncoder
+    from .onpolicy import cached_actor
+
+    actor = cached_actor(str(folder / "policy.actor.npz"))
+
+    def check():
+        if (folder / "PAUSE").exists():
+            raise Paused
+
+    collect_game(
+        folder, index, config, actor, EngineEncoder(version=actor.spec.encoder_version), check
+    )
+    return index
+
+
 def train_job(folder):
     with (folder / "run.lock").open("a") as lock:
         try:
@@ -303,25 +347,61 @@ def train_job(folder):
                 raise ValueError("Critic training requires an objective-v2 policy")
             splits = game_splits(config.games, config.seed)
             atomic_json(folder / "splits.json", splits)
+            import multiprocessing
+            from concurrent.futures import ProcessPoolExecutor
+
+            from .engine_encoding import EngineEncoder
+
+            critic_version = config.encoder_version or actor.spec.encoder_version
+            critic_size = (
+                EngineEncoder(version=critic_version).state_size
+                if config.encoder_version
+                else actor.spec.state_size
+            )
             truncated = 0
+            completed = 0
+            missing = []
+
+            def recorded(index):
+                nonlocal truncated, completed
+                with np.load(folder / f"game-{index:05d}.npz") as z:
+                    truncated += int(z["truncated"])
+                completed += 1
+                update(
+                    games_completed=completed,
+                    truncated_games=truncated,
+                    progress=0.65 * completed / config.games,
+                )
+
             for index in range(config.games):
                 check()
-                path = folder / f"game-{index:05d}.npz"
-                if not path.exists():
+                if (folder / f"game-{index:05d}.npz").exists():
+                    recorded(index)
+                else:
+                    missing.append(index)
+            if config.workers == 1:
+                for index in missing:
+                    check()
                     collect_game(folder, index, config, actor, encoder, check)
-                with np.load(path) as z:
-                    truncated += int(z["truncated"])
-                update(
-                    games_completed=index + 1,
-                    truncated_games=truncated,
-                    progress=0.65 * (index + 1) / config.games,
-                )
+                    recorded(index)
+            else:
+                with ProcessPoolExecutor(
+                    max_workers=config.workers, mp_context=multiprocessing.get_context("spawn")
+                ) as pool:
+                    # Bound queued work so a pause never waits for the whole dataset.
+                    for start in range(0, len(missing), config.workers * 2):
+                        check()
+                        tasks = [
+                            (folder, i, config) for i in missing[start : start + config.workers * 2]
+                        ]
+                        for index in pool.map(collect_task, tasks):
+                            recorded(index)
             checkpoint = folder / "checkpoint.npz"
             if checkpoint.exists():
                 model, meta, best = IndependentCritic.load(checkpoint)
             else:
                 model = IndependentCritic(
-                    actor.spec.state_size + actor.spec.families, config.hidden_size, config.seed
+                    critic_size + actor.spec.families, config.hidden_size, config.seed
                 )
                 count = 0
                 total = np.zeros_like(model.mean, dtype=np.float64)
@@ -356,11 +436,27 @@ def train_job(folder):
                 order = np.random.default_rng(
                     _derived_seed(config.seed, epoch, "critic-epoch")
                 ).permutation(splits["train"])
-                for index in order:
-                    check()
-                    with np.load(folder / f"game-{index:05d}.npz") as z:
-                        if len(z["y"]):
-                            losses.append(model.train_batch(z["x"], z["y"], config.learning_rate))
+                for start in range(0, len(order), config.batch_games):
+                    xs, ys, weights = [], [], []
+                    for index in order[start : start + config.batch_games]:
+                        check()
+                        with np.load(folder / f"game-{index:05d}.npz") as z:
+                            if len(z["y"]):
+                                xs.append(z["x"])
+                                ys.append(z["y"])
+                                weights.append(np.full(len(z["y"]), 1 / len(z["y"])))
+                    if xs:
+                        if config.batch_games == 1:
+                            losses.append(model.train_batch(xs[0], ys[0], config.learning_rate))
+                        else:
+                            losses.append(
+                                model.train_batch(
+                                    np.concatenate(xs),
+                                    np.concatenate(ys),
+                                    config.learning_rate,
+                                    np.concatenate(weights),
+                                )
+                            )
                 validation = evaluate(model, folder, splits["validation"], check)
                 loss = validation["critic"]["log_loss"]
                 if meta["best_loss"] is None or loss < meta["best_loss"]:
@@ -383,6 +479,9 @@ def train_job(folder):
                     best_epoch=meta["best_epoch"],
                     progress=0.65 + 0.3 * (epoch + 1) / config.epochs,
                 )
+                if epoch + 1 - meta["best_epoch"] >= config.patience:
+                    update(early_stopped=True)
+                    break
             check()
             update(status="evaluating", progress=0.96)
             model.weights = best
@@ -394,8 +493,8 @@ def train_job(folder):
             }
             artifact_meta = {
                 "schema_version": 1,
-                "encoder_version": actor.spec.encoder_version,
-                "state_size": actor.spec.state_size,
+                "encoder_version": critic_version,
+                "state_size": critic_size,
                 "families": actor.spec.families,
                 "policy_sha256": job["policy_sha256"],
                 "config": asdict(config),
@@ -442,6 +541,23 @@ class CriticManager:
                     )
                     atomic_json(folder / "job.json", job)
         job["pause_requested"] = (folder / "PAUSE").exists()
+        for run in job.get("policy_runs", []):
+            policy = Path(run["folder"])
+            try:
+                os.kill(run["pid"], 0)
+                running = True
+            except ProcessLookupError:
+                running = False
+            state_path = policy / "state.json"
+            state = json.loads(state_path.read_text()) if state_path.exists() else {}
+            run["games"] = state.get("games", 0)
+            complete_path = policy / "complete.json"
+            if complete_path.exists():
+                complete = json.loads(complete_path.read_text())
+                run["status"] = "paused" if complete.get("stopped") else "complete"
+            else:
+                run["status"] = "running" if running else "interrupted"
+            run["pause_requested"] = (policy / "STOP").exists()
         return job
 
     def list(self):
@@ -494,6 +610,8 @@ class CriticManager:
                 "id": folder.name,
                 "model_id": model_id,
                 "model_label": resolved.label,
+                "encoder_version": config.encoder_version
+                or getattr(actor.spec, "encoder_version", 1),
                 "policy_sha256": sha256(folder / "policy.actor.npz"),
                 "config": asdict(config),
                 "created_at": time.time(),

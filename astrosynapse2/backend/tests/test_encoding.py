@@ -173,7 +173,7 @@ def test_every_real_engine_decision_encodes_without_unknown_family_or_action():
     assert encoded_decisions > 20
 
 
-@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("version", [1, 2, 3])
 def test_engine_encoder_exactly_matches_generic_encoder_across_random_games(version):
     reference = Encoder(version=version)
     native = EngineEncoder(version=version)
@@ -204,7 +204,7 @@ def test_engine_encoder_exactly_matches_generic_encoder_across_random_games(vers
     assert decisions > 100
 
 
-@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("version", [1, 2, 3])
 def test_engine_encoder_matches_every_engine_decision_family(version):
     from astro2.diagnostics import all_family_decision_suite
 

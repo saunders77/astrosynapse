@@ -301,3 +301,15 @@ test("server-renders independent critic training controls", async () => {
   assert.match(html, /Progress &amp; calibration/);
   assert.match(html, /Start critic training/);
 });
+
+test("server-renders Autopilot management and policy/critic match controls", async () => {
+  const response = await render("/autopilot");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Champion autopilot/);
+  assert.match(html, /New campaign/);
+  assert.match(html, /Arena &amp; self-play/);
+  assert.match(html, /Critic A/);
+  assert.match(html, /Critic B/);
+  assert.match(html, /Self-play — same policy/);
+});

@@ -232,3 +232,68 @@ def ppo_loss(
             mx.sum(old_probabilities * (old_log_policies - logp), axis=1)
         )
     return policy + value_weight * value_loss - entropy_weight * entropy, diagnostics
+
+
+def update_independent_critic(model, trajectories, *, seed, epochs=3, learning_rate=0.0003):
+    """Fit fresh completed games after policy advantages have been frozen.
+
+    Whole-game validation selects a complete weights/Adam snapshot, including
+    the pre-update model. Normalization remains the pretrained input contract.
+    """
+    import copy
+
+    usable = [t for t in trajectories if not t.truncated and t.value_states]
+    if len(usable) < 10:
+        raise ValueError("Online critic needs at least 10 completed games")
+    family_count = model.mean.size - len(usable[0].value_states[0])
+    rng = np.random.default_rng(seed)
+    order = rng.permutation(len(usable))
+    validation_count = max(2, len(usable) // 8)
+    validation, training = order[:validation_count], order[validation_count:]
+
+    def arrays(index):
+        row = usable[int(index)]
+        x = np.concatenate(
+            (
+                np.asarray(row.value_states, dtype=np.float32),
+                np.eye(family_count, dtype=np.float32)[row.value_families],
+            ),
+            axis=1,
+        )
+        return x, np.full(len(x), row.target, dtype=np.float32)
+
+    def validation_loss():
+        losses = []
+        for index in validation:
+            x, y = arrays(index)
+            logits, _ = model.forward(x)
+            losses.append(float(np.mean(np.logaddexp(0, logits) - y * logits)))
+        return float(np.mean(losses))
+
+    before = best_loss = validation_loss()
+    best = copy.deepcopy(model.__dict__)
+    selected_epoch = 0
+    history = []
+    for epoch in range(epochs):
+        shuffled = rng.permutation(training)
+        for start in range(0, len(shuffled), 8):
+            rows = [arrays(i) for i in shuffled[start : start + 8]]
+            x, y = np.concatenate([r[0] for r in rows]), np.concatenate([r[1] for r in rows])
+            weights = np.concatenate([np.full(len(r[1]), 1 / len(r[1])) for r in rows])
+            model.train_batch(x, y, learning_rate, weights)
+        loss = validation_loss()
+        if not np.isfinite(loss):
+            raise ValueError("Nonfinite online critic validation loss")
+        history.append(loss)
+        if loss < best_loss:
+            best_loss, selected_epoch = loss, epoch + 1
+            best = copy.deepcopy(model.__dict__)
+    model.__dict__.update(best)
+    return dict(
+        training_games=len(training),
+        validation_games=len(validation),
+        before_log_loss=before,
+        after_log_loss=best_loss,
+        selected_epoch=selected_epoch,
+        validation_history=history,
+    )

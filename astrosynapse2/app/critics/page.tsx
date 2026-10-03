@@ -4,13 +4,13 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 const API = "http://127.0.0.1:8765/api";
-type Model = { id: string; label: string; playable: boolean; is_champion: boolean; generation?: number };
+type Model = { id: string; label: string; playable: boolean; is_champion: boolean; generation?: number; architecture?: string };
 type Bin = { lower: number; upper: number; positions: number; predicted: number | null; observed: number | null };
 type Metrics = { positions: number; brier: number; log_loss: number; predicted: number; observed: number; bins: Bin[] };
 type Comparison = { critic: Metrics | null; original: Metrics | null };
 type Evaluation = Comparison & { games: number; slices: Record<string, Comparison> };
 type History = { epoch: number; train_loss: number; validation_loss: number; validation_brier: number };
-type Job = { id: string; model_label: string; status: string; progress: number; games_completed: number; epoch: number; best_epoch?: number; parameters?: number; truncated_games?: number; pause_requested?: boolean; config: { games: number; epochs: number; hidden_size: number; rules_version: number }; history: History[]; error?: string; validation?: Evaluation; result?: { test: Evaluation; validation: Evaluation; best_epoch: number; scope: string } };
+type Job = { encoder_version?: number; id: string; model_label: string; status: string; progress: number; games_completed: number; epoch: number; best_epoch?: number; parameters?: number; truncated_games?: number; pause_requested?: boolean; config: { games: number; epochs: number; hidden_size: number; rules_version: number; encoder_version?: number | null }; policy_runs?: {model_id: string; folder: string; pid: number; status?: string; games?: number; pause_requested?: boolean}[]; history: History[]; error?: string; validation?: Evaluation; result?: { test: Evaluation; validation: Evaluation; best_epoch: number; scope: string } };
 const active = (j: Job) => ["queued", "collecting", "fitting", "evaluating"].includes(j.status);
 const pct = (x: number | null | undefined) => x == null ? "—" : `${(100 * x).toFixed(1)}%`;
 const decimal = (x: number | null | undefined) => x == null ? "—" : x.toFixed(4);
@@ -24,6 +24,9 @@ async function api(path: string, init?: RequestInit) {
 export default function CriticsPage() {
   const [models, setModels] = useState<Model[]>([]);
   const [model, setModel] = useState("");
+  const [architecture, setArchitecture] = useState(3);
+  const [opponents, setOpponents] = useState<string[]>([]);
+  const [policyMessage, setPolicyMessage] = useState("");
   const [games, setGames] = useState(1000);
   const [epochs, setEpochs] = useState(20);
   const [width, setWidth] = useState(128);
@@ -63,7 +66,7 @@ export default function CriticsPage() {
   async function train() {
     setBusy(true); setError("");
     try {
-      const job = await api("/critics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model_id: model, games, epochs, hidden_size: width, seed, rules_version: rules }) }) as Job;
+      const job = await api("/critics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model_id: model, games, epochs, hidden_size: width, seed, rules_version: rules, encoder_version: architecture || null, workers: 6, batch_games: 16, patience: 20 }) }) as Job;
       setJobs(current => [job, ...current]); setSelected(job.id); setDetail(job);
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   }
@@ -72,6 +75,21 @@ export default function CriticsPage() {
     setBusy(true); setError("");
     try { const job = await api(`/critics/${detail.id}/${action}`, { method: "POST" }) as Job; setDetail(job); setJobs(current => current.map(j => j.id === job.id ? job : j)); }
     catch (e) { setError(String(e)); } finally { setBusy(false); }
+  }
+  async function port() {
+    setBusy(true); setError("");
+    try {
+      const converted = await api(`/models/${model}/arch3`, { method: "POST" }) as Model;
+      setModels(current => [converted, ...current]); setModel(converted.id);
+    } catch (e) { setError(String(e)); } finally { setBusy(false); }
+  }
+  async function trainPolicy() {
+    if (!detail) return;
+    setBusy(true); setError("");
+    try {
+      const run = await api(`/critics/${detail.id}/policy/train`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model_id: model, opponent_ids: opponents }) });
+      setPolicyMessage(`Policy training started · ${run.model_id} · ${run.folder}`);
+    } catch (e) { setError(String(e)); } finally { setBusy(false); }
   }
   const running = jobs.some(active);
   const evaluation = detail?.result?.test ?? detail?.validation;
@@ -83,20 +101,30 @@ export default function CriticsPage() {
       <form onSubmit={e => { e.preventDefault(); void train(); }}>
         <div className="student-form">
           <label className="student-model-field"><span>Playing policy</span><select required value={model} disabled={!models.length} onChange={e => setModel(e.target.value)}>{models.map(m => <option key={m.id} value={m.id}>{m.label}{m.is_champion ? " · Champion" : ""}</option>)}</select></label>
-          <label><span>Self-play games</span><input required type="number" min="20" max="10000" value={games} onChange={e => setGames(Number(e.target.value))} /></label>
-          <label><span>Training epochs</span><input required type="number" min="1" max="200" value={epochs} onChange={e => setEpochs(Number(e.target.value))} /></label>
+          <label><span>Critic architecture</span><select value={architecture} onChange={e => setArchitecture(Number(e.target.value))}><option value={3}>arch3 · inferred opponent hand</option><option value={0}>Same as playing policy</option><option value={2}>arch2</option></select></label>
+          <label><span>Self-play games</span><input required type="number" min="20" max="100000" value={games} onChange={e => setGames(Number(e.target.value))} /></label>
+          <label><span>Training epochs</span><input required type="number" min="1" max="2000" value={epochs} onChange={e => setEpochs(Number(e.target.value))} /></label>
           <label><span>Hidden width</span><select value={width} onChange={e => setWidth(Number(e.target.value))}>{[32,64,128,256].map(w => <option key={w} value={w}>{w}</option>)}</select></label>
           <label><span>Random seed</span><input required type="number" min="0" max="9007199254740991" value={seed} onChange={e => setSeed(Number(e.target.value))} /></label>
           <label><span>Game rules</span><select value={rules} onChange={e => setRules(Number(e.target.value))}><option value={2}>v2 · matches Play</option><option value={1}>v1 · historical campaign</option></select></label>
         </div>
         <p>A new network learns from public positions and final game outcomes. Each game contributes up to 64 uniformly sampled decisions, including forced moves. Whole games are split 70% for training, 15% for checkpoint selection, and 15% for final testing.</p>
-        <p>One CPU worker collects games and trains two nonlinear hidden layers. Truncated games are excluded. The final critic is saved separately for review and download; training does not replace the probability display in Play.</p>
+        <p>Six CPU workers collect games; the learner trains two nonlinear hidden layers. Training stops after 20 epochs without validation improvement and retains the best checkpoint. Truncated games are excluded. The final critic is saved separately for review and download; training does not replace the probability display in Play.</p>
         <button type="submit" className="button button-primary" disabled={busy || running || !model}>{running ? "A critic is training" : "Start critic training"}</button>
       </form>
     </section>
+    <section className="progressive-panel"><h2>Train an arch3 policy</h2>
+      <p>The playing policy selected above can be ported to arch3 with its behavior preserved. A completed arch3 critic supplies the advantage baseline for policy training. The critic’s source policy remains the main opponent; selected historical models provide additional variety.</p>
+      <button className="button" disabled={busy || !model} onClick={() => void port()}>Port selected policy to arch3</button>
+      <label><span>Additional opponents (any architecture)</span><select multiple value={opponents} onChange={e => setOpponents(Array.from(e.target.selectedOptions, option => option.value))}>{models.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}</select></label>
+      <p>80 iterations × 256 games · full policy training · learning rate 0.000002 · six workers. Uses the selected critic run below and a fresh copy of the selected playing policy. Checkpoints appear in Models & Arena for evaluation and Elo analysis.</p>
+      <button className="button button-primary" disabled={busy || !model || detail?.status !== "complete" || (detail?.encoder_version ?? detail?.config.encoder_version) !== 3} onClick={() => void trainPolicy()}>Train with selected arch3 critic</button>
+      {policyMessage ? <p role="status">{policyMessage}</p> : null}
+      {detail?.policy_runs?.map(run => <div key={run.model_id}><p>Policy run {run.model_id} · {run.status} · {run.games?.toLocaleString() ?? 0} games</p><a href={`${API}/critics/${detail.id}/policy/${run.model_id}/log`}>Training log</a>{["running", "paused", "interrupted"].includes(run.status ?? "") ? <button className="button" disabled={busy || (run.status === "running" && run.pause_requested)} onClick={async () => { setBusy(true); try { setDetail(await api(`/critics/${detail.id}/policy/${run.model_id}/${run.status === "running" ? "pause" : "resume"}`, {method: "POST"})); } catch (e) { setError(String(e)); } finally {setBusy(false);} }}>{run.status === "running" ? run.pause_requested ? "Pause requested…" : "Pause policy training" : "Resume policy training"}</button> : null}</div>)}
+    </section>
     <div className="student-workspace">
       <section className="progressive-panel student-history"><h2>Training runs</h2>
-        {!jobs.length ? <p>No critics yet. Start a run to measure calibration against the original model.</p> : jobs.map(j => <button type="button" key={j.id} className={`student-history-item${detail?.id === j.id ? " selected" : ""}`} onClick={() => setSelected(j.id)}><strong>{j.model_label}</strong><span>{j.id.slice(0,8)} · {j.status}</span><small>{j.games_completed.toLocaleString()} / {j.config.games.toLocaleString()} games · epoch {j.epoch} / {j.config.epochs}</small></button>)}
+        {!jobs.length ? <p>No critics yet. Start a run to measure calibration against the original model.</p> : jobs.map(j => <button type="button" key={j.id} className={`student-history-item${detail?.id === j.id ? " selected" : ""}`} onClick={() => setSelected(j.id)}><strong>{j.model_label}</strong><span>{j.id.slice(0,8)} · {j.status} · {j.config.encoder_version ? `arch${j.config.encoder_version}` : "policy architecture"}</span><small>{j.games_completed.toLocaleString()} / {j.config.games.toLocaleString()} games · epoch {j.epoch} / {j.config.epochs}</small></button>)}
       </section>
       <section className="progressive-panel student-detail"><h2>Progress & calibration</h2>
         {!detail ? <p>Choose a saved run to inspect its progress and results.</p> : <>

@@ -10,7 +10,10 @@ from typing import Any
 
 def progressive_models(data_dir: Path) -> list[dict[str, Any]]:
     root = (data_dir / "progressive").resolve()
-    result = []
+    from .arch3 import arch3_models
+    from .autopilot_registry import campaign_models
+
+    result = arch3_models(data_dir) + campaign_models(data_dir)
     for state_path in sorted(root.glob("*/state.json")):
         folder = state_path.parent.resolve()
         if not folder.is_relative_to(root):

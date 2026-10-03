@@ -428,6 +428,7 @@ type TrainerConfig = {
   preset: "astro5_directional" | "astro5_mature" | "astro5_search" | "astro4_m4" | "astro3_m4" | "m4_24h" | "quick" | "custom";
   seed: number;
   trainingGeneration: number;
+  encoderVersion?: number;
   behaviorPolicy: string;
   useBootstrapTargets: boolean;
   tacticalPreferenceTraining: boolean;
@@ -2444,6 +2445,7 @@ function configToApi(config: TrainerConfig): Record<string, string | number | bo
     preset: config.preset,
     seed: config.seed,
     training_generation: config.trainingGeneration,
+    encoder_version: config.encoderVersion || (config.trainingGeneration >= 3 ? 2 : 1),
     behavior_policy: config.behaviorPolicy,
     use_bootstrap_targets: config.useBootstrapTargets,
     tactical_preference_training: config.tacticalPreferenceTraining,
@@ -2562,7 +2564,7 @@ function configFromApi(raw: unknown, prior: TrainerConfig): TrainerConfig {
     preset,
     seed: asNumber(item.seed, previous.seed),
     trainingGeneration,
-    behaviorPolicy: asString(item.behavior_policy, previous.behaviorPolicy),
+    encoderVersion: asNumber(item.encoder_version, 0),    behaviorPolicy: asString(item.behavior_policy, previous.behaviorPolicy),
     useBootstrapTargets: asBoolean(item.use_bootstrap_targets, previous.useBootstrapTargets),
     tacticalPreferenceTraining: asBoolean(
       item.tactical_preference_training,
@@ -5121,6 +5123,7 @@ export default function Home() {
           </button>
         ))}
         <Link href="/progressive" className="progressive-nav-link">Astro6 progress ↗</Link>
+        <Link href="/autopilot" className="progressive-nav-link">Champion autopilot ↗</Link>
         <Link href="/critics" className="progressive-nav-link">Critic training ↗</Link>
         <Link href="/students" className="progressive-nav-link">Acquire students ↗</Link>
       </nav>
@@ -5411,6 +5414,7 @@ export default function Home() {
                     <div className="field-section"><h3>Policy improvement</h3><div className="field-grid">
                       <label title="Use a distinct seed for each independent training run; reuse one only when reproducing a run."><span><Jargon term="seed">Training seed</Jargon></span><input type="number" min="0" max="9007199254740991" step="1" value={config.seed} onChange={(event) => updateConfig("seed", Number(event.target.value))} /></label>
                       <label title="This expert field changes the generation/learner contract only. Use the preset cards above to switch the complete recipe."><span><Jargon term="trainingGeneration">Generation contract</Jargon></span><select value={config.trainingGeneration} onChange={(event) => updateConfig("trainingGeneration", Number(event.target.value))}><option value={5}>Astro5 search & governor</option><option value={4}>Astro4 legal-set actor-critic</option><option value={3}>Astro3 chosen-action MC</option><option value={2}>Astro2 encoder · hybrid</option></select></label>
+                      <label><span>Input architecture</span><select value={config.encoderVersion ?? 0} onChange={event => updateConfig("encoderVersion", Number(event.target.value))}><option value={0}>Generation default</option><option value={3}>arch3 · inferred opponent hand</option><option value={2}>arch2</option><option value={1}>arch1</option></select></label>
                       <label><span><Jargon term="behaviorPolicy">Behavior policy</Jargon></span><select value={config.behaviorPolicy} onChange={(event) => updateConfig("behaviorPolicy", event.target.value)}><option value="learner">Learner</option><option value="champion">Champion</option></select></label>
                       <label title="Scale of fixed random per-head behavior offsets used only to perturb action selection; this is not a fitted prior or an added training loss."><span>Behavior perturbation scale</span><input type="number" min="0" max="5" step="0.05" value={config.randomizedPriorScale} onChange={(event) => updateConfig("randomizedPriorScale", Number(event.target.value))} /></label>
                       <label title="Fraction of current self-play that uses the exact prior-free mean-head policy deployed in arenas and human play. Generation 2 requires zero."><span>Deployment-policy self-play</span><input type="number" min="0" max="1" step="0.05" disabled={config.trainingGeneration < 3} value={config.trainingGeneration >= 3 ? config.deploymentPolicySelfplayFraction : 0} onChange={(event) => updateConfig("deploymentPolicySelfplayFraction", Number(event.target.value))} /></label>
@@ -5603,6 +5607,7 @@ export default function Home() {
                 {connected ? <div className="arena-watch-controls"><button type="button" className="button button-secondary" onClick={watchActiveArena} disabled={arenaWatchLoading}>{arenaWatchLoading ? "Loading match…" : "Watch active arena"}</button><small>Switch to the running match from any training run and follow its live progress.</small></div> : null}
                 <label className="toggle-label checkpoint-filter-toggle"><input type="checkbox" checked={championCheckpointsOnly} onChange={(event) => setChampionCheckpointsOnly(event.target.checked)} /><span />Champions only</label>
                 <div className="versus-row">
+                  <Link href="/autopilot#matches">Select policies and critics for arena / self-play ↗</Link>
                   <ArenaModelPicker side="A" value={arenaA} groups={arenaModelGroups} onChange={setArenaA} />
                   <div className="versus-mark"><span>VS</span><i /></div>
                   <ArenaModelPicker side="B" value={arenaB} groups={arenaModelGroups} onChange={setArenaB} />

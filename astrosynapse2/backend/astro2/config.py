@@ -32,6 +32,7 @@ class RunConfig(BaseModel):
         "custom",
     ] = "m4_24h"
     training_generation: Literal[2, 3, 4, 5] = 2
+    encoder_version: Literal[1, 2, 3] | None = None
     # Keep seeds exactly representable by the JavaScript dashboard as well as
     # Python, so API/UI round-trips cannot silently change an experiment.
     seed: int = Field(default=20260807, ge=0, le=MAX_REPRODUCIBILITY_SEED)

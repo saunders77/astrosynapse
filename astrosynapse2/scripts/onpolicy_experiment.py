@@ -77,8 +77,21 @@ def main():
     p.add_argument("--anchor-dataset", help="Historical observations relabeled by the incumbent")
     p.add_argument("--anchor-weight", type=float, default=0.0)
     p.add_argument("--entropy-weight", type=float, default=0.0)
+    p.add_argument("--export-critic-data", action="store_true")
+    p.add_argument("--update-independent-critic", action="store_true")
+    p.add_argument("--skip-embedded-critic-training", action="store_true")
+    p.add_argument("--matched-rollout-seeds", action="store_true")
+    p.add_argument("--independent-critic-epochs", type=int, default=3)
+    p.add_argument("--independent-critic-learning-rate", type=float, default=0.0003)
+    p.add_argument("--independent-critic", help="Frozen independent critic.npz for advantages")
     p.add_argument("--advantage-baseline", choices=["critic", "constant"], default="critic")
     args = p.parse_args()
+    if args.update_independent_critic and not args.independent_critic:
+        raise ValueError("Online updates require --independent-critic")
+    if args.skip_embedded_critic_training and not args.separate_critic:
+        raise ValueError("Skipping the embedded critic requires isolated policy gradients")
+    if args.independent_critic_epochs < 1 or args.independent_critic_learning_rate <= 0:
+        raise ValueError("Invalid independent critic update settings")
     if args.temperature <= 0 or args.games < 2 or args.batch_size < 2:
         raise ValueError("invalid training settings")
     if not 0 < args.learning_rate <= args.max_learning_rate or args.target_kl <= 0:
@@ -119,6 +132,11 @@ def main():
         raise ValueError("regularization weights must be nonnegative")
     opponents = json.loads(Path(args.opponent_pool).read_text()) if args.opponent_pool else []
     extra_identity = dict(
+        independent_critic_sha256=hashlib.sha256(
+            Path(args.independent_critic).read_bytes()
+        ).hexdigest()
+        if args.independent_critic
+        else None,
         historical_opponents={
             path: hashlib.sha256(Path(path).read_bytes()).hexdigest() for path in opponents
         },
@@ -153,6 +171,32 @@ def main():
     mx.random.seed(args.seed)
     mx.set_cache_limit(512 * 1024 * 1024)
     model, spec = load_model(resume_state["model"] if resume_state else model_path)
+    independent = None
+    if args.independent_critic:
+        from astro2.critic import IndependentCritic
+
+        independent, critic_meta, _ = IndependentCritic.load(args.independent_critic)
+        if (critic_meta["encoder_version"], critic_meta["state_size"], critic_meta["families"]) != (
+            spec.encoder_version,
+            spec.state_size,
+            spec.families,
+        ):
+            raise ValueError("Independent critic architecture does not match learner")
+        if critic_meta["config"]["rules_version"] != args.rules_version:
+            raise ValueError("Independent critic game rules do not match learner")
+        if args.advantage_baseline != "critic" or not args.separate_critic:
+            raise ValueError("Independent critic requires critic baseline and separate critic")
+    if args.update_independent_critic:
+        if resume_state:
+            independent, online_meta, _ = IndependentCritic.load(resume_state["independent_critic"])
+            if online_meta["source_sha256"] != extra_identity["independent_critic_sha256"]:
+                raise ValueError("Online critic source changed")
+        else:
+            # Exported best weights need fresh Adam moments, not the final
+            # supervised epoch's optimizer, which may describe other weights.
+            independent.m = {k: np.zeros_like(v) for k, v in independent.weights.items()}
+            independent.v = {k: np.zeros_like(v) for k, v in independent.weights.items()}
+            independent.step = 0
     model.train()
     if args.train_scope == "heads":
         model.freeze()
@@ -257,7 +301,15 @@ def main():
             if STOP or (out / "STOP").exists():
                 break
             iteration_start = time.monotonic()
-            seed = int(rng.integers(2**62))
+            seed = (
+                int(
+                    np.random.default_rng(
+                        np.random.SeedSequence([args.seed, iteration, 0xA83])
+                    ).integers(2**62)
+                )
+                if args.matched_rollout_seeds
+                else int(rng.integers(2**62))
+            )
             scheduled_opponents = league_schedule(opponent_path, opponents, seed, args.games)
             tasks = [
                 (
@@ -268,12 +320,25 @@ def main():
                     i,
                     auto_path,
                     args.rules_version,
-                    args.separate_critic,
+                    (args.separate_critic and not args.skip_embedded_critic_training)
+                    or args.update_independent_critic
+                    or args.export_critic_data,
                 )
                 for i in range(args.games)
             ]
             trajectories = list(pool.map(collect_trajectory, tasks, chunksize=2))
             rollout_seconds = time.monotonic() - iteration_start
+            if args.export_critic_data:
+                from astro2.autopilot_data import export_trajectories
+
+                export_trajectories(
+                    out / "critic-data",
+                    iteration,
+                    trajectories,
+                    spec.families,
+                    seed,
+                    spec.encoder_version,
+                )
             learning_start = time.monotonic()
             valid = [t for t in trajectories if not t.truncated]
             states = np.asarray([s for t in valid for s in t.states], dtype=np.float32)
@@ -289,19 +354,33 @@ def main():
             probe_indices = np.linspace(0, len(states) - 1, min(1024, len(states)), dtype=int)
             targets = np.asarray([t.target for t in valid for _ in t.states], dtype=np.float32)
             baseline = []
-            for offset in range(0, len(states), 512):
-                values = mx.sigmoid(
-                    model.state_values(
-                        mx.array(states[offset : offset + 512]),
-                        mx.array(families[offset : offset + 512]),
+            if independent is None and args.advantage_baseline == "critic":
+                for offset in range(0, len(states), 512):
+                    values = mx.sigmoid(
+                        model.state_values(
+                            mx.array(states[offset : offset + 512]),
+                            mx.array(families[offset : offset + 512]),
+                        )
+                    ).mean(axis=1)
+                    baseline.extend(np.asarray(values))
+            if independent is not None:
+                baseline = []
+                for offset in range(0, len(states), 512):
+                    features = np.concatenate(
+                        (
+                            states[offset : offset + 512],
+                            np.eye(spec.families, dtype=np.float32)[
+                                families[offset : offset + 512]
+                            ],
+                        ),
+                        axis=1,
                     )
-                ).mean(axis=1)
-                baseline.extend(np.asarray(values))
-            advantages = targets - np.asarray(baseline)
-            if args.advantage_baseline == "constant":
-                advantages = targets - 0.5
+                    baseline.extend(independent.predict(features))
+            advantages = targets - (
+                0.5 if args.advantage_baseline == "constant" else np.asarray(baseline)
+            )
             calibration = None
-            if args.separate_critic:
+            if args.separate_critic and not args.skip_embedded_critic_training:
                 value_states = np.asarray(
                     [s for t in valid for s in t.value_states], dtype=np.float32
                 )
@@ -441,7 +520,7 @@ def main():
                 )
                 optimizer.learning_rate = current_lr
             critic_start = time.monotonic()
-            if args.separate_critic:
+            if args.separate_critic and not args.skip_embedded_critic_training:
                 # Fit after the accepted policy update (or rollback) so the
                 # critic tracks the actual exported representation. Advantages
                 # above used the pre-fit critic, with no same-game target leak.
@@ -491,6 +570,17 @@ def main():
                 model.value_output.update(critic.parameters())
                 mx.eval(model.parameters())
                 del feature_batches, value_features
+            online_metrics = None
+            if args.update_independent_critic:
+                from astro2.onpolicy import update_independent_critic
+
+                online_metrics = update_independent_critic(
+                    independent,
+                    valid,
+                    seed=np.random.SeedSequence([args.seed, iteration, 0xC83]),
+                    epochs=args.independent_critic_epochs,
+                    learning_rate=args.independent_critic_learning_rate,
+                )
             critic_seconds = time.monotonic() - critic_start
             total_games += args.games
             learning_seconds = time.monotonic() - learning_start
@@ -505,8 +595,21 @@ def main():
             if args.separate_critic:
                 critic_optimizer_path = checkpoint.with_suffix(".critic-optimizer.npz")
                 save_optimizer_state(critic_optimizer, critic_optimizer_path)
+            independent_path = None
+            if args.update_independent_critic:
+                independent_path = checkpoint.with_suffix(".independent-critic.npz")
+                independent.save(
+                    independent_path,
+                    {
+                        "source_sha256": extra_identity["independent_critic_sha256"],
+                        "iteration": iteration,
+                        "metrics": online_metrics,
+                    },
+                )
             record = dict(
                 iteration=iteration,
+                rollout_seed=seed,
+                independent_critic_update=online_metrics,
                 games=total_games,
                 updates=updates,
                 positions=len(states),
@@ -585,6 +688,7 @@ def main():
                 critic_optimizer=str(critic_optimizer_path) if critic_optimizer_path else None,
                 critic_rng=critic_rng.bit_generator.state,
                 critic_updates=critic_updates,
+                independent_critic=str(independent_path) if independent_path else None,
             )
             temporary = out / "state.tmp"
             temporary.write_text(json.dumps(state, indent=2))

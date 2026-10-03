@@ -44,6 +44,8 @@ from .card_analysis import (
     default_games_for_kind,
 )
 from .config import RunConfig, preset_config
+from .autopilot import AutopilotManager
+from .autopilot_api import router as autopilot_router
 from .critic import CriticManager
 from .critic_api import router as critic_router
 from .experiment_control import atomic_json
@@ -150,6 +152,7 @@ async def lifespan(app: FastAPI):
     app.state.card_analysis = CardAnalysisManager(store, DATA_DIR / "analysis")
     app.state.acquire_students = StudentManager(store, DATA_DIR / "acquire_students")
     app.state.critics = CriticManager(store, DATA_DIR / "critics")
+    app.state.autopilot = AutopilotManager(store, PROJECT_ROOT)
     app.state.advisor = CheckpointAdvisor()
     app.state.supervisor = Supervisor(
         store,
@@ -173,6 +176,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(critic_router)
+app.include_router(autopilot_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -270,6 +274,19 @@ def _model_document(checkpoint: dict[str, Any]) -> dict[str, Any]:
                 model_spec = loaded_spec
         except (OSError, json.JSONDecodeError):
             model_spec = {}
+    if not model_spec and actor_available:
+        import numpy as np
+
+        try:
+            with np.load(actor_path, allow_pickle=False) as archive:
+                model_spec = json.loads(archive["__spec_json__"].tobytes())
+        except (OSError, ValueError, KeyError):
+            pass
+    version = model_spec.get("encoder_version", checkpoint.get("encoder_version", 1))
+    result["encoder_version"] = version
+    result["architecture"] = f"arch{version}"
+    if f" · arch{version}" not in result["label"]:
+        result["label"] += f" · arch{version}"
     retention = _artifact_retention(checkpoint)
     retention_pruned = bool(retention.get("pruned"))
     size_bytes = 0
@@ -404,7 +421,11 @@ def progressive_progress() -> dict[str, Any]:
         "path": str(folder),
         "run_name": f"{state.get('name', 'Astro6')} · {folder.name}",
         "checkpoint_name": str(
-            Path((latest or {}).get("checkpoint") or state.get("learner_model") or state.get("model", "—"))
+            Path(
+                (latest or {}).get("checkpoint")
+                or state.get("learner_model")
+                or state.get("model", "—")
+            )
         ).replace(str(folder) + "/", ""),
         "champion_checkpoint_name": str(state.get("champion", "—")).replace(str(folder) + "/", ""),
         "stop_requested": (folder / "STOP").exists(),
@@ -688,6 +709,16 @@ def models(
     return result
 
 
+@app.post("/api/models/{model_id}/arch3", status_code=201)
+def port_arch3(model_id: str, request: Request):
+    from .arch3 import create_port
+
+    try:
+        return _model_document(create_port(_store(request), model_id))
+    except (ValueError, KeyError) as error:
+        raise HTTPException(422, str(error)) from error
+
+
 @app.patch("/api/models/{model_id}")
 def patch_model(model_id: str, payload: ModelPatch, request: Request) -> dict[str, Any]:
     store = _store(request)
@@ -850,8 +881,9 @@ def cancel_acquire_student(student_id: str, request: Request):
 def acquire_student_advice(student_id: str, payload: StudentAdviceRequest, request: Request):
     try:
         artifact = request.app.state.acquire_students.artifact(student_id)
-        return recommend_acquisition(artifact, payload.observation.observation(),
-                                     payload.total_trade, payload.spent)
+        return recommend_acquisition(
+            artifact, payload.observation.observation(), payload.total_trade, payload.spent
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail="Student not found") from error
     except ValueError as error:
@@ -860,8 +892,14 @@ def acquire_student_advice(student_id: str, payload: StudentAdviceRequest, reque
 
 @app.get("/api/acquire-students/{student_id}/download/{kind}")
 def download_acquire_student(student_id: str, kind: str, request: Request):
-    names = {"tree": "tree.txt", "student": "student.json", "samples": "samples.jsonl.gz",
-             "weights": "miniastro.npz", "errors": "errors.jsonl.gz", "report": "report.txt"}
+    names = {
+        "tree": "tree.txt",
+        "student": "student.json",
+        "samples": "samples.jsonl.gz",
+        "weights": "miniastro.npz",
+        "errors": "errors.jsonl.gz",
+        "report": "report.txt",
+    }
     try:
         folder = request.app.state.acquire_students.folder(student_id)
         request.app.state.acquire_students.artifact(student_id)
@@ -875,8 +913,12 @@ def download_acquire_student(student_id: str, kind: str, request: Request):
 
 
 @app.get("/api/acquire-students/{student_id}/unit")
-def miniastro_unit(student_id: str, request: Request,
-                   group: int = Query(ge=0, le=4), unit: int = Query(ge=0, le=2000)):
+def miniastro_unit(
+    student_id: str,
+    request: Request,
+    group: int = Query(ge=0, le=4),
+    unit: int = Query(ge=0, le=2000),
+):
     from .miniastro import load_weights
 
     try:
@@ -887,14 +929,22 @@ def miniastro_unit(student_id: str, request: Request,
         if unit >= spec["width"]:
             raise ValueError("Unit does not exist in this group")
         weights = load_weights(artifact["weights_path"])
-        inputs = [{"feature": artifact["feature_names"][index],
-                   "weight": float(weights[f"w{group}"][j, unit]),
-                   "mean": float(weights["mean"][index]), "scale": float(weights["scale"][index])}
-                  for j, index in enumerate(spec["indices"])]
-        return {"group": spec["name"], "unit": unit,
-                "bias": float(weights[f"b{group}"][unit]),
-                "output_weight": float(weights[f"v{group}"][unit]),
-                "inputs": sorted(inputs, key=lambda item: abs(item["weight"]), reverse=True)}
+        inputs = [
+            {
+                "feature": artifact["feature_names"][index],
+                "weight": float(weights[f"w{group}"][j, unit]),
+                "mean": float(weights["mean"][index]),
+                "scale": float(weights["scale"][index]),
+            }
+            for j, index in enumerate(spec["indices"])
+        ]
+        return {
+            "group": spec["name"],
+            "unit": unit,
+            "bias": float(weights[f"b{group}"][unit]),
+            "output_weight": float(weights[f"v{group}"][unit]),
+            "inputs": sorted(inputs, key=lambda item: abs(item["weight"]), reverse=True),
+        }
     except KeyError as error:
         raise HTTPException(status_code=404, detail="Student not found") from error
     except ValueError as error:

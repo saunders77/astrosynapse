@@ -275,6 +275,10 @@ class EngineEncoder(Encoder):
                 start = status_start + index * self.card_count
                 result[start : start + self.card_count] = self._counts(signature)
 
+        if self.version >= 3:
+            result[-self.card_count :] = self._counts(
+                self._card_ids(observation.opponent_inferred_hand)
+            )
         cached_state = result.copy()
         cached_state.flags.writeable = False
         self._state_cache[observation.player_id] = (

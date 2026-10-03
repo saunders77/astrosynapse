@@ -1,5 +1,4 @@
 import numpy as np
-
 from astro2.model import ModelSpec, build_model
 from astro2.onpolicy import critic_calibration, critic_logits, masked_log_policy, ppo_loss
 
@@ -82,9 +81,8 @@ def test_separate_critic_fits_outcomes_without_changing_policy(tmp_path):
     import mlx.core as mx
     import mlx.nn as nn
     import mlx.optimizers as optim
-    from mlx.utils import tree_flatten
-
     from astro2.model import load_optimizer_state, save_optimizer_state
+    from mlx.utils import tree_flatten
 
     model, arrays = fixture()
     before = {k: np.asarray(v).copy() for k, v in tree_flatten(model.parameters())}
@@ -262,3 +260,34 @@ def test_real_engine_value_hook_covers_bypassed_decisions_without_changing_play(
     assert enabled.target == disabled.target and enabled.truncated == disabled.truncated
     assert enabled.selected == disabled.selected
     np.testing.assert_array_equal(enabled.states, disabled.states)
+
+
+def test_online_independent_critic_selects_whole_game_validation_and_resumes(tmp_path):
+    from astro2.critic import IndependentCritic
+    from astro2.onpolicy import Trajectory, update_independent_critic
+
+    rng = np.random.default_rng(91)
+    rows = []
+    for i in range(32):
+        y = float(i % 2)
+        x = rng.normal(size=(8, 4)).astype(np.float32)
+        x[:, 0] = 2 * y - 1
+        rows.append(
+            Trajectory(
+                [], [], [], [], [], [], y, False, value_states=list(x), value_families=[0] * 8
+            )
+        )
+    model = IndependentCritic(12, 32, 5)
+    before = {k: v.copy() for k, v in model.weights.items()}
+    report = update_independent_critic(model, rows, seed=91, epochs=3, learning_rate=0.01)
+    assert report["training_games"] == 28 and report["validation_games"] == 4
+    assert report["after_log_loss"] < report["before_log_loss"]
+    assert any(not np.array_equal(before[k], v) for k, v in model.weights.items())
+    model.save(tmp_path / "critic.npz", {"source_sha256": "test"})
+    resumed, _, _ = IndependentCritic.load(tmp_path / "critic.npz")
+    a = update_independent_critic(model, rows, seed=92, epochs=2)
+    b = update_independent_critic(resumed, rows, seed=92, epochs=2)
+    assert a == b
+    for k in model.weights:
+        np.testing.assert_array_equal(model.weights[k], resumed.weights[k])
+        np.testing.assert_array_equal(model.m[k], resumed.m[k])

@@ -156,6 +156,8 @@ MLX initializes Metal when imported. A headless or restricted shell may report t
 
 ## Documentation
 
+- [arch3 public hand inference, generation10 port, and independent critic training](docs/ARCH3.md)
+
 - [Astro5 search, governor, and branching](docs/ASTRO5_SEARCH_AND_BRANCHING.md)
 - [System and algorithm design](docs/DESIGN.md)
 - [Training, metrics, and evaluation](docs/TRAINING.md)
@@ -167,3 +169,5 @@ MLX initializes Metal when imported. A headless or restricted shell may report t
 ## Honest scope
 
 This is a corrected training platform, not a pre-trained “excellent” Astro4 model. The audit identifies direct causes of the Astro3 learning weakness and verifies the new system at unit/integration scale; only fresh multi-seed training and held-out paired arenas can establish a large skill gain. Use diverse frozen opponents, paired seeds, seat splits, truncation rates, calibration, and confidence intervals. The Python engine remains the production engine; a future native search engine should replace it only after differential replay tests prove rule equivalence.
+
+Champion Autopilot is available at `/autopilot`: autonomous 80/20 policy/critic development, fresh promotion gates, durable pause/resume, retained champions, and mixed-architecture policy/critic arena and self-play selection. See [Autopilot](docs/AUTOPILOT.md) for budget, evaluation, and recovery contracts.

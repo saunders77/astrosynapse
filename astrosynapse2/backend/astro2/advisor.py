@@ -116,6 +116,7 @@ class AdvisorObservation(BaseModel):
     own_discard: list[CardReference]
     own_in_play: list[InPlayReference]
     opponent_hand_count: int = Field(ge=0)
+    opponent_inferred_hand: list[CardReference] | None = None
     opponent_known_hand: list[CardReference]
     opponent_hidden: list[CardReference]
     opponent_deck_count: int = Field(ge=0)
@@ -142,9 +143,7 @@ class AdvisorObservation(BaseModel):
 
         known_own_top = len(self.own_known_top)
         if self.own_deck_count != len(self.own_deck) + known_own_top:
-            raise ValueError(
-                "own_deck_count must equal len(own_deck) + len(own_known_top)"
-            )
+            raise ValueError("own_deck_count must equal len(own_deck) + len(own_known_top)")
 
         known_opponent = len(self.opponent_known_hand) + len(self.opponent_known_top)
         public_opponent_total = self.opponent_hand_count + self.opponent_deck_count
@@ -153,6 +152,13 @@ class AdvisorObservation(BaseModel):
                 "opponent_hidden plus known hand/top cards must equal "
                 "opponent_hand_count + opponent_deck_count"
             )
+        if self.opponent_inferred_hand is not None:
+            from collections import Counter
+
+            inferred = Counter(c.card_id for c in self.opponent_inferred_hand)
+            available = Counter(c.card_id for c in self.opponent_known_hand + self.opponent_hidden)
+            if sum(inferred.values()) > self.opponent_hand_count or not available >= inferred:
+                raise ValueError("Inferred hand must be a subset of the public opponent pool")
         if len(self.opponent_known_hand) > self.opponent_hand_count:
             raise ValueError("opponent_known_hand exceeds opponent_hand_count")
         if len(self.opponent_known_top) > self.opponent_deck_count:
@@ -199,6 +205,16 @@ class AdvisorObservation(BaseModel):
             own_in_play=tuple(item.in_play() for item in self.own_in_play),
             opponent_hand_count=self.opponent_hand_count,
             opponent_known_hand=cards(self.opponent_known_hand),
+            opponent_inferred_hand=cards(
+                self.opponent_inferred_hand
+                if self.opponent_inferred_hand is not None
+                else self.opponent_known_hand
+                + (
+                    self.opponent_hidden
+                    if self.opponent_deck_count == len(self.opponent_known_top)
+                    else []
+                )
+            ),
             opponent_hidden=cards(self.opponent_hidden),
             opponent_deck_count=self.opponent_deck_count,
             opponent_known_top=cards(self.opponent_known_top),
@@ -321,8 +337,7 @@ def main_phase_actions(observation: Observation) -> tuple[Action, ...]:
             and card.ally not in AUTOMATIC_ALLY_EFFECTS
             and not item.ally_triggered
             and any(
-                other.card.card_id == 19
-                or has_faction(other, card.faction)
+                other.card.card_id == 19 or has_faction(other, card.faction)
                 for other_index, other in enumerate(observation.own_in_play)
                 if other_index != item_index
             )
@@ -359,14 +374,10 @@ def main_phase_actions(observation: Observation) -> tuple[Action, ...]:
 
     if observation.combat > 0:
         outposts = [
-            item
-            for item in observation.opponent_in_play
-            if item.card.card_type == CardType.OUTPOST
+            item for item in observation.opponent_in_play if item.card.card_type == CardType.OUTPOST
         ]
         targets = outposts or [
-            item
-            for item in observation.opponent_in_play
-            if item.card.card_type == CardType.BASE
+            item for item in observation.opponent_in_play if item.card.card_type == CardType.BASE
         ]
         for item in targets:
             if observation.combat >= item.card.defense:
@@ -443,9 +454,7 @@ _FAMILY_ACTION_KINDS: dict[DecisionFamily, frozenset[ActionKind]] = {
     DecisionFamily.ABILITY_MODE: frozenset({ActionKind.CHOOSE_MODE}),
     DecisionFamily.COPY_SHIP: frozenset({ActionKind.COPY_SHIP}),
     DecisionFamily.DESTROY_BASE: frozenset({ActionKind.DESTROY_BASE, ActionKind.DECLINE}),
-    DecisionFamily.SCRAP_TRADE_ROW: frozenset(
-        {ActionKind.SCRAP_TRADE_ROW, ActionKind.DECLINE}
-    ),
+    DecisionFamily.SCRAP_TRADE_ROW: frozenset({ActionKind.SCRAP_TRADE_ROW, ActionKind.DECLINE}),
     DecisionFamily.FREE_ACQUIRE: frozenset({ActionKind.FREE_ACQUIRE, ActionKind.DECLINE}),
 }
 
@@ -499,9 +508,7 @@ def _validate_supplied_actions(
         if action.kind in _SOURCE_CARD_REQUIRED and action.card_id < 0:
             raise AdvisorInputError(f"{action.kind.value} requires a defined card_id")
         if action.kind in _TARGET_CARD_REQUIRED and action.target_card_id < 0:
-            raise AdvisorInputError(
-                f"{action.kind.value} requires a defined target_card_id"
-            )
+            raise AdvisorInputError(f"{action.kind.value} requires a defined target_card_id")
         if action.kind in {ActionKind.PLAY_CARD, ActionKind.DISCARD_CARD}:
             if action.card_id not in own_hand:
                 raise AdvisorInputError(f"{action.label} does not reference a card in hand")
@@ -518,9 +525,7 @@ def _validate_supplied_actions(
         # emitted that triggered decision, so validate its targets below while
         # requiring in-play membership only for copy selection itself.
         elif action.kind == ActionKind.COPY_SHIP and action.card_id not in own_in_play:
-            raise AdvisorInputError(
-                f"{action.label} does not reference a card in own_in_play"
-            )
+            raise AdvisorInputError(f"{action.label} does not reference a card in own_in_play")
 
         if action.kind in {ActionKind.ATTACK_BASE, ActionKind.DESTROY_BASE}:
             if action.target_card_id not in opponent_bases:
@@ -530,15 +535,11 @@ def _validate_supplied_actions(
         elif action.kind == ActionKind.COPY_SHIP:
             target = CARD_BY_ID[action.target_card_id]
             if action.target_card_id not in own_in_play or not target.is_ship:
-                raise AdvisorInputError(
-                    f"{action.label} does not target a ship in own_in_play"
-                )
+                raise AdvisorInputError(f"{action.label} does not target a ship in own_in_play")
         elif action.kind in {ActionKind.SCRAP_TRADE_ROW, ActionKind.FREE_ACQUIRE}:
             target = CARD_BY_ID[action.target_card_id]
             if action.target_card_id not in trade_row:
-                raise AdvisorInputError(
-                    f"{action.label} does not target a card in the trade row"
-                )
+                raise AdvisorInputError(f"{action.label} does not target a card in the trade row")
             if action.kind == ActionKind.FREE_ACQUIRE and not target.is_ship:
                 raise AdvisorInputError(f"{action.label} must target a ship")
 
@@ -581,7 +582,9 @@ class CheckpointAdvisor:
                 try:
                     chooser = self.chooser_factory(path)
                 except (OSError, ValueError, KeyError) as error:
-                    raise AdvisorModelError(f"checkpoint actor could not be loaded: {error}") from error
+                    raise AdvisorModelError(
+                        f"checkpoint actor could not be loaded: {error}"
+                    ) from error
                 entry = _ChooserEntry(*signature, chooser, threading.RLock())
                 self._entries[key] = entry
             self._entries.move_to_end(key)
@@ -624,9 +627,7 @@ class CheckpointAdvisor:
             else "win_outcome"
         )
         scored_actions = []
-        for index, (action, value) in enumerate(
-            zip(decision.actions, option_values, strict=True)
-        ):
+        for index, (action, value) in enumerate(zip(decision.actions, option_values, strict=True)):
             scored_actions.append(
                 AdvisorScoredAction(
                     id=index,
@@ -646,9 +647,7 @@ class CheckpointAdvisor:
             family=decision.family.value,
             prompt=decision.prompt,
             score_semantics=score_semantics,
-            expected_win_rate=(
-                float(expected_win_rate) if expected_win_rate is not None else None
-            ),
+            expected_win_rate=(float(expected_win_rate) if expected_win_rate is not None else None),
             actions=scored_actions,
         )
 

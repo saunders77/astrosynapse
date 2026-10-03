@@ -211,3 +211,28 @@ def test_pause_mid_epoch_replays_from_durable_checkpoint(tmp_path, monkeypatch):
         np.testing.assert_array_equal(a.weights[key], b.weights[key])
         np.testing.assert_array_equal(a.m[key], b.m[key])
         np.testing.assert_array_equal(a.v[key], b.v[key])
+
+
+def test_arch3_config_and_early_stopping(tmp_path, monkeypatch):
+    assert critic.CriticConfig(games=100000, epochs=2000, encoder_version=3).encoder_version == 3
+    with pytest.raises(ValueError):
+        critic.CriticConfig(games=100001)
+    config = critic.CriticConfig(games=20, epochs=100, hidden_size=32, patience=2)
+    actor = make_job(tmp_path, config)
+    monkeypatch.setattr(critic, "_load_actor_encoder", lambda _: (actor, None))
+    monkeypatch.setattr(critic, "collect_game", synthetic_collect)
+    monkeypatch.setattr(
+        critic, "evaluate", lambda *args: {"critic": {"log_loss": 0.6, "brier": 0.2}, "games": 3}
+    )
+    critic.train_job(tmp_path)
+    job = json.loads((tmp_path / "job.json").read_text())
+    assert job["status"] == "complete" and job["epoch"] == 3 and job["early_stopped"]
+    assert job["result"]["best_epoch"] == 1
+
+
+def test_policy_training_route_is_not_shadowed_by_control(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    with TestClient(server.app) as client:
+        response = client.post("/api/critics/missing/policy/train", json={"model_id": "missing"})
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Model or critic not found"
