@@ -343,7 +343,7 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
 .setup p{margin:0;max-width:100%}
 
 /* Home analysis charts; full viewport width outside the game layout. */
-.bucketed-elo-results > p {
+.bucketed-elo-results > .analysis-copy > p {
   margin: 0 0 14px;
   color: var(--muted);
   font-size: 9px;
@@ -609,9 +609,12 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
   white-space: nowrap;
 }
 
-.home-analysis { width:100%; max-width:none; padding:32px clamp(12px,2vw,32px); --ink:var(--text); --ink-soft:var(--text); --faint:var(--muted); --line-strong:var(--line); --mono:ui-monospace,monospace; }
+.home-analysis { width:100%; max-width:none; padding:32px 0; --ink:var(--text); --ink-soft:var(--text); --faint:var(--muted); --line-strong:var(--line); --mono:ui-monospace,monospace; }
 .playing .home-analysis,.viewing-stats .home-analysis { display:none; }
-.home-analysis .bucketed-elo-results > p { font-size:.875rem; }
+.home-analysis .bucketed-elo-results > .analysis-copy > p { font-size:.875rem; }
 .home-analysis .bucketed-chart-filters button,.home-analysis .bucketed-chart-filters legend,.home-analysis .bucketed-chart-filters header span,.home-analysis .bucketed-chart-filters header strong { font-size:.8rem; }
 .home-analysis .bucketed-elo-svg { aspect-ratio:auto; }
 @media(max-width:700px) { .home-analysis .bucketed-chart-filters { grid-template-columns:1fr; } .home-analysis .bucketed-chart-frame { overflow-x:auto; } .home-analysis .bucketed-elo-svg { min-width:1000px; } .home-analysis .bucketed-card-art-preview { top:50px; right:15px; width:100px; } }
+
+.home-analysis .analysis-copy { width:100%; max-width:1460px; margin:0 auto; padding:0 clamp(16px,3vw,44px); }
+.home-analysis .bucketed-chart-card { margin-left:clamp(12px,2vw,32px); margin-right:clamp(12px,2vw,32px); }

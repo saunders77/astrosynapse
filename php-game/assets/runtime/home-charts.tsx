@@ -545,12 +545,14 @@ function BucketedEloCharts({ charts, turnCharts }: { charts: CardEloChart[]; tur
   const renderTurn = (chart: TurnStatChart) => <TurnStatisticsChart key={chart.key} chart={chart} />;
 
   return <div className="bucketed-elo-results">
+    <div className="analysis-copy">
     <p>{charts.some((chart) => chart.acquisitionValue) ? `Acquisition values use every purchase and available stopping decision, weighted equally per turn. Contexts are captured at turn start. No Card = 0. ${charts[0]?.scaleLabel}. Intervals are approximate 95% ranges clustered by game, conditional on the fitted scale. Values model visible-market bundles, not win contribution. Sparse buckets use weak regularization; unsupported estimates are omitted.` : "Independent post-hoc views of the same acquisition choices. Each view ranks cards independently within every bucket."}</p>
     <section className="bucketed-chart-filters" aria-label="Filter cards shown in all charts">
       <header><div><span>Chart filters</span><strong>{visibleCardCount} of {availableCards.length} options visible</strong></div><button type="button" onClick={resetFilters}>Reset filters</button></header>
       <fieldset><legend>Cost / special choice</legend><div>{chartCostOptions.map((cost) => <button type="button" key={cost} aria-pressed={selectedCosts.includes(cost)} onClick={() => toggleCost(cost)}>{cost === 0 ? "Cost 0 / No Card" : `Cost ${cost}`}</button>)}</div></fieldset>
       <fieldset><legend>Colour</legend><div>{chartColorOptions.map((option) => <button type="button" key={option.key} className={`filter-color-${option.key}`} aria-pressed={selectedColors.includes(option.key)} onClick={() => toggleColor(option.key)}><i style={{ background: cardLineColors[option.key] }} />{option.label}</button>)}</div></fieldset>
     </section>
+    </div>
     {charts.filter((chart) => chart.key === "turn").map(renderAcquire)}
     {filteredTurnCharts.filter((chart) => !chart.key.startsWith("choice:")).map(renderTurn)}
     {charts.filter((chart) => chart.key !== "turn").map(renderAcquire)}
