@@ -304,7 +304,6 @@ $('pile-dialog').addEventListener('close', () => { if (!$('pile-dialog').open) o
 for (const id of ['scrap-dialog', 'decision-dialog']) $(id).addEventListener('cancel', e => { e.preventDefault(); cancelSelection(); });
 for (const id of ['scrap-close', 'scrap-cancel', 'decision-close', 'decision-cancel']) $(id).addEventListener('click', cancelSelection);
 document.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => $(b.dataset.open).showModal()));
-$('models-open').addEventListener('click', () => $('models-dialog').showModal());
 document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => $(b.dataset.close).close()));
 $('upload-form').addEventListener('submit', async e => {
   e.preventDefault(); const form = new FormData(e.currentTarget), file = form.get('model_file');

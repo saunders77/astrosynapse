@@ -6,10 +6,11 @@
   <meta name="description" content="Play Star Realms entirely in your browser against five Astrosynapse levels.">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://www.starrealms.com; script-src 'self' 'sha256-KyZLX6poqlzE332jeMZV9cQfKplqh1/uos0nETbBGZ0='; worker-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
   <title>Machine Learning for Star Realms</title>
-  <meta name="arena-build" content="9914de9146d072836633c01f7ef29d26bc9c8948c33876f9df7d285f8742e082">
+  <meta name="arena-build" content="27201dc5e5f7fdde9abb7c6c6e901fe14d497dd56b7ee0ab5c79b2fc2cd15903">
 </head>
 <body>
   <header class="masthead"><div><a class="eyebrow home-link" href="#home" aria-label="Machine Learning for Star Realms home">HOME</a><h1>Machine Learning for Star Realms</h1></div></header>
+  <div class="home-intro">
     <p>
       I love the deckbuilding game <a href="https://starrealms.com">Star Realms</a>.
       To learn more about strategy, I used machine learning techniques to train computer models that play better than I can.
@@ -28,12 +29,12 @@
       For example, hypothetically, if you're good enough to win exactly 60% of games against a specific ML model, then you'll need to play <b>at least 92 games</b> to be confident (95% confident) that you're actually better.
       Fortunately, it's possible to finish a game quickly in just a few minutes (though you'll want to think longer to play your best).
     </p>
+  </div>
     <form id="new-game" class="setup">
       <label>Opponent<select id="opponent" name="opponent" required><option value="">Loading ML computer opponent…</option></select></label>
       <button type="submit" id="start" class="primary" disabled>New game</button>
       <p><a class="stats-link" href="#stats">Stats on your games against machine learning model opponents.</a></p>
       <p><a id="resume-game" href="#game" hidden>Resume game</a></p>
-      <span class="setup-note"></span>
     </form>
   <header id="opponent-bar" class="game-bar opponent" hidden aria-label="Opponent statistics"><span id="opponent-name">ML Computer Opponent</span><div class="bar-piles"><button class="pile" data-inspect="opponent-discard">Discard <b id="opponent-discard-count">0</b></button><button class="pile" data-inspect="opponent-deck">Hand+deck <b id="opponent-deck">5</b></button></div><div class="bar-stats"><button id="opponent-attack" class="authority" type="button">Authority <b id="opponent-authority">50</b></button><span class="trade">Trade <b id="opponent-trade">0</b></span><span class="combat">Combat <b id="opponent-combat">0</b></span><span class="discard-counter">Must discard <b id="opponent-must-discard">0</b></span><span id="win-estimate" title="AI’s estimated probability that the AI will win, regardless of whose turn it is.">AI Win Probability <b id="opponent-win">—</b></span></div><button id="opponent-last-turn" type="button" data-inspect="log" title="View full game log">No AI turn yet · Game log</button></header>
   <main id="game-page">

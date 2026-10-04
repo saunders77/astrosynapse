@@ -177,7 +177,7 @@ body.playing{padding-top:var(--opponent-bar-height,42px);padding-bottom:var(--pl
 }
 
 /* Stats is a separate hash page; the live game remains in memory. */
-a{color:var(--accent)}.stats-link{align-self:center;white-space:nowrap}.playing .stats-link{font-size:.75rem}
+a{color:#80bfff;text-decoration:underline;text-underline-offset:.18em}a:hover{color:#b8dcff}.stats-link{align-self:center}.playing .stats-link{font-size:.75rem}
 .viewing-stats #opponent-bar,.viewing-stats #player-bar{display:none!important}
 #stats-page{max-width:1000px;padding-bottom:40px}#stats-title{margin-top:24px}
 .stats-table{overflow-x:auto}table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}caption{text-align:left;color:var(--muted);padding:12px 0}th,td{padding:14px 10px;border-bottom:1px solid var(--line);text-align:right}th:first-child{text-align:left}thead{background:var(--panel)}#stats-error{color:var(--red)}
@@ -334,3 +334,10 @@ body:not(.busy) .card.actionable:has(.card-face:not(:disabled)):is(:hover,:focus
   border-radius:inherit;
   pointer-events:none;
 }
+
+/* Keep the homepage introduction readable on desktop and mobile. */
+.home-intro{max-width:1460px;margin:28px auto;padding:0 clamp(16px,3vw,44px);overflow-wrap:break-word}
+.home-intro p{margin:0 0 1.25em;line-height:1.75}
+.home-intro p:last-child{margin-bottom:0}
+body.playing .home-intro,.viewing-stats .home-intro{display:none}
+.setup p{margin:0;max-width:100%}
