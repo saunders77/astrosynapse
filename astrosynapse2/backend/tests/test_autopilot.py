@@ -213,6 +213,65 @@ def test_stale_lanes_restart_and_optimizer_continuation_is_bounded():
     assert worker.training_recipe(config, 0) != worker.training_recipe(config, 1)
 
 
+def test_new_credit_recipe_rebases_legacy_lanes_and_uses_frozen_critic():
+    config = recovery_config(temporal_credit=True, exploration_recipes=True, lane_max_blocks=3)
+    tip = dict(champion_id="p", model="old-estimator", blocks=1)
+    assert worker.policy_source(tip, {"id": "p"}, config) == {}
+    recipe = worker.training_recipe(config)
+    assert recipe == dict(temperature=0.1, entropy_weight=0, gae_lambda=0.95)
+    tip["recipe"] = recipe
+    assert worker.policy_source(tip, {"id": "p"}, config) == tip
+
+
+def test_intermediate_selection_freezes_winner_and_matching_optimizer(tmp_path):
+    campaign = object.__new__(worker.Campaign)
+    campaign.config = recovery_config(policy_checkpoint_games=[5000, 10000, 20000])
+    campaign.save = lambda: None
+    for games in [5000, 10000, 20000]:
+        for suffix in ["safetensors", "actor.npz", "optimizer.npz"]:
+            (tmp_path / f"g{games:08d}.{suffix}").touch()
+    calls = []
+
+    def evaluate(key, actor, opponent, pairs, seed):
+        calls.append((key, seed))
+        score = {5000: 0.52, 10000: 0.54, 20000: 0.49}[int(Path(actor).name[1:9])]
+        return [], dict(score=score, truncated=0)
+
+    campaign.evaluate = evaluate
+    pending = dict(
+        key="policy-00051", source="champion", champion_model="champion", champion_actor="actor"
+    )
+    trained = dict(model=str(tmp_path / "g00020000.safetensors"))
+    selected = campaign.select_checkpoint(pending, trained)
+    assert selected["games"] == 10000
+    assert selected["optimizer"] == str(tmp_path / "g00010000.optimizer.npz")
+    assert selected["source_score"] == 0.5
+    assert len(calls) == 3 and len({seed for _, seed in calls}) == 1
+    assert worker.stream_seed(campaign.config.seed, pending["key"] + "-gate") != calls[0][1]
+    assert campaign.select_checkpoint(pending, trained) == selected
+    assert len(calls) == 3  # Resume never reselects on new games.
+
+    # A favorable selection result cannot bypass the independent gate.
+    campaign.state = dict(pending=pending, attempt=23, events=[])
+    campaign.evaluate = lambda *_, **__: (
+        [],
+        dict(score=0.5, lower=0.49, pairs=50000, passed=False),
+    )
+    candidate = dict(id="candidate", actor_path=selected["actor"])
+    campaign.policy_gate(pending, candidate)
+    assert campaign.state["attempt"] == 24
+    assert campaign.state["events"][-1]["kind"] == "policy_inconclusive"
+
+
+def test_selection_checkpoint_requires_matching_optimizer_before_evaluation(tmp_path):
+    campaign = object.__new__(worker.Campaign)
+    campaign.config = recovery_config(policy_checkpoint_games=[5000])
+    with pytest.raises(ValueError, match="optimizer"):
+        campaign.select_checkpoint(
+            dict(key="p"), dict(model=str(tmp_path / "g00020000.safetensors"))
+        )
+
+
 def test_prediction_rejection_does_not_spend_strength_attempt(tmp_path):
     campaign = object.__new__(worker.Campaign)
     pending = dict(key="critic-0028")

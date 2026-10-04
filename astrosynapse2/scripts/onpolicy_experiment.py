@@ -34,6 +34,7 @@ from astro2.onpolicy import (
     critic_logits,
     masked_log_policy,
     ppo_loss,
+    trajectory_advantages,
 )
 from astro2.planning import PlanningConfig
 from planning_experiment import pair, summary
@@ -77,6 +78,7 @@ def main():
     p.add_argument("--anchor-dataset", help="Historical observations relabeled by the incumbent")
     p.add_argument("--anchor-weight", type=float, default=0.0)
     p.add_argument("--entropy-weight", type=float, default=0.0)
+    p.add_argument("--gae-lambda", type=float, default=1.0)
     p.add_argument("--export-critic-data", action="store_true")
     p.add_argument("--update-independent-critic", action="store_true")
     p.add_argument("--skip-embedded-critic-training", action="store_true")
@@ -86,6 +88,10 @@ def main():
     p.add_argument("--independent-critic", help="Frozen independent critic.npz for advantages")
     p.add_argument("--advantage-baseline", choices=["critic", "constant"], default="critic")
     args = p.parse_args()
+    if not np.isfinite(args.gae_lambda) or not 0 <= args.gae_lambda <= 1:
+        raise ValueError("GAE lambda must be finite and in [0, 1]")
+    if args.gae_lambda < 1 and not args.independent_critic:
+        raise ValueError("Bootstrapped advantages require a frozen independent critic")
     if args.update_independent_critic and not args.independent_critic:
         raise ValueError("Online updates require --independent-critic")
     if args.skip_embedded_critic_training and not args.separate_critic:
@@ -105,7 +111,7 @@ def main():
     identity = code_identity(Path(astro2.__file__).parent, Path(__file__).parent)
     if args.resume:
         manifest = json.loads(manifest_path.read_text())
-        if manifest.get("learner_version") not in (3, 4):
+        if manifest.get("learner_version") not in (3, 4, 5):
             raise ValueError("this checkpoint requires an explicit fork into a new experiment")
         if manifest.get("code_identity") != identity:
             raise ValueError(
@@ -154,7 +160,7 @@ def main():
             json.dumps(
                 {
                     **vars(args),
-                    "learner_version": 4,
+                    "learner_version": 5,
                     "code_identity": identity,
                     "source_sha256": hashlib.sha256(Path(model_path).read_bytes()).hexdigest(),
                     "opponent_sha256": hashlib.sha256(Path(opponent_path).read_bytes()).hexdigest(),
@@ -376,8 +382,18 @@ def main():
                         axis=1,
                     )
                     baseline.extend(independent.predict(features))
-            advantages = targets - (
-                0.5 if args.advantage_baseline == "constant" else np.asarray(baseline)
+            baseline = (
+                np.full(len(targets), 0.5, dtype=np.float32)
+                if args.advantage_baseline == "constant"
+                else np.asarray(baseline, dtype=np.float32)
+            )
+            monte_carlo = targets - baseline
+            advantages = trajectory_advantages(valid, baseline, args.gae_lambda)
+            advantage_diagnostics = dict(
+                gae_lambda=args.gae_lambda,
+                advantage_std=float(advantages.std()),
+                monte_carlo_advantage_std=float(monte_carlo.std()),
+                advantage_sign_changed_fraction=float(np.mean(advantages * monte_carlo < 0)),
             )
             calibration = None
             if args.separate_critic and not args.skip_embedded_critic_training:
@@ -636,6 +652,7 @@ def main():
                     path != opponent_path for path in scheduled_opponents
                 ),
                 advantage_baseline=args.advantage_baseline,
+                **advantage_diagnostics,
                 anchor_positions=len(bank["states"]) if bank is not None else 0,
                 **(
                     {k: float(np.mean([d[k] for d in diagnostics])) for k in diagnostics[0]}

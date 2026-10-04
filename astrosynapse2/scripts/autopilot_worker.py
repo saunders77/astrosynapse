@@ -50,6 +50,8 @@ def paired_difference(a, b, alpha):
 def policy_source(tip, champion, config):
     if tip.get("champion_id") != champion["id"]:
         return {}
+    if getattr(config, "temporal_credit", False) and tip.get("recipe") != training_recipe(config):
+        return {}
     if (
         config.lane_max_blocks
         and tip.get("blocks", config.lane_max_blocks) >= config.lane_max_blocks
@@ -59,6 +61,10 @@ def policy_source(tip, champion, config):
 
 
 def training_recipe(config, lane=0):
+    if getattr(config, "temporal_credit", False):
+        # Estimate local consequences; sustained entropy rewards flattened logits,
+        # which do not themselves improve the deployed greedy action ranking.
+        return dict(temperature=0.1, entropy_weight=0.0, gae_lambda=0.95)
     if not config.exploration_recipes:
         return dict(temperature=0.1, entropy_weight=0.0)
     # Separate hypotheses, each bounded to a few blocks from the verified champion.
@@ -320,18 +326,73 @@ class Campaign:
             self.save()
         return next(m for m in self.state["models"] if m["id"] == ident)
 
+    def select_checkpoint(self, pending, trained):
+        """Freeze the best exploratory checkpoint before any fresh gate evidence.
+
+        Common screen seeds compare intermediate checkpoints and the lane parent.
+        The winner's screen is selection data only, never certification data.
+        Persisting the winner prevents reselection on pause/resume.
+        """
+        if pending.get("selection"):
+            return pending["selection"]
+        key = pending["key"]
+        folder = Path(trained["model"]).parent
+        games = sorted(set([*self.config.policy_checkpoint_games, self.config.block_games]))
+        seed = stream_seed(self.config.seed, key + "-selection")
+        candidates = []
+        # Validate the complete planned set before starting selection.
+        for count in games:
+            model = folder / f"g{count:08d}.safetensors"
+            actor, optimizer = model.with_suffix(".actor.npz"), model.with_suffix(".optimizer.npz")
+            if not all(p.is_file() for p in (model, actor, optimizer)):
+                raise ValueError(
+                    "Missing selection checkpoint or matching optimizer: " + str(model)
+                )
+            candidates.append(
+                dict(model=str(model), actor=str(actor), optimizer=str(optimizer), games=count)
+            )
+        source_score = 0.5
+        if pending["source"] != pending["champion_model"]:
+            _, source = self.evaluate(
+                key + "-selection-source",
+                str(Path(pending["source"]).with_suffix(".actor.npz")),
+                pending["champion_actor"],
+                self.config.screen_pairs,
+                seed,
+            )
+            source_score = source["score"] if not source["truncated"] else 1.0
+        for candidate in candidates:
+            _, candidate["screen"] = self.evaluate(
+                key + f"-selection-{candidate['games']:08d}",
+                candidate["actor"],
+                pending["champion_actor"],
+                self.config.screen_pairs,
+                seed,
+            )
+        # Ties prefer less training. Truncated screens cannot win over valid ones.
+        best = max(
+            candidates,
+            key=lambda c: (not c["screen"]["truncated"], c["screen"]["score"], -c["games"]),
+        )
+        pending["selection"] = {**best, "source_score": source_score, "candidates": candidates}
+        self.save()
+        return pending["selection"]
+
     def policy_gate(self, pending, candidate):
         if pending.get("finished"):
             return
         key = pending["key"]
         opponent = pending["champion_actor"]
-        _, screen = self.evaluate(
-            key + "-screen",
-            candidate["actor_path"],
-            opponent,
-            self.config.screen_pairs,
-            stream_seed(self.config.seed, key + "-screen"),
-        )
+        if pending.get("selection"):
+            screen = pending["selection"]["screen"]
+        else:
+            _, screen = self.evaluate(
+                key + "-screen",
+                candidate["actor_path"],
+                opponent,
+                self.config.screen_pairs,
+                stream_seed(self.config.seed, key + "-screen"),
+            )
         if screen["score"] <= self.config.screen_min_score or screen["truncated"]:
             self.event(
                 "policy_rejected",
@@ -627,20 +688,34 @@ class Campaign:
                             export=True,
                             recipe=pending.get("recipe"),
                         )
+                        selected = (
+                            self.select_checkpoint(pending, trained)
+                            if self.config.policy_checkpoint_games
+                            else trained
+                        )
+                        selected_games = selected.get("games", self.config.block_games)
+                        label = pending["key"]
+                        if selected_games != self.config.block_games:
+                            label += f"-g{selected_games:08d}"
                         candidate = self.register(
-                            trained["model"],
-                            str(Path(trained["model"]).with_suffix(".actor.npz")),
+                            selected["model"],
+                            str(Path(selected["model"]).with_suffix(".actor.npz")),
                             pending["critic_id"],
                             pending["champion_id"],
-                            pending.get("source_games", 0) + self.config.block_games,
-                            pending["key"],
+                            pending.get("source_games", 0) + selected_games,
+                            label,
+                        )
+                        advance = not pending.get("selection") or (
+                            not selected["screen"]["truncated"]
+                            and selected["screen"]["score"] > max(0.5, selected["source_score"])
                         )
                         self.state["tips"][str(pending["lane"])] = dict(
-                            model=trained["model"],
-                            optimizer=trained["optimizer"],
+                            model=selected["model"] if advance else pending["source"],
+                            optimizer=selected["optimizer"] if advance else pending["optimizer"],
                             champion_id=pending["champion_id"],
-                            games=candidate["games"],
+                            games=candidate["games"] if advance else pending["source_games"],
                             blocks=pending.get("lane_blocks", 1),
+                            recipe=pending.get("recipe"),
                         )
                     self.policy_gate(pending, candidate)
                     if pending["kind"] == "initial":

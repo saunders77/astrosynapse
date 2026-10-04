@@ -116,3 +116,7 @@ node php-game/tests/client-browser.mjs
 Verified during this port: 20 complete games / 5,091 decisions, 40 lethal plans, all eight neural families and win-probability calculations for every level, 37 gameplay/session regressions, and six on-card UI regressions. Arch3 verification also covers public-hand inference and native NPZ imports; all 5,091 decisions match the current Python engine. Maximum sampled arch3 champion logit error was approximately 0.000002. Browser checks cover lazy downloads, local AI turns, refresh/resume, dropped-connection play, HTML cache invalidation, mobile layout, and native NPZ import persistence. The desktop and mobile layouts were inspected in Chromium; physical-device performance has not been measured.
 
 Artwork loads directly from the [official Star Realms Card Gallery](https://www.starrealms.com/card-gallery); card image files are excluded from the upload archive. The welcome screen uses the gallery’s Scout card. Star Realms and card artwork belong to Wise Wizard Games LLC.
+
+## Home strategy charts
+
+The full-width home section displays the completed October 4, 2026 10,000-game analysis, including acquisition, scrap, and turn statistics with shared cost/colour filters. It is hidden in game and stats views. `assets/runtime/home-charts.tsx` preserves the dashboard chart rendering; `home-charts-data.json` stores its static report snapshot. Rebuild and package after updating either file. React is bundled locally at build time; no CDN or analysis server is required.

@@ -316,6 +316,7 @@ export async function start(options) {
   window.addEventListener('storage', renderStats);
   navigate();
   ({ release, base } = options); configureResources(base, release);
+  import(resourceURL('assets/home-charts.js')).then(module => module.mountCharts()).catch(() => { $('analysis-charts').textContent = 'Strategy charts could not load. Refresh to try again.'; });
   audio = new GameAudio();
   audio.preload();
   for (const event of ['pointerdown', 'keydown', 'click']) document.addEventListener(event, () => audio.unlock(), { capture: true });

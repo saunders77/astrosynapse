@@ -341,3 +341,277 @@ body:not(.busy) .card.actionable:has(.card-face:not(:disabled)):is(:hover,:focus
 .home-intro p:last-child{margin-bottom:0}
 body.playing .home-intro,.viewing-stats .home-intro{display:none}
 .setup p{margin:0;max-width:100%}
+
+/* Home analysis charts; full viewport width outside the game layout. */
+.bucketed-elo-results > p {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.bucketed-chart-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(3, 7, 11, 0.48);
+}
+
+.bucketed-chart-filters header {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.bucketed-chart-filters header span,
+.bucketed-chart-filters header strong {
+  display: block;
+}
+
+.bucketed-chart-filters header span,
+.bucketed-chart-filters legend {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bucketed-chart-filters header strong {
+  margin-top: 3px;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.bucketed-chart-filters header button {
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.bucketed-chart-filters fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.bucketed-chart-filters legend {
+  margin-bottom: 8px;
+}
+
+.bucketed-chart-filters fieldset > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.bucketed-chart-filters fieldset button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 31px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.bucketed-chart-filters fieldset button[aria-pressed="true"] {
+  border-color: rgba(95, 230, 202, 0.38);
+  background: rgba(95, 230, 202, 0.1);
+  color: var(--ink);
+}
+
+.bucketed-chart-filters fieldset button i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.bucketed-chart-card {
+  margin-top: 18px;
+}
+
+.bucketed-chart-frame {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #050a10;
+}
+
+.bucketed-elo-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  font-family: var(--mono);
+}
+
+.bucketed-chart-background {
+  fill: #050a10;
+}
+
+.bucketed-chart-title {
+  fill: var(--ink);
+  font-size: 25px;
+  font-weight: 650;
+}
+
+.bucketed-chart-subtitle,
+.bucketed-chart-count {
+  fill: var(--faint);
+  font-size: 12px;
+}
+
+.bucketed-chart-grid {
+  stroke: rgba(140, 167, 193, 0.15);
+  stroke-width: 1;
+}
+
+.bucketed-chart-grid-vertical {
+  stroke: rgba(140, 167, 193, 0.07);
+}
+
+.bucketed-chart-axis,
+.bucketed-chart-axis-title {
+  fill: var(--muted);
+  font-size: 13px;
+}
+
+.bucketed-chart-axis-title {
+  font-size: 15px;
+  letter-spacing: 0.05em;
+}
+
+.bucketed-card-line {
+  opacity: 0.42;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: opacity 120ms ease, stroke-width 120ms ease;
+}
+
+.bucketed-card-hit {
+  cursor: crosshair;
+  pointer-events: stroke;
+}
+
+.bucketed-elo-svg g.is-active .bucketed-card-line {
+  opacity: 1;
+  stroke-width: 5;
+  filter: drop-shadow(0 0 5px currentColor);
+}
+
+.bucketed-elo-svg g.is-dimmed .bucketed-card-line {
+  opacity: 0.055;
+}
+
+.bucketed-error-bar line {
+  stroke: currentColor;
+  stroke-width: 2;
+  opacity: 0.9;
+}
+
+.bucketed-chart-legend-title {
+  fill: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bucketed-legend-item {
+  cursor: pointer;
+  outline: none;
+}
+
+.bucketed-legend-item rect {
+  fill: transparent;
+}
+
+.bucketed-legend-item line {
+  stroke-width: 3;
+}
+
+.bucketed-legend-item text {
+  fill: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.bucketed-legend-item.is-active rect,
+.bucketed-legend-item:focus rect {
+  fill: rgba(255, 255, 255, 0.07);
+}
+
+.bucketed-legend-item.is-active text,
+.bucketed-legend-item:focus text {
+  font-weight: 750;
+}
+
+.bucketed-legend-item.is-dimmed {
+  opacity: 0.18;
+}
+.bucketed-chart-frame {
+  position: relative;
+}
+
+.bucketed-card-art-preview {
+  position: absolute;
+  top: 88px;
+  right: 42px;
+  z-index: 3;
+  width: 190px;
+  padding: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 10px;
+  background: rgba(2, 6, 10, 0.94);
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.68);
+  pointer-events: none;
+}
+
+.bucketed-card-art-preview img {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
+.bucketed-card-art-preview span {
+  display: block;
+  padding: 7px 3px 2px;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-analysis { width:100%; max-width:none; padding:32px clamp(12px,2vw,32px); --ink:var(--text); --ink-soft:var(--text); --faint:var(--muted); --line-strong:var(--line); --mono:ui-monospace,monospace; }
+.playing .home-analysis,.viewing-stats .home-analysis { display:none; }
+.home-analysis .bucketed-elo-results > p { font-size:.875rem; }
+.home-analysis .bucketed-chart-filters button,.home-analysis .bucketed-chart-filters legend,.home-analysis .bucketed-chart-filters header span,.home-analysis .bucketed-chart-filters header strong { font-size:.8rem; }
+.home-analysis .bucketed-elo-svg { aspect-ratio:auto; }
+@media(max-width:700px) { .home-analysis .bucketed-chart-filters { grid-template-columns:1fr; } .home-analysis .bucketed-chart-frame { overflow-x:auto; } .home-analysis .bucketed-elo-svg { min-width:1000px; } .home-analysis .bucketed-card-art-preview { top:50px; right:15px; width:100px; } }

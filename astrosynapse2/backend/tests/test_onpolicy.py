@@ -1,6 +1,40 @@
 import numpy as np
+import pytest
 from astro2.model import ModelSpec, build_model
 from astro2.onpolicy import critic_calibration, critic_logits, masked_log_policy, ppo_loss
+
+
+def test_temporal_advantages_assign_credit_within_each_game():
+    from astro2.onpolicy import Trajectory, trajectory_advantages
+
+    lost = Trajectory([None] * 3, [], [], [], [], [], 0.0, False)
+    won = Trajectory([None] * 3, [], [], [], [], [], 1.0, False)
+    values = np.array([0.1, 0.8, 0.8, 0.9, 0.2, 0.2], dtype=np.float32)
+    actual = trajectory_advantages([lost, won], values, 0.5)
+    # The first decision improves the critic's outlook in the lost game,
+    # and worsens it in the won game; terminal rewards stay exact.
+    np.testing.assert_allclose(actual, [0.5, -0.4, -0.8, -0.5, 0.4, 0.8], atol=1e-7)
+    np.testing.assert_array_equal(actual[:3], trajectory_advantages([lost], values[:3], 0.5))
+    np.testing.assert_array_equal(actual[3:], trajectory_advantages([won], values[3:], 0.5))
+    mc = trajectory_advantages([lost, won], values, 1.0)
+    np.testing.assert_array_equal(mc, np.array([0] * 3 + [1] * 3, dtype=np.float32) - values)
+    assert (mc[:3] <= 0).all() and (mc[3:] >= 0).all()
+
+
+def test_temporal_advantages_reject_censored_or_misaligned_targets():
+    from astro2.onpolicy import Trajectory, trajectory_advantages
+
+    row = Trajectory([None], [], [], [], [], [], 1, False)
+    for lam in [-0.1, 1.1, float("nan")]:
+        with pytest.raises(ValueError, match="lambda"):
+            trajectory_advantages([row], [0.5], lam)
+    with pytest.raises(ValueError, match="align"):
+        trajectory_advantages([row], [])
+    with pytest.raises(ValueError, match="finite"):
+        trajectory_advantages([row], [float("nan")])
+    row.truncated = True
+    with pytest.raises(ValueError, match="complete"):
+        trajectory_advantages([row], [0.5])
 
 
 def fixture():

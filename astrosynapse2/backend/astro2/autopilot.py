@@ -43,6 +43,8 @@ class CampaignConfig(BaseModel):
     gate_futility_pairs: int = Field(default=0, ge=0, le=100000)
     lane_max_blocks: int = Field(default=0, ge=0, le=100)
     exploration_recipes: bool = False
+    temporal_credit: bool = False
+    policy_checkpoint_games: list[int] = Field(default_factory=list, max_length=8)
     critic_max_games: int = Field(default=2500, ge=100, le=50000)
     critic_recent_window: int = Field(default=0, ge=0, le=500000)
     critic_learning_rate: float = Field(default=0.0003, gt=0, le=0.001)
@@ -63,6 +65,13 @@ class CampaignConfig(BaseModel):
             raise ValueError("Block and probe games must be multiples of batch games")
         if len(set(self.seeds)) != len(self.seeds) or min(self.seeds) < 0:
             raise ValueError("Training seeds must be distinct nonnegative integers")
+        if len(set(self.policy_checkpoint_games)) != len(self.policy_checkpoint_games) or any(
+            g <= 0 or g > self.block_games or g % self.batch_games
+            for g in self.policy_checkpoint_games
+        ):
+            raise ValueError(
+                "Selection checkpoints must be distinct batch multiples within the block"
+            )
         return self
 
 

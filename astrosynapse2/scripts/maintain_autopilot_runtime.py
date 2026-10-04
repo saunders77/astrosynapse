@@ -12,7 +12,13 @@ from pathlib import Path
 from astro2.autopilot import CampaignConfig
 from astro2.experiment_control import atomic_json, code_identity, sha256
 
-PATCHABLE = ("astro2/autopilot.py", "astro2/autopilot_data.py", "scripts/autopilot_worker.py")
+PATCHABLE = (
+    "astro2/autopilot.py",
+    "astro2/autopilot_data.py",
+    "scripts/autopilot_worker.py",
+    "astro2/onpolicy.py",
+    "scripts/onpolicy_experiment.py",
+)
 
 
 def maintain(folder, project, settings):

@@ -1,5 +1,8 @@
 # Champion Autopilot
 
+The [October 4 credit-assignment investigation](autopilot-credit-assignment-2026-10-04.md)
+describes the next staged revision. It is awaiting deployment after the active ELO job.
+
 Open `/autopilot` in the local control center. The campaign supervises policy training, independent critic development, fresh evaluations, and automatic promotions. The existing Arena and Play selectors discover its retained policy checkpoints. The Autopilot page also provides Arena and Self-play matches with independently selected critics; each policy and critic uses its own architecture encoder. Critics report win-probability diagnostics and never replace the policy as move selector.
 
 ## Training contract

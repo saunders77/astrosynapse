@@ -45,6 +45,40 @@ class Trajectory:
     value_forced: list = field(default_factory=list)
 
 
+def trajectory_advantages(trajectories, baseline, trace_lambda=1.0):
+    """Undiscounted GAE over each completed game's learner decisions.
+
+    The only reward is the terminal outcome. Next values refer to the next
+    decision by this learner, across intervening forced/opponent actions.
+    Lambda=1 is exactly the existing Monte Carlo estimator; smaller values
+    trade some critic-dependent bias for shorter-horizon credit assignment.
+    Values must be frozen before fitting either policy or critic on these games.
+    """
+    if not np.isfinite(trace_lambda) or not 0 <= trace_lambda <= 1:
+        raise ValueError("trace lambda must be finite and in [0, 1]")
+    baseline = np.asarray(baseline, dtype=np.float32)
+    if baseline.shape != (sum(len(t.states) for t in trajectories),):
+        raise ValueError("baseline must align with all trajectory decisions")
+    if not np.isfinite(baseline).all():
+        raise ValueError("baseline must be finite")
+    result = np.empty_like(baseline)
+    offset = 0
+    for t in trajectories:
+        if t.truncated or not np.isfinite(t.target) or not 0 <= t.target <= 1:
+            raise ValueError("advantages require complete games with valid outcomes")
+        end = offset + len(t.states)
+        if trace_lambda == 1:
+            result[offset:end] = t.target - baseline[offset:end]
+        else:
+            advantage, next_value = 0.0, float(t.target)
+            for i in range(end - 1, offset - 1, -1):
+                advantage = next_value - float(baseline[i]) + trace_lambda * advantage
+                result[i] = advantage
+                next_value = float(baseline[i])
+        offset = end
+    return result
+
+
 def collect_trajectory(task):
     actor_path, opponent_path, temperature, seed, index, *extra = task
     actor, opponent = cached_actor(actor_path), cached_actor(opponent_path)
