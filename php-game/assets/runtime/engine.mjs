@@ -5,7 +5,7 @@ export class Rng {
   shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = this.next() % (i + 1); [a[i], a[j]] = [a[j], a[i]]; } }
 }
 export class Player {
-  constructor(id, rng) { Object.assign(this, { id, rng, deck: [], hand: [], discard: [], in_play: [], known_top: [], revealed_hand: [], authority: 50, combat: 0, trade: 0, must_discard: 0, blob_cards_played: 0, next_ship_top: false }); }
+  constructor(id, rng) { Object.assign(this, { id, rng, deck: [], hand: [], discard: [], in_play: [], known_top: [], revealed_hand: [], inferred_hand: [], authority: 50, combat: 0, trade: 0, must_discard: 0, blob_cards_played: 0, next_ship_top: false }); }
 }
 export class InPlay {
   constructor(uid, card) { Object.assign(this, { uid, card, original: card, activated: false, ally_triggered: false }); }
@@ -46,7 +46,7 @@ export class Game {
   clone() {
     const g=Object.assign(Object.create(Game.prototype),this);
     for(const k of ['trade_deck','trade_row','scrap_heap']) g[k]=[...this[k]];
-    g.players=this.players.map(p=> { const q=Object.assign(Object.create(Player.prototype),p); q.rng=Object.assign(Object.create(Rng.prototype),p.rng); for(const k of ['deck','hand','discard','known_top','revealed_hand']) q[k]=[...p[k]]; q.in_play=p.in_play.map(i=>Object.assign(Object.create(InPlay.prototype),i)); return q; });
+    g.players=this.players.map(p=> { const q=Object.assign(Object.create(Player.prototype),p); q.rng=Object.assign(Object.create(Rng.prototype),p.rng); for(const k of ['deck','hand','discard','known_top','revealed_hand','inferred_hand']) q[k]=[...p[k]]; q.in_play=p.in_play.map(i=>Object.assign(Object.create(InPlay.prototype),i)); return q; });
     g.log=[]; g.sounds=[]; g.decision_hook=null; return g;
   }
   run() {
@@ -182,13 +182,18 @@ export class Game {
     }
   }
   cleanup(p) {
-    p.discard.push(...p.hand); p.hand=[]; p.revealed_hand=[];
+    p.discard.push(...p.hand); p.hand=[]; p.revealed_hand=[]; p.inferred_hand=[];
     for(const i of p.in_play) if(Game.ship(i.card)) { this.remove(p,i); p.discard.push(i.original); }
-    p.combat=p.trade=p.blob_cards_played=0; p.next_ship_top=false; this.draw(p,5);
+    p.combat=p.trade=p.blob_cards_played=0; p.next_ship_top=false;
+    // After cleanup the remaining deck multiset is public. Remember it when
+    // all of it will enter the new hand, even across a discard shuffle.
+    if(p.deck.length<=5) p.inferred_hand.push(...(p.known_top.length?p.deck.slice(0,-p.known_top.length):p.deck));
+    this.draw(p,5);
   }
   find(p,uid) { const i=p.in_play.find(i=>i.uid===uid); if(!i) throw new Error('Missing card'); return i; }
   remove(p,i) { p.in_play=p.in_play.filter(v=>v.uid!==i.uid); }
-  forget(p,id) { const j=p.revealed_hand.indexOf(id); if(j>=0) p.revealed_hand.splice(j,1); }
+  forget(p,id) { for(const cards of [p.revealed_hand,p.inferred_hand]) { const j=cards.indexOf(id); if(j>=0) { cards.splice(j,1); return; } } }
+  knownHand(p) { return sorted(p.deck.length===p.known_top.length?p.hand:[...p.inferred_hand,...p.revealed_hand]); }
   discardHand(p,j) { const id=p.hand.splice(j,1)[0]; this.forget(p,id); p.discard.push(id); }
   fleet(p) { return p.in_play.some(i=>i.card===29); }
   observation(id) {
@@ -198,7 +203,7 @@ export class Game {
     return {version:2,player_id:id,active_player:this.active_player,starting_player:this.starting_player,is_starting_player:id===this.starting_player,turn:this.turns,action_number:this.turn_actions,
       own_authority:p.authority,opponent_authority:op.authority,combat:this.active_player===id?p.combat:0,trade:this.active_player===id?p.trade:0,pending_discard:p.must_discard,opponent_pending_discard:op.must_discard,
       hand:[...p.hand],own_deck_count:p.deck.length,own_deck:sorted(unknown(p)),own_known_top:[...p.known_top].reverse(),own_discard:sorted(p.discard),own_in_play:items(p),
-      opponent_hand_count:op.hand.length,opponent_known_hand:[...op.revealed_hand],opponent_hidden:sorted([...unknown(op),...hidden]),opponent_deck_count:op.deck.length,opponent_known_top:[...op.known_top].reverse(),opponent_discard:sorted(op.discard),opponent_in_play:items(op),
+      opponent_hand_count:op.hand.length,opponent_known_hand:[...op.revealed_hand],opponent_inferred_hand:this.knownHand(op),opponent_hidden:sorted([...unknown(op),...hidden]),opponent_deck_count:op.deck.length,opponent_known_top:[...op.known_top].reverse(),opponent_discard:sorted(op.discard),opponent_in_play:items(op),
       trade_row:[...this.trade_row],trade_deck_count:this.trade_deck.length,trade_deck:sorted(this.trade_deck),explorers_remaining:this.explorers_remaining,explorer_supply:Array(this.explorers_remaining).fill(2),scrap_heap:sorted(this.scrap_heap),
       next_ship_to_top:p.next_ship_top,blob_cards_played:p.blob_cards_played,all_allied:p.in_play.some(i=>i.card===19),fleet_active:this.fleet(p)};
   }

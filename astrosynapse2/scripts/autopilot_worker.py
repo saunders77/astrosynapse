@@ -47,6 +47,24 @@ def paired_difference(a, b, alpha):
     )
 
 
+def policy_source(tip, champion, config):
+    if tip.get("champion_id") != champion["id"]:
+        return {}
+    if (
+        config.lane_max_blocks
+        and tip.get("blocks", config.lane_max_blocks) >= config.lane_max_blocks
+    ):
+        return {}
+    return tip
+
+
+def training_recipe(config, lane=0):
+    if not config.exploration_recipes:
+        return dict(temperature=0.1, entropy_weight=0.0)
+    # Separate hypotheses, each bounded to a few blocks from the verified champion.
+    return dict(temperature=(0.15, 0.25)[lane % 2], entropy_weight=(0.01, 0.02)[lane % 2])
+
+
 class Campaign:
     def __init__(self, folder):
         self.folder = Path(folder)
@@ -112,6 +130,7 @@ class Campaign:
         category="policy",
         optimizer=None,
         export=False,
+        recipe=None,
     ):
         out = self.begin_job(key, category)
         target = games // self.config.batch_games
@@ -166,6 +185,8 @@ class Campaign:
         ]
         if export:
             command.append("--export-critic-data")
+        for name, value in (recipe or {}).items():
+            command += ["--" + name.replace("_", "-"), str(value)]
         if optimizer:
             command += ["--initial-optimizer", optimizer]
         if state:
@@ -237,6 +258,13 @@ class Campaign:
                     and lower_sequence([sum(r["scores"]) / 2 for r in rows], alpha) > 0.5
                 ):
                     break
+                if (
+                    alpha is not None
+                    and self.config.gate_futility_pairs
+                    and len(rows) >= self.config.gate_futility_pairs
+                    and np.mean([sum(r["scores"]) / 2 for r in rows]) <= 0.5
+                ):
+                    break
                 self.check()
                 tasks = [
                     (actor, opponent, dict(rollouts=0, native=True, rules_version=2), seed, i)
@@ -304,7 +332,7 @@ class Campaign:
             self.config.screen_pairs,
             stream_seed(self.config.seed, key + "-screen"),
         )
-        if screen["score"] <= 0.5 or screen["truncated"]:
+        if screen["score"] <= self.config.screen_min_score or screen["truncated"]:
             self.event(
                 "policy_rejected",
                 candidate=candidate["id"],
@@ -396,8 +424,11 @@ class Campaign:
                     shards,
                     out,
                     seed=stream_seed(self.config.seed, key),
-                    seconds=min(120, pending["allowance"] / 4),
+                    seconds=min(self.config.critic_fit_seconds, pending["allowance"] / 4),
                     check=self.check,
+                    max_games=self.config.critic_max_games,
+                    recent_window=self.config.critic_recent_window,
+                    learning_rate=self.config.critic_learning_rate,
                 )
                 self.jobs[key]["status"] = "complete"
             finally:
@@ -407,6 +438,12 @@ class Campaign:
             self.event("critic_rejected", reason="Prediction qualification failed", report=result)
             return
         candidate_path = str(out / "critic.npz")
+        # Prediction-only rejections do not consume a playing-strength test.
+        # Existing pending attempts and all previously spent attempts stay spent.
+        if "attempt" not in pending:
+            self.state["critic_attempt"] += 1
+            pending["attempt"] = self.state["critic_attempt"]
+            self.save()
         evidence = []
         for i, seed in enumerate(self.config.seeds[:2]):
             common = dict(
@@ -415,6 +452,7 @@ class Campaign:
                 games=self.config.probe_games,
                 seed=stream_seed(seed, key),
                 category="critic",
+                recipe=training_recipe(self.config, i),
             )
             old = self.train(key + f"-probe-{i}-old", critic=pending["critic_path"], **common)
             new = self.train(key + f"-probe-{i}-new", critic=candidate_path, **common)
@@ -537,18 +575,19 @@ class Campaign:
                         )
                         and self.state.get("critic_at_block") != self.state["blocks"]
                     ):
-                        self.state["critic_attempt"] += 1
+                        self.state["critic_round"] = (
+                            self.state.get("critic_round", self.state["critic_attempt"]) + 1
+                        )
                         pending.update(
                             kind="critic",
-                            key=f"critic-{self.state['critic_attempt']:04d}",
-                            attempt=self.state["critic_attempt"],
+                            key=f"critic-{self.state['critic_round']:04d}",
                             allowance=allowance,
                         )
                     else:
                         block = self.state["blocks"]
                         lane = block % len(self.config.seeds)
                         tip = self.state["tips"].get(str(lane), {})
-                        source = tip if tip.get("champion_id") == champion["id"] else {}
+                        source = policy_source(tip, champion, self.config)
                         pending.update(
                             kind="policy",
                             key=f"policy-{block:05d}",
@@ -557,6 +596,8 @@ class Campaign:
                             source_games=source.get("games", champion.get("games", 0)),
                             optimizer=source.get("optimizer"),
                             seed=stream_seed(self.config.seeds[lane], f"block-{block}"),
+                            lane_blocks=source.get("blocks", 0) + 1,
+                            recipe=training_recipe(self.config, lane),
                         )
                     self.state["pending"] = pending
                     self.save()
@@ -584,6 +625,7 @@ class Campaign:
                             pending["seed"],
                             optimizer=pending["optimizer"],
                             export=True,
+                            recipe=pending.get("recipe"),
                         )
                         candidate = self.register(
                             trained["model"],
@@ -598,6 +640,7 @@ class Campaign:
                             optimizer=trained["optimizer"],
                             champion_id=pending["champion_id"],
                             games=candidate["games"],
+                            blocks=pending.get("lane_blocks", 1),
                         )
                     self.policy_gate(pending, candidate)
                     if pending["kind"] == "initial":

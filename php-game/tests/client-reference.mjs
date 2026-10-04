@@ -24,7 +24,7 @@ for(const f of fixture.games) {
 }
 console.log(`PASS ${fixture.games.length} games, ${total} decisions, ${lethal} lethal plans match Python`);
 const raw=gunzipSync(fs.readFileSync(new URL('../models/level-05.astro.gz',import.meta.url)));
-const actor=new Actor(raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength)),enc=new Encoder(2); let maxError=0;
+const actor=new Actor(raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength)),enc=actor.encoder; let maxError=0;
 for(const f of fixture.neural) {
   const state=enc.state(f.observation),actions=f.actions.map(a=>enc.action(a,f.observation));
   state.forEach((v,j)=>assert.ok(Math.abs(v-f.state[j])<1e-6,`State ${j}`));

@@ -287,3 +287,25 @@ def test_card_catalog_and_advisor_http_contract(tmp_path, monkeypatch):
         )
         assert unavailable_response.status_code == 409
         assert "actor snapshot is unavailable" in unavailable_response.json()["detail"]
+
+
+def test_companion_inferred_hand_reaches_arch3_without_changing_older_encodings():
+    from astro2.engine_encoding import EngineEncoder
+
+    payload = _request_payload()
+    plain = AdvisorEvaluateRequest.model_validate(payload).observation.observation()
+    # These copies remain in the combined public pool for older architectures.
+    payload["observation"]["opponent_inferred_hand"] = [
+        {"card_id": SCOUT.card_id},
+        {"card_id": SCOUT.card_id},
+        {"card_id": VIPER.card_id},
+    ]
+    remembered = AdvisorEvaluateRequest.model_validate(payload).observation.observation()
+    assert remembered.opponent_inferred_hand == (SCOUT, SCOUT, VIPER)
+    for version in (1, 2):
+        encoder = EngineEncoder(version=version)
+        np.testing.assert_array_equal(encoder.encode_state(plain), encoder.encode_state(remembered))
+    state = EngineEncoder(version=3).encode_state(remembered)
+    assert state[-49 + SCOUT.card_id] == 2
+    assert state[-49 + VIPER.card_id] == 1
+    assert state[-49:].sum() == 3

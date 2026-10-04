@@ -93,6 +93,8 @@ The first random checkpoint is only a lineage root and initial deployment anchor
 4. On the Hard AI turn, record each play, acquire, attack, ability, scrap, discard, or other prompted decision. Open **Decks & hidden cards** to maintain known top cards and the deliberately unordered hidden pools.
 5. On Astro's turn, review the checkpoint's ranked legal actions, policy/value for every action, and expected win rate. Stage one action, enter it on the iPad, then click **I entered this on the iPad**. Supply any newly revealed cards before requesting the next recommendation.
 
+The companion remembers publicly deduced Hard AI hand cards across shuffles, including the 1–5 cards drawn from an exhausted old deck before the discard is shuffled. Revealed top draws remain separate, and playing, discarding, or scrapping removes one remembered copy. This memory survives saved-match reloads and is sent as `opponent_inferred_hand` for arch3; older model feature layouts remain unchanged. Known leftover hand cards are discarded automatically at turn end; record unknown leftovers with **Discard** first. Correcting hand or deck counts clears stored deductions so stale history cannot be reused.
+
 The companion is intentionally local: it reads checkpoint files through the loopback control API and is designed to stay open on the computer beside the iPad game.
 
 ### Branch Lab workflow

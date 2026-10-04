@@ -62,16 +62,13 @@ def levels():
         row=db.execute('select actor_path from checkpoints where id=?',(cid,)).fetchone()
         sources.append((Path(row[0]),elo,{'checkpoint_id':cid}))
     sources.append((REPO/'astrosynapse2/data/analysis/astro5-champion-8844ddc7295a4f60.actor.npz',1093,{'checkpoint_id':'8844ddc7295a4f60'}))
-    state=json.loads((REPO/'astrosynapse2/data/progressive/evolution-20260923/state.json').read_text())
-    p=state['promotions'][9]
-    assert p.get('passed') is True
-    sources.append((Path(p['actor']),1265,{'generation':10}))
+    sources.append((REPO/'astrosynapse2/data/autopilot/828813dc45d24cf086e019c6537d1b02/tasks/policy-00004/g00020000.actor.npz',1283,{'checkpoint_id':'auto-828813dc45d24cf086e019c6537d1b02-pd9dd811c376c'}))
     entries=[]
     for level,(source,elo,provenance) in enumerate(sources,1):
         filename=f'level-{level:02d}.astro.gz'
         label=f'{elo} ELO'
         meta=export(source,ROOT/'models'/filename)
-        entries.append({'id':f'level-{level:02d}','name':f'Level {level}','level':level,'file':filename,'description':label,'elo':elo,'source':str(source.relative_to(REPO)),'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),**provenance,**meta})
+        entries.append({'id':f'level-{level:02d}','name':f'Level {level} ({elo} ELO)','level':level,'file':filename,'description':label,'elo':elo,'source':str(source.relative_to(REPO)),'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),**provenance,**meta})
         print(f'Level {level}: {label}; {meta["bytes"]:,} bytes')
     (ROOT/'models/registry.json').write_text(json.dumps(entries,indent=2)+'\n')
 

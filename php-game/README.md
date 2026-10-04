@@ -32,11 +32,15 @@ Level 5 is selected and downloaded at startup. Levels 1–4 download only when s
 | 2 | Astro4 champion `a4a66dd88a0a41e7` · 743 Elo | 7.44 MB |
 | 3 | Astro2 champion `1b822120f1634e46` · 914 Elo | 4.67 MB |
 | 4 | Astro5 champion `8844ddc7295a4f60` · 1,093 Elo | 7.46 MB |
-| 5 | Astro6 generation 10 · 1,265 Elo | 7.45 MB |
+| 5 | Arch3 champion `auto-828813dc45d24cf086e019c6537d1b02-pd9dd811c376c` · 1,283 Elo | 7.49 MB |
 
-The displayed ratings shift the measured September 30 tournament scale so the weakest opponent is 113 Elo. The relative gaps are retained and rounded for a simple five-level difficulty ladder. The stats storage key is versioned with this lineup, so results from the former ten-level lineup do not appear in the new table.
+Levels 1–4 retain their existing models and ratings. Level 5 is the arch3 autopilot `policy-00004` champion, measured at +17.53 Elo against the previous 1,265-Elo generation-10 opponent over 20,000 games (arena `275f35dc06e64bd6`).
 
-`models/registry.json` records exact source paths, checkpoint/generation IDs, source hashes, packaged hashes, byte sizes, and architecture. Weights preserve float32 values without quantization. The actor supports encoder and objective versions 1 and 2, mean-head scoring, the dominated-end-turn mask, and public-information lethal search. Arithmetic uses JavaScript doubles around float32 weights; near ties can differ from NumPy.
+The original displayed ratings shift the measured September 30 tournament scale so the weakest opponent is 113 Elo. The relative gaps are retained and rounded for a simple five-level difficulty ladder. The stats storage key is versioned with this lineup, so results from the former ten-level lineup do not appear in the new table.
+
+`models/registry.json` records exact source paths, checkpoint/generation IDs, source hashes, packaged hashes, byte sizes, and architecture. Weights preserve float32 values without quantization. The actor supports encoder versions 1, 2, and 3 and objective versions 1 and 2, mean-head scoring, the dominated-end-turn mask, and public-information lethal search. Arithmetic uses JavaScript doubles around float32 weights; near ties can differ from NumPy.
+
+Arch3 appends 49 opponent inferred-hand counts to the unchanged 1,292-feature state (1,341 total), with the same 219-feature action encoding as arch2. The rules remember publicly deducible cards when cleanup draws the entire remaining deck, including across a shuffle, and combine these with revealed top-deck draws without double counting. Playing, discarding, or scrapping removes one known copy; cloning preserves the records. When all remaining deck cards are known tops, the entire opponent hand multiset is deducible. Trade-deck counts remain unordered. Earlier encoders keep their original feature layout.
 
 ## Resource caching
 
@@ -100,6 +104,7 @@ python3 php-game/tools/package_client.py
 node php-game/tests/client-stats.mjs
 node php-game/tests/client-regression.mjs
 node php-game/tests/client-import.mjs
+node --test php-game/tests/arch3.test.mjs
 node --test php-game/tests/scrap-ui.test.cjs
 # Differential verification against the original Python engine and all five actors.
 astrosynapse2/.venv/bin/python php-game/tests/build_reference.py --games 20 --output /tmp/astro-js-reference.json
@@ -108,6 +113,6 @@ node php-game/tests/client-reference.mjs /tmp/astro-js-reference.json
 node php-game/tests/client-browser.mjs
 ```
 
-Verified during this port: 20 complete games / 5,091 decisions, 40 lethal plans, all eight neural families and win-probability calculations for every level, 37 gameplay/session regressions, and six on-card UI regressions. Maximum sampled generation-10 logit error was approximately 0.000002. Browser checks cover lazy downloads, local AI turns, refresh/resume, dropped-connection play, HTML cache invalidation, mobile layout, and native NPZ import persistence. The desktop and mobile layouts were inspected in Chromium; physical-device performance has not been measured.
+Verified during this port: 20 complete games / 5,091 decisions, 40 lethal plans, all eight neural families and win-probability calculations for every level, 37 gameplay/session regressions, and six on-card UI regressions. Arch3 verification also covers public-hand inference and native NPZ imports; all 5,091 decisions match the current Python engine. Maximum sampled arch3 champion logit error was approximately 0.000002. Browser checks cover lazy downloads, local AI turns, refresh/resume, dropped-connection play, HTML cache invalidation, mobile layout, and native NPZ import persistence. The desktop and mobile layouts were inspected in Chromium; physical-device performance has not been measured.
 
 Artwork loads directly from the [official Star Realms Card Gallery](https://www.starrealms.com/card-gallery); card image files are excluded from the upload archive. The welcome screen uses the gallery’s Scout card. Star Realms and card artwork belong to Wise Wizard Games LLC.

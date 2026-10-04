@@ -152,13 +152,22 @@ def test_api_discovery_and_invalid_controls(tmp_path, monkeypatch):
         )
 
 
-def test_better_prediction_without_better_policy_does_not_promote_critic(tmp_path):
+@pytest.mark.parametrize("existing_attempt", [None, 27])
+def test_better_prediction_without_better_policy_does_not_promote_critic(
+    tmp_path, existing_attempt
+):
     campaign = object.__new__(worker.Campaign)
-    campaign.config = SimpleNamespace(seeds=[1, 2], probe_games=20, probe_pairs=2000, seed=5)
-    pending = dict(
-        key="critic-1", champion_model="model", champion_actor="actor", critic_path="old", attempt=1
+    campaign.config = SimpleNamespace(
+        seeds=[1, 2], probe_games=20, probe_pairs=2000, seed=5, exploration_recipes=False
     )
-    campaign.state = dict(pending=pending, events=[], critic_id="old", critics=[], promotions=[])
+    pending = dict(
+        key="critic-1", champion_model="model", champion_actor="actor", critic_path="old"
+    )
+    if existing_attempt is not None:
+        pending["attempt"] = existing_attempt
+    campaign.state = dict(
+        pending=pending, events=[], critic_id="old", critics=[], promotions=[], critic_attempt=27
+    )
     campaign.save = lambda: None
     out = tmp_path / "critic-1"
     out.mkdir()
@@ -167,7 +176,13 @@ def test_better_prediction_without_better_policy_does_not_promote_critic(tmp_pat
         {"qualified": True, "test_before": {"log_loss": 0.5}, "test_after": {"log_loss": 0.4}},
     )
     campaign.begin_job = lambda *_: out
-    campaign.train = lambda *_, **__: {"model": "candidate.safetensors"}
+    calls = []
+
+    def train(*args, **kwargs):
+        calls.append(kwargs)
+        return {"model": "candidate.safetensors"}
+
+    campaign.train = train
     rows = [{"pair": i, "scores": [1, 0]} for i in range(2000)]
     campaign.evaluate = lambda *_, **__: (rows, {})
     campaign.critic_stage(pending)
@@ -175,6 +190,116 @@ def test_better_prediction_without_better_policy_does_not_promote_critic(tmp_pat
     assert campaign.state["promotions"] == []
     assert campaign.state["events"][-1]["kind"] == "critic_inconclusive"
     assert pending["finished"]
+    assert campaign.state["critic_attempt"] == (28 if existing_attempt is None else 27)
+    assert calls[0]["seed"] == calls[1]["seed"]
+    assert calls[0]["recipe"] == calls[1]["recipe"]
+
+
+def recovery_config(**kwargs):
+    return CampaignConfig(
+        policy_id="p", critic_id="c", opponent_ids=["p"], panel_ids=["p"], **kwargs
+    )
+
+
+def test_stale_lanes_restart_and_optimizer_continuation_is_bounded():
+    config = recovery_config(lane_max_blocks=3, exploration_recipes=True)
+    champion = {"id": "champion"}
+    tip = dict(champion_id="champion", model="candidate", optimizer="moments", blocks=2)
+    assert worker.policy_source(tip, champion, config) == tip
+    assert worker.policy_source({**tip, "blocks": 3}, champion, config) == {}
+    assert worker.policy_source({**tip, "champion_id": "old"}, champion, config) == {}
+    # Legacy tips have no bounded continuation count and must be rebased on migration.
+    assert worker.policy_source({"champion_id": "champion"}, champion, config) == {}
+    assert worker.training_recipe(config, 0) != worker.training_recipe(config, 1)
+
+
+def test_prediction_rejection_does_not_spend_strength_attempt(tmp_path):
+    campaign = object.__new__(worker.Campaign)
+    pending = dict(key="critic-0028")
+    campaign.state = dict(pending=pending, events=[], critic_attempt=27)
+    campaign.save = lambda: None
+    campaign.begin_job = lambda *_: tmp_path
+    atomic_json(tmp_path / "result.json", {"qualified": False})
+    campaign.critic_stage(pending)
+    assert campaign.state["critic_attempt"] == 27
+    assert "attempt" not in pending
+    assert pending["finished"]
+
+
+def test_stronger_screen_does_not_spend_attempt_on_weak_nominee():
+    campaign = object.__new__(worker.Campaign)
+    campaign.config = recovery_config(screen_pairs=2048, screen_min_score=0.505)
+    pending = dict(key="policy-00031", champion_actor="champion")
+    campaign.state = dict(pending=pending, events=[], attempt=20)
+    campaign.save = lambda: None
+    campaign.evaluate = lambda *_, **__: ([], {"score": 0.503, "truncated": 0})
+    campaign.policy_gate(pending, {"id": "candidate", "actor_path": "candidate"})
+    assert campaign.state["attempt"] == 20
+    assert pending["finished"]
+
+
+def test_gate_futility_preserves_existing_prefix_and_never_promotes(tmp_path):
+    campaign = object.__new__(worker.Campaign)
+    campaign.config = recovery_config(gate_futility_pairs=2000)
+    campaign.jobs = {"gate": {"seconds": 0}}
+    campaign.save = lambda: None
+    campaign.begin_job = lambda *_: tmp_path
+    rows = [
+        dict(pair=i, scores=[1, 0], truncated=0, seconds=0, searches=0, changes=0, branches=0)
+        for i in range(2048)
+    ]
+    atomic_json(tmp_path / "pairs.json", rows)
+    prefix = (tmp_path / "pairs.json").read_bytes()
+    returned, report = campaign.evaluate("gate", "a", "b", 50000, 1234, 0.00005)
+    assert returned == rows and not report["passed"]
+    assert report["lower"] <= 0.5
+    assert prefix == (tmp_path / "pairs.json").read_bytes()
+
+
+def test_runtime_maintenance_preserves_champions_attempts_and_evidence(tmp_path):
+    from astro2.experiment_control import code_identity
+    from maintain_autopilot_runtime import PATCHABLE, maintain
+
+    project, folder = tmp_path / "project", tmp_path / "campaign"
+    folder.mkdir()
+    for name in PATCHABLE:
+        old = folder / "runtime" / name
+        new = project / ("backend" if name.startswith("astro2/") else "") / name
+        old.parent.mkdir(parents=True, exist_ok=True)
+        new.parent.mkdir(parents=True, exist_ok=True)
+        old.write_text("VERSION = 1\n")
+        new.write_text("VERSION = 2\n")
+    engine = folder / "runtime/astro2/engine.py"
+    engine.write_text("RULES = 2\n")
+    for name in ("champion", "actor", "critic"):
+        (folder / name).write_bytes(name.encode())
+    state = dict(
+        status="paused",
+        pending=None,
+        champion_id="p",
+        critic_id="c",
+        attempt=20,
+        critic_attempt=27,
+        models=[dict(id="p", path=str(folder / "champion"), actor_path=str(folder / "actor"))],
+        critics=[dict(id="c", path=str(folder / "critic"))],
+    )
+    atomic_json(folder / "state.json", state)
+    atomic_json(folder / "config.json", recovery_config().model_dump())
+    atomic_json(folder / "jobs.json", {})
+    atomic_json(folder / "inputs.json", {})
+    atomic_json(
+        folder / "code.json", code_identity(folder / "runtime/astro2", folder / "runtime/scripts")
+    )
+    report = maintain(folder, project, {"lane_max_blocks": 3})
+    assert report["attempt"] == 20 and report["critic_attempt"] == 27
+    assert (folder / "state.json").read_bytes() == (
+        Path(report["backup"]) / "state.json"
+    ).read_bytes()
+    assert engine.read_text() == "RULES = 2\n"
+    state["pending"] = {"kind": "policy"}
+    atomic_json(folder / "state.json", state)
+    with pytest.raises(ValueError, match="boundary"):
+        maintain(folder, project, {})
 
 
 def test_resources_and_restore_require_stopped_campaign(tmp_path, monkeypatch):

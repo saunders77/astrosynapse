@@ -109,29 +109,29 @@
   },
   {
     "id": "level-05",
-    "name": "Level 5 (1265 ELO)",
+    "name": "Level 5 (1283 ELO)",
     "level": 5,
     "file": "level-05.astro.gz",
-    "description": "1265 ELO",
-    "elo": 1265,
-    "source": "astrosynapse2/data/progressive/evolution-20260923/branches/b0016/g00000007.actor.npz",
-    "source_sha256": "f8fd796a7c86cdea89799432f655478ab21e09f855a4477100b704b5f42d9381",
-    "generation": 10,
-    "sha256": "be6787b98ba2712f229dca3defab007d9c8e8fa6628073c2f5ccd43fbd2fcef3",
-    "bytes": 7447705,
-    "uncompressed_bytes": 8050316,
-    "parameters": 2011184,
+    "description": "1283 ELO",
+    "elo": 1283,
+    "source": "astrosynapse2/data/autopilot/828813dc45d24cf086e019c6537d1b02/tasks/policy-00004/g00020000.actor.npz",
+    "source_sha256": "1ddafcf615affed973dbae3981e72031022038dbe79e165e91ff7dfcc9de939b",
+    "checkpoint_id": "auto-828813dc45d24cf086e019c6537d1b02-pd9dd811c376c",
+    "sha256": "15e2262446c2f1051b64f5b46c932167cedf163fb785e832f2ad2e2fd120f835",
+    "bytes": 7485701,
+    "uncompressed_bytes": 8087952,
+    "parameters": 2020592,
     "spec": {
       "action_hidden_size": 96,
       "action_size": 219,
       "bootstrap_heads": 5,
-      "encoder_version": 2,
+      "encoder_version": 3,
       "families": 8,
       "hidden_size": 192,
       "layer_norm_eps": 1e-05,
       "objective_version": 2,
       "residual_blocks": 3,
-      "state_size": 1292
+      "state_size": 1341
     }
   }
 ]

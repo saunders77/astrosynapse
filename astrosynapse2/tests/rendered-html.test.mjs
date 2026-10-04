@@ -170,7 +170,7 @@ test("contains the real local API adapters and no disposable starter shell", asy
   assert.match(page, /term="bootstrapUncertainty"/);
   assert.match(page, /model_a_first_seat_score/);
   assert.match(page, /paired_interval_method/);
-  assert.match(page, /method === "GET" \? 3_000 : 10_000/);
+  assert.match(page, /path\.startsWith\("\/models"\) \? 30_000 : 3_000/);
   assert.match(page, /<b>\{game\.explorersRemaining\}<\/b>/);
   assert.match(page, /observation\.pending_discard/);
   assert.match(page, /observation\.opponent_pending_discard/);

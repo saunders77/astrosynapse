@@ -26,7 +26,7 @@ Configuration patches are validated against the full recipe. Architecture, train
 
 ## Models
 
-- `GET /models?run_id={id}` — checkpoint lineage, evaluation, champion, pin, and artifact-availability metadata. `artifact_state`, `model_available`, `actor_available`, `playable`, and `actor_downloadable` distinguish retained history from files still present.
+- `GET /models?run_id={id}` — checkpoint lineage, evaluation, champion, pin, and artifact-availability metadata. Optional `champions_only=true` filters before building documents (`include_former_champions=true` also includes promoted generations above zero); `priority_only=true` restricts results to generation 10+ and arch3; `lightweight=true` skips reading actor archives for metadata (sidecars and registry metadata are still used). The arena loads priority champions first, then remaining champions. `artifact_state`, `model_available`, `actor_available`, `playable`, and `actor_downloadable` distinguish retained history from files still present.
 - `PATCH /models/{id}` with `{pinned: true|false}` — persist a registry pin.
 - `GET /models/{id}/actor` — download the portable compressed NumPy actor.
 

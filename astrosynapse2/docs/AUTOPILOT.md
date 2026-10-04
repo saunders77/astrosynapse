@@ -44,3 +44,68 @@ Campaigns live under `data/autopilot/<id>/`: `config.json`, `inputs.json`, `code
 - `POST /api/autopilot/matches/<id>/{pause,resume}`: match controls.
 
 Match diagnostics average prediction error equally over completed games. They are diagnostics, not promotion evidence. Normal arenas remain policy-only, and the GUI links to the policy/critic match controls when those measurements are desired.
+
+## October 3 recovery revision
+
+Campaign `828813dc45d24cf086e019c6537d1b02` stalled after `policy-00004` at
+01:31 local time. The next 26 policy blocks produced 11 screen rejections and
+15 inconclusive gates. Those gates averaged 50.236% against the champion
+(range 49.863–50.717%). Policy entropy fell from about 0.117 at the champion
+block to 0.070 in the latest lane. Continuing both lanes indefinitely with
+zero entropy regularization was not yielding stronger candidates.
+
+Critic fitting used only 2,500 games; most fits selected epoch zero or one.
+Since the last promotion, 13 critics failed prediction qualification and 11
+passed prediction checks but failed playing-strength qualification. The latter
+averaged a −0.054 percentage-point policy-probe difference. Each probe trained
+for only two updates. Better predictions had not demonstrated stronger play.
+
+The installed revision applies the following settings to future tasks:
+
+| Setting | Previous | Recovery |
+| --- | --- | --- |
+| Lane continuation | Unlimited | Rebase on champion after three blocks |
+| Sampling temperature | 0.10 in both lanes | 0.15 / 0.25 |
+| Entropy weight | 0 | 0.01 / 0.02 |
+| Critic replay | 2,500 games | 20,000 games |
+| Recent replay | Last 2,000 games | Sample 16,000 from last 100,000; 4,000 older games |
+| Critic learning rate | 0.0003 | 0.00003 |
+| Critic probe training | 2,000 games per arm/seed | 10,000 games per arm/seed |
+| Critic probe evaluation | 4,000 pairs per seed | 12,000 pairs per seed |
+| Policy nomination screen | 512 pairs, score >50% | 2,048 pairs, score >50.5% |
+| Policy gate ceiling | 12,000 pairs | 50,000 pairs |
+| Historical panel | 4,000 pairs per opponent | 12,000 pairs per opponent |
+
+Learning rate remains 0.000002, with 20,000-game policy blocks, two epochs per
+update, six workers and the 80/20 training allocation. Both critic probe arms
+use identical exploration settings for their training seed. Legacy lane tips
+restart from the verified champion on their next turn. Gates with a nonpositive
+observed gain stop after at least 8,192 pairs; acceptance still requires the
+original confidence bound and historical non-regression checks. Screening is
+exploratory and cannot certify a promotion.
+
+Prediction-only critic rejections no longer spend a playing-strength attempt.
+The separate round counter preserves unique job/seed identities. All 27 prior
+critic attempts and 20 prior policy attempts remain spent; neither alpha schedule
+resets. Future qualified critics spend their attempt before probe training.
+
+An isolated fit on existing replay selected epoch five and reduced held-out log
+loss from 0.491344 to 0.481736 and Brier error from 0.166175 to 0.162494 across
+2,014 games. Historical log loss improved from 0.475177 to 0.461099. These are
+prediction diagnostics on reusable replay, not independent strength evidence.
+The pilot critic was not installed as champion. A real 20-game policy smoke run
+with the exploratory recipe completed without truncations, followed by an
+eight-pair evaluation. It verifies execution, not playing strength.
+
+`scripts/maintain_autopilot_runtime.py` requires a paused block boundary and the
+worker lock, checks the prior runtime identity, backs up code/config/state, and
+updates only the three Autopilot implementation files. Installation verified
+261 protected state, champion and evaluation artifacts stayed byte identical.
+The preserved runtime and configuration support rollback. Recovery settings
+remain opt-in; old configurations retain their original defaults.
+
+The same campaign resumes with 24 additional active hours (46.445994 cumulative)
+and a 50 GiB campaign storage ceiling. Diagnosis, settings, installation audit,
+critic pilot and policy smoke results are in `data/autopilot-recovery-20261003/`.
+New promotions remain conditional on fresh evidence; none is manufactured by
+the migration.

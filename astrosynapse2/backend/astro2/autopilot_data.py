@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from .critic import IndependentCritic, save_npz
-from .experiment_control import atomic_json
+from .experiment_control import atomic_json, sha256
 
 
 def game_partition(key):
@@ -47,7 +47,19 @@ def export_trajectories(folder, iteration, trajectories, families, seed, encoder
         )
 
 
-def fit_candidate(source, shards, output, *, seed, seconds, check, max_games=2500, epochs=30):
+def fit_candidate(
+    source,
+    shards,
+    output,
+    *,
+    seed,
+    seconds,
+    check,
+    max_games=2500,
+    epochs=30,
+    recent_window=0,
+    learning_rate=0.0003,
+):
     """Recent plus historical games; train/validation/test disjoint across all rounds."""
     output = Path(output)
     output.mkdir(exist_ok=True, parents=True)
@@ -66,8 +78,12 @@ def fit_candidate(source, shards, output, *, seed, seconds, check, max_games=250
                 continue
             inventory.extend((str(path), int(i), j) for j, i in enumerate(z["ids"]))
     recent_count = min(int(max_games * 0.8), len(inventory))
-    selected = inventory[-recent_count:] if recent_count else []
-    history = inventory[:-recent_count] if recent_count else []
+    window = min(len(inventory), max(recent_count, recent_window))
+    recent = inventory[-window:] if window else []
+    if window == len(inventory):
+        recent_count = min(max_games, len(inventory))
+    selected = [recent[i] for i in rng.choice(len(recent), recent_count, replace=False)]
+    history = inventory[:-window] if window else []
     if history:
         selected += [
             history[i]
@@ -75,11 +91,22 @@ def fit_candidate(source, shards, output, *, seed, seconds, check, max_games=250
                 len(history), min(max_games - recent_count, len(history)), replace=False
             )
         ]
+    atomic_json(
+        output / "replay.json",
+        dict(
+            source_sha256=sha256(source),
+            seed=seed,
+            games=[
+                dict(path=p, game=g, index=i, partition=game_partition(f"{p}:{g}"))
+                for p, g, i in selected
+            ],
+        ),
+    )
     by_path = {}
     for path, gid, index in selected:
         by_path.setdefault(path, []).append((gid, index))
     datasets = {"train": [], "validation": [], "test": [], "historical_test": []}
-    recent_keys = {(p, g) for p, g, _ in inventory[-recent_count:]}
+    recent_keys = {(p, g) for p, g, _ in recent}
     for path, entries in by_path.items():
         check()
         with np.load(path) as z:
@@ -132,7 +159,9 @@ def fit_candidate(source, shards, output, *, seed, seconds, check, max_games=250
             check()
             batch = [datasets["train"][i] for i in order[offset : offset + 16]]
             model.train_batch(
-                np.concatenate([g[0] for g in batch]), np.repeat([g[1] for g in batch], 32), 0.0003
+                np.concatenate([g[0] for g in batch]),
+                np.repeat([g[1] for g in batch], 32),
+                learning_rate,
             )
         validation = metrics(model, datasets["validation"])
         history_rows.append(dict(epoch=epoch, **validation))
@@ -172,6 +201,9 @@ def fit_candidate(source, shards, output, *, seed, seconds, check, max_games=250
         historical_before=old_history,
         historical_after=new_history,
         counts={k: len(v) for k, v in datasets.items()},
+        settings=dict(
+            max_games=max_games, recent_window=recent_window, learning_rate=learning_rate
+        ),
         note="Prediction qualification only; fresh matched policy probes required for promotion.",
     )
     best.save(output / "critic.npz", {**meta, "autopilot_fit": report})

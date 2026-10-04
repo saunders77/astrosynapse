@@ -1,5 +1,5 @@
 import { Game } from './engine.mjs';
-// Checkpoint-stable v1/v2 layout, including historical missing-card sentinels.
+// Checkpoint-stable v1/v2/v3 layout, including historical missing-card sentinels.
 export class Encoder {
   static FAMILIES={main:0,discard:1,scrap:2,destroy_base:3,scrap_trade_row:4,copy_ship:5,free_acquire:6,ability_mode:7};
   static KINDS={play_card:1,activate_base:2,activate_ally:2,scrap_for_ability:3,attack_base:4,attack_player:5,acquire:6,end_turn:7,discard_card:8,scrap_card:10,destroy_base:12,scrap_trade_row:14,copy_ship:16,free_acquire:18,decline:24};
@@ -8,11 +8,12 @@ export class Encoder {
   constructor(version=2) { this.version=version; }
   static zones(o) { return [o.hand,o.own_deck,o.own_known_top,o.own_discard,o.own_in_play.map(i=>i.card),o.opponent_hidden,o.opponent_known_hand,o.opponent_known_top,o.opponent_discard,o.opponent_in_play.map(i=>i.card),o.trade_row,o.trade_deck,o.scrap_heap,o.explorer_supply]; }
   state(o) {
-    const r=Array(1292).fill(0),s=[+o.is_starting_player,o.own_authority/50,o.opponent_authority/50,o.combat/20,o.trade/15,o.pending_discard/5,o.opponent_pending_discard/5,+o.next_ship_to_top,o.blob_cards_played/5,+o.all_allied,+o.fleet_active,o.turn/50,o.action_number/50,o.own_deck_count/20,o.opponent_hand_count/10,o.opponent_deck_count/20,o.trade_deck_count/80,o.explorers_remaining/10];
+    const r=Array(this.version>=3?1341:1292).fill(0),s=[+o.is_starting_player,o.own_authority/50,o.opponent_authority/50,o.combat/20,o.trade/15,o.pending_discard/5,o.opponent_pending_discard/5,+o.next_ship_to_top,o.blob_cards_played/5,+o.all_allied,+o.fleet_active,o.turn/50,o.action_number/50,o.own_deck_count/20,o.opponent_hand_count/10,o.opponent_deck_count/20,o.trade_deck_count/80,o.explorers_remaining/10];
     s.forEach((v,j)=>r[j]=v); let cursor=18;
     for(const zone of Encoder.zones(o)) { for(const id of zone) if(id!==null) r[cursor+id]++; cursor+=49; }
     for(const zone of ['own_known_top','opponent_known_top']) { o[zone].slice(0,3).forEach((id,j)=>r[cursor+j*49+id]=1); cursor+=147; }
     for(const zone of ['own_in_play','opponent_in_play']) for(const status of ['ready','ally_triggered','copied_from_stealth_needle']) { for(const i of o[zone]) if(status==='ready'?!i.activated:i[status]) r[cursor+i.card]++; cursor+=49; }
+    if(this.version>=3) for(const id of o.opponent_inferred_hand??o.opponent_known_hand) r[1292+id]++;
     return r;
   }
   static attributes(id,zero=false) {

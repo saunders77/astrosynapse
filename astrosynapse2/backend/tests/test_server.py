@@ -508,3 +508,49 @@ def test_models_champions_only_skips_historical_documents(tmp_path, monkeypatch)
         response = client.get("/api/models")
         assert [item["id"] for item in response.json()] == ["old", "gen10"]
         assert documented == ["old", "gen10"]
+
+
+def test_priority_champions_skip_old_and_nonchampion_documents(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    checkpoints = [
+        {"id": "old", "generation": 9, "is_champion": True},
+        {"id": "gen10", "generation": 10, "is_champion": True},
+        {"id": "arch3-candidate", "encoder_version": 3, "is_champion": False},
+        {"id": "arch3-champion", "architecture": "arch3", "is_champion": True},
+        {"id": "arch3-previous", "architecture": "arch3", "generation": 1},
+        {"id": "arch3-seed", "architecture": "arch3", "generation": 0},
+    ]
+    monkeypatch.setattr(server, "progressive_models", lambda _: checkpoints)
+    documented = []
+
+    def document(item, *, lightweight=False):
+        assert lightweight
+        documented.append(item["id"])
+        return dict(item)
+
+    monkeypatch.setattr(server, "_model_document", document)
+    with TestClient(server.app) as client:
+        response = client.get("/api/models?priority_only=true&lightweight=true&champions_only=true")
+        assert response.status_code == 200
+        assert [item["id"] for item in response.json()] == ["gen10", "arch3-champion"]
+        assert documented == ["gen10", "arch3-champion"]
+        response = client.get("/api/models?priority_only=true&lightweight=true&champions_only=true&include_former_champions=true")
+        assert [item["id"] for item in response.json()] == ["gen10", "arch3-champion", "arch3-previous"]
+
+
+def test_lightweight_model_document_does_not_open_actor_archive(tmp_path, monkeypatch):
+    import numpy as np
+
+    actor = tmp_path / "source.actor.npz"
+    actor.write_bytes(b"archive must not be read")
+
+    def unexpected_load(*args, **kwargs):
+        raise AssertionError("Dropdown inventory must not open actor archives")
+
+    monkeypatch.setattr(np, "load", unexpected_load)
+    document = server._model_document(
+        {"id": "arch3-source", "label": "Source", "actor_path": str(actor), "encoder_version": 3},
+        lightweight=True,
+    )
+    assert document["actor_available"] is True
+    assert document["architecture"] == "arch3"

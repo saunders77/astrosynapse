@@ -60,6 +60,7 @@ type TrackedCard = {
   uid: string;
   cardId: number | null;
   knownEmpty?: boolean;
+  inferredInHand?: boolean;
   reservedCardId?: number | null;
   copiedCardId?: number | null;
   activated?: boolean;
@@ -798,8 +799,9 @@ function buildObservation(match: ManualMatch, catalog: CardDefinition[], definit
     own_in_play: inPlay(match.astro.inPlay),
     opponent_hand_count: match.hard.handCount,
     opponent_known_hand: definitionList(match.hard.knownHand, definitions),
+    opponent_inferred_hand: definitionList(inferredHardHand(match.hard), definitions),
     opponent_hidden: definitionList(match.hard.hidden, definitions),
-    opponent_deck_count: match.hard.deckCount + match.hard.knownTop.length,
+    opponent_deck_count: match.hard.deckCount,
     opponent_known_top: definitionList(match.hard.knownTop, definitions),
     opponent_discard: definitionList(match.hard.discard, definitions),
     opponent_in_play: inPlay(match.hard.inPlay),
@@ -899,6 +901,29 @@ function drawAstroCards(match: ManualMatch, count: number): ManualMatch {
   };
 }
 
+// Inferred copies stay in the legacy combined pool so arch1/arch2 inputs do
+// not change. The flag remembers which copies were already in hand at shuffle.
+function inferredHardHand(hard: HardBoard): TrackedCard[] {
+  return [...hard.knownHand, ...hard.hidden.filter((item) =>
+    hard.deckCount === hard.knownTop.length || item.inferredInHand)];
+}
+
+function hiddenHardHandCard(hard: HardBoard, cardId: number): TrackedCard | undefined {
+  return hard.hidden.find((item) => item.cardId === cardId && item.inferredInHand)
+    ?? hard.hidden.find((item) => item.cardId === cardId);
+}
+
+function discardRemainingHardHand(match: ManualMatch): ManualMatch {
+  const hand = inferredHardHand(match.hard);
+  // Unknown leftovers must be transcribed as discards before cleanup; choosing
+  // arbitrary copies here would invent the composition of the remaining deck.
+  if (hand.length !== match.hard.handCount) throw new Error("Record the Hard AI's remaining hand cards as discards before ending its turn.");
+  const ids = new Set(hand.map((item) => item.uid));
+  return { ...match, hard: { ...match.hard, handCount: 0, knownHand: [],
+    hidden: match.hard.hidden.filter((item) => !ids.has(item.uid)).map(originalCard),
+    discard: [...match.hard.discard, ...hand.map(originalCard)] } };
+}
+
 function drawHardCards(match: ManualMatch, count: number): ManualMatch {
   let hidden = [...match.hard.hidden];
   const knownHand = [...match.hard.knownHand];
@@ -906,6 +931,10 @@ function drawHardCards(match: ManualMatch, count: number): ManualMatch {
   let discard = [...match.hard.discard];
   let handCount = match.hard.handCount;
   let deckCount = match.hard.deckCount;
+  const rememberExhaustedDeck = () => {
+    if (deckCount === knownTop.length) hidden = hidden.map((item) => ({ ...item, inferredInHand: true }));
+  };
+  rememberExhaustedDeck();
   for (let index = 0; index < count; index += 1) {
     if (deckCount <= 0 && discard.length) {
       hidden = [...hidden, ...discard.map(originalCard)];
@@ -917,6 +946,7 @@ function drawHardCards(match: ManualMatch, count: number): ManualMatch {
     if (known) knownHand.push(originalCard(known));
     deckCount -= 1;
     handCount += 1;
+    rememberExhaustedDeck();
   }
   return {
     ...match,
@@ -1178,7 +1208,7 @@ function hardLegalActionKinds(match: ManualMatch, definitions: Map<number, CardD
   }
   if (match.hard.pendingDiscard > 0 && match.hard.handCount > 0) return ["discard"];
   const kinds: HardActionKind[] = [];
-  if (match.hard.handCount > 0) kinds.push("play");
+  if (match.hard.handCount > 0) kinds.push("play", "discard");
   if (affordableHardAcquisitions(match, definitions).length || (match.explorersRemaining > 0 && match.hard.trade >= 2)) kinds.push("acquire");
   if (match.hard.combat > 0 && !match.astro.inPlay.some((item) => effectiveDefinition(item, definitions)?.card_type === "outpost")) kinds.push("attack_player");
   if (hardAttackTargets(match, definitions, true).length) kinds.push("attack_base");
@@ -1325,7 +1355,9 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
   };
 
   const updateHardStat = (key: keyof Pick<HardBoard, "authority" | "trade" | "combat" | "pendingDiscard" | "handCount" | "deckCount">, value: number) => {
-    setMatch((current) => ({ ...current, hard: { ...current.hard, [key]: value } }));
+    setMatch((current) => ({ ...current, hard: { ...current.hard, [key]: value,
+      hidden: key === "handCount" || key === "deckCount" ? current.hard.hidden.map(originalCard) : current.hard.hidden,
+    } }));
     invalidateAdvice();
   };
 
@@ -1626,6 +1658,10 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
   }, [applyAstroAction, currentDecision.family, definitions, match]);
 
   const recordHardAction = () => {
+    if (hardActionKind === "end_turn" && inferredHardHand(match.hard).length !== match.hard.handCount) {
+      onToast("Record the Hard AI's remaining hand cards as discards before ending its turn.");
+      return;
+    }
     const refilledTradeRowSlot = ((hardActionKind === "acquire" && hardTargetUid !== "explorer-supply") || hardActionKind === "scrap_row")
       ? match.tradeRow.findIndex((item) => item.uid === hardTargetUid)
       : -1;
@@ -1639,7 +1675,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
         if (hardDecisionEffect === "recycle_cycle" && hardScrapCount > 0) next = drawHardCards(next, hardScrapCount);
       } else if (hardActionKind === "play" && definition) {
         const known = next.hard.knownHand.find((item) => item.cardId === definition.card_id);
-        const existing = known ?? next.hard.hidden.find((item) => item.cardId === definition.card_id);
+        const existing = known ?? hiddenHardHandCard(next.hard, definition.card_id);
         const played = existing ?? card(definition.card_id, "hard-played");
         const hidden = known ? next.hard.hidden : existing ? next.hard.hidden.filter((item) => item.uid !== existing.uid) : next.hard.hidden.slice(0, -1);
         const knownHand = known ? next.hard.knownHand.filter((item) => item.uid !== known.uid) : next.hard.knownHand;
@@ -1692,7 +1728,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
         }
       } else if (hardActionKind === "discard" && definition) {
         const known = next.hard.knownHand.find((item) => item.cardId === definition.card_id);
-        const existing = known ?? next.hard.hidden.find((item) => item.cardId === definition.card_id);
+        const existing = known ?? hiddenHardHandCard(next.hard, definition.card_id);
         const discarded = existing ?? card(definition.card_id, "hard-discarded");
         next = { ...next, hard: { ...next.hard, hidden: known ? next.hard.hidden : existing ? next.hard.hidden.filter((item) => item.uid !== existing.uid) : next.hard.hidden.slice(0, -1), knownHand: known ? next.hard.knownHand.filter((item) => item.uid !== known.uid) : next.hard.knownHand, handCount: Math.max(0, next.hard.handCount - 1), pendingDiscard: Math.max(0, next.hard.pendingDiscard - 1), discard: [...next.hard.discard, originalCard(discarded)] } };
         if (hardDecisionEffect === "recycle_cycle" && hardScrapCount >= 1) next = drawHardCards(next, hardScrapCount + 1);
@@ -1701,7 +1737,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
         const zoneKey = hardSourceZone === "hand" ? "hidden" : hardSourceZone === "discard" ? "discard" : "inPlay";
         const sourceCards = next.hard[zoneKey];
         const known = hardSourceZone === "hand" ? next.hard.knownHand.find((item) => effectiveCardId(item) === definition.card_id) : undefined;
-        const target = known ?? sourceCards.find((item) => effectiveCardId(item) === definition.card_id);
+        const target = known ?? (hardSourceZone === "hand" ? hiddenHardHandCard(next.hard, definition.card_id) : sourceCards.find((item) => effectiveCardId(item) === definition.card_id));
         if (target) {
           next = { ...next, hard: {
             ...next.hard,
@@ -1766,6 +1802,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
           eventText = `Hard AI scrapped ${targetDefinition.name} from the trade row`;
         }
       } else if (hardActionKind === "end_turn") {
+        next = discardRemainingHardHand(next);
         const ships = next.hard.inPlay.filter((item) => effectiveDefinition(item, definitions)?.card_type === "ship").map(originalCard);
         const bases = next.hard.inPlay.filter((item) => effectiveDefinition(item, definitions)?.card_type !== "ship").map((item) => {
           const base = effectiveDefinition(item, definitions);
@@ -1784,7 +1821,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
           inPlay: astroBases,
         }, hard: { ...next.hard, trade: 0, combat: 0, pendingDiscard: 0, nextShipToTop: false, discard: [...next.hard.discard, ...ships], inPlay: bases } };
         next = triggerAutomaticAstroAllies(next, definitions);
-        next = drawHardCards(next, Math.max(0, 5 - next.hard.handCount));
+        next = drawHardCards(next, 5);
         eventText = "Hard AI ended its turn";
       }
       return withEvent(next, "hard", eventText, current.turn);
@@ -2046,11 +2083,11 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
               <CardZone label="Hand" detail={`${match.astro.hand.length} cards · tracked possibilities only`} cards={match.astro.hand} zone="astroHand" cardControls={controlsForCard} scrapAction={scrapActionForCard} catalog={catalog} catalogForCard={possibleAstroHandCards} definitions={definitions} onChange={updateCard} onDelete={deleteCard} onAdd={addCard} />
             </article>
             <article>
-              <header><span className="relay-avatar is-hard">H</span><div><strong>Hard AI cards</strong><small>Unknown hand + deck stay combined; revealed top draws remain known</small></div></header>
+              <header><span className="relay-avatar is-hard">H</span><div><strong>Hard AI cards</strong><small>Remembers revealed and deduced hand cards across shuffles</small></div></header>
               <div className="relay-count-editor"><StatInput label="Hand count" value={match.hard.handCount} onChange={(value) => updateHardStat("handCount", value)} /><StatInput label="Deck count" value={match.hard.deckCount} onChange={(value) => updateHardStat("deckCount", value)} /></div>
               <CardZone label="Known cards in hand" detail={`${match.hard.knownHand.length} revealed from deck top`} cards={match.hard.knownHand} zone="hardKnownHand" catalog={catalog} definitions={definitions} onChange={updateCard} onDelete={deleteCard} onAdd={addCard} />
               <CardZone label="Known top cards" detail="Top to bottom" cards={match.hard.knownTop} zone="hardKnownTop" catalog={catalog} definitions={definitions} onChange={updateCard} onDelete={deleteCard} onAdd={addCard} />
-              <CardZone label="Scrambled hand + deck" detail={`${match.hard.hidden.length} hidden cards`} cards={match.hard.hidden} zone="hardHidden" catalog={catalog} definitions={definitions} onChange={updateCard} onDelete={deleteCard} onAdd={addCard} />
+              <CardZone label="Scrambled hand + deck" detail={`${match.hard.hidden.length} cards · ${inferredHardHand(match.hard).length - match.hard.knownHand.length} deduced in hand`} cards={match.hard.hidden} zone="hardHidden" catalog={catalog} definitions={definitions} onChange={updateCard} onDelete={deleteCard} onAdd={addCard} />
             </article>
           </div>
           <CardZone label="Shared scrap heap" detail={`${match.scrapHeap.length} cards removed from the game`} cards={match.scrapHeap} zone="scrapHeap" catalog={catalog} definitions={definitions} onChange={updateCard} onDelete={deleteCard} onAdd={addCard} />
@@ -2119,7 +2156,7 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
             {hardActionKind === "scrap_row" ? <label><span>Trade-row card to scrap</span><select value={hardTargetUid} onChange={(event) => setHardTargetUid(event.target.value)}><option value="">Choose a card…</option>{match.tradeRow.map((item) => <option key={item.uid} value={item.uid} disabled={item.cardId === null}>{item.cardId === null ? "Undefined" : definitions.get(item.cardId)?.name ?? "Unsupported card"}</option>)}</select></label> : null}
             {hardActionKind === "attack_base" ? <label><span>Astro5 base</span><select value={hardTargetUid} onChange={(event) => setHardTargetUid(event.target.value)}><option value="">Choose a base…</option>{legalHardAttackTargets.map((item) => <option key={item.uid} value={item.uid}>{effectiveDefinition(item, definitions)?.name}</option>)}</select></label> : null}
             {hardActionKind === "attack_player" || hardActionKind === "ability" ? <label><span>{hardActionKind === "attack_player" ? "Combat dealt" : "Optional amount / result"}</span><input type="number" min="0" value={hardAmount} onChange={(event) => setHardAmount(Math.max(0, Number(event.target.value) || 0))} /></label> : null}
-            {hardActionKind === "end_turn" ? <div className="relay-end-turn-copy"><strong>Finish the Hard AI turn?</strong><p>Ships move to discard, bases remain, resources clear, and Astro5 becomes active.</p></div> : null}
+            {hardActionKind === "end_turn" ? <div className="relay-end-turn-copy"><strong>Finish the Hard AI turn?</strong><p>Known leftover hand cards and ships move to discard, bases remain, and Astro5 becomes active. Record any unknown leftover hand cards with Discard first.</p></div> : null}
           </div>
           <footer className="relay-modal-actions">
             <button type="button" onClick={() => setHardActionOpen(false)}>Cancel</button>

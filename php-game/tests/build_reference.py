@@ -59,8 +59,8 @@ def main():
             if d.family.value not in samples and len(d.actions)>1: samples[d.family.value]=d
         g=Game(config=GameConfig(seed=seed,starting_player=seed%2,rules_version=2,max_turns=240,max_actions_per_turn=220),rng_streams=RNGStreams(Rng(seed),Rng(seed+101),Rng(seed+202),Rng(seed+303)),choosers=(chooser,chooser),decision_hook=hook)
         g.run(); games.append({'seed':seed,'starts':seed%2,'decisions':decisions,'result':{'winner':g.result.winner,'turns':g.result.turns,'truncated':g.result.truncated}})
-    s=json.loads((ROOT/'astrosynapse2/data/progressive/evolution-20260923/state.json').read_text())
-    actor=NumpyActor.load(s['champion']); encoder=EngineEncoder(version=actor.spec.encoder_version)
+    registry=json.loads((ROOT/'php-game/models/registry.json').read_text())
+    actor=NumpyActor.load(ROOT/registry[-1]['source']); encoder=EngineEncoder(version=actor.spec.encoder_version)
     neural=[]
     for d in samples.values():
         e=encoder.encode_decision(d.observation,d)

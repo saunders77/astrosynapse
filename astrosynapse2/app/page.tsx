@@ -264,6 +264,7 @@ type HardwareView = {
 };
 
 type ModelCheckpoint = {
+  architecture?: string;
   generation?: number;
   runName?: string;
   external?: boolean;
@@ -1842,6 +1843,7 @@ function normalizeModel(raw: unknown, fallback: ModelCheckpoint = emptyModel): M
     runName: asString(item.run_name, ""),
     external: Boolean(item.external),
     label: displayLabel,
+    architecture: asString(item.architecture, ""),
     generation: asOptionalNumber(item.generation) ?? undefined,
     parentId: typeof item.parent_id === "string" && item.parent_id ? item.parent_id : undefined,
     games: asNumber(item.games, fallback.games),
@@ -2751,7 +2753,7 @@ function normalizeBranchExperiment(raw: unknown): BranchExperiment | null {
 async function fetchJson(path: string, options?: RequestInit): Promise<unknown> {
   const controller = new AbortController();
   const method = (options?.method ?? "GET").toUpperCase();
-  const timeoutMs = method === "GET" ? 3_000 : 10_000;
+  const timeoutMs = method === "GET" ? (path.startsWith("/models") ? 30_000 : 3_000) : 10_000;
   const resolvedTimeoutMs = method === "POST" && path === "/branches" ? 120_000 : timeoutMs;
   const timeout = window.setTimeout(() => controller.abort(), resolvedTimeoutMs);
   try {
@@ -3586,6 +3588,8 @@ export default function Home() {
   const [analysisResult, setAnalysisResult] = useState<CardAnalysisView | null>(null);
   const [analysisHistory, setAnalysisHistory] = useState<CardAnalysisView[]>([]);
   const [championCheckpointsOnly, setChampionCheckpointsOnly] = useState(true);
+  const [arenaModelsLoading, setArenaModelsLoading] = useState(true);
+  const [arenaModelsError, setArenaModelsError] = useState(false);
   const [game, setGame] = useState<GameState>(initialGame);
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
   const [playModel, setPlayModel] = useState("champion-042");
@@ -3657,11 +3661,13 @@ export default function Home() {
   );
   const availableModels = useMemo(
     () => arenaModels.filter((model) => model.actorAvailable).sort((a, b) =>
+      (Number((b.generation ?? 0) >= 10) - Number((a.generation ?? 0) >= 10)) ||
+      Number(b.architecture === "arch3") - Number(a.architecture === "arch3") ||
       (b.generation ?? 0) - (a.generation ?? 0) || Number(b.isChampion) - Number(a.isChampion) || b.games - a.games),
     [arenaModels],
   );
   const selectableModels = useMemo(
-    () => availableModels.filter((model) => !championCheckpointsOnly || model.isChampion || model.wasChampion),
+    () => availableModels.filter((model) => !championCheckpointsOnly || model.isChampion || (model.generation ?? 0) > 0),
     [availableModels, championCheckpointsOnly],
   );
   const availableArenaModels = useMemo(
@@ -4120,18 +4126,26 @@ export default function Home() {
       };
       try {
         if (initial) {
-          try { apply(await fetchJson("/models?champions_only=true")); } catch { /* Try the complete registry below. */ }
-          // Render the main choices before requesting historical checkpoints.
+          try { apply(await fetchJson(`/models?priority_only=true&lightweight=true${championCheckpointsOnly ? "&champions_only=true&include_former_champions=true" : ""}`)); } catch { /* Try the complete registry below. */ }
+          // Render priority champions before requesting the remaining choices.
           await new Promise((resolve) => window.setTimeout(resolve, 250));
         }
-        if (!cancelled) apply(await fetchJson("/models"));
-      } catch { /* Keep the last successful registry while offline. */ }
-      finally { inFlight = false; }
+        if (!cancelled) {
+          apply(await fetchJson(`/models?lightweight=true${championCheckpointsOnly ? "&champions_only=true&include_former_champions=true" : ""}`));
+          setArenaModelsError(false);
+        }
+      } catch {
+        if (!cancelled) setArenaModelsError(true);
+      } finally {
+        inFlight = false;
+        if (!cancelled) setArenaModelsLoading(false);
+      }
     };
+    setArenaModelsLoading(true);
     void loadModels(true);
     const interval = window.setInterval(() => void loadModels(), 30_000);
     return () => { cancelled = true; window.clearInterval(interval); };
-  }, []);
+  }, [championCheckpointsOnly]);
 
   useEffect(() => {
     if (!remoteRunId || typeof EventSource === "undefined") return;
@@ -5606,6 +5620,7 @@ export default function Home() {
                 <header className="panel-header"><div><span className="panel-kicker">Head-to-head laboratory</span><h2>Arena match</h2></div><span className="paired-chip"><Jargon term="pairedSeeds">Paired randomness</Jargon></span></header>
                 {connected ? <div className="arena-watch-controls"><button type="button" className="button button-secondary" onClick={watchActiveArena} disabled={arenaWatchLoading}>{arenaWatchLoading ? "Loading match…" : "Watch active arena"}</button><small>Switch to the running match from any training run and follow its live progress.</small></div> : null}
                 <label className="toggle-label checkpoint-filter-toggle"><input type="checkbox" checked={championCheckpointsOnly} onChange={(event) => setChampionCheckpointsOnly(event.target.checked)} /><span />Champions only</label>
+                <p role="status">{arenaModelsError ? "Could not finish loading checkpoints. Retrying automatically…" : arenaModelsLoading ? "Loading checkpoints: generation10 and arch3 first…" : availableArenaModels.length === 0 ? "No available checkpoints match the filter." : null}</p>
                 <div className="versus-row">
                   <Link href="/autopilot#matches">Select policies and critics for arena / self-play ↗</Link>
                   <ArenaModelPicker side="A" value={arenaA} groups={arenaModelGroups} onChange={setArenaA} />

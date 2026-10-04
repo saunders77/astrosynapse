@@ -248,7 +248,7 @@ def _tainted_checkpoint_ids(checkpoints: list[dict[str, Any]]) -> set[str]:
     return tainted
 
 
-def _model_document(checkpoint: dict[str, Any]) -> dict[str, Any]:
+def _model_document(checkpoint: dict[str, Any], *, lightweight: bool = False) -> dict[str, Any]:
     result = dict(checkpoint)
     evaluation = checkpoint.get("evaluation") or {}
     latest_arena = evaluation.get("latest_arena") or {}
@@ -274,7 +274,7 @@ def _model_document(checkpoint: dict[str, Any]) -> dict[str, Any]:
                 model_spec = loaded_spec
         except (OSError, json.JSONDecodeError):
             model_spec = {}
-    if not model_spec and actor_available:
+    if not model_spec and actor_available and not lightweight:
         import numpy as np
 
         try:
@@ -684,6 +684,9 @@ def models(
     run_id: str | None = None,
     include_tainted: bool = False,
     champions_only: bool = False,
+    include_former_champions: bool = False,
+    priority_only: bool = False,
+    lightweight: bool = False,
 ) -> list[dict[str, Any]]:
     checkpoints = _store(request).checkpoints(run_id)
     checkpoints += [
@@ -699,9 +702,18 @@ def models(
     )
     result = []
     for item in visible:
-        if champions_only and not item.get("is_champion"):
+        if champions_only and not (
+            item.get("is_champion")
+            or (include_former_champions and (item.get("generation") or 0) > 0)
+        ):
             continue
-        document = _model_document(item)
+        if priority_only and not (
+            (item.get("generation") or 0) >= 10
+            or item.get("encoder_version") == 3
+            or item.get("architecture") == "arch3"
+        ):
+            continue
+        document = _model_document(item, lightweight=True) if lightweight else _model_document(item)
         document["integrity_status"] = (
             "tainted_random_restart" if item["id"] in tainted_ids else "verified_lineage"
         )

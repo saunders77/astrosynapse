@@ -18,7 +18,7 @@ export class Actor {
       this.tensors[name]={shape:meta.shape,data}; offset+=meta.bytes;
     }
     if(offset!==buffer.byteLength) throw new Error('Unexpected model data');
-    if(![1,2].includes(this.spec.encoder_version)||![1,2].includes(this.spec.objective_version)||this.spec.state_size!==1292||this.spec.action_size!==(this.spec.encoder_version===2?219:203)) throw new Error('Unsupported model architecture');
+    if(![1,2,3].includes(this.spec.encoder_version)||![1,2].includes(this.spec.objective_version)||this.spec.state_size!==(this.spec.encoder_version>=3?1341:1292)||this.spec.action_size!==(this.spec.encoder_version>=2?219:203)) throw new Error('Unsupported model architecture');
     const s=this.spec;
     for(const key of ['hidden_size','action_hidden_size','residual_blocks','bootstrap_heads','families']) if(!Number.isInteger(s[key])||s[key]<1||s[key]>2048) throw new Error('Invalid model specification');
     if(s.families!==8||s.residual_blocks>16||s.bootstrap_heads>32||!Number.isFinite(s.layer_norm_eps)||s.layer_norm_eps<=0) throw new Error('Unsupported model specification');

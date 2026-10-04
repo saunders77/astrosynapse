@@ -6,26 +6,26 @@
   <meta name="description" content="Play Star Realms entirely in your browser against five Astrosynapse levels.">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://www.starrealms.com; script-src 'self' 'sha256-KyZLX6poqlzE332jeMZV9cQfKplqh1/uos0nETbBGZ0='; worker-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
   <title>Machine Learning for Star Realms</title>
-  <meta name="arena-build" content="9aed08b18e1c6e195e5bd6edb2c6a549d67d3b1ba72f60ea252f5713de5b26f5">
+  <meta name="arena-build" content="9914de9146d072836633c01f7ef29d26bc9c8948c33876f9df7d285f8742e082">
 </head>
 <body>
   <header class="masthead"><div><a class="eyebrow home-link" href="#home" aria-label="Machine Learning for Star Realms home">HOME</a><h1>Machine Learning for Star Realms</h1></div></header>
     <p>
-      I love the deckbuilding game <a href="https://starrealms.com">Star Realms</a>. 
-      To learn more about strategy, I used machine learning techniques to train computer models that play better than I can.  
+      I love the deckbuilding game <a href="https://starrealms.com">Star Realms</a>.
+      To learn more about strategy, I used machine learning techniques to train computer models that play better than I can.
       If you're not familiar with Star Realms, <a href="https://starrealms.com">learn to play it first</a> before reading this page, or else this info won't make much sense.
     </p>
     <p>
-      I trained the models using a 2-million-parameter neural net architecture inspired by the <a href="https://www.nature.com/articles/nature16961">original AlphaGo paper</a> and subsequent AlphaZero research. 
-      They are entirely trained on self-play, with zero human training or influence except for the ability to check for obvious game-winning moves within a single turn. 
-      The best model I trained, <b>Level 5 (ELO 1265)</b> is trained on 23 million self-play games and it beats me in around 65% of games (71% of the time when it goes first and 59% of the time when it goes second).
+      I trained the models using a 2-million-parameter neural net architecture inspired by the <a href="https://www.nature.com/articles/nature16961">original AlphaGo paper</a> and subsequent AlphaZero research.
+      They are entirely trained on self-play, with zero human training or influence except for the ability to check for obvious game-winning moves within a single turn.
+      The best model I trained, <b>Level 5 (1283 ELO)</b> is trained on 23 million self-play games and it beats me in around 65% of games (71% of the time when it goes first and 59% of the time when it goes second).
     </p>
     <p>
-      On this page you can <b>try playing against some of the computer models</b> I trained and <b>see statistics about their strategy</b>. 
-      The models below <b>do not cheat</b>, but they <b>do constantly make use of all available information according to the digital game rules</b>, including the cards in both discard piles, the cards in their deck (but not their order), and the (combined unordered) cards in your deck+hand. 
-      Hopefully you'll find it interesting or learn better strategies and ideas for your own games too! 
-      Note that the variance of Star Realms is very high, so a handful of games won't reveal your true playing strength. 
-      For example, hypothetically, if you're good enough to win exactly 60% of games against a specific ML model, then you'll need to play <b>at least 92 games</b> to be confident (95% confident) that you're actually better. 
+      On this page you can <b>try playing against some of the computer models</b> I trained and <b>see statistics about their strategy</b>.
+      The models below <b>do not cheat</b>, but they <b>do constantly make use of all available information according to the digital game rules</b>, including the cards in both discard piles, the cards in their deck (but not their order), and the (combined unordered) cards in your deck+hand.
+      Hopefully you'll find it interesting or learn better strategies and ideas for your own games too!
+      Note that the variance of Star Realms is very high, so a handful of games won't reveal your true playing strength.
+      For example, hypothetically, if you're good enough to win exactly 60% of games against a specific ML model, then you'll need to play <b>at least 92 games</b> to be confident (95% confident) that you're actually better.
       Fortunately, it's possible to finish a game quickly in just a few minutes (though you'll want to think longer to play your best).
     </p>
     <form id="new-game" class="setup">
