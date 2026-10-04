@@ -6,7 +6,7 @@
   <meta name="description" content="Play Star Realms entirely in your browser against five Astrosynapse levels.">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://www.starrealms.com; script-src 'self' 'sha256-KyZLX6poqlzE332jeMZV9cQfKplqh1/uos0nETbBGZ0='; worker-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
   <title>Machine Learning for Star Realms</title>
-  <meta name="arena-build" content="6ba7304d5213292ecb2527f7657cbf6d36002d29a3a401987d24fe544879938c">
+  <meta name="arena-build" content="4b205da06de5073bbb9f31af481b42ff927c1e5b86c6a12c2823f1005e18928c">
 </head>
 <body>
   <header class="masthead"><div><a class="eyebrow home-link" href="#home" aria-label="Machine Learning for Star Realms home">HOME</a><h1>Machine Learning for Star Realms</h1></div></header>
@@ -67,8 +67,19 @@
         <li>Certain cards (like Barter World) allow you choose between two abilities. How should you choose?</li>
       </ul>
       The charts show data from 10,000 self-play games, along with 95% confidence intervals for each datapoint. 
+      Negative action values mean that the model prefers taking no action (eg. not acquiring any card). 
       Just because the charts imply a specific strategy, doesn't mean it's necessarily "correct", because my Level 5 model isn't perfect (for example, I don't think always scrapping explorers on turn 5 is correct). 
       But if Level 5 is better than you, you might learn something helpful from the data below:
+    </p>
+    <p>
+      Some examples of the insights:
+      <ul>
+        <li>The first-player advantage is pretty big, around 56-44.</li>
+        <li>Cutter (cost 2) is the best turn-1 pick, and one of the best cards throughout the game. Many cards are worse throught the entire game, including Fleet HQ (cost 8), Junkyard (cost 6), and Mech World (cost 5).</li>
+        <li>Imperial Fighter should NEVER be acquired on turn 1, and usually not before turn 8.</li>
+        <li>Rams and Explorers should usually be scrapped when they're played on turns before 13. That doesn't make a lot of sense to me.</li>
+        <li>Recycling Station's choice values flip dramatically betwen turns 8 and 9. Afterwads you should usually cycle cards.</li>
+      </ul>
     </p>
   </div><div id="analysis-charts"><p role="status">Loading strategy charts…</p></div></section>
   <footer>This page is a personal game-analysis project about the card game Star Realms (available in digital and physical versions on starrealms.com). Star Realms and card artwork are © Wise Wizard Games LLC, and I have no relationship with the company or the official game, apart from being interested in using computers and statistics to learn about the strategy. Please send any feedback, comments, ideas, and questions about this project to michaelsaunders@outlook.com.</footer>
