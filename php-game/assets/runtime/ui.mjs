@@ -127,7 +127,8 @@ function render() {
   recordStats();
   imageObserver.disconnect();
   document.body.classList.toggle('playing', !!game && location.hash !== '#stats' && !home);
-  if (!game || home) setImage($('welcome-art'), art({ name: 'Scout' }));
+  const selectedModel = models.find(model => model.id === $('opponent').value);
+  $('welcome').textContent = selectedModel ? `${selectedModel.level ? `Level ${selectedModel.level}` : aliases[selectedModel.id] || selectedModel.name} is ready to play` : '';
   $('opponent-bar').hidden = !game || home; $('player-bar').hidden = !game || home;
   $('welcome').hidden = !!game && !home; $('board').hidden = !game || home;
   $('resume-game').hidden = !home || !game || game.status === 'complete';
@@ -294,9 +295,10 @@ const barObserver = new ResizeObserver(entries => {
 barObserver.observe($('opponent-bar')); barObserver.observe($('player-bar'));
 $('new-game').addEventListener('submit', e => { e.preventDefault(); if (game && game.status !== 'complete' && !confirm('Start a new game and replace this game?')) return; request({ op: 'new', model: $('opponent').value, label: aliases[$('opponent').value] }); });
 $('opponent').addEventListener('change', async () => {
-  const id = $('opponent').value, m = models.find(m => m.id === id);
+  const id = $('opponent').value;
+  $('welcome').textContent = '';
   const result = await request({ op: 'load', model: id });
-  if (result) { $('status').textContent = `${aliases[id] || m.name} is ready. Start a new game to play this level.`; }
+  if (result) render();
 });
 $('play-all').addEventListener('click', () => request({ op: 'play_all', id: game.id, revision: game.revision }));
 document.querySelectorAll('[data-inspect]').forEach(b => b.addEventListener('click', () => inspectPile(b.dataset.inspect)));

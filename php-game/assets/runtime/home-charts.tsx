@@ -546,7 +546,6 @@ function BucketedEloCharts({ charts, turnCharts }: { charts: CardEloChart[]; tur
 
   return <div className="bucketed-elo-results">
     <div className="analysis-copy">
-    <p>{charts.some((chart) => chart.acquisitionValue) ? `Acquisition values use every purchase and available stopping decision, weighted equally per turn. Contexts are captured at turn start. No Card = 0. ${charts[0]?.scaleLabel}. Intervals are approximate 95% ranges clustered by game, conditional on the fitted scale. Values model visible-market bundles, not win contribution. Sparse buckets use weak regularization; unsupported estimates are omitted.` : "Independent post-hoc views of the same acquisition choices. Each view ranks cards independently within every bucket."}</p>
     <section className="bucketed-chart-filters" aria-label="Filter cards shown in all charts">
       <header><div><span>Chart filters</span><strong>{visibleCardCount} of {availableCards.length} options visible</strong></div><button type="button" onClick={resetFilters}>Reset filters</button></header>
       <fieldset><legend>Cost / special choice</legend><div>{chartCostOptions.map((cost) => <button type="button" key={cost} aria-pressed={selectedCosts.includes(cost)} onClick={() => toggleCost(cost)}>{cost === 0 ? "Cost 0 / No Card" : `Cost ${cost}`}</button>)}</div></fieldset>
@@ -563,6 +562,5 @@ function BucketedEloCharts({ charts, turnCharts }: { charts: CardEloChart[]; tur
 
 export function mountCharts() {
   const result = normalizeCardAnalysis({ result: data });
-  document.getElementById('analysis-run').textContent = `${numberFormatter.format(data.games_completed)} self-play games · ${new Date(data.completed_at).toLocaleDateString('en-US', {year:'numeric',month:'long',day:'numeric',timeZone:'UTC'})} · ${data.model.label}`;
   createRoot(document.getElementById('analysis-charts')).render(<BucketedEloCharts charts={result.bucketedCharts} turnCharts={result.turnStatCharts} />);
 }

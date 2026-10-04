@@ -35,7 +35,7 @@ const server=http.createServer(async(req,res)=> {
   try {
     if(name.includes('..')) throw new Error('bad path');
     let data=await fs.readFile(path.join(root,name));
-    if(name==='index.html'&&newRelease) data=Buffer.from(data.toString().replace('Your opponent is ready.','Your opponent is ready for this release.'));
+    if(name==='index.html'&&newRelease) data=Buffer.from(data.toString().replace('id="welcome"','data-release-test="new" id="welcome"'));
     const mime={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.json':'application/json','.css':'text/css','.jpg':'image/jpeg','.gz':'application/gzip'}[path.extname(name)]||'application/octet-stream';
     res.writeHead(200,{'Content-Type':mime,'Cache-Control':name==='index.html'?'no-cache':'public, max-age=31536000, immutable'});res.end(data);
   } catch {res.writeHead(404);res.end();}
