@@ -76,7 +76,7 @@ const fixedValueActor={winProbability:()=>0.8};
 for(const humanStarts of [true,false]) {
   const state=Session.advance(Session.start(m,humanStarts,1234),fixedValueActor);
   ok(Math.abs(state.opponent_win_probability-(humanStarts?0.2:0.8))<1e-12,
-    `AI win probability stays in AI perspective when ${humanStarts?'human':'AI'} starts`);
+    `Model win probability stays in AI perspective when ${humanStarts?'human':'AI'} starts`);
 }
 console.log(`PASS ${count} regressions; champion opening turn ${championTurnMs.toFixed(1)} ms (${moves} decisions)`);
 

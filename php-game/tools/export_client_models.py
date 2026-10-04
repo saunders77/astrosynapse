@@ -6,6 +6,7 @@ Bundled levels: export_client_models.py --levels
 import argparse, gzip, hashlib, json, sqlite3, struct
 from pathlib import Path
 import numpy as np
+from export_client_critic import export_level5_critic
 ROOT=Path(__file__).resolve().parents[1]
 REPO=ROOT.parent
 
@@ -70,6 +71,7 @@ def levels():
         meta=export(source,ROOT/'models'/filename)
         entries.append({'id':f'level-{level:02d}','name':f'Level {level} ({elo} ELO)','level':level,'file':filename,'description':label,'elo':elo,'source':str(source.relative_to(REPO)),'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),**provenance,**meta})
         print(f'Level {level}: {label}; {meta["bytes"]:,} bytes')
+    entries[-1]['critic']=export_level5_critic()
     (ROOT/'models/registry.json').write_text(json.dumps(entries,indent=2)+'\n')
 
 if __name__=='__main__':

@@ -1,6 +1,7 @@
 import { Game } from './engine.mjs';
 import { importModel } from './import-model.mjs';
 import { Actor } from './actor.mjs';
+import { Critic } from './critic.mjs';
 import { Session } from './session.mjs';
 import { configureResources, resource, forgetResource, sha256, decompress } from './resources.mjs';
 import { localModels } from './local-models.mjs';
@@ -15,7 +16,14 @@ async function actorFor(id) {
     if(await sha256(bytes)!==m.sha256) { await forgetResource('models/'+m.file); throw new Error('Model integrity check failed. Reload and retry.'); }
     bytes=await decompress(bytes);
   } else { const custom=await localModels('get',id); if(!custom) throw new Error('This local model is no longer available. Choose another level.'); bytes=custom.bytes; }
-  const actor=new Actor(bytes); actors.set(id,actor); return actor;
+  const actor=new Actor(bytes);
+  if(m?.critic) {
+    const path='models/'+m.critic.file, compressed=await resource(path);
+    if(await sha256(compressed)!==m.critic.sha256) { await forgetResource(path); throw new Error('Critic integrity check failed. Reload and retry.'); }
+    const critic=new Critic(await decompress(compressed));
+    actor.winProbability=decision=>critic.winProbability(decision);
+  }
+  actors.set(id,actor); return actor;
 }
 async function handle(p) {
   if(p.op==='init') {

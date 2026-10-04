@@ -132,6 +132,16 @@
       "objective_version": 2,
       "residual_blocks": 3,
       "state_size": 1341
+    },
+    "critic": {
+      "file": "level-05-critic.astro.gz",
+      "source": "astrosynapse2/data/autopilot/828813dc45d24cf086e019c6537d1b02/inputs/critic.npz",
+      "source_sha256": "bbd8a3833e0e0a353a677691af035a04993679ff5f04e859c973b79667531a4d",
+      "sha256": "5f6e0ab4092f89aef9b131190cf3b729c338d837c3be5e642e9a7c5fefd0340c",
+      "bytes": 679089,
+      "encoder_version": 3,
+      "best_epoch": 3,
+      "training_games": 50000
     }
   }
 ]
