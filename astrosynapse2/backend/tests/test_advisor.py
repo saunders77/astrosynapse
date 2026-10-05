@@ -309,3 +309,27 @@ def test_companion_inferred_hand_reaches_arch3_without_changing_older_encodings(
     assert state[-49 + SCOUT.card_id] == 2
     assert state[-49 + VIPER.card_id] == 1
     assert state[-49:].sum() == 3
+
+
+@pytest.mark.parametrize("copy_first", [False, True])
+def test_advisor_preserves_original_and_stealth_scrap_choices(copy_first):
+    from astro2.engine_encoding import EngineEncoder
+
+    game = Game(config=GameConfig(seed=11, starting_player=0))
+    ship = CARD_BY_NAME["Ram"]
+    original = _InPlay(101, ship, ship, True)
+    copy = _InPlay(102, ship, CARD_BY_NAME["Stealth Needle"], True)
+    player = game.players[0]
+    player.in_play = [copy, original] if copy_first else [original, copy]
+    request = AdvisorEvaluateRequest.model_validate({
+        "model_id": "checkpoint-1", "observation": game.observation(0).to_dict(),
+    })
+    generated = decision_from_request(request).actions
+    assert [a.semantic_key for a in generated] == [
+        a.semantic_key for a in game._main_actions(player)
+    ]
+    scraps = [a for a in generated if a.kind == ActionKind.SCRAP_FOR_ABILITY]
+    assert len(scraps) == 2
+    for version in (1, 2, 3):
+        encoder = EngineEncoder(version=version)
+        assert not np.array_equal(encoder.encode_action(scraps[0]), encoder.encode_action(scraps[1]))

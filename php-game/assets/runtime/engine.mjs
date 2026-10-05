@@ -29,7 +29,7 @@ export class Game {
     let s=a.kind.replaceAll('_',' ');
     if(a.card_id>=0) s+=' '+this.card(a.card_id).name;
     if(a.kind==='scrap_card') s+=' from '+a.source_zone.replaceAll('_',' ');
-    if(a.target_card_id>=0) s+=' → '+this.card(a.target_card_id).name;
+    if(a.target_card_id>=0) s+=a.kind==='scrap_for_ability'?' (scraps '+this.card(a.target_card_id).name+')':' → '+this.card(a.target_card_id).name;
     if(a.ability) s+=' ('+a.ability.replaceAll('_',' ')+')';
     if(a.amount) s+=` (${a.amount})`;
     return s[0].toUpperCase()+s.slice(1);
@@ -80,7 +80,7 @@ export class Game {
     for(const i of p.in_play) { const c=Game.card(i.card);
       if(!Game.AUTO.includes(c.ally) && this.allyAvailable(p,i)) a.push(Game.action('activate_ally',i.card,-1,c.ally,'in_play',c.ally_amount,0,[i.uid]));
       if(!i.activated && Game.manual(i.card)) a.push(Game.action('activate_base',i.card,-1,c.primary,'in_play',0,0,[i.uid]));
-      if(c.scrap) a.push(Game.action('scrap_for_ability',i.card,-1,c.scrap,'in_play',c.scrap_amount,0,[i.uid]));
+      if(c.scrap) a.push(Game.action('scrap_for_ability',i.card,i.original!==i.card?i.original:-1,c.scrap,'in_play',c.scrap_amount,0,[i.uid]));
     }
     if(p.combat>0) { for(const i of this.targets(p)) { const c=Game.card(i.card); if(p.combat>=c.defense) a.push(Game.action('attack_base',-1,i.card,'','opponent_in_play',c.defense,p.combat,[i.uid])); }
       if(!this.players[1-p.id].in_play.some(i=>Game.card(i.card).card_type==='outpost')) a.push(Game.action('attack_player',-1,-1,'','',p.combat)); }

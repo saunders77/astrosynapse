@@ -541,6 +541,7 @@ type LaunchPreset = Exclude<TrainerConfig["preset"], "custom">;
 type GameCard = {
   id: string;
   catalogId: number;
+  copiedFromStealthNeedle?: boolean;
   name: string;
   faction: "trade" | "blob" | "machine" | "star" | "neutral";
   cost: number;
@@ -2348,7 +2349,7 @@ function normalizeRemoteGame(raw: unknown, previous: GameState): {
   const ownInPlay = Array.isArray(observation.own_in_play) ? observation.own_in_play : [];
   const opponentInPlay = Array.isArray(observation.opponent_in_play) ? observation.opponent_in_play : [];
   const humanInPlay = ownInPlay.map((entry, index) =>
-    cardFromApi(isRecord(entry) ? entry.card : entry, `own-in-play-${index}`),
+    ({ ...cardFromApi(isRecord(entry) ? entry.card : entry, `own-in-play-${index}`), copiedFromStealthNeedle: isRecord(entry) && Boolean(entry.copied_from_stealth_needle) }),
   );
   const visibleOpponentInPlay = opponentInPlay.map((entry, index) =>
     cardFromApi(isRecord(entry) ? entry.card : entry, `opponent-in-play-${index}`),
@@ -5046,7 +5047,8 @@ export default function Home() {
   const scrapInPlayCard = (card: GameCard) => {
     if (remoteGame) {
       const scrapAction = remoteGame.actions.find(
-        (action) => action.kind === "scrap_for_ability" && action.cardId === card.catalogId,
+        (action) => action.kind === "scrap_for_ability" && action.cardId === card.catalogId
+          && (action.targetCardId === 23) === Boolean(card.copiedFromStealthNeedle),
       );
       if (scrapAction && remoteGame.status === "your_turn") {
         submitRemoteChoice(scrapAction.id);
@@ -5068,7 +5070,8 @@ export default function Home() {
     ? remoteGame.status === "your_turn"
       && commandBusy !== "game-choice"
       && remoteGame.actions.some(
-        (action) => action.kind === "scrap_for_ability" && action.cardId === card.catalogId,
+        (action) => action.kind === "scrap_for_ability" && action.cardId === card.catalogId
+          && (action.targetCardId === 23) === Boolean(card.copiedFromStealthNeedle),
       )
     : /Scrap:/i.test(card.text);
 

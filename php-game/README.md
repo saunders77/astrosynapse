@@ -42,6 +42,8 @@ The original displayed ratings shift the measured September 30 tournament scale 
 
 Arch3 appends 49 opponent inferred-hand counts to the unchanged 1,292-feature state (1,341 total), with the same 219-feature action encoding as arch2. The rules remember publicly deducible cards when cleanup draws the entire remaining deck, including across a shuffle, and combine these with revealed top-deck draws without double counting. Playing, discarding, or scrapping removes one known copy; cloning preserves the records. When all remaining deck cards are known tops, the entire opponent hand multiset is deducible. Trade-deck counts remain unordered. Earlier encoders keep their original feature layout.
 
+Copied Stealth Needles and their original ships have separate scrap-for-ability choices. The copied choice identifies the physical Stealth Needle in the existing target-card features, so all supported model encoders can distinguish them without changing checkpoint dimensions. Ordinary scrap actions retain their existing encoding. Existing weights remain loadable; learning a preference for these newly distinct choices requires training. On-card scrap buttons select the corresponding original or copy.
+
 ## Resource caching
 
 - An inline bootstrap hashes the HTML document **before modifying it**. That hash is attached to every local asset and model URL as a cache key.

@@ -366,6 +366,7 @@ def main_phase_actions(observation: Observation) -> tuple[Action, ...]:
                 Action(
                     ActionKind.SCRAP_FOR_ABILITY,
                     card_id=card.card_id,
+                    target_card_id=23 if item.copied_from_stealth_needle else -1,
                     ability=card.scrap,
                     source_zone="in_play",
                     amount=card.scrap_amount,

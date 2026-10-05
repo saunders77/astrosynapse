@@ -741,7 +741,7 @@ function buildMainActions(match: ManualMatch, definitions: Map<number, CardDefin
       add({ kind: "activate_base", card_id: definition.card_id, ability: definition.primary, source_zone: "in_play", label: `Activate ${definition.name}` });
     }
     if (definition?.scrap) {
-      add({ kind: "scrap_for_ability", card_id: definition.card_id, source_zone: "in_play", ability: definition.scrap, amount: definition.scrap_amount, label: `Scrap ${definition.name} · ${abilityLabel(definition.scrap, definition.scrap_amount)}` });
+      add({ kind: "scrap_for_ability", card_id: definition.card_id, target_card_id: item.copiedCardId != null ? item.cardId ?? -1 : -1, source_zone: "in_play", ability: definition.scrap, amount: definition.scrap_amount, label: `Scrap ${item.copiedCardId != null ? "Stealth Needle copying " : ""}${definition.name} · ${abilityLabel(definition.scrap, definition.scrap_amount)}` });
     }
   }
 
@@ -1518,7 +1518,8 @@ export default function ManualHardAiMatch({ apiBase, connected, modelGroups, onT
         next = { ...next, astro: { ...next.astro, inPlay: next.astro.inPlay.map((item) => item.uid === target.uid ? { ...item, allyTriggered: true } : item) } };
         next = applySimpleEffect(next, action.ability ?? definition.ally, action.amount ?? definition.ally_amount, definition);
       } else if (action.kind === "scrap_for_ability" && definition) {
-        const target = next.astro.inPlay.find((item) => effectiveCardId(item) === definition.card_id);
+        const target = next.astro.inPlay.find((item) => effectiveCardId(item) === definition.card_id && (item.copiedCardId != null ? item.cardId : -1) === (action.target_card_id ?? -1));
+        if (!target) return current;
         if (target) next = { ...next, astro: { ...next.astro, inPlay: next.astro.inPlay.filter((item) => item.uid !== target.uid) }, scrapHeap: [...next.scrapHeap, originalCard(target)] };
         next = applySimpleEffect(next, action.ability ?? definition.scrap, action.amount ?? definition.scrap_amount, definition);
       } else if (action.kind === "attack_player") {

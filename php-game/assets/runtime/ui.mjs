@@ -168,7 +168,7 @@ function render() {
   const handCards = () => o.hand.map(id => cardView(id, [...forCard(id, ['play_card']), ...scrapForCard(id, 'hand'), ...decisionForCard(id, 'hand')]));
   zone('hand', handCards()); zone('hand-inspector', handCards());
   zone('market', [...o.trade_row.map(id => id === null ? el('span', 'empty', 'Empty slot') : cardView(id, [...forCard(id, ['acquire'], 'card_id', 'trade_row'), ...decisionForCard(id, 'trade_row')])), ...(o.explorers_remaining ? [cardView(2, forCard(2, ['acquire'], 'card_id', 'explorer_supply'), `${o.explorers_remaining} available`)] : [])]);
-  zone('own-fleet', o.own_in_play.map(i => cardView(i.card, [...forCard(i.card, ['activate_base', 'activate_ally', 'scrap_for_ability']), ...decisionForCard(i.card, 'in_play')], i.copied_from_stealth_needle ? 'Stealth Needle copy' : i.ally_triggered ? 'Ally used' : 'In play')));
+  zone('own-fleet', o.own_in_play.map(i => cardView(i.card, [...forCard(i.card, ['activate_base', 'activate_ally', 'scrap_for_ability']).filter(a => a.kind !== 'scrap_for_ability' || (a.target_card_id === 23) === Boolean(i.copied_from_stealth_needle)), ...decisionForCard(i.card, 'in_play')], i.copied_from_stealth_needle ? 'Stealth Needle copy' : i.ally_triggered ? 'Ally used' : 'In play')));
   zone('opponent-fleet', o.opponent_in_play.map(i => cardView(i.card, [...forCard(i.card, ['attack_base'], 'target_card_id'), ...decisionForCard(i.card, 'opponent_in_play')], cards[i.card].defense ? `${cards[i.card].card_type} · ${cards[i.card].defense} defense` : 'Ship')));
   zone('discard', o.own_discard.map(id => cardView(id, scrapForCard(id, 'discard'))));
   const canScrapDiscard = actions.some(a => a.kind === 'scrap_card' && a.source_zone === 'discard') && game.status === 'your_turn';

@@ -372,3 +372,37 @@ def test_every_card_effect_is_implemented(card):
     ):
         if effect:
             game._execute_effect(player, effect, amount, source)
+
+
+@pytest.mark.parametrize("rules_version", [1, 2])
+@pytest.mark.parametrize("ship_name", ["Explorer", "Ram"])
+@pytest.mark.parametrize("copy_first", [False, True])
+@pytest.mark.parametrize("scrap_copy", [False, True])
+def test_scrap_distinguishes_stealth_copy(ship_name, copy_first, scrap_copy, rules_version):
+    from astro2.encoding import Encoder
+
+    game = Game(config=GameConfig(seed=4, rules_version=rules_version))
+    player = game.players[0]
+    game.explorers_remaining = 9
+    ship = CARD_BY_NAME[ship_name]
+    needle = CARD_BY_NAME["Stealth Needle"]
+    original = _InPlay(100, ship, ship, True)
+    copy = _InPlay(101, ship, needle, True)
+    player.in_play = [copy, original] if copy_first else [original, copy]
+    actions = [a for a in game._main_actions(player) if a.kind == ActionKind.SCRAP_FOR_ABILITY]
+    assert len(actions) == 2
+    for version in (1, 2, 3):
+        encoder = Encoder(version=version)
+        assert (encoder.encode_action(actions[0]) != encoder.encode_action(actions[1])).any()
+    chosen = next(a for a in actions if (a.target_card_id == needle.card_id) == scrap_copy)
+    supply = game.explorers_remaining
+    game._apply_main_action(player, chosen)
+    assert player.in_play == ([original] if scrap_copy else [copy])
+    assert game.explorers_remaining == supply + int(rules_version >= 2 and ship_name == "Explorer" and not scrap_copy)
+    if scrap_copy:
+        assert needle in game.scrap_heap
+        assert "scraps Stealth Needle" in chosen.label
+    remaining = [a for a in game._main_actions(player) if a.kind == ActionKind.SCRAP_FOR_ABILITY]
+    assert len(remaining) == 1
+    game._apply_main_action(player, remaining[0])
+    assert not player.in_play

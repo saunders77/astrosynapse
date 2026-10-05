@@ -112,7 +112,8 @@ class Action(_JsonMixin):
 
     ``opaque`` is an engine-local locator.  It is excluded from equality,
     hashing, repr, and serialization; model code should use only the seven
-    semantic fields preceding it.
+    semantic fields preceding it. For SCRAP_FOR_ABILITY, target_card_id identifies
+    the original physical card of a copied ship; ordinary ships retain -1.
     """
 
     kind: ActionKind
@@ -150,7 +151,7 @@ class Action(_JsonMixin):
             zone_label = "discard pile" if self.source_zone == "discard" else self.source_zone
             bits.append("from " + zone_label.replace("_", " "))
         if target is not None:
-            bits.append("-> " + target.name)
+            bits.append(("(scraps " + target.name + ")") if self.kind == ActionKind.SCRAP_FOR_ABILITY else "-> " + target.name)
         if self.ability:
             bits.append("(" + self.ability.replace("_", " ") + ")")
         if self.amount or self.amount2:
@@ -987,6 +988,9 @@ class Game:
                     Action(
                         ActionKind.SCRAP_FOR_ABILITY,
                         card_id=item.card.card_id,
+                        # Preserve ordinary actions/checkpoints; copied ships identify
+                        # the physical card lost using the existing target features.
+                        target_card_id=item.original_card.card_id if item.is_stealth_copy else -1,
                         ability=item.card.scrap,
                         source_zone="in_play",
                         amount=item.card.scrap_amount,

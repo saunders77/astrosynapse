@@ -323,3 +323,16 @@ test('home hides the table without discarding the match and supports resuming', 
   assert.equal(nodes.get('opponent-bar').hidden, false);
   assert.equal(vm.runInContext("document.body.classes.has('active-game')", context), true);
 });
+
+for (const copyFirst of [false, true]) test(`Stealth scrap buttons select physical card; copy first=${copyFirst}`, () => {
+  const original = { card: 0, copied_from_stealth_needle: false };
+  const copy = { card: 0, copied_from_stealth_needle: true };
+  const { allButtons, context } = board([
+    { id: 30, kind: 'scrap_for_ability', card_id: 0, target_card_id: -1 },
+    { id: 31, kind: 'scrap_for_ability', card_id: 0, target_card_id: 23 },
+  ], 'your_turn', { own_in_play: copyFirst ? [copy, original] : [original, copy] }, 'main');
+  const buttons = allButtons('own-fleet').filter(b => b.textContent === '🗑️ Scrap for ability');
+  assert.equal(buttons.length, 2);
+  buttons[0].listeners.click(); assert.equal(context.chosen, copyFirst ? 31 : 30);
+  buttons[1].listeners.click(); assert.equal(context.chosen, copyFirst ? 30 : 31);
+});
