@@ -68,6 +68,21 @@ function cancelSelection() {
   const errorTarget = $('scrap-dialog').open ? 'scrap-error' : 'decision-error';
   return request({ op: 'undo', id: game.id, revision: game.revision }, errorTarget);
 }
+function openResignConfirmation() {
+  if (busy || !game || game.status === 'complete') return;
+  const dialog = $('resign-dialog');
+  if (!dialog.open) dialog.showModal();
+}
+function cancelResignation() {
+  const dialog = $('resign-dialog');
+  if (dialog.open) dialog.close();
+}
+function confirmResignation() {
+  if (busy || !game || game.status === 'complete') return;
+  const { id, revision } = game;
+  cancelResignation();
+  request({ op: 'resign', id, revision });
+}
 function inspect(card) {
   setImage($('card-large'), art(card), true); $('card-large').alt = card.name; $('card-name').textContent = card.name;
   $('card-description').textContent = `${card.faction.replaceAll('_', ' ')} · ${card.card_type} · Cost ${card.cost}${card.defense ? ` · Defense ${card.defense}` : ''}`;
@@ -172,7 +187,8 @@ function render() {
   $('opponent-attack').onclick = () => attack && move(attack.id);
   $('end-turn').hidden = false; $('end-turn').dataset.unavailable = String(!end); $('end-turn').disabled = !end; $('end-turn').onclick = () => { if (o.hand.length && !confirm('End your turn and discard the unplayed cards in your hand?')) return; if (end) move(end.id); };
   $('resign').hidden = game.status === 'complete';
-  $('resign').onclick = () => { if (busy || game.status === 'complete' || !confirm('Are you sure you want to resign?')) return; request({ op: 'resign', id: game.id, revision: game.revision }); };
+  $('resign').onclick = openResignConfirmation;
+  if (game.status === 'complete') cancelResignation();
   const decisionDialog = $('decision-dialog');
   const selectionDismissed = dismissedSelection === selectionKey();
   for (const id of ['scrap-close', 'scrap-cancel', 'decision-close', 'decision-cancel']) {
@@ -282,7 +298,7 @@ function navigate() {
   document.body.classList.toggle('viewing-stats', stats);
   document.body.classList.toggle('playing', !!game && !stats && location.hash !== '#home');
   if (location.hash === '#home') {
-    for (const id of ['pile-dialog', 'card-dialog', 'scrap-dialog', 'decision-dialog']) if ($(id).open) $(id).close();
+    for (const id of ['pile-dialog', 'card-dialog', 'scrap-dialog', 'decision-dialog', 'resign-dialog']) if ($(id).open) $(id).close();
     openPile = null;
   }
   if (cards.length) render();
@@ -305,6 +321,9 @@ document.querySelectorAll('[data-inspect]').forEach(b => b.addEventListener('cli
 $('pile-dialog').addEventListener('close', () => { if (!$('pile-dialog').open) openPile = null; });
 for (const id of ['scrap-dialog', 'decision-dialog']) $(id).addEventListener('cancel', e => { e.preventDefault(); cancelSelection(); });
 for (const id of ['scrap-close', 'scrap-cancel', 'decision-close', 'decision-cancel']) $(id).addEventListener('click', cancelSelection);
+$('resign-dialog').addEventListener('cancel', e => { e.preventDefault(); cancelResignation(); });
+$('resign-cancel').addEventListener('click', cancelResignation);
+$('resign-confirm').addEventListener('click', confirmResignation);
 document.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => $(b.dataset.open).showModal()));
 document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => $(b.dataset.close).close()));
 $('upload-form').addEventListener('submit', async e => {

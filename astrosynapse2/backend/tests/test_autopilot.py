@@ -195,6 +195,95 @@ def test_better_prediction_without_better_policy_does_not_promote_critic(
     assert calls[0]["recipe"] == calls[1]["recipe"]
 
 
+def gate_extension_fixture(tmp_path):
+    from astro2.experiment_control import code_identity
+
+    for name in ["runtime/astro2", "runtime/scripts", "tasks/policy-00055-gate"]:
+        (tmp_path / name).mkdir(parents=True)
+    (tmp_path / "runtime/astro2/sequential.py").write_text("UNCHANGED = True\n")
+    for name in [
+        "candidate.actor.npz",
+        "candidate.safetensors",
+        "champion.actor.npz",
+        "critic.npz",
+    ]:
+        (tmp_path / name).write_text(name)
+    atomic_json(tmp_path / "config.json", recovery_config(gate_pairs=50000).model_dump())
+    atomic_json(
+        tmp_path / "code.json",
+        code_identity(tmp_path / "runtime/astro2", tmp_path / "runtime/scripts"),
+    )
+    atomic_json(tmp_path / "jobs.json", {})
+    atomic_json(tmp_path / "inputs.json", {})
+    actor = str(tmp_path / "candidate.actor.npz")
+    state = dict(
+        status="paused",
+        active_job="policy-00055-gate",
+        attempt=25,
+        critic_attempt=31,
+        champion_id="champion",
+        critic_id="critic",
+        models=[
+            dict(id="candidate", actor_path=actor, path=str(tmp_path / "candidate.safetensors"))
+        ],
+        pending=dict(
+            kind="policy",
+            key="policy-00055",
+            attempt=25,
+            selection=dict(actor=actor),
+            champion_actor=str(tmp_path / "champion.actor.npz"),
+            critic_path=str(tmp_path / "critic.npz"),
+        ),
+    )
+    atomic_json(tmp_path / "state.json", state)
+    atomic_json(
+        tmp_path / "tasks/policy-00055-gate/pairs.json",
+        [dict(pair=i, scores=[1, 0], truncated=0) for i in range(8)],
+    )
+    return state
+
+
+def test_gate_budget_extension_keeps_the_same_attempt_models_and_prefix(tmp_path):
+    import json
+
+    from extend_autopilot_gate import extend
+
+    state = gate_extension_fixture(tmp_path)
+    before = {
+        p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file() and p.name != "config.json"
+    }
+    report = extend(tmp_path, pairs=100000, policy_fraction=0.95)
+    assert report["attempt"] == 25 and report["alpha"] == 0.025 / (25 * 26)
+    assert report["completed_pairs"] == 8
+    assert before == {p: p.read_bytes() for p in before}
+    assert json.loads((tmp_path / "state.json").read_text()) == state
+    config = json.loads((tmp_path / "config.json").read_text())
+    assert config["gate_pairs"] == 100000 and config["policy_fraction"] == 0.95
+    assert config["max_hours"] == 24  # No unrequested extension of active-hour budget.
+
+
+@pytest.mark.parametrize("invalid", ["running", "finished", "result", "prefix", "runtime", "limit"])
+def test_gate_budget_extension_refuses_invalid_or_decided_tests(tmp_path, invalid):
+    from extend_autopilot_gate import extend
+
+    state = gate_extension_fixture(tmp_path)
+    if invalid == "running":
+        state["status"] = "running"
+    if invalid == "finished":
+        state["pending"]["finished"] = True
+    atomic_json(tmp_path / "state.json", state)
+    if invalid == "result":
+        atomic_json(tmp_path / "tasks/policy-00055-gate/result.json", {"passed": False})
+    if invalid == "prefix":
+        atomic_json(tmp_path / "tasks/policy-00055-gate/pairs.json", [dict(pair=1, scores=[1, 0])])
+    if invalid == "runtime":
+        (tmp_path / "runtime/astro2/sequential.py").write_text("CHANGED = True\n")
+    before = (tmp_path / "config.json").read_bytes()
+    with pytest.raises(ValueError):
+        extend(tmp_path, pairs=50000 if invalid == "limit" else 100000, policy_fraction=0.95)
+    assert (tmp_path / "config.json").read_bytes() == before
+
+
 def recovery_config(**kwargs):
     return CampaignConfig(
         policy_id="p", critic_id="c", opponent_ids=["p"], panel_ids=["p"], **kwargs

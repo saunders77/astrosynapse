@@ -1,9 +1,14 @@
 # Autopilot plateau: credit assignment and checkpoint selection
 
-This revision is **staged, not installed**. The running campaign and the user's
-10k ELO job retain their existing processes, configuration and frozen runtime.
-Installation must wait for the user's `continue`, then a completed Autopilot
-block boundary and a control-service reload.
+This revision was **installed on October 4 after the user's `continue`**. The
+ELO and analysis jobs were idle before the API reload. The old policy-00051
+block completed under its original runtime and failed screening at 48.7793%;
+the champion and spent attempt counters were retained. Installation backed up
+the runtime and verified 336 protected state, champion and evaluation files
+were unchanged. The resumed campaign entered policy-00052 with learner version
+5, lambda 0.95, temperature 0.1, zero entropy reward and a fresh optimizer from
+the verified champion. Checkpoint selection is enabled at 5k, 10k and 20k games.
+Installation and launch audits are in `data/autopilot-diagnosis-20261004/`.
 
 ## Findings
 
@@ -108,7 +113,7 @@ script in its backed-up migration set. It still refuses a running campaign or
 unfinished block and preserves champion/evaluation hashes and spent attempts.
 
 No installation, pause, drain, termination, API restart or live configuration
-change was performed during this investigation. After authorization to continue,
-finish the current block, install the audited revision, reload the API and run
-fresh qualification. Further claims about successful promotion must wait for
-those results.
+change was performed during the initial investigation. Deployment followed the
+user's subsequent authorization to continue. The campaign retains its existing
+resource budget (about 9.45 active hours remained at deployment). Further claims
+about successful promotion must wait for fresh qualification results.

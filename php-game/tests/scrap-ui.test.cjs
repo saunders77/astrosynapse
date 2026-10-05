@@ -196,16 +196,21 @@ test('completed games have a prominent result for wins, losses, and draws', () =
   assert.equal(nodes.get('result-banner').hidden, true);
 });
 
-test('resign requires confirmation and setup is hidden during play', () => {
+test('resign uses an in-page confirmation and setup is hidden during play', () => {
   const {context, nodes} = board([], 'your_turn', {}, 'main');
   assert.equal(vm.runInContext("document.body.classes.has('active-game')", context), true);
-  vm.runInContext("confirm = message => { globalThis.prompt = message; return false; }; request = payload => { globalThis.sent = payload; };", context);
+  vm.runInContext("game.id = 'match'; game.revision = 7; request = payload => { globalThis.sent = payload; };", context);
   nodes.get('resign').onclick();
-  assert.equal(context.prompt, 'Are you sure you want to resign?');
+  assert.equal(nodes.get('resign-dialog').open, true);
   assert.equal(context.sent, undefined);
-  vm.runInContext('confirm = () => true;', context);
+  vm.runInContext('cancelResignation()', context);
+  assert.equal(nodes.get('resign-dialog').open, false);
   nodes.get('resign').onclick();
+  vm.runInContext('confirmResignation()', context);
+  assert.equal(nodes.get('resign-dialog').open, false);
   assert.equal(context.sent.op, 'resign');
+  assert.equal(context.sent.id, 'match');
+  assert.equal(context.sent.revision, 7);
 });
 
 test('saved games are written to persistent localStorage', () => {

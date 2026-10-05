@@ -1,7 +1,7 @@
 # Champion Autopilot
 
 The [October 4 credit-assignment investigation](autopilot-credit-assignment-2026-10-04.md)
-describes the next staged revision. It is awaiting deployment after the active ELO job.
+describes the revision installed after the ELO job, starting with policy-00052.
 
 Open `/autopilot` in the local control center. The campaign supervises policy training, independent critic development, fresh evaluations, and automatic promotions. The existing Arena and Play selectors discover its retained policy checkpoints. The Autopilot page also provides Arena and Self-play matches with independently selected critics; each policy and critic uses its own architecture encoder. Critics report win-probability diagnostics and never replace the policy as move selector.
 
@@ -112,3 +112,25 @@ and a 50 GiB campaign storage ceiling. Diagnosis, settings, installation audit,
 critic pilot and policy smoke results are in `data/autopilot-recovery-20261003/`.
 New promotions remain conditional on fresh evidence; none is manufactured by
 the migration.
+
+## October 4 evaluation budget extension
+
+After the temporal-advantage revision, policy-00055 selected its 10,000-game
+checkpoint and entered certification. Its unfinished gate was paused at 27,392
+pairs and extended from 50,000 to 100,000 pairs using
+`scripts/extend_autopilot_gate.py`. The policy allocation increased from 80% to
+95%, leaving 5% for critic work. The total active-hour budget was unchanged.
+More evaluation can resolve a small positive advantage; it does not guarantee
+a promotion or improve the candidate's underlying strength.
+
+The extension preserves attempt 25, its alpha, candidate and champion weights,
+seed stream, and the complete existing evidence prefix. The anytime confidence
+test and historical non-regression requirements remain unchanged. Completed
+gates cannot be reopened by this tool. It requires a paused worker, obtains the
+worker lock, checks the frozen runtime identity, and backs up configuration
+before changing resource settings.
+
+The API service was not restarted. After resume, live progress confirmed the
+100,000-pair target and further evaluation; the saved evidence prefix and model
+hashes were verified. The 29 Autopilot tests passed. Installation and verification
+records are in `data/autopilot-promotion-budget-20261004/`.
