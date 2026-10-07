@@ -20,7 +20,7 @@ for (const file of ['tools/index.template.html', 'index.html']) {
     };
     const context = vm.createContext({
       document, location: { pathname: '/' }, localStorage: { getItem: () => null },
-      IntersectionObserver: class {}, ResizeObserver: class { observe(node) { assert.ok(node); } },
+      IntersectionObserver: class {}, MutationObserver: class { observe(node) { assert.ok(node); } }, ResizeObserver: class { observe(node) { assert.ok(node); } },
     });
     const source = fs.readFileSync(`${__dirname}/../assets/runtime/ui.mjs`, 'utf8')
       .replace(/^import .*;$/gm, '').replace(/^export /gm, '');

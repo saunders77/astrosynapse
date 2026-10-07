@@ -53,7 +53,10 @@ async function request(payload, errorTarget = 'error') {
         // Reconstructed history is deterministic; only newly applied effects play.
         const sounds = data.game.sounds.slice(sameGame ? game.sounds.length : 0);
         const resultSound = ['win', 'lose'].includes(sounds.at(-1)) ? sounds.pop() : null;
-        await audio.enqueue(sounds);
+        await Promise.all([
+          audio.enqueue(sounds),
+          sameGame && payload.op !== 'undo' ? animateAcquisitions(data.game) : Promise.resolve(),
+        ]);
         if (resultSound) {
           await audio.enqueue([resultSound], () => {
             game = data.game;
@@ -72,10 +75,52 @@ async function request(payload, errorTarget = 'error') {
 }
 function schedule() { clearTimeout(timer); timer = setTimeout(() => { if (!busy && game?.status === 'model_thinking') request({ op: 'advance', id: game.id, revision: game.revision }); }, 0); }
 function move(id) { if (busy) return; if (openPile === 'hand') $('pile-dialog').close(); request({ op: 'choose', id: game.id, revision: game.revision, action_id: id }, $('decision-dialog').open ? 'decision-error' : 'error'); }
-function cancelSelection() {
-  if (busy || !game?.can_undo) return;
-  const errorTarget = $('scrap-dialog').open ? 'scrap-error' : 'decision-error';
-  return request({ op: 'undo', id: game.id, revision: game.revision }, errorTarget);
+async function minimizeSelection() {
+  const dialog = $('scrap-dialog').open ? $('scrap-dialog') : $('decision-dialog');
+  if (!dialog.open || dialog.dataset.minimizing) return;
+  dismissedSelection = selectionKey();
+  $('choose-bar').hidden = false;
+  dialog.dataset.minimizing = 'true';
+  const from = dialog.getBoundingClientRect(), to = $('choose-bar').getBoundingClientRect();
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    await dialog.animate([
+      { transform: 'translate(0, 0) scale(1)', opacity: 1 },
+      { transform: `translate(${to.x + to.width / 2 - from.x - from.width / 2}px, ${to.y + to.height / 2 - from.y - from.height / 2}px) scale(${to.width / from.width}, ${to.height / from.height})`, opacity: 0.2 },
+    ], { duration: 180, easing: 'ease-in' }).finished.catch(() => {});
+  }
+  dialog.close();
+  delete dialog.dataset.minimizing;
+  $('choose-bar').focus();
+}
+function restoreSelection() {
+  dismissedSelection = null;
+  render();
+}
+async function animateAcquisitions(next) {
+  const entries = (next.action_log || []).slice(game?.action_log?.length || 0)
+    .filter(entry => ['acquire', 'free_acquire'].includes(entry.kind));
+  if (entries.length) {
+    for (const id of ['scrap-dialog', 'decision-dialog', 'pile-dialog', 'card-dialog']) if ($(id).open) $(id).close();
+  }
+  for (const entry of entries) {
+    const id = entry.kind === 'free_acquire' ? entry.target_card_id : entry.card_id;
+    const source = document.querySelector(`#market .card[data-card-id="${id}"]`);
+    const target = document.querySelector(`[data-inspect="${entry.player_id ? 'opponent-deck' : 'own-deck'}"]`);
+    if (!source || !target || !source.getBoundingClientRect().width) continue;
+    const from = source.getBoundingClientRect(), to = target.getBoundingClientRect();
+    const ghost = source.cloneNode(true);
+    ghost.inert = true;
+    ghost.classList.add('acquiring-card'); ghost.setAttribute('aria-hidden', 'true');
+    Object.assign(ghost.style, {left: `${from.x}px`, top: `${from.y}px`, width: `${from.width}px`, height: `${from.height}px`});
+    document.body.append(ghost);
+    source.style.visibility = 'hidden';
+    try {
+      await ghost.animate([
+        {transform: 'translate(0, 0) scale(1)', opacity: 1},
+        {transform: `translate(${to.x + to.width / 2 - from.x - from.width / 2}px, ${to.y + to.height / 2 - from.y - from.height / 2}px) scale(0.15)`, opacity: 0.3},
+      ], {duration: 250, easing: 'ease-in-out'}).finished;
+    } finally { ghost.remove(); source.style.visibility = ''; }
+  }
 }
 function openResignConfirmation() {
   if (busy || !game || game.status === 'complete') return;
@@ -126,8 +171,10 @@ function cardView(id, actions = [], state = '') {
   const c = cards[id]; if (!c) return el('span', 'empty', 'Empty trade slot');
   const node = el('article', `card ${c.card_type !== 'ship' ? 'base' : ''} ${actions.length ? 'actionable' : ''}`);
   node.dataset.faction = c.faction;
+  node.dataset.cardId = id;
   const face = el('button', 'card-face'); face.type = 'button';
   const action = actions.length === 1 && actions[0].kind !== 'scrap_for_ability' ? actions[0] : null;
+  node.classList.toggle('single-action', actions.length === 1);
   face.setAttribute('aria-label', action ? (action.label || `${actionName(action)} ${c.name}`) : `Details for ${c.name}`);
   face.title = face.getAttribute('aria-label');
   face.addEventListener('click', () => action ? move(action.id) : inspect(c));
@@ -205,20 +252,17 @@ function render() {
   if (game.status === 'complete') cancelResignation();
   const decisionDialog = $('decision-dialog');
   const selectionDismissed = dismissedSelection === selectionKey();
-  for (const id of ['scrap-close', 'scrap-cancel', 'decision-close', 'decision-cancel']) {
-    $(id).dataset.unavailable = String(!game.can_undo);
-    $(id).disabled = busy || !game.can_undo;
-  }
+  $('choose-bar').hidden = !(selectionDismissed && game.status === 'your_turn' && !main && actions.length);
   const needsDecision = !selectionDismissed && game.status === 'your_turn' && d && !main && actions.length && !actions.some(a => ['scrap_card', 'scrap_trade_row'].includes(a.kind));
   $('choices').replaceChildren();
   $('decision-options').replaceChildren();
-  if (needsDecision || (selectionDismissed && !main)) for (const a of actions) {
+  if (needsDecision) for (const a of actions) {
     const button = el('button', 'choice'); const id = a.target_card_id >= 0 ? a.target_card_id : a.card_id;
     if (id >= 0 && a.kind !== 'decline') { const img = el('img'); setImage(img, art(cards[id])); img.alt = ''; button.append(img); }
-    button.append(el('span', '', a.label)); button.addEventListener('click', () => move(a.id)); $(selectionDismissed ? 'choices' : 'decision-options').append(button);
+    button.append(el('span', '', a.label)); button.addEventListener('click', () => move(a.id)); $('decision-options').append(button);
   }
   $('choice-note').hidden = !(d && !main); $('choice-note').textContent = 'Resolve this choice to continue. Other actions become available afterward.';
-  let status = game.status === 'model_thinking' ? `${game.model_label} is playing…` : 'Your turn · Play cards, use abilities, buy cards, or attack.';
+  let status = game.status === 'model_thinking' ? `${game.model_label} is playing…` : '';
   let title = d ? (main ? 'Your move' : d.prompt) : 'Computer’s turn';
   if (game.status === 'complete') { status = game.result.resigned ? `You resigned. ${game.model_label} wins.` : game.result.truncated ? 'Draw · the game reached its turn or action limit.' : game.result.winner === 0 ? 'Victory! You defeated the champion.' : `${game.model_label} wins. Ready for a rematch?`; title = 'Game complete'; }
   $('status').textContent = status; $('decision-title').textContent = title;
@@ -317,6 +361,38 @@ function navigate() {
   if (stats) { renderStats(); $('stats-title').focus(); }
 }
 // Fixed bars may wrap on narrow screens or with larger browser text sizes.
+// Maximize a shared image height, preserving card orientation and source order.
+function fitCards(container) {
+  const nodes = [...container.querySelectorAll(':scope > .card')];
+  if (!nodes.length || !container.clientWidth || !container.clientHeight) return;
+  const gap = 4, width = container.clientWidth, height = container.clientHeight;
+  const ratios = nodes.map(node => node.classList.contains('base') ? 7 / 5 : 5 / 7);
+  const fits = size => {
+    let rows = 1, used = 0;
+    for (const ratio of ratios) {
+      const cardWidth = size * ratio;
+      if (cardWidth > width) return false;
+      if (used && used + gap + cardWidth > width) { rows++; used = 0; }
+      used += (used ? gap : 0) + cardWidth;
+    }
+    return rows * size + (rows - 1) * gap <= height;
+  };
+  let low = 0, high = height;
+  for (let step = 0; step < 20; step++) {
+    const mid = (low + high) / 2;
+    if (fits(mid)) low = mid; else high = mid;
+  }
+  nodes.forEach((node, index) => {
+    node.style.setProperty('--fit-width', `${Math.max(0, low * ratios[index] - .1)}px`);
+    node.style.setProperty('--fit-height', `${Math.max(0, low - .1)}px`);
+  });
+}
+const cardsObserver = new ResizeObserver(entries => entries.forEach(({target}) => fitCards(target)));
+const cardsMutationObserver = new MutationObserver(entries => entries.forEach(({target}) => fitCards(target)));
+for (const id of ['hand', 'own-fleet', 'opponent-fleet', 'market']) {
+  cardsObserver.observe($(id));
+  cardsMutationObserver.observe($(id), {childList: true});
+}
 const barObserver = new ResizeObserver(entries => {
   for (const {target} of entries) document.documentElement.style.setProperty(`--${target.id}-height`, `${target.getBoundingClientRect().height}px`);
 });
@@ -331,8 +407,22 @@ $('opponent').addEventListener('change', async () => {
 $('play-all').addEventListener('click', () => request({ op: 'play_all', id: game.id, revision: game.revision }));
 document.querySelectorAll('[data-inspect]').forEach(b => b.addEventListener('click', () => inspectPile(b.dataset.inspect)));
 $('pile-dialog').addEventListener('close', () => { if (!$('pile-dialog').open) openPile = null; });
-for (const id of ['scrap-dialog', 'decision-dialog']) $(id).addEventListener('cancel', e => { e.preventDefault(); cancelSelection(); });
-for (const id of ['scrap-close', 'scrap-cancel', 'decision-close', 'decision-cancel']) $(id).addEventListener('click', cancelSelection);
+for (const id of ['scrap-dialog', 'decision-dialog']) $(id).addEventListener('cancel', e => { e.preventDefault(); minimizeSelection(); });
+for (const id of ['scrap-close', 'scrap-cancel', 'decision-close', 'decision-cancel']) $(id).addEventListener('click', minimizeSelection);
+$('choose-bar').addEventListener('click', restoreSelection);
+for (const id of ['scrap-dialog', 'decision-dialog', 'card-dialog']) {
+  const dialog = $(id);
+  const outside = event => {
+    const rect = dialog.getBoundingClientRect();
+    return event.target === dialog && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom);
+  };
+  let startedOutside = false;
+  dialog.addEventListener('pointerdown', event => { startedOutside = outside(event); });
+  dialog.addEventListener('click', event => {
+    if (startedOutside && outside(event)) id === 'card-dialog' ? dialog.close() : minimizeSelection();
+    startedOutside = false;
+  });
+}
 $('resign-dialog').addEventListener('cancel', e => { e.preventDefault(); cancelResignation(); });
 $('resign-cancel').addEventListener('click', cancelResignation);
 $('resign-confirm').addEventListener('click', confirmResignation);

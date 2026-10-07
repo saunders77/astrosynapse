@@ -6,12 +6,16 @@ export function opponentTurnSummary(game, cards) {
   const played = [], acquired = [];
   for (const entry of entries.filter(entry => entry.turn === turn)) {
     const id = entry.kind === 'free_acquire' ? entry.target_card_id : entry.card_id;
-    if (id < 2 || !cards[id]) continue;
+    if (!cards[id]) continue;
     if (entry.kind === 'play_card') played.push(cards[id].name);
     if (entry.kind === 'acquire' || entry.kind === 'free_acquire') acquired.push(cards[id].name);
   }
+  const counted = names => [...new Set(names)].map(name => {
+    const count = names.filter(value => value === name).length;
+    return count > 1 ? `${name} x${count}` : name;
+  }).join(', ');
   const parts = [];
-  if (played.length) parts.push(`played ${played.join(', ')}`);
-  if (acquired.length) parts.push(`acquired ${acquired.join(', ')}`);
-  return `Last turn: ${parts.join('; ') || 'no non-default cards played or acquired'}`;
+  if (played.length) parts.push(`Played ${counted(played)}`);
+  if (acquired.length) parts.push(`Acquired ${counted(acquired)}`);
+  return `Last turn: ${parts.join('. ') || 'No cards played or acquired'}`;
 }

@@ -629,3 +629,33 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
 .stats-chart-cell{min-width:300px;width:45%}
 .win-rate-chart{display:block;width:100%;min-width:300px;max-height:190px}
 .win-rate-chart text{fill:var(--muted);font-size:10px}
+
+/* Let occupied rows borrow space from empty and landscape-only rows. */
+#board{--opponent-space:1fr;--own-space:1fr;--hand-space:1fr;gap:0;grid-template-rows:minmax(0,var(--opponent-space)) minmax(0,1fr) minmax(0,var(--own-space)) minmax(0,var(--hand-space));transition:grid-template-rows 180ms ease}
+#board:has(#opponent-fleet > .empty){--opponent-space:.5fr}
+#board:has(#own-fleet > .empty){--own-space:.5fr}
+#board:has(#hand > .empty){--hand-space:.5fr}
+#board:has(#opponent-fleet > .card):not(:has(#opponent-fleet > .card:not(.base))){--opponent-space:.78fr}
+#board:has(#own-fleet > .card):not(:has(#own-fleet > .card:not(.base))){--own-space:.78fr}
+#board:has(#hand > .card):not(:has(#hand > .card:not(.base))){--hand-space:.78fr}
+#board > .market{border-top:1px solid #777;border-bottom:1px solid #777;border-radius:0;margin:0;padding:0}
+#board .cards,#board .market .cards{flex-wrap:wrap;align-content:start;align-items:start;gap:4px;overflow:hidden}
+#board .card,#board .card.base,#board .market .card{flex:none;width:var(--fit-width,100px);height:var(--fit-height,100%)}
+.playing .status:empty{display:none}
+#player-bar .decision{flex-wrap:wrap;gap:6px}
+#player-bar .inspectors{display:flex;flex-wrap:wrap;gap:6px;border:0;margin:0 0 0 auto;padding:0}
+#player-bar .inspectors button{min-height:26px;padding:3px 8px;font-size:.8rem;background:transparent}
+#choose-bar{flex-basis:100%;width:100%;background:#fff;color:#111;border-color:#fff;min-height:30px;padding:4px 12px}
+.acquiring-card{position:fixed;z-index:100;pointer-events:none;transform-origin:center;min-width:0;min-height:0;margin:0}
+.card-actions .details::before{left:3px;top:2px}
+.card-actions .details::after{left:10px;top:9px;width:5px}
+.card.single-action .move:hover:not(:disabled),.card.single-action .card-face:hover:not(:disabled){outline:none}
+@media(prefers-reduced-motion:reduce){#board{transition:none}}
+@media(max-width:760px){
+  #player-bar .decision-heading{min-width:0;flex:1}
+  #player-bar .decision-heading>div{min-width:0;gap:4px}
+  #player-bar .decision-heading h3{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.7rem}
+  #player-bar .decision .eyebrow{font-size:.7rem;letter-spacing:.04em}
+  #player-bar .inspectors{flex-wrap:nowrap;gap:3px}
+  #player-bar .inspectors button{font-size:.65rem;padding:3px 5px}
+}

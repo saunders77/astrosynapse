@@ -13,6 +13,8 @@ function board(actions, status = 'your_turn', observation = {}, family = 'scrap'
     getAttribute(name) { return this.attributes[name]; }
     close() { this.open = false; }
     showModal() { this.open = true; }
+    focus() {}
+    getBoundingClientRect() { return {x:0,y:0,width:100,height:100}; }
     closest() { return this.parent; }
   }
   const nodes = new Map();
@@ -22,7 +24,7 @@ function board(actions, status = 'your_turn', observation = {}, family = 'scrap'
     createElement: () => new Element(),
     createTextNode: text => text,
   };
-  const context = vm.createContext({ document, location: { pathname: '/', hash: '#game' }, localStorage: { getItem: () => null }, IntersectionObserver: class { observe() {} disconnect() {} } });
+  const context = vm.createContext({ matchMedia: () => ({matches:true}), document, location: { pathname: '/', hash: '#game' }, localStorage: { getItem: () => null }, IntersectionObserver: class { observe() {} disconnect() {} } });
   const source = fs.readFileSync(`${__dirname}/../assets/runtime/ui.mjs`, 'utf8').split("// Fixed bars may wrap")[0].replace(/^import .*;$/gm, '');
   vm.runInContext(fs.readFileSync(`${__dirname}/../assets/runtime/turn-summary.mjs`, 'utf8').replace('export function', 'function'), context);
   vm.runInContext(source, context);
@@ -264,46 +266,21 @@ test('audio enqueues only new effects and clears the queue for a new game', asyn
   assert.deepEqual(Array.from(context.heard), ['combat', 'trade', 'combat', 'playerturn']);
 });
 
-test('cancel undoes a choice, closes either picker, and leaves restored choices accessible', async () => {
-  for (const kind of ['scrap_card', 'choose_mode']) {
+test('minimize preserves the pending decision, allows inspection, and Choose restores it', async () => {
+  for (const kind of ['scrap_card', 'choose_mode', 'discard_card']) {
     const {context, nodes} = board([{id: 2, kind, card_id: 0, source_zone: 'hand', label: 'Choose card'}]);
-    context.clearTimeout = () => {};
-    vm.runInContext(`
-      game.id = 'test'; game.revision = 2; game.can_undo = true; game.sounds = [];
-      lock = value => { busy = value; }; renderStats = () => {};
-      audio = {clear() {}, enqueue() {}};
-      api = async payload => {
-        globalThis.sent = payload;
-        return {game: {...game, revision: 3}};
-      };
-    `, context);
-    await vm.runInContext('cancelSelection()', context);
-    assert.equal(context.sent.op, 'undo');
-    assert.equal(context.sent.revision, 2);
+    vm.runInContext("game.id = 'test'; game.revision = 2; game.can_undo = false; api = () => { throw new Error('Minimize must not send a move'); };", context);
+    await vm.runInContext('minimizeSelection()', context);
     assert.ok(!nodes.get('scrap-dialog').open);
     assert.ok(!nodes.get('decision-dialog').open);
-    assert.equal(nodes.get('choices').children.length, 1);
-    nodes.get('choices').children[0].listeners.click();
-    assert.equal(context.chosen, 2);
-    vm.runInContext('game.revision++; render()', context);
+    assert.equal(nodes.get('choose-bar').hidden, false);
+    assert.equal(vm.runInContext('game.revision', context), 2);
+    vm.runInContext("inspectPile('discard')", context);
+    assert.equal(nodes.get('pile-dialog').open, true);
+    vm.runInContext("$('pile-dialog').close(); restoreSelection()", context);
     assert.equal(nodes.get(kind === 'scrap_card' ? 'scrap-dialog' : 'decision-dialog').open, true);
+    assert.equal(nodes.get('choose-bar').hidden, true);
   }
-});
-
-test('failed cancel keeps selection open and busy cancel sends no request', async () => {
-  const {context, nodes} = board([{id: 2, kind: 'scrap_card', card_id: 0, source_zone: 'hand'}]);
-  context.clearTimeout = () => {};
-  vm.runInContext(`
-    game.can_undo = true; busy = true;
-    api = async () => { globalThis.sent = true; throw new Error('Retry cancellation'); };
-    lock = value => { busy = value; };
-  `, context);
-  await vm.runInContext('cancelSelection()', context);
-  assert.equal(context.sent, undefined);
-  vm.runInContext('busy = false', context);
-  await vm.runInContext('cancelSelection()', context);
-  assert.equal(nodes.get('scrap-dialog').open, true);
-  assert.equal(nodes.get('scrap-error').textContent, 'Retry cancellation');
 });
 
 test('home hides the table without discarding the match and supports resuming', () => {
@@ -367,7 +344,7 @@ test('moves stay locked until audio drains and results render at their sound sta
   assert.equal(vm.runInContext('game.status', context), 'your_turn');
   assert.deepEqual(Array.from(context.queued[0].sounds), ['attack']);
   context.queued[0].resolve();
-  await Promise.resolve();
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(vm.runInContext('game.status', context), 'your_turn');
   assert.deepEqual(Array.from(context.queued[1].sounds), ['win']);
   context.queued[1].start();
