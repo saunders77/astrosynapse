@@ -53,17 +53,51 @@ const audio = new GameAudio({ Context, load: async path => { loads.push(path); r
 function tick(ms) { now += ms; for (const [id,timer] of [...timers]) if (timer.at <= now) { timers.delete(id); timer.fn(); } }
 await audio.preload(); await audio.preload();
 assert.equal(loads.length, SOUNDS.length); assert.equal(decodes.length, SOUNDS.length);
-audio.enqueue(['combat', 'trade', 'combat']); assert.deepEqual(starts, []);
-audio.unlock(); await Promise.resolve(); assert.deepEqual(starts, [0]);
-tick(249); assert.deepEqual(starts, [0]); tick(1); assert.deepEqual(starts, [0,250]);
-tick(250); assert.deepEqual(starts, [0,250,500], 'Long buffers overlap with independent starts');
-tick(300); audio.enqueue(['scrap']); assert.deepEqual(starts, [0,250,500,800], 'Idle queue starts immediately');
-tick(100); audio.enqueue(['authority']); tick(149); assert.equal(starts.length,4); tick(1); assert.equal(starts.at(-1),1050);
+await audio.context.resume();
+let completed = false;
+const playback = audio.enqueue(['combat', 'trade', 'combat']).then(() => { completed = true; });
+assert.deepEqual(starts, [0]);
+tick(249); assert.deepEqual(starts, [0]);
+tick(1); assert.deepEqual(starts, [0,250]);
+tick(250); assert.deepEqual(starts, [0,250,500]);
+assert.equal(completed, false);
+tick(250); await playback; assert.equal(completed, true);
+assert.equal(now, 750, 'Three two-second clips consume three 250 ms queue slots, with no duration-based wait');
+let shown = false;
+const effects = audio.enqueue(['attack']);
+const result = audio.enqueue(['win'], () => { shown = true; });
+assert.equal(shown, false);
+tick(250); await effects; assert.equal(shown, true, 'Result appears when its sound starts');
+assert.equal(starts.at(-1) - starts.at(-2), 250, 'Separate action batches share one gap without an extra UI delay');
+tick(250); await result;
+const silent = audio.enqueue([]); tick(249);
+assert.notEqual(audio.timer, null, 'Silent actions also have a 250 ms gap');
+tick(1); await silent;
 audio.setVolume(0.3); assert.equal(audio.context.volume,0.3);
-audio.enqueue(['attack']); audio.clear(); tick(300); assert.equal(starts.length,5);
-const failed = new GameAudio({ Context, load: async () => { throw new Error('offline'); } });
-await failed.preload(); failed.enqueue(['trade']); failed.unlock(); await Promise.resolve();
+const canceled = audio.enqueue(['attack', 'trade']); audio.clear(); await canceled;
+assert.equal(timers.size, 0);
+const failed = new GameAudio({ Context, load: async () => { throw new Error('offline'); },
+  later: (fn, delay) => { timers.set(++timerId, {fn, at:now+delay}); return timerId; }, cancel: id => timers.delete(id) });
+await failed.preload(); const missing = failed.enqueue(['acquire']); tick(250); await missing;
 assert.equal(failed.queue.length,0,'Unavailable audio does not block the game');
+const unsupported = new GameAudio({ Context: null,
+  later: (fn, delay) => { timers.set(++timerId, {fn, at:now+delay}); return timerId; }, cancel: id => timers.delete(id) });
+await unsupported.preload(); const unavailable = unsupported.enqueue(['win']); tick(250); await unavailable;
+for (const pid of [0, 1]) {
+  const g = new Game(17), p = g.players[pid];
+  g.sounds = []; p.trade = 10;
+  g.apply(p, Game.action('acquire', 2, -1, '', 'explorer_supply', 2));
+  assert.deepEqual(g.sounds, ['acquire']);
+  g.sounds = []; g.acquire(p, 0, 0, true);
+  assert.deepEqual(g.sounds, ['acquire']);
+}
+const opponentOpening = Session.advance(Session.start({id:'test', name:'Test'}, false, 1234), actor);
+assert.equal(opponentOpening.sounds[0], 'playerturn');
+const resigned = Session.advance(session, actor, 'resign');
+assert.equal(resigned.sounds.at(-1), 'lose');
+assert.deepEqual(Session.advance(session, actor).sounds, resigned.sounds);
+console.log('PASS sound events, replay, 250 ms start spacing with overlapping clips, result timing, cancellation and unavailable audio');
+
 // Browser timers require the Window receiver, unlike Node's native timers.
 const nativeSetTimeout = globalThis.setTimeout, nativeClearTimeout = globalThis.clearTimeout;
 try {
@@ -91,4 +125,3 @@ try {
   globalThis.setTimeout = nativeSetTimeout;
   globalThis.clearTimeout = nativeClearTimeout;
 }
-console.log('PASS audio effects for both players, replay, batching, shuffle, preload, volume, 250 ms overlapping queue and browser timer receivers');

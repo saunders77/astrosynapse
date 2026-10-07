@@ -65,7 +65,7 @@ export class Game {
     if(this.decision_hook) this.decision_hook(this,p.id,d,a); return a;
   }
   takeTurn(p) {
-    if(p.id===0) this.sounds.push('playerturn');
+    this.sounds.push('playerturn');
     this.turns++; this.turn_actions=0; p.combat=p.trade=p.blob_cards_played=0; p.next_ship_top=false;
     for(const i of p.in_play) { i.ally_triggered=false; i.activated=!Game.manual(i.card); this.resources(p,i.card); if(Game.card(i.card).primary==='ship_top') p.next_ship_top=true; }
     while(p.must_discard>0 && p.hand.length) { const a=this.choose(p,'discard',this.handActions(p,'discard_card'),'Choose a card to discard'); this.discardHand(p,a.opaque[0]); p.must_discard--; }
@@ -175,7 +175,7 @@ export class Game {
   }
   scrap(id) { this.sounds.push('scrap'); if(id===2) this.explorers_remaining++; else this.scrap_heap.push(id); }
   acquire(p,slot,cost,top=false) { p.trade-=cost; this.place(p,this.trade_row[slot],top); this.trade_row[slot]=pop(this.trade_deck); }
-  place(p,id,top=false) { if(Game.ship(id)&&(top||p.next_ship_top)) { p.deck.push(id); p.known_top.push(id); p.next_ship_top=false; } else p.discard.push(id); }
+  place(p,id,top=false) { this.sounds.push('acquire'); if(Game.ship(id)&&(top||p.next_ship_top)) { p.deck.push(id); p.known_top.push(id); p.next_ship_top=false; } else p.discard.push(id); }
   draw(p,n) {
     for(let j=0;j<n;j++) { if(!p.deck.length) { if(this.searchDraw||!p.discard.length) break; p.deck=p.discard; p.discard=[]; p.rng.shuffle(p.deck); this.sounds.push('shuffle'); p.known_top=[]; }
       const id=pop(p.deck); p.hand.push(id); if(p.known_top.length&&p.known_top.at(-1)===id) { p.known_top.pop(); p.revealed_hand.push(id); }

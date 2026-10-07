@@ -40,6 +40,15 @@ test("server-renders the acquire student training page", async () => {
   assert.match(html, /Training progress/);
 });
 
+test("server-renders the acquisition impact page", async () => {
+  const response = await render("/acquisition-impact");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Acquisition impact/);
+  assert.match(html, /Completed experiment/);
+  assert.match(html, /Which disagreements matter/);
+});
+
 test("server-renders the Astrosynapse 2 control center", async () => {
   const response = await render();
   assert.equal(response.status, 200);

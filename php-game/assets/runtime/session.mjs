@@ -50,6 +50,7 @@ export class Session {
     if(session.transcript.length!==history.length) session.revision++;
     if(resigning && !game.result) { session.resigned = true; session.revision++; session.lethal = []; }
     if(session.resigned) { game.result = {winner:1,truncated:false,resigned:true}; pending = null; pendingPlayer = null; }
+    if(game.result?.winner !== null && game.result?.winner !== undefined) game.sounds.push(game.result.winner===0?'win':'lose');
     const actions=pendingPlayer===0?pending.actions.map((a,j)=> { const {opaque,...publicAction}=a; return {...publicAction,id:j,label:Game.label(a)}; }):[];
     // Evaluate the side to move with the opponent's model, then express the
     // estimate from the opponent's perspective. Never treat policy scores as odds.

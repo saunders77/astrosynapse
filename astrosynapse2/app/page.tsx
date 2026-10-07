@@ -5143,6 +5143,7 @@ export default function Home() {
         <Link href="/autopilot" className="progressive-nav-link">Champion autopilot ↗</Link>
         <Link href="/critics" className="progressive-nav-link">Critic training ↗</Link>
         <Link href="/students" className="progressive-nav-link">Acquire students ↗</Link>
+        <Link href="/acquisition-impact" className="progressive-nav-link">Acquisition impact ↗</Link>
       </nav>
 
       <div className="workspace">

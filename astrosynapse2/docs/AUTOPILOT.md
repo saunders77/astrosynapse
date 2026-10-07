@@ -134,3 +134,20 @@ The API service was not restarted. After resume, live progress confirmed the
 100,000-pair target and further evaluation; the saved evidence prefix and model
 hashes were verified. The 29 Autopilot tests passed. Installation and verification
 records are in `data/autopilot-promotion-budget-20261004/`.
+
+## October 5 continuation
+
+The extended policy-00055 gate finished at 50.1705% over 100,000 pairs, with
+lower bound 49.8241%; policy-00056 finished at 50.1505%, with lower bound
+49.7175% and one truncated game. Neither qualified. More evaluation did not
+establish a promotable improvement. The campaign subsequently exhausted its
+active-hour budget during policy-00060, retaining its 1,000-game checkpoint.
+
+On the user's instruction to continue, the existing settings API added eight
+active hours (54.457116 cumulative) and increased the storage allowance to
+60 GiB, with approximately 32 GiB of disk space free before resuming. The
+95% policy allocation, temporal estimator, checkpoint selection, 100,000-pair
+gate ceiling and promotion requirements remain unchanged. Policy-00060 resumes
+its saved checkpoint; completed gates remain closed and the policy attempt
+counter remains 27. The API service was not restarted. Configuration backups
+and artifact-hash checks are in `data/autopilot-continuation-20261005/`.

@@ -624,3 +624,8 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
 .home-analysis .bucketed-chart-card { margin-left:clamp(12px,2vw,32px); margin-right:clamp(12px,2vw,32px); }
 
 .welcome{margin:8px 0 20px;color:var(--muted);font-size:.875rem}
+
+#opponent-name{text-decoration:underline;text-underline-offset:.18em}
+.stats-chart-cell{min-width:300px;width:45%}
+.win-rate-chart{display:block;width:100%;min-width:300px;max-height:190px}
+.win-rate-chart text{fill:var(--muted);font-size:10px}

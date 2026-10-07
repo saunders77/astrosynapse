@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .acquire_student import StudentConfig, StudentManager
 from .acquire_student import recommend as recommend_acquisition
+from .acquisition_impact_api import router as acquisition_impact_router
 from .advisor import (
     AdvisorEvaluateRequest,
     AdvisorEvaluation,
@@ -177,6 +178,7 @@ app = FastAPI(
 )
 app.include_router(critic_router)
 app.include_router(autopilot_router)
+app.include_router(acquisition_impact_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

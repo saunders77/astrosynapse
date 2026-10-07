@@ -49,7 +49,7 @@ Copied Stealth Needles and their original ships have separate scrap-for-ability 
 - An inline bootstrap hashes the HTML document **before modifying it**. That hash is attached to every local asset and model URL as a cache key.
 - `index.html` is revalidated on normal navigation. Replacing that one file changes the cache key, so the next page load requests the CSS, JavaScript, card data, model registry, and models under fresh URLs.
 - The build script stamps the HTML whenever bundles, card data, or the model registry changes.
-- The seven audio clips preload and decode once per app load, with versioned HTTP/Cache Storage caching and reusable in-memory Web Audio buffers. Other assets are cached on demand. Card images load when near the viewport or opened in Details. Card image URLs are generated from card names and load WebP files directly from the official Star Realms gallery. Repeated images use normal browser HTTP caching.
+- The ten audio clips preload and decode once per app load, with versioned HTTP/Cache Storage caching and reusable in-memory Web Audio buffers. Other assets are cached on demand. Card images load when near the viewport or opened in Details. Card image URLs are generated from card names and load WebP files directly from the official Star Realms gallery. Repeated images use normal browser HTTP caching.
 - Models and artwork also live in browser Cache Storage, so subsequent visits can reuse them without network transfer. A model's SHA-256 is verified before it is used.
 - If browser storage is unavailable or full, the game falls back to network plus memory caching. Browser eviction can require a later re-download.
 - Once initialized, an open game keeps working with downloaded models if the connection drops. A page load requires the static HTML; undownloaded levels need a connection.
@@ -76,7 +76,7 @@ Legacy `starrealms_policies/*_policy.json` files use a different architecture an
 
 ## Audio
 
-Effects for both sides enqueue individually in rules order, including each card in Play all and separate primary, ally, and bonus gains. Sound starts are spaced at least 250 ms apart; longer clips overlap. Deck recycling sounds only when drawing requires shuffling the discard pile. Replay, restored history, and AI planning are silent. Browsers enable playback after the first user interaction. Open Settings beside Game log to adjust sound volume from mute to 100% (the default).
+Effects for both sides enqueue individually in rules order, including each card in Play all and separate primary, ally, and bonus gains. Sound starts are spaced at least 250 ms apart, and longer clips may overlap. Moves wait for their effects to pass through this queue before updating the board or allowing another move; there is no additional wait for clip duration or after playback ends. Actions without audio also use one 250 ms queue slot. Both turns begin with playerturn.mp3. Purchases and free acquisitions play acquire.mp3; the result view appears when win.mp3 or lose.mp3 starts. Missing clips do not block play. Deck recycling sounds only when drawing requires shuffling the discard pile. Replay, restored history, and AI planning are silent. Browsers enable playback after the first user interaction. Open Settings beside Game log to adjust sound volume from mute to 100% (the default).
 
 ## Gameplay and performance
 

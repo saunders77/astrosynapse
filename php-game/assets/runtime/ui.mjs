@@ -1,6 +1,7 @@
 import { GameAudio } from './audio.mjs';
 import { opponentTurnSummary } from './turn-summary.mjs';
-import { recordResult, readStats } from './stats.mjs';
+import { recordResult, readLevelStats } from './stats.mjs';
+import { winRateChart } from './stats-chart.mjs';
 import { configureResources, resourceURL } from './resources.mjs';
 import { localModels } from './local-models.mjs';
 const $ = id => document.getElementById(id);
@@ -15,7 +16,7 @@ let aliases = {}; try { aliases = JSON.parse(localStorage.getItem(aliasesKey) ||
 const art = c => `https://www.starrealms.com/card-gallery/images/content/card-gallery/${c.name.toLowerCase().replaceAll(' ', '-')}.webp`;
 const el = (tag, className, text) => { const n = document.createElement(tag); if (className) n.className = className; if (text !== undefined) n.textContent = text; return n; };
 const showError = (message, id = 'error') => { $(id).textContent = message; $(id).hidden = !message; };
-function lock(value) { busy = value; document.body.classList.toggle('busy', value); document.querySelectorAll('button, select, input').forEach(n => n.disabled = (value && !n.matches('.details, .pile, [data-close], [data-inspect], [data-open], #audio-volume')) || n.dataset.unavailable === 'true'); }
+function lock(value) { busy = value; document.body.classList.toggle('busy', value); document.querySelectorAll('button, select, input').forEach(n => n.disabled = (value && !n.matches('.details, .pile, [data-close], [data-inspect], [data-open], #audio-volume, #start')) || n.dataset.unavailable === 'true'); }
 function api(payload) {
   return new Promise((resolve, reject) => {
     const id = ++requestId; waiting.set(id, { resolve, reject }); worker.postMessage({ ...payload, requestId: id });
@@ -50,7 +51,15 @@ async function request(payload, errorTarget = 'error') {
         const sameGame = game?.id === data.game.id;
         if (!sameGame || payload.op === 'undo') audio.clear();
         // Reconstructed history is deterministic; only newly applied effects play.
-        audio.enqueue(data.game.sounds.slice(sameGame ? game.sounds.length : 0));
+        const sounds = data.game.sounds.slice(sameGame ? game.sounds.length : 0);
+        const resultSound = ['win', 'lose'].includes(sounds.at(-1)) ? sounds.pop() : null;
+        await audio.enqueue(sounds);
+        if (resultSound) {
+          await audio.enqueue([resultSound], () => {
+            game = data.game;
+            render(); renderStats(); lock(true);
+          });
+        }
       }
       game = data.game;
       if (payload.op === 'new' && game) location.hash = '#game';
@@ -61,7 +70,7 @@ async function request(payload, errorTarget = 'error') {
   } catch (e) { showError(e.message, errorTarget); $('status').textContent = 'Paused. Your last saved game is preserved. Retry or refresh to resume.'; }
   finally { lock(false); if (game?.status === 'model_thinking' && !$('error').textContent) schedule(); }
 }
-function schedule() { clearTimeout(timer); timer = setTimeout(() => { if (!busy && game?.status === 'model_thinking') request({ op: 'advance', id: game.id, revision: game.revision }); }, 120); }
+function schedule() { clearTimeout(timer); timer = setTimeout(() => { if (!busy && game?.status === 'model_thinking') request({ op: 'advance', id: game.id, revision: game.revision }); }, 0); }
 function move(id) { if (busy) return; if (openPile === 'hand') $('pile-dialog').close(); request({ op: 'choose', id: game.id, revision: game.revision, action_id: id }, $('decision-dialog').open ? 'decision-error' : 'error'); }
 function cancelSelection() {
   if (busy || !game?.can_undo) return;
@@ -137,16 +146,21 @@ function cardView(id, actions = [], state = '') {
 }
 function zone(id, entries) { const node = $(id); node.replaceChildren(...entries); if (!entries.length) node.append(el('span', 'empty', 'No cards')); }
 function render() {
-  const home = location.hash === '#home';
+  const home = location.hash !== '#game';
+  const active = !!game && game.status !== 'complete';
+  $('start').textContent = active ? 'Resume game' : 'New game';
+  $('opponent').dataset.unavailable = String(active);
+  $('opponent').disabled = active || busy;
+  if (active) $('opponent').value = game.model_id;
   document.body.classList.toggle('active-game', !!game && game.status !== 'complete' && !home);
   recordStats();
   imageObserver.disconnect();
   document.body.classList.toggle('playing', !!game && location.hash !== '#stats' && !home);
   const selectedModel = models.find(model => model.id === $('opponent').value);
-  $('welcome').textContent = selectedModel ? `${selectedModel.level ? `Level ${selectedModel.level}` : aliases[selectedModel.id] || selectedModel.name} is ready to play` : '';
+  $('welcome').textContent = active ? `Resume your game against ${game.model_label}` : selectedModel ? `${selectedModel.level ? `Level ${selectedModel.level}` : aliases[selectedModel.id] || selectedModel.name} is ready to play` : '';
   $('opponent-bar').hidden = !game || home; $('player-bar').hidden = !game || home;
   $('welcome').hidden = !!game && !home; $('board').hidden = !game || home;
-  $('resume-game').hidden = !home || !game || game.status === 'complete';
+  $('resume-game').hidden = true;
   if (!game || home) { $('result-banner').hidden = true; $('status').textContent = ''; return; }
   const o = game.observation, d = game.decision, actions = d?.actions || [], main = d?.family === 'main';
   $('opponent-name').textContent = game.model_label;
@@ -277,16 +291,14 @@ function recordStats() {
 }
 function renderStats() {
   try {
-    const stats = readStats(localStorage, statsPrefix);
-    const opponents = new Map(Array.from({length: 5}, (_, i) => [`level-${i + 1}`, `Level ${i + 1}`]));
-    for (const m of models) opponents.set(m.id, aliases[m.id] || m.name);
-    for (const [id, row] of stats) if (!opponents.has(id)) opponents.set(id, row.label);
+    const stats = readLevelStats(localStorage, statsPrefix);
     let wins = 0, losses = 0, draws = 0;
-    $('stats-rows').replaceChildren(...[...opponents].map(([id, name]) => {
-      const row = stats.get(id) || {wins: 0, losses: 0, draws: 0};
+    $('stats-rows').replaceChildren(...stats.map(row => {
+      const name = `Level ${row.level}`;
       wins += row.wins; losses += row.losses; draws += row.draws;
       const tr = el('tr'), heading = el('th', '', name); heading.scope = 'row'; tr.append(heading);
       for (const value of [row.wins, row.losses, row.draws, row.wins + row.losses ? `${Math.round(100 * row.wins / (row.wins + row.losses))}%` : '—']) tr.append(el('td', '', value));
+      const chart = el('td', 'stats-chart-cell'); chart.append(winRateChart(row)); tr.append(chart);
       return tr;
     }));
     $('stats-summary').textContent = `${wins} wins · ${losses} losses · ${draws} draws`;
@@ -297,8 +309,8 @@ function navigate() {
   $('game-page').hidden = stats; $('stats-page').hidden = !stats;
   document.body.classList.toggle('viewing-stats', stats);
   document.body.classList.toggle('playing', !!game && !stats && location.hash !== '#home');
-  if (location.hash === '#home') {
-    for (const id of ['pile-dialog', 'card-dialog', 'scrap-dialog', 'decision-dialog', 'resign-dialog']) if ($(id).open) $(id).close();
+  if (location.hash !== '#game') {
+    for (const id of ['pile-dialog', 'card-dialog', 'scrap-dialog', 'decision-dialog', 'resign-dialog', 'settings-dialog']) if ($(id).open) $(id).close();
     openPile = null;
   }
   if (cards.length) render();
@@ -309,7 +321,7 @@ const barObserver = new ResizeObserver(entries => {
   for (const {target} of entries) document.documentElement.style.setProperty(`--${target.id}-height`, `${target.getBoundingClientRect().height}px`);
 });
 barObserver.observe($('opponent-bar')); barObserver.observe($('player-bar'));
-$('new-game').addEventListener('submit', e => { e.preventDefault(); if (game && game.status !== 'complete' && !confirm('Start a new game and replace this game?')) return; request({ op: 'new', model: $('opponent').value, label: aliases[$('opponent').value] }); });
+$('new-game').addEventListener('submit', e => { e.preventDefault(); if (game && game.status !== 'complete') { location.hash = '#game'; return; } request({ op: 'new', model: $('opponent').value, label: aliases[$('opponent').value] }); });
 $('opponent').addEventListener('change', async () => {
   const id = $('opponent').value;
   $('welcome').textContent = '';

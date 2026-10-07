@@ -23,3 +23,21 @@ try {
   }
 } finally {crypto.getRandomValues=original;}
 console.log('Stats persistence, deduplication, level attribution, draws, and random starters passed.');
+
+const {readLevelStats, winInterval} = await import('../assets/runtime/stats.mjs');
+entries.set('test:padded', JSON.stringify({model:'level-03', outcome:'wins', completedAt:20}));
+entries.set('test:earlier', JSON.stringify({model:'level-3', outcome:'losses', completedAt:10}));
+for (const key of ['test:one', 'test:two', 'test:three']) { const record = JSON.parse(entries.get(key)); delete record.completedAt; entries.set(key, JSON.stringify(record)); }
+const rows = readLevelStats(storage, 'test:');
+assert.deepEqual(rows.map(r => r.level), [5,4,3,2,1]);
+assert.equal(rows.length, 5);
+assert.deepEqual([rows[2].wins, rows[2].losses, rows[2].draws], [2,2,1]);
+assert.equal(rows[2].points.length, 4);
+assert.equal(rows[2].points.at(-1).rate, .5);
+assert.deepEqual(rows[2].points.slice(-2).map(p => p.completedAt), [10,20]);
+assert.equal(rows[0].points.length, 0);
+assert.equal(winInterval(0,0), null);
+assert.ok(Math.abs(winInterval(1,1)[0] - .206549314) < 1e-8);
+assert.ok(Math.abs(winInterval(0,1)[1] - .793450686) < 1e-8);
+assert.ok(winInterval(50,100)[1] - winInterval(50,100)[0] < winInterval(5,10)[1] - winInterval(5,10)[0]);
+console.log('Five descending levels, legacy ID merging, chronological cumulative rates, and Wilson intervals passed.');

@@ -22,7 +22,7 @@ function board(actions, status = 'your_turn', observation = {}, family = 'scrap'
     createElement: () => new Element(),
     createTextNode: text => text,
   };
-  const context = vm.createContext({ document, location: { pathname: '/' }, localStorage: { getItem: () => null }, IntersectionObserver: class { observe() {} disconnect() {} } });
+  const context = vm.createContext({ document, location: { pathname: '/', hash: '#game' }, localStorage: { getItem: () => null }, IntersectionObserver: class { observe() {} disconnect() {} } });
   const source = fs.readFileSync(`${__dirname}/../assets/runtime/ui.mjs`, 'utf8').split("// Fixed bars may wrap")[0].replace(/^import .*;$/gm, '');
   vm.runInContext(fs.readFileSync(`${__dirname}/../assets/runtime/turn-summary.mjs`, 'utf8').replace('export function', 'function'), context);
   vm.runInContext(source, context);
@@ -314,7 +314,8 @@ test('home hides the table without discarding the match and supports resuming', 
   assert.equal(nodes.get('player-bar').hidden, true);
   assert.equal(nodes.get('welcome').hidden, false);
   assert.equal(nodes.get('result-banner').hidden, true);
-  assert.equal(nodes.get('resume-game').hidden, false);
+  assert.equal(nodes.get('start').textContent, 'Resume game');
+  assert.equal(nodes.get('opponent').disabled, true);
   assert.equal(vm.runInContext('game === fixture', context), true);
   assert.equal(vm.runInContext("document.body.classes.has('active-game')", context), false);
   vm.runInContext("location.hash = '#game'; navigate();", context);
@@ -335,4 +336,44 @@ for (const copyFirst of [false, true]) test(`Stealth scrap buttons select physic
   assert.equal(buttons.length, 2);
   buttons[0].listeners.click(); assert.equal(context.chosen, copyFirst ? 31 : 30);
   buttons[1].listeners.click(); assert.equal(context.chosen, copyFirst ? 30 : 31);
+});
+
+test('home preserves a pending choice and resume reopens it', () => {
+  const {context, nodes} = board([{id: 1, kind: 'scrap_card', card_id: 0, source_zone: 'hand'}]);
+  assert.equal(nodes.get('scrap-dialog').open, true);
+  vm.runInContext("location.hash = '#home'; navigate(); render();", context);
+  assert.equal(nodes.get('scrap-dialog').open, false);
+  assert.equal(nodes.get('start').textContent, 'Resume game');
+  vm.runInContext("location.hash = '#game'; navigate();", context);
+  assert.equal(nodes.get('scrap-dialog').open, true);
+});
+
+
+test('moves stay locked until audio drains and results render at their sound start', async () => {
+  const { context } = board([]);
+  context.clearTimeout = () => {};
+  vm.runInContext(`
+    lock = value => { busy = value; };
+    render = () => { globalThis.visibleStatus = game.status; };
+    renderStats = () => {};
+    globalThis.queued = [];
+    audio = { clear() {}, enqueue: (sounds, start) => new Promise(resolve => queued.push({sounds, start, resolve})) };
+    game = { id: 'one', sounds: [], status: 'your_turn' };
+    api = async () => ({ game: { id: 'one', sounds: ['attack', 'win'], status: 'complete' } });
+  `, context);
+  const pending = vm.runInContext('request({})', context);
+  await Promise.resolve();
+  assert.equal(vm.runInContext('busy', context), true);
+  assert.equal(vm.runInContext('game.status', context), 'your_turn');
+  assert.deepEqual(Array.from(context.queued[0].sounds), ['attack']);
+  context.queued[0].resolve();
+  await Promise.resolve();
+  assert.equal(vm.runInContext('game.status', context), 'your_turn');
+  assert.deepEqual(Array.from(context.queued[1].sounds), ['win']);
+  context.queued[1].start();
+  assert.equal(context.visibleStatus, 'complete');
+  assert.equal(vm.runInContext('busy', context), true);
+  context.queued[1].resolve();
+  await pending;
+  assert.equal(vm.runInContext('busy', context), false);
 });

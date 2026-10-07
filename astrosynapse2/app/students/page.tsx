@@ -83,7 +83,7 @@ export default function AcquireStudentsPage() {
   const running = jobs.some(active);
   const result = detail?.result;
   return <main className="progressive-page students-page">
-    <header><Link href="/">← Control center & Play</Link><Link href="/progressive">Astro6 progress ↗</Link></header>
+    <header><Link href="/">← Control center & Play</Link><Link href="/progressive">Astro6 progress ↗</Link><Link href="/acquisition-impact">Acquisition impact ↗</Link></header>
     <div className="progressive-heading"><div><p className="progressive-kicker">ASTRO6 / UNDERSTANDING</p><h1>Acquire students</h1><p>Learn the checkpoint’s next acquisition with an inspectable student.</p></div></div>
     {error ? <p role="alert" className="progressive-warning">{error}</p> : null}
     <section className="progressive-panel">
