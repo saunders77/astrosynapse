@@ -383,17 +383,17 @@ function navigate() {
 }
 // Fixed bars may wrap on narrow screens or with larger browser text sizes.
 // Maximize card height within the row, allowing up to two lines for fleets.
-// The market always reserves five equal landscape slots, including empty slots.
+// The market always reserves five equal portrait slots, including empty slots.
 function fitCards(container) {
   const market = container.id === 'market';
   const nodes = [...container.querySelectorAll(market ? ':scope > *' : ':scope > .card')];
   if (!nodes.length || !container.clientWidth || !container.clientHeight) return;
   const gap = parseFloat(getComputedStyle(container).columnGap) || 0;
   const width = container.clientWidth, height = container.clientHeight;
-  const ratios = nodes.map(node => market || node.classList.contains('base') ? 7 / 5 : 5 / 7);
+  const ratios = nodes.map(() => 5 / 7);
   let size;
   if (market) {
-    size = Math.min(height, Math.max(0, (width - 4 * gap) / 5) * 5 / 7);
+    size = Math.min(height, Math.max(0, (width - 4 * gap) / 5) * 7 / 5);
   } else {
     const fits = size => {
       let rows = 1, used = 0;
@@ -417,8 +417,45 @@ function fitCards(container) {
     node.style.setProperty('--fit-height', `${Math.max(0, size - .1)}px`);
   });
 }
+// Share viewport height between occupied rows, capping rows at the height their
+// cards can use. Empty rows and a width-limited market return space to the others.
+function fitBoard() {
+  const board = $('board');
+  if (!board.clientHeight || !board.clientWidth) return;
+  const rows = ['opponent-fleet', 'market', 'own-fleet', 'hand'].map(id => {
+    const row = $(id), section = row.parentElement;
+    const count = row.querySelectorAll(':scope > .card').length;
+    const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+    const sectionStyle = getComputedStyle(section);
+    const siblings = [...section.children].filter(n => n !== row && !n.hidden);
+    const chrome = siblings.reduce((sum, n) => sum + n.getBoundingClientRect().height, 0)
+      + siblings.length * (parseFloat(sectionStyle.rowGap) || 0)
+      + (parseFloat(sectionStyle.borderTopWidth) || 0) + (parseFloat(sectionStyle.borderBottomWidth) || 0);
+    const lines = id !== 'market' && count > 1 ? 2 : 1;
+    const columns = id === 'market' ? 5 : Math.max(1, Math.ceil(count / lines));
+    const cardHeight = Math.max(0, (row.clientWidth - (columns - 1) * gap) / columns) * 7 / 5;
+    return {chrome, cap: count || id === 'market' ? lines * cardHeight + (lines - 1) * gap : 24, space:0};
+  });
+  let remaining = Math.max(0, board.clientHeight - rows.reduce((sum, row) => sum + row.chrome, 0));
+  let open = [...rows];
+  while (open.length && remaining > .01) {
+    const share = remaining / open.length;
+    const capped = open.filter(row => row.cap <= share);
+    if (!capped.length) { for (const row of open) row.space = share; break; }
+    for (const row of capped) { row.space = row.cap; remaining -= row.cap; }
+    open = open.filter(row => !capped.includes(row));
+  }
+  const tracks = rows.map(row => `${row.chrome + row.space}px`).join(' ');
+  if (board.style.gridTemplateRows !== tracks) board.style.gridTemplateRows = tracks;
+}
+let boardFrame;
+function scheduleBoardFit() {
+  cancelAnimationFrame(boardFrame);
+  boardFrame = requestAnimationFrame(fitBoard);
+}
+new ResizeObserver(scheduleBoardFit).observe($('board'));
 const cardsObserver = new ResizeObserver(entries => entries.forEach(({target}) => fitCards(target)));
-const cardsMutationObserver = new MutationObserver(entries => entries.forEach(({target}) => fitCards(target)));
+const cardsMutationObserver = new MutationObserver(entries => { entries.forEach(({target}) => fitCards(target)); scheduleBoardFit(); });
 for (const id of ['hand', 'own-fleet', 'opponent-fleet', 'market']) {
   cardsObserver.observe($(id));
   cardsMutationObserver.observe($(id), {childList: true});

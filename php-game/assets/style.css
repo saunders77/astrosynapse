@@ -630,14 +630,8 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
 .win-rate-chart{display:block;width:100%;min-width:300px;max-height:190px}
 .win-rate-chart text{fill:var(--muted);font-size:10px}
 
-/* Let occupied rows borrow space from empty and landscape-only rows. */
-#board{--opponent-space:1fr;--own-space:1fr;--hand-space:1fr;gap:0;grid-template-rows:minmax(0,var(--opponent-space)) minmax(0,1fr) minmax(0,var(--own-space)) minmax(0,var(--hand-space));transition:grid-template-rows 180ms ease}
-#board:has(#opponent-fleet > .empty){--opponent-space:.5fr}
-#board:has(#own-fleet > .empty){--own-space:.5fr}
-#board:has(#hand > .empty){--hand-space:.5fr}
-#board:has(#opponent-fleet > .card):not(:has(#opponent-fleet > .card:not(.base))){--opponent-space:.78fr}
-#board:has(#own-fleet > .card):not(:has(#own-fleet > .card:not(.base))){--own-space:.78fr}
-#board:has(#hand > .card):not(:has(#hand > .card:not(.base))){--hand-space:.78fr}
+/* Row heights are shared according to available space and card content. */
+#board{gap:0;grid-template-rows:repeat(4,minmax(0,1fr));transition:none}
 #board > .market{border-top:1px solid #777;border-bottom:1px solid #777;border-radius:0;margin:0;padding:0}
 #board .cards,#board .market .cards{flex-wrap:wrap;align-content:start;align-items:start;gap:4px;overflow:hidden}
 #board .card,#board .card.base,#board .market .card{flex:none;width:var(--fit-width,100px);height:var(--fit-height,100%)}
@@ -678,8 +672,8 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
 #win-estimate b{font-size:inherit}
 #board .market .cards{flex-wrap:nowrap}
 #board .market .empty{flex:none;width:var(--fit-width);height:var(--fit-height);overflow:hidden}
-/* Ships rotate to match landscape bases in the five-card trade row. */
-#board .market .card:not(.base) .card-face img{position:absolute;left:50%;top:50%;width:var(--fit-height);height:var(--fit-width);max-width:none;transform:translate(-50%,-50%) rotate(90deg)}
+/* All board cards are portrait; rotate base artwork without distortion. */
+#board .card.base .card-face img{position:absolute;left:50%;top:50%;width:var(--fit-height);height:var(--fit-width);max-width:none;transform:translate(-50%,-50%) rotate(90deg)}
 #buy-explorer{flex:none;align-self:start;min-height:24px;padding:3px 10px;font-size:.75rem;line-height:1.2}
 @media(max-width:760px){
   #opponent-bar,.playing #player-bar{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px}
@@ -714,3 +708,5 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
 #opponent-name{flex:1 1 180px;min-width:0;max-width:none}
 @media(max-width:1050px) and (min-width:761px){#opponent-name{flex-basis:110px}}
 @media(max-width:760px){#opponent-name{flex-basis:70px}}
+
+.resource-icon:is(.authority,.trade,.combat)::before{inset:-5px -4px}

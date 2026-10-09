@@ -114,12 +114,15 @@ try {
       const market = await page.locator('#market').evaluate(n=>({width:n.clientWidth,scroll:n.scrollWidth,cards:[...n.children].map(c=>({w:c.clientWidth,h:c.clientHeight,top:c.offsetTop}))}));
       assert.equal(market.cards.length,5);
       assert.ok(market.scroll<=market.width+1, 'Five market cards fit without overflow');
-      assert.ok(market.cards.every(c=>c.w>c.h), 'All market cards use landscape slots');
+      assert.ok(market.cards.every(c=>c.h>c.w), 'All market cards use portrait slots');
       assert.equal(new Set(market.cards.map(c=>c.top)).size,1);
+      assert.ok(await page.locator('#market').evaluate(n=>n.clientHeight <= ((n.clientWidth - 16) / 5) * 7 / 5 + 1), 'Trade row returns height beyond its width limit');
+      if (!contents.length) assert.ok(layout.height <= 25, 'Empty fleet returns its unused height');
+      assert.ok(await page.locator('#own-fleet .card').evaluateAll(nodes=>nodes.every(n=>n.clientHeight>n.clientWidth)), 'Bases and ships use portrait slots');
       assert.equal(await page.locator('#must-discard').isVisible(),false);
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth), 'No page overflow');
     }
-    assert.ok(heights[0] < heights[1] && heights[1] < heights[2], 'Empty and base-only rows reserve less space');
+    assert.ok(heights[0] < heights[1] && Math.abs(heights[1] - heights[2]) < 1, 'Empty rows return space; portrait bases and ships share sizing');
     const explorerFixture = structuredClone(game);
     explorerFixture.observation.explorers_remaining = 10;
     explorerFixture.decision = {family:'main', actions:[{id:91, kind:'acquire', card_id:2, source_zone:'explorer_supply', amount:2}]};
