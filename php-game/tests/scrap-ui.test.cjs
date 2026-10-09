@@ -5,8 +5,15 @@ const test = require('node:test');
 
 function board(actions, status = 'your_turn', observation = {}, family = 'scrap') {
   class Element {
-    constructor() { this.children = []; this.dataset = {}; this.listeners = {}; this.parent = { open: false }; this.classes = new Set(); this.classList = { toggle: (name, on) => on ? this.classes.add(name) : this.classes.delete(name) }; this.attributes = {}; }
+    constructor() { this.children = []; this.style = {}; this.dataset = {}; this.listeners = {}; this.parent = { open: false }; this.classes = new Set(); this.classList = { toggle: (name, on) => on ? this.classes.add(name) : this.classes.delete(name) }; this.attributes = {}; }
     append(...children) { this.children.push(...children); }
+    insertBefore(child, before) {
+      this.children = this.children.filter(n => n !== child);
+      const index = before ? this.children.indexOf(before) : this.children.length;
+      this.children.splice(index, 0, child); child.owner = this;
+    }
+    get lastElementChild() { return this.children.at(-1); }
+    remove() { if (this.owner) this.owner.children = this.owner.children.filter(n => n !== this); }
     replaceChildren(...children) { this.children = children; }
     addEventListener(name, callback) { this.listeners[name] = callback; }
     setAttribute(name, value) { this.attributes[name] = value; }
@@ -25,7 +32,7 @@ function board(actions, status = 'your_turn', observation = {}, family = 'scrap'
     createElement: () => new Element(),
     createTextNode: text => text,
   };
-  const context = vm.createContext({ matchMedia: () => ({matches:true}), document, location: { pathname: '/', hash: '#game' }, localStorage: { getItem: () => null }, IntersectionObserver: class { observe() {} disconnect() {} } });
+  const context = vm.createContext({ matchMedia: () => ({matches:true}), document, location: { pathname: '/', hash: '#game' }, localStorage: { getItem: () => null }, IntersectionObserver: class { observe() {} unobserve() {} disconnect() {} } });
   const source = fs.readFileSync(`${__dirname}/../assets/runtime/ui.mjs`, 'utf8').split("// Fixed bars may wrap")[0].replace(/^import .*;$/gm, '');
   vm.runInContext(fs.readFileSync(`${__dirname}/../assets/runtime/turn-summary.mjs`, 'utf8').replace('export function', 'function'), context);
   vm.runInContext(source, context);

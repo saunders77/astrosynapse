@@ -185,6 +185,7 @@ function cardView(id, actions = [], state = '') {
   const node = el('article', `card ${c.card_type !== 'ship' ? 'base' : ''} ${actions.length ? 'actionable' : ''}`);
   node.dataset.faction = c.faction;
   node.dataset.cardId = id;
+  node.dataset.renderKey = JSON.stringify([actions, state]);
   const face = el('button', 'card-face'); face.type = 'button';
   const action = actions.length === 1 && actions[0].kind !== 'scrap_for_ability' ? actions[0] : null;
   node.classList.toggle('single-action', actions.length === 1);
@@ -204,7 +205,37 @@ function cardView(id, actions = [], state = '') {
   const detail = el('button', 'details', 'Details'); detail.type = 'button'; detail.setAttribute('aria-label', `Details for ${c.name}`); detail.addEventListener('click', () => inspect(c)); controls.append(detail);
   meta.append(controls); node.append(meta); return node;
 }
-function zone(id, entries) { const node = $(id); node.replaceChildren(...entries); if (!entries.length) node.append(el('span', 'empty', 'No cards')); }
+function zone(id, entries) {
+  const node = $(id), available = new Map();
+  for (const child of node.children) {
+    const key = child.dataset.cardId;
+    if (key === undefined) continue;
+    if (!available.has(key)) available.set(key, []);
+    available.get(key).push(child);
+  }
+  const next = entries.map(entry => {
+    const previous = available.get(entry.dataset.cardId)?.shift();
+    if (!previous) return entry;
+    const freshImage = entry.children[0].children[0];
+    imageObserver.unobserve(freshImage);
+    if (previous.dataset.renderKey !== entry.dataset.renderKey) {
+      // Keep the decoded image while updating action handlers and labels.
+      entry.children[0].replaceChildren(previous.children[0].children[0]);
+      previous.replaceChildren(...entry.children);
+      previous.className = entry.className;
+      previous.dataset.renderKey = entry.dataset.renderKey;
+    }
+    previous.style.visibility = '';
+    return previous;
+  });
+  if (!next.length) next.push(el('span', 'empty', 'No cards'));
+  // Do not detach unchanged artwork (or reset its loading/decoding state).
+  next.forEach((child, index) => {
+    if (node.children[index] !== child) node.insertBefore(child, node.children[index] || null);
+  });
+  while (node.children.length > next.length) node.lastElementChild.remove();
+}
+
 function render() {
   const home = location.hash !== '#game';
   const active = !!game && game.status !== 'complete';
@@ -384,6 +415,7 @@ function navigate() {
 // Fixed bars may wrap on narrow screens or with larger browser text sizes.
 // Maximize card height within the row, allowing up to two lines for fleets.
 // The market always reserves five equal portrait slots, including empty slots.
+const cardLayoutAnimations = new WeakMap();
 function fitCards(container) {
   const market = container.id === 'market';
   const nodes = [...container.querySelectorAll(market ? ':scope > *' : ':scope > .card')];
@@ -412,9 +444,24 @@ function fitCards(container) {
     }
     size = low;
   }
+  const nextWidth = `${Math.max(0, size * 5 / 7 - .1).toFixed(2)}px`;
+  const nextHeight = `${Math.max(0, size - .1).toFixed(2)}px`;
+  if (container.style.getPropertyValue('--fit-width') === nextWidth && container.style.getPropertyValue('--fit-height') === nextHeight) return;
+  const previous = nodes.map(node => node.getBoundingClientRect());
+  container.style.setProperty('--fit-width', nextWidth);
+  container.style.setProperty('--fit-height', nextHeight);
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   nodes.forEach((node, index) => {
-    node.style.setProperty('--fit-width', `${Math.max(0, size * ratios[index] - .1)}px`);
-    node.style.setProperty('--fit-height', `${Math.max(0, size - .1)}px`);
+    const from = previous[index];
+    cardLayoutAnimations.get(node)?.cancel();
+    const to = node.getBoundingClientRect();
+    if (reduced || !from.width || !to.width || !from.height || !to.height) return;
+    if (Math.abs(from.width - to.width) + Math.abs(from.height - to.height) + Math.abs(from.x - to.x) + Math.abs(from.y - to.y) < .5) return;
+    const animation = node.animate([
+      {transform: `translate(${from.x - to.x}px, ${from.y - to.y}px) scale(${from.width / to.width}, ${from.height / to.height})`},
+      {transform: 'none'},
+    ], {duration:160, easing:'ease-out'});
+    cardLayoutAnimations.set(node, animation);
   });
 }
 // Share viewport height between occupied rows, capping rows at the height their
@@ -445,15 +492,20 @@ function fitBoard() {
     for (const row of capped) { row.space = row.cap; remaining -= row.cap; }
     open = open.filter(row => !capped.includes(row));
   }
-  const tracks = rows.map(row => `${row.chrome + row.space}px`).join(' ');
-  if (board.style.gridTemplateRows !== tracks) board.style.gridTemplateRows = tracks;
+  const tracks = rows.map(row => `${(row.chrome + row.space).toFixed(2)}px`).join(' ');
+  if (board.dataset.layoutTracks !== tracks) {
+    board.dataset.layoutTracks = tracks;
+    board.style.gridTemplateRows = tracks;
+  }
 }
 let boardFrame;
 function scheduleBoardFit() {
   cancelAnimationFrame(boardFrame);
   boardFrame = requestAnimationFrame(fitBoard);
 }
-new ResizeObserver(scheduleBoardFit).observe($('board'));
+const boardObserver = new ResizeObserver(scheduleBoardFit);
+boardObserver.observe($('board'));
+boardObserver.observe($('buy-explorer'));
 const cardsObserver = new ResizeObserver(entries => entries.forEach(({target}) => fitCards(target)));
 const cardsMutationObserver = new MutationObserver(entries => { entries.forEach(({target}) => fitCards(target)); scheduleBoardFit(); });
 for (const id of ['hand', 'own-fleet', 'opponent-fleet', 'market']) {

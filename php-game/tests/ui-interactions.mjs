@@ -147,6 +147,32 @@ try {
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     await page.screenshot({path:`/tmp/php-game-ui-${viewport.width}.png`});
   }
+  // Playing cards must retain decoded market art, even as buy actions change.
+  for (const viewport of [{width:390,height:844},{width:1440,height:900}]) {
+    await page.setViewportSize(viewport);
+    await page.evaluate(g=>window.fixture.set(g), game);
+    await page.waitForTimeout(500);
+    const rendering = await page.evaluate(async () => {
+      const market = document.getElementById('market');
+      const original = [...market.querySelectorAll('.card')];
+      const images = original.map(n=>n.querySelector('img'));
+      const g = structuredClone(window.fixture.get());
+      g.observation.hand = [0,0,0,1,1];
+      g.observation.own_in_play = [{card:0},{card:0}];
+      g.observation.trade = 20;
+      g.decision = {family:'main', actions:g.observation.trade_row.map((card_id,id)=>({id,kind:'acquire',card_id,source_zone:'trade_row',amount:1}))};
+      window.fixture.set(g);
+      const sameCards = original.every((n,i)=>market.children[i] === n);
+      const sameImages = images.every((n,i)=>market.children[i].querySelector('img') === n);
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      const animated = document.getElementById('board').getAnimations({subtree:true}).length > 0;
+      const fallbackHidden = images.every(n=>getComputedStyle(n).color === 'rgba(0, 0, 0, 0)');
+      return {sameCards,sameImages,animated,fallbackHidden};
+    });
+    assert.deepEqual(rendering,{sameCards:true,sameImages:true,animated:true,fallbackHidden:true});
+    await page.waitForTimeout(600);
+    assert.equal(await page.locator('#board').evaluate(n=>n.getAnimations({subtree:true}).length),0,'Layout settles instead of repeatedly resizing');
+  }
   assert.equal(opponentTurnSummary({status:'your_turn',observation:{turn:3},action_log:[
     {player_id:1,turn:2,kind:'play_card',card_id:0}, {player_id:1,turn:2,kind:'play_card',card_id:0},
     {player_id:1,turn:2,kind:'play_card',card_id:1}, {player_id:1,turn:2,kind:'acquire',card_id:2},

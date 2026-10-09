@@ -631,7 +631,7 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
 .win-rate-chart text{fill:var(--muted);font-size:10px}
 
 /* Row heights are shared according to available space and card content. */
-#board{gap:0;grid-template-rows:repeat(4,minmax(0,1fr));transition:none}
+#board{gap:0;grid-template-rows:repeat(4,minmax(0,1fr));transition:grid-template-rows 200ms ease}
 #board > .market{border-top:1px solid #777;border-bottom:1px solid #777;border-radius:0;margin:0;padding:0}
 #board .cards,#board .market .cards{flex-wrap:wrap;align-content:start;align-items:start;gap:4px;overflow:hidden}
 #board .card,#board .card.base,#board .market .card{flex:none;width:var(--fit-width,100px);height:var(--fit-height,100%)}
@@ -716,3 +716,8 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
 #new-game .welcome{flex-basis:100%;margin:0;line-height:1.3}
 .status:empty{display:none}
 #game-page:has(> #board[hidden]){padding-top:0}
+
+/* Retain accessible image names without painting fallback text during loading. */
+.card .card-face img{color:transparent;font-size:0}
+#board .card{transform-origin:top left}
+@media(prefers-reduced-motion:reduce){#board{transition:none}}
