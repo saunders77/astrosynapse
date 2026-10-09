@@ -55,7 +55,10 @@ async function request(payload, errorTarget = 'error') {
         const resultSound = ['win', 'lose'].includes(sounds.at(-1)) ? sounds.pop() : null;
         await Promise.all([
           audio.enqueue(sounds),
-          sameGame && payload.op !== 'undo' ? animateAcquisitions(data.game) : Promise.resolve(),
+          sameGame && payload.op !== 'undo' ? animateAcquisitions(data.game).then(() => {
+            game = data.game;
+            render(); lock(true);
+          }) : Promise.resolve(),
         ]);
         if (resultSound) {
           await audio.enqueue([resultSound], () => {
@@ -118,8 +121,12 @@ async function animateAcquisitions(next) {
       await ghost.animate([
         {transform: 'translate(0, 0) scale(1)', opacity: 1},
         {transform: `translate(${to.x + to.width / 2 - from.x - from.width / 2}px, ${to.y + to.height / 2 - from.y - from.height / 2}px) scale(0.15)`, opacity: 0.3},
-      ], {duration: 250, easing: 'ease-in-out'}).finished;
-    } finally { ghost.remove(); source.style.visibility = ''; }
+      ], {duration: 350, easing: 'cubic-bezier(0.42, 0, 1, 1)', fill: 'forwards'}).finished;
+    } catch (error) {
+      source.style.visibility = '';
+      throw error;
+    } finally { ghost.remove(); }
+    // Keep the acquired card hidden until request renders the replacement.
   }
 }
 function openResignConfirmation() {

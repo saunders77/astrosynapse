@@ -65,6 +65,7 @@ try {
     await page.evaluate(g => window.fixture.set(g), game);
   }
   for (const [player_id, kind] of [[0,'acquire'],[1,'acquire'],[0,'free_acquire']]) {
+    await page.evaluate(g => window.fixture.set(g), game);
     const next = structuredClone(game);
     next.action_log.push({kind,player_id,card_id:game.observation.trade_row[0],target_card_id:game.observation.trade_row[0]});
     const duration = await page.evaluate(async next => {
@@ -72,6 +73,7 @@ try {
       const ghost = document.querySelector('.acquiring-card');
       const animation = ghost.getAnimations()[0];
       const duration = animation.effect.getTiming().duration;
+      if (animation.effect.getTiming().easing !== 'cubic-bezier(0.42, 0, 1, 1)') throw Error('Acquisition should accelerate from rest');
       const entry = next.action_log.at(-1);
       const target = document.querySelector(`[data-inspect="${entry.player_id ? 'opponent-deck' : 'own-deck'}"]`).getBoundingClientRect();
       const from = ghost.getBoundingClientRect();
@@ -80,9 +82,15 @@ try {
           Math.abs(from.y + from.height / 2 + transform.m42 - target.y - target.height / 2) > 1) throw Error('Incorrect acquisition destination');
       await promise;
       if (document.querySelector('.acquiring-card')) throw Error('Animation was not cleaned up');
+      const source = document.querySelector(`#market .card[data-card-id="${entry.card_id}"]`);
+      if (getComputedStyle(source).visibility !== 'hidden') throw Error('Acquired card reappeared before the board update');
+      next.observation.trade_row[0] = 0;
+      window.fixture.set(next);
+      const replacement = document.querySelector('#market .card');
+      if (replacement.dataset.cardId !== '0' || getComputedStyle(replacement).visibility !== 'visible') throw Error('Replacement card is not visible');
       return duration;
     }, next);
-    assert.equal(duration,250);
+    assert.equal(duration,350);
   }
   for (const viewport of [{width:1440,height:900},{width:390,height:844}]) {
     await page.setViewportSize(viewport);

@@ -16,14 +16,17 @@
       To learn more about strategy, I used machine learning techniques to train computer models that play better than I can.
       If you're not familiar with Star Realms, <a href="https://starrealms.com">learn to play it first</a> before reading this page, or else this info won't make much sense.
     </p>
+    <h2>Technical details</h2>
     <p>
-      I trained the models using a 2-million-parameter neural net architecture inspired by the <a href="https://www.nature.com/articles/nature16961">original AlphaGo paper</a> and subsequent AlphaZero research.
+      I trained the models using a 2-million-parameter neural net architecture inspired by the <a href="https://www.nature.com/articles/nature16961">original AlphaGo paper</a> and later AlphaZero research.
       They are entirely trained on self-play, with zero human training or influence except for the ability to check for obvious game-winning moves within a single turn.
-      The best model I trained, <b>Level 5 (1283 ELO)</b> is trained on 23 million self-play games and it beats me in around 64% of games (70% of the time when it goes first and 58% of the time when it goes second).
+      The best model I trained, <b>Level 5 (1283 ELO)</b> is trained on 24 million self-play games and it beats me (1180 ELO) in around 64% of games (70% of the time when it goes first and 58% of the time when it goes second). 
+      For comparison, on this scale the ELO of the "Hard AI" in the official Star Realms game is approximately 1003. (A 100 ELO advantage at any level implies a 64% win rate.)
     </p>
+    <h2>Using this page</h2>
     <p>
       On this page you can <b>try playing against some of the computer models</b> I trained and <b>see statistics about their strategy</b>.
-      The models below <b>do not cheat</b>, but they <b>do constantly make use of all available information according to the digital game rules</b>, including the cards in both discard piles, the cards in their deck (but not their order), and the (combined unordered) cards in your deck+hand.
+      The models below <b>do not cheat</b>, but they <b>do constantly make use of all available information according to the digital game rules</b>, including the cards in both discard piles, the cards in their deck (but not their order), the (combined unordered) cards in your deck+hand, and the cards in the trade row (but not any unrelealed ones).
       Hopefully you'll find it interesting or learn better strategies and ideas for your own games too!
       Note that the variance of Star Realms is very high, so a handful of games won't reveal your true playing strength.
       For example, hypothetically, if you're good enough to win exactly 60% of games against a specific ML model, then you'll need to play <b>at least 92 games</b> to be confident (95% confident) that you're actually better.
