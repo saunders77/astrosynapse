@@ -21,7 +21,8 @@
       I trained the models using a 2-million-parameter neural net architecture inspired by the <a href="https://www.nature.com/articles/nature16961">original AlphaGo paper</a> and later AlphaZero research.
       They are entirely trained on self-play, with zero human training or influence except for the ability to check for obvious game-winning moves within a single turn.
       The best model I trained, <b>Level 5 (1283 ELO)</b> is trained on 24 million self-play games and it beats me (1180 ELO) in around 64% of games (70% of the time when it goes first and 58% of the time when it goes second). 
-      For comparison, on this scale the ELO of the "Hard AI" in the official Star Realms game is approximately 1003. (A 100 ELO advantage at any level implies a 64% win rate.)
+      For comparison, on this scale the ELO of the "Hard AI" in the official Star Realms game is approximately 1003. (A 100 ELO advantage at any level implies a 64% win rate.) 
+      I also train a "critic" alongside each model which evaluates the position from the model's perspective, according to the expected with probability from that position. 
     </p>
     <h2>Using this page</h2>
     <p>
@@ -30,7 +31,8 @@
       Hopefully you'll find it interesting or learn better strategies and ideas for your own games too!
       Note that the variance of Star Realms is very high, so a handful of games won't reveal your true playing strength.
       For example, hypothetically, if you're good enough to win exactly 60% of games against a specific ML model, then you'll need to play <b>at least 92 games</b> to be confident (95% confident) that you're actually better.
-      Fortunately, it's possible to finish a game quickly in just a few minutes (though you'll want to think longer to play your best).
+      Fortunately, it's possible to finish a game quickly in just a few minutes (though you'll want to think longer to play your best). 
+      Throughout play, each model displays its own estimated win probability at the top of the screen. 
     </p>
   </div>
     <form id="new-game" class="setup">

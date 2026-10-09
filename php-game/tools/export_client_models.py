@@ -63,7 +63,7 @@ def levels():
         row=db.execute('select actor_path from checkpoints where id=?',(cid,)).fetchone()
         sources.append((Path(row[0]),elo,{'checkpoint_id':cid}))
     sources.append((REPO/'astrosynapse2/data/analysis/astro5-champion-8844ddc7295a4f60.actor.npz',1093,{'checkpoint_id':'8844ddc7295a4f60'}))
-    sources.append((REPO/'astrosynapse2/data/autopilot/828813dc45d24cf086e019c6537d1b02/tasks/policy-00004/g00020000.actor.npz',1283,{'checkpoint_id':'auto-828813dc45d24cf086e019c6537d1b02-pd9dd811c376c'}))
+    sources.append((REPO/'astrosynapse2/data/autopilot/828813dc45d24cf086e019c6537d1b02/tasks/policy-00080/g00010000.actor.npz',1283,{'checkpoint_id':'auto-828813dc45d24cf086e019c6537d1b02-pf7a916ee5c7a'}))
     entries=[]
     for level,(source,elo,provenance) in enumerate(sources,1):
         filename=f'level-{level:02d}.astro.gz'
