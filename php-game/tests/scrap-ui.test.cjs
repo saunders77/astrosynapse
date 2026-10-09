@@ -16,6 +16,7 @@ function board(actions, status = 'your_turn', observation = {}, family = 'scrap'
     focus() {}
     getBoundingClientRect() { return {x:0,y:0,width:100,height:100}; }
     closest() { return this.parent; }
+    get parentElement() { return this.parent; }
   }
   const nodes = new Map();
   const document = {
@@ -28,13 +29,13 @@ function board(actions, status = 'your_turn', observation = {}, family = 'scrap'
   const source = fs.readFileSync(`${__dirname}/../assets/runtime/ui.mjs`, 'utf8').split("// Fixed bars may wrap")[0].replace(/^import .*;$/gm, '');
   vm.runInContext(fs.readFileSync(`${__dirname}/../assets/runtime/turn-summary.mjs`, 'utf8').replace('export function', 'function'), context);
   vm.runInContext(source, context);
-  context.fixture = { status, decision: { family, actions }, observation: {
+  context.fixture = { model_label: 'Level 1', status, decision: { family, actions }, observation: {
     hand: [0, 0, 1], own_discard: [0, 1], own_in_play: [], opponent_in_play: [],
     trade_row: [], opponent_discard: [0], scrap_heap: [0], explorers_remaining: 0, ...observation,
   }, action_log: [] };
   vm.runInContext(`cards = [0, 1].map(card_id => ({card_id, name: 'Card ' + card_id, card_type: 'ship'})); game = fixture; move = id => { globalThis.chosen = id; }; render();`, context);
   const allButtons = id => document.getElementById(id).children.flatMap(card => card.children[1]?.children.at(-1)?.children || []);
-  const buttons = id => allButtons(id).filter(button => button.textContent === 'SCRAP');
+  const buttons = id => allButtons(id).filter(button => button.textContent === 'Scrap');
   return { buttons, allButtons, context, nodes };
 }
 
@@ -81,7 +82,7 @@ test('target buttons resolve destroy, free acquire, and copy decisions', () => {
       { id: 8, kind, card_id: 0, target_card_id: 1, source_zone },
     ], 'your_turn', { own_in_play: [{ card: 0 }, { card: 1 }], opponent_in_play: [{ card: 1 }], trade_row: [1] });
     for (const zone of ['own-fleet', 'opponent-fleet', 'market']) {
-      const targets = allButtons(zone).filter(b => b.textContent === {destroy_base: 'DESTROY', free_acquire: 'ACQUIRE FREE', copy_ship: 'COPY'}[kind]);
+      const targets = allButtons(zone).filter(b => b.textContent === {destroy_base: 'Destroy', free_acquire: 'Free', copy_ship: 'Copy'}[kind]);
       assert.equal(targets.length, zone === targetZone ? 1 : 0);
       if (targets.length) { targets[0].listeners.click(); assert.equal(context.chosen, 8); }
     }
@@ -309,7 +310,7 @@ for (const copyFirst of [false, true]) test(`Stealth scrap buttons select physic
     { id: 30, kind: 'scrap_for_ability', card_id: 0, target_card_id: -1 },
     { id: 31, kind: 'scrap_for_ability', card_id: 0, target_card_id: 23 },
   ], 'your_turn', { own_in_play: copyFirst ? [copy, original] : [original, copy] }, 'main');
-  const buttons = allButtons('own-fleet').filter(b => b.textContent === '🗑️ Scrap for ability');
+  const buttons = allButtons('own-fleet').filter(b => b.textContent === 'Scrap');
   assert.equal(buttons.length, 2);
   buttons[0].listeners.click(); assert.equal(context.chosen, copyFirst ? 31 : 30);
   buttons[1].listeners.click(); assert.equal(context.chosen, copyFirst ? 30 : 31);

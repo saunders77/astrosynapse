@@ -10,11 +10,14 @@ for (const file of ['tools/index.template.html', 'index.html']) {
       id: tag.match(/\bid="([^"]+)"/)?.[1],
       dataset: Object.fromEntries([...tag.matchAll(/data-([\w-]+)="([^"]+)"/g)].map(([, key, value]) => [key, value])),
       listeners: {},
+      getAttribute() { return this.id; },
+      parentElement: { querySelector() { return { append() {} }; } },
       addEventListener(event, callback) { this.listeners[event] = callback; },
       showModal() { this.open = true; },
       close() { this.open = false; },
     }));
     const document = {
+      createElement: () => ({setAttribute() {}, addEventListener() {}, append() {}}),
       getElementById: id => nodes.find(node => node.id === id) || null,
       querySelectorAll: selector => nodes.filter(node => selector.slice(6, -1) in node.dataset),
     };

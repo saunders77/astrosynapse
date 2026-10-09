@@ -92,14 +92,14 @@ try {
     }, next);
     assert.equal(duration,350);
   }
-  for (const viewport of [{width:1440,height:900},{width:390,height:844}]) {
+  for (const viewport of [{width:1440,height:900},{width:390,height:844},{width:320,height:568},{width:667,height:375}]) {
     await page.setViewportSize(viewport);
     const heights = [];
-    for (const contents of [[],[cards.find(c=>c.card_type !== 'ship').card_id],[0],Array(24).fill(0)]) {
+    for (const contents of [[],[cards.find(c=>c.card_type !== 'ship').card_id],[0],Array(48).fill(0)]) {
       const fixture = structuredClone(game);
       fixture.observation.own_in_play = contents.map(card=>({card}));
       await page.evaluate(g=>window.fixture.set(g),fixture);
-      await page.waitForTimeout(250);
+      await page.waitForTimeout(500);
       const layout = await page.evaluate(() => {
         const container = document.querySelector('#own-fleet');
         const rect = container.getBoundingClientRect();
@@ -107,10 +107,33 @@ try {
       });
       heights.push(layout.height);
       assert.ok(layout.scroll <= layout.viewport + 1);
-      for (const card of layout.rows) {assert.ok(card.bottom<=layout.bottom+1);assert.ok(card.right<=layout.right+1);}
-      if (contents.length === 24) assert.ok(new Set(layout.rows.map(r=>r.top)).size > 1, 'Crowded rows wrap');
+      for (const card of layout.rows) {assert.ok(card.bottom<=layout.bottom+1, JSON.stringify({viewport,layout}));}
+      if (contents.length === 48) {
+        assert.equal(new Set(layout.rows.map(r=>r.top)).size, 1, 'Crowded rows stay on one line');
+        assert.ok(layout.rows[0].bottom - layout.rows[0].top >= layout.height - 1, `Cards fill the row height: ${JSON.stringify({viewport,layout})}`);
+        await page.getByRole('button', {name:'Scroll right: In play', exact:true}).click();
+        await page.waitForTimeout(400);
+        assert.ok(await page.locator('#own-fleet').evaluate(n=>n.scrollLeft > 0), 'Carousel moves right');
+      }
+      const market = await page.locator('#market').evaluate(n=>({width:n.clientWidth,scroll:n.scrollWidth,cards:[...n.children].map(c=>({w:c.clientWidth,h:c.clientHeight}))}));
+      assert.equal(market.cards.length,6);
+      assert.ok(market.scroll<=market.width+1, 'Six market cards fit without overflow');
+      assert.ok(market.cards.every(c=>c.h>c.w), 'All market cards use portrait slots');
+      assert.equal(await page.locator('#must-discard').isVisible(),false);
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth), 'No page overflow');
     }
     assert.ok(heights[0] < heights[1] && heights[1] < heights[2], 'Empty and base-only rows reserve less space');
+    const discards = structuredClone(game);
+    discards.model_label = 'Level 5';
+    discards.observation.pending_discard = 1;
+    discards.observation.opponent_pending_discard = 3;
+    await page.evaluate(g=>window.fixture.set(g), discards);
+    assert.equal(await page.locator('#must-discard').isVisible(), true);
+    assert.equal(await page.locator('#opponent-must-discard').isVisible(), true);
+    assert.equal(await page.locator('#opponent-name').textContent(), 'Lv. 5');
+    assert.equal(await page.locator('#authority').evaluate(n=>getComputedStyle(n).color), 'rgb(0, 0, 0)');
+    assert.ok(await page.locator('#win-estimate').evaluate(n=>{const r=n.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth;}), 'Win probability stays inside the viewport with discard counters');
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     await page.screenshot({path:`/tmp/php-game-ui-${viewport.width}.png`});
   }
   assert.equal(opponentTurnSummary({status:'your_turn',observation:{turn:3},action_log:[
@@ -125,5 +148,5 @@ try {
   await page.mouse.click(2,2);
   assert.equal(await page.locator('#card-dialog').evaluate(n=>n.open), false);
   assert.deepEqual(errors, []);
-  console.log('PASS minimize/restore, pile inspection, detail backdrop, acquisition timing for both players, summaries, desktop/mobile sizing and wrapping');
+  console.log('PASS minimize/restore, pile inspection, detail backdrop, acquisition timing for both players, summaries, desktop/mobile sizing and carousels');
 } finally {await browser.close(); await new Promise(resolve=>server.close(resolve));}

@@ -10,13 +10,14 @@ let cards = [], models = [], game = null, busy = false, timer = null, openPile =
 let dismissedSelection = null;
 const selectionKey = () => game ? `${game.id}:${game.revision}` : null;
 let requestId = 0; const waiting = new Map();
+const compactLevel = name => name.replace(/\bLevel (\d+)/g, 'Lv. $1');
 const aliasesKey = 'astro-model-names:' + location.pathname.replace(/index\.html$/, '');
 let aliases = {}; try { aliases = JSON.parse(localStorage.getItem(aliasesKey) || '{}'); } catch {}
 // Core Set filenames verified against https://www.starrealms.com/card-gallery/data/cards.json
 const art = c => `https://www.starrealms.com/card-gallery/images/content/card-gallery/${c.name.toLowerCase().replaceAll(' ', '-')}.webp`;
 const el = (tag, className, text) => { const n = document.createElement(tag); if (className) n.className = className; if (text !== undefined) n.textContent = text; return n; };
 const showError = (message, id = 'error') => { $(id).textContent = message; $(id).hidden = !message; };
-function lock(value) { busy = value; document.body.classList.toggle('busy', value); document.querySelectorAll('button, select, input').forEach(n => n.disabled = (value && !n.matches('.details, .pile, [data-close], [data-inspect], [data-open], #audio-volume, #start')) || n.dataset.unavailable === 'true'); }
+function lock(value) { busy = value; document.body.classList.toggle('busy', value); document.querySelectorAll('button, select, input').forEach(n => n.disabled = (value && !n.matches('.details, .pile, .carousel-arrow, [data-close], [data-inspect], [data-open], #audio-volume, #start')) || n.dataset.unavailable === 'true'); }
 function api(payload) {
   return new Promise((resolve, reject) => {
     const id = ++requestId; waiting.set(id, { resolve, reject }); worker.postMessage({ ...payload, requestId: id });
@@ -150,7 +151,12 @@ function inspect(card) {
   $('card-dialog').showModal();
 }
 function actionName(a) {
-  const names = { scrap_card: 'SCRAP', play_card: 'Play', acquire: `Acquire · ${a.amount} trade`, activate_base: 'Use ability', activate_ally: 'Use ally', scrap_for_ability: '🗑️ Scrap for ability', attack_base: `Attack base · ${a.amount} combat`, destroy_base: 'DESTROY', free_acquire: 'ACQUIRE FREE', copy_ship: 'COPY', scrap_trade_row: 'SCRAP', discard_card: 'DISCARD' };
+  const names = {
+    play_card: 'Play', acquire: `Buy (${a.amount})`, free_acquire: 'Free',
+    activate_base: 'Use', activate_ally: 'Ally', attack_base: `Attack (${a.amount})`,
+    scrap_card: 'Scrap', scrap_for_ability: 'Scrap', scrap_trade_row: 'Scrap',
+    destroy_base: 'Destroy', copy_ship: 'Copy', discard_card: 'Discard',
+  };
   return names[a.kind] || a.label;
 }
 function renderScrap(actions) {
@@ -217,9 +223,10 @@ function render() {
   $('resume-game').hidden = true;
   if (!game || home) { $('result-banner').hidden = true; $('status').textContent = ''; return; }
   const o = game.observation, d = game.decision, actions = d?.actions || [], main = d?.family === 'main';
-  $('opponent-name').textContent = game.model_label;
+  $('opponent-name').textContent = compactLevel(game.model_label);
   $('opponent-last-turn').textContent = opponentTurnSummary(game, cards);
   for (const [id, value] of Object.entries({ authority: o.own_authority, trade: o.trade, combat: o.combat, deck: o.own_deck_count, 'opponent-authority': o.opponent_authority, 'opponent-deck': o.opponent_hand_count + o.opponent_deck_count, 'must-discard': o.pending_discard || 0, 'opponent-must-discard': o.opponent_pending_discard || 0, 'opponent-trade': game.opponent_trade || 0, 'opponent-combat': game.opponent_combat || 0 })) $(id).textContent = value;
+  for (const id of ['must-discard', 'opponent-must-discard']) $(id).parentElement.hidden = Number($(id).textContent) < 1;
   $('opponent-win').textContent = Number.isFinite(game.opponent_win_probability) ? `${(game.opponent_win_probability * 100).toFixed(1)}%` : '—';
   $('turn').textContent = `TURN ${o.turn}`;
   $('hand-count').textContent = `${o.hand.length} cards`;
@@ -324,7 +331,7 @@ function inspectPile(id) {
 }
 function renderModels() {
   const selected = $('opponent').value;
-  $('opponent').replaceChildren(...models.map(m => { const option = el('option', '', aliases[m.id] || m.name); option.value = m.id; return option; }));
+  $('opponent').replaceChildren(...models.map(m => { const option = el('option', '', compactLevel(aliases[m.id] || m.name)); option.value = m.id; return option; }));
   $('opponent').value = models.some(m => m.id === selected) ? selected : 'level-05';
   $('start').disabled = !models.length;
   $('model-list').replaceChildren(...models.map(m => {
@@ -345,7 +352,7 @@ function renderStats() {
     const stats = readLevelStats(localStorage, statsPrefix);
     let wins = 0, losses = 0, draws = 0;
     $('stats-rows').replaceChildren(...stats.map(row => {
-      const name = `Level ${row.level}`;
+      const name = `Lv. ${row.level}`;
       wins += row.wins; losses += row.losses; draws += row.draws;
       const tr = el('tr'), heading = el('th', '', name); heading.scope = 'row'; tr.append(heading);
       for (const value of [row.wins, row.losses, row.draws, row.wins + row.losses ? `${Math.round(100 * row.wins / (row.wins + row.losses))}%` : '—']) tr.append(el('td', '', value));
@@ -368,35 +375,45 @@ function navigate() {
   if (stats) { renderStats(); $('stats-title').focus(); }
 }
 // Fixed bars may wrap on narrow screens or with larger browser text sizes.
-// Maximize a shared image height, preserving card orientation and source order.
+// Fleets fill one row vertically; the market fits six portrait cards horizontally.
 function fitCards(container) {
   const nodes = [...container.querySelectorAll(':scope > .card')];
   if (!nodes.length || !container.clientWidth || !container.clientHeight) return;
-  const gap = 4, width = container.clientWidth, height = container.clientHeight;
-  const ratios = nodes.map(node => node.classList.contains('base') ? 7 / 5 : 5 / 7);
-  const fits = size => {
-    let rows = 1, used = 0;
-    for (const ratio of ratios) {
-      const cardWidth = size * ratio;
-      if (cardWidth > width) return false;
-      if (used && used + gap + cardWidth > width) { rows++; used = 0; }
-      used += (used ? gap : 0) + cardWidth;
-    }
-    return rows * size + (rows - 1) * gap <= height;
-  };
-  let low = 0, high = height;
-  for (let step = 0; step < 20; step++) {
-    const mid = (low + high) / 2;
-    if (fits(mid)) low = mid; else high = mid;
-  }
-  nodes.forEach((node, index) => {
-    node.style.setProperty('--fit-width', `${Math.max(0, low * ratios[index] - .1)}px`);
-    node.style.setProperty('--fit-height', `${Math.max(0, low - .1)}px`);
+  const market = container.id === 'market';
+  const gap = parseFloat(getComputedStyle(container).columnGap) || 0;
+  const count = Math.max(6, nodes.length);
+  const height = market
+    ? Math.min(container.clientHeight, Math.max(0, (container.clientWidth - gap * (count - 1)) / count) * 7 / 5)
+    : container.clientHeight;
+  nodes.forEach(node => {
+    const ratio = !market && node.classList.contains('base') ? 7 / 5 : 5 / 7;
+    node.style.setProperty('--fit-width', `${Math.max(0, height * ratio - .1)}px`);
+    node.style.setProperty('--fit-height', `${Math.max(0, height - .1)}px`);
   });
 }
 const cardsObserver = new ResizeObserver(entries => entries.forEach(({target}) => fitCards(target)));
 const cardsMutationObserver = new MutationObserver(entries => entries.forEach(({target}) => fitCards(target)));
 for (const id of ['hand', 'own-fleet', 'opponent-fleet', 'market']) {
+  const row = $(id);
+  const controls = el('span', 'carousel-controls');
+  for (const [direction, label, glyph] of [[-1, 'Scroll left', '‹'], [1, 'Scroll right', '›']]) {
+    const button = el('button', 'carousel-arrow', glyph);
+    button.type = 'button';
+    button.setAttribute('aria-label', `${label}: ${row.getAttribute('aria-label').split(',')[0]}`);
+    button.setAttribute('aria-controls', id);
+    button.addEventListener('click', () => row.scrollBy({left: direction * row.clientWidth * .8, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'}));
+    controls.append(button);
+  }
+  row.parentElement.querySelector('.zone-title').append(controls);
+  const updateControls = () => {
+    controls.hidden = row.scrollWidth <= row.clientWidth + 1;
+    controls.firstChild.dataset.unavailable = String(row.scrollLeft <= 1);
+    controls.lastChild.dataset.unavailable = String(row.scrollLeft + row.clientWidth >= row.scrollWidth - 1);
+    for (const button of controls.children) button.disabled = button.dataset.unavailable === 'true';
+  };
+  row.addEventListener('scroll', updateControls, {passive: true});
+  new ResizeObserver(updateControls).observe(row);
+  new MutationObserver(() => requestAnimationFrame(updateControls)).observe(row, {childList: true});
   cardsObserver.observe($(id));
   cardsMutationObserver.observe($(id), {childList: true});
 }

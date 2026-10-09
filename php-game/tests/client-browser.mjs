@@ -25,7 +25,7 @@ async function assertTableFits(page) {
   for (let i = 1; i < rows.length; i++) assert.ok(rows[i].top >= rows[i - 1].bottom, 'Fleets, trade row, and hand stay in vertical order');
   assert.equal(layout.bars[0].position, 'fixed'); assert.equal(layout.bars[1].position, 'fixed');
   assert.equal(layout.bars[0].top, 0); assert.equal(layout.bars[1].bottom, layout.height);
-  for (const r of layout.boxes) assert.ok(r.top >= layout.bars[0].bottom && r.left >= 0 && r.bottom <= layout.bars[1].top + 1 && r.right <= layout.width + 1, `${r.name} fits in viewport`);
+  for (const r of layout.boxes) assert.ok(r.top >= layout.bars[0].bottom && r.bottom <= layout.bars[1].top + 1 && (r.name.includes('card') || (r.left >= 0 && r.right <= layout.width + 1)), `${r.name} fits in viewport`);
 }
 const root=fileURLToPath(new URL('../',import.meta.url)),requests=[];
 let newRelease=false;
@@ -99,14 +99,14 @@ try {
   console.log('PASS Play all, refresh resume, full worker-driven AI turn');
   await page.locator('#opponent').selectOption('level-01');
   await page.waitForFunction(()=>document.getElementById('status').textContent==='Level 1 is ready. Start a new game to play this level.');
-  await page.locator('#start').click();await page.waitForFunction(()=>document.getElementById('opponent-name').textContent==='Level 1');await page.locator('#play-all:not([hidden])').waitFor();
-  assert.equal(await page.locator('#opponent-name').innerText(),'Level 1');
+  await page.locator('#start').click();await page.waitForFunction(()=>document.getElementById('opponent-name').textContent==='Lv. 1');await page.locator('#play-all:not([hidden])').waitFor();
+  assert.equal(await page.locator('#opponent-name').innerText(),'Lv. 1');
   await page.locator('#opponent').selectOption('level-04');
   await page.waitForFunction(()=>document.getElementById('status').textContent.startsWith('Level 8 is ready.'));
   assert.deepEqual(requests.filter(x=>x.endsWith('.astro.gz')),['models/level-05.astro.gz','models/level-01.astro.gz','models/level-04.astro.gz']);
   console.log('PASS levels 1 and 8 download only on selection');
   await context.setOffline(true);
-  assert.equal(await page.locator('#opponent-name').innerText(),'Level 1');
+  assert.equal(await page.locator('#opponent-name').innerText(),'Lv. 1');
   await page.locator('#play-all').click();await page.waitForFunction(()=>document.getElementById('hand-count').textContent==='0 cards');
   await page.locator('#end-turn').click();await page.waitForFunction(()=>document.getElementById('status').textContent.startsWith('Your turn')&&document.getElementById('turn').textContent!=='TURN 1');
   console.log('PASS dropped-connection gameplay with downloaded models');

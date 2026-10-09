@@ -6,7 +6,7 @@
   <meta name="description" content="Play Star Realms entirely in your browser against five Astrosynapse levels.">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://www.starrealms.com; script-src 'self' 'sha256-KyZLX6poqlzE332jeMZV9cQfKplqh1/uos0nETbBGZ0='; worker-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
   <title>Machine Learning for Star Realms</title>
-  <meta name="arena-build" content="d56e0469b2fa6d06db301a12d40e84448158749e1330b3ef96e0b45934a6defb">
+  <meta name="arena-build" content="58840a184753365b1d27a4d4c4affb51173b0f4e1c83fb429fb1cf6d8f972a0b">
 </head>
 <body>
   <header class="masthead"><div><a class="eyebrow home-link" href="#home" aria-label="Machine Learning for Star Realms home">HOME</a><h1>Machine Learning for Star Realms</h1></div></header>
@@ -16,23 +16,18 @@
       To learn more about strategy, I used machine learning techniques to train computer models that play better than I can.
       If you're not familiar with Star Realms, <a href="https://starrealms.com">learn to play it first</a> before reading this page, or else this info won't make much sense.
     </p>
-    <h2>Technical details</h2>
     <p>
-      I trained the models using a 2-million-parameter neural net architecture inspired by the <a href="https://www.nature.com/articles/nature16961">original AlphaGo paper</a> and later AlphaZero research.
+      I trained the models using a 2-million-parameter neural net architecture inspired by the <a href="https://www.nature.com/articles/nature16961">original AlphaGo paper</a> and subsequent AlphaZero research.
       They are entirely trained on self-play, with zero human training or influence except for the ability to check for obvious game-winning moves within a single turn.
-      The best model I trained, <b>Level 5 (1283 ELO)</b> is trained on 24 million self-play games and it beats me (1180 ELO) in around 64% of games (70% of the time when it goes first and 58% of the time when it goes second). 
-      For comparison, on this scale the ELO of the "Hard AI" in the official Star Realms game is approximately 1003. (A 100 ELO advantage at any level implies a 64% win rate.) 
-      I also train a "critic" alongside each model which evaluates the position from the model's perspective, according to the expected with probability from that position. 
+      The best model I trained, <b>Level 5 (1283 ELO)</b> is trained on 23 million self-play games and it beats me in around 64% of games (70% of the time when it goes first and 58% of the time when it goes second).
     </p>
-    <h2>Using this page</h2>
     <p>
       On this page you can <b>try playing against some of the computer models</b> I trained and <b>see statistics about their strategy</b>.
-      The models below <b>do not cheat</b>, but they <b>do constantly make use of all available information according to the digital game rules</b>, including the cards in both discard piles, the cards in their deck (but not their order), the (combined unordered) cards in your deck+hand, and the cards in the trade row (but not any unrelealed ones).
+      The models below <b>do not cheat</b>, but they <b>do constantly make use of all available information according to the digital game rules</b>, including the cards in both discard piles, the cards in their deck (but not their order), and the (combined unordered) cards in your deck+hand.
       Hopefully you'll find it interesting or learn better strategies and ideas for your own games too!
       Note that the variance of Star Realms is very high, so a handful of games won't reveal your true playing strength.
       For example, hypothetically, if you're good enough to win exactly 60% of games against a specific ML model, then you'll need to play <b>at least 92 games</b> to be confident (95% confident) that you're actually better.
-      Fortunately, it's possible to finish a game quickly in just a few minutes (though you'll want to think longer to play your best). 
-      Throughout play, each model displays its own estimated win probability at the top of the screen. 
+      Fortunately, it's possible to finish a game quickly in just a few minutes (though you'll want to think longer to play your best).
     </p>
   </div>
     <form id="new-game" class="setup">
@@ -41,7 +36,7 @@
       <p><a class="stats-link" href="#stats">Stats on your games against machine learning model opponents.</a></p>
       <p><a id="resume-game" href="#game" hidden>Resume game</a></p>
     </form>
-  <header id="opponent-bar" class="game-bar opponent" hidden aria-label="Opponent statistics"><a id="opponent-name" href="#home" title="Return home">ML Computer Opponent</a><div class="bar-piles"><button class="pile" data-inspect="opponent-discard">Discard <b id="opponent-discard-count">0</b></button><button class="pile" data-inspect="opponent-deck">Hand+deck <b id="opponent-deck">5</b></button></div><div class="bar-stats"><button id="opponent-attack" class="authority" type="button">Authority <b id="opponent-authority">50</b></button><span class="trade">Trade <b id="opponent-trade">0</b></span><span class="combat">Combat <b id="opponent-combat">0</b></span><span class="discard-counter">Must discard <b id="opponent-must-discard">0</b></span><span id="win-estimate" title="AI’s estimated probability that the AI will win, regardless of whose turn it is.">Model Win Probability <b id="opponent-win">—</b></span></div><button id="opponent-last-turn" type="button" data-inspect="log" title="View full game log">No AI turn yet · Game log</button></header>
+  <header id="opponent-bar" class="game-bar opponent" hidden aria-label="Opponent statistics"><a id="opponent-name" href="#home" title="Return home">ML Computer Opponent</a><div class="bar-piles"><button class="pile" data-inspect="opponent-discard">Discard <b id="opponent-discard-count">0</b></button><button class="pile" data-inspect="opponent-deck">Hand+deck <b id="opponent-deck">5</b></button></div><div class="bar-stats"><button id="opponent-attack" class="authority resource-icon" title="Authority" type="button"><span class="sr-only">Authority </span><b id="opponent-authority">50</b></button><span class="trade resource-icon" title="Trade"><span class="sr-only">Trade </span><b id="opponent-trade">0</b></span><span class="combat resource-icon" title="Combat"><span class="sr-only">Combat </span><b id="opponent-combat">0</b></span><span class="discard-counter resource-icon" title="Next-turn discards"><span class="sr-only">Next-turn discards </span><b id="opponent-must-discard">0</b></span><span id="win-estimate" title="AI’s estimated probability that the AI will win, regardless of whose turn it is.">AI Win prob. <b id="opponent-win">—</b></span></div><button id="opponent-last-turn" type="button" data-inspect="log" title="View full game log">No AI turn yet · Game log</button></header>
   <main id="game-page">
 
     <div id="error" class="error" role="alert" hidden></div>
@@ -50,17 +45,17 @@
     <section id="result-banner" role="status" aria-live="polite" hidden><h2 id="result-title"></h2><p id="result-message"></p></section>
     <div id="board" hidden>
 
-      <section class="zone opponent-zone"><div class="zone-title"><h3>Opponent’s fleet</h3></div><div id="opponent-fleet" class="cards fleet"></div></section>
-      <section class="market zone"><div class="zone-title"><h3>Trade row</h3><span id="supply-count"></span></div><div id="market" class="cards"></div></section>
+      <section class="zone opponent-zone"><div class="zone-title"><h3>Opponent’s fleet</h3></div><div id="opponent-fleet" tabindex="0" role="region" aria-label="Opponent’s fleet, scroll left or right for more cards" class="cards fleet"></div></section>
+      <section class="market zone"><div class="zone-title"><h3>Trade row</h3><span id="supply-count"></span></div><div id="market" tabindex="0" role="region" aria-label="Trade row, scroll left or right for more cards" class="cards"></div></section>
 
 
-      <section class="zone own-zone"><div class="zone-title"><h3>In play</h3></div><div id="own-fleet" class="cards fleet"></div></section>
-      <section class="zone hand-zone"><div class="zone-title"><h3>Your hand</h3><span id="hand-count"></span></div><div id="hand" class="cards hand"></div></section>
+      <section class="zone own-zone"><div class="zone-title"><h3>In play</h3></div><div id="own-fleet" tabindex="0" role="region" aria-label="In play, scroll left or right for more cards" class="cards fleet"></div></section>
+      <section class="zone hand-zone"><div class="zone-title"><h3>Your hand</h3><span id="hand-count"></span></div><div id="hand" tabindex="0" role="region" aria-label="Your hand, scroll left or right for more cards" class="cards hand"></div></section>
 
     </div>
   </main>
-  <main id="stats-page" hidden aria-labelledby="stats-title"><a href="#home">← Home</a><h1 id="stats-title" tabindex="-1">Your stats</h1><p>Completed games saved in this browser. Draws and unfinished games do not count as wins or losses. Charts run from earliest to latest decided game; error bars show 95% Wilson confidence intervals. ELO is calculated from tournaments between the models, with the "Hard AI" in the official game measuring approximately 1000 ELO.</p><p id="stats-error" role="alert" hidden></p><p id="stats-summary"></p><div class="stats-table"><table><caption>Results by opponent level</caption><thead><tr><th scope="col">Opponent</th><th scope="col">Wins</th><th scope="col">Losses</th><th scope="col">Draws</th><th scope="col">Win rate</th><th scope="col">Cumulative win %</th></tr></thead><tbody id="stats-rows"></tbody></table></div></main>
-  <footer id="player-bar" class="game-bar human" hidden aria-label="Your statistics and actions"><div class="bar-piles"><button id="own-discard-pile" class="pile" data-inspect="discard">Discard <b id="discard-count">0</b></button><button class="pile" data-inspect="own-deck">Deck <b id="deck">7</b></button></div><div class="bar-stats"><span class="authority">Authority <b id="authority">50</b></span><span class="trade">Trade <b id="trade">0</b></span><span class="combat">Combat <b id="combat">0</b></span><span class="discard-counter">Must discard <b id="must-discard">0</b></span></div><div class="turn-controls"><button id="play-all" class="primary" hidden>Play all</button><button id="attack" hidden>Attack opponent</button><button id="end-turn" class="quiet" disabled>End turn</button><button id="resign" type="button" hidden>Resign</button></div><section class="decision" aria-labelledby="decision-title"><div class="decision-heading"><div><span id="turn" class="eyebrow"></span><h3 id="decision-title">Your turn</h3></div></div><div class="inspectors"><button data-inspect="scrap">Scrap heap</button><button data-inspect="log">Game log</button><button type="button" data-open="settings-dialog" aria-haspopup="dialog" aria-controls="settings-dialog">Settings</button></div><button id="choose-bar" type="button" hidden>Choose</button><p id="choice-note" hidden></p><div id="choices" class="choices"></div></section></footer>
+  <main id="stats-page" hidden aria-labelledby="stats-title"><a href="#home">← Home</a><h1 id="stats-title" tabindex="-1">Your stats</h1><p>Completed games saved in this browser. Draws and unfinished games do not count as wins or losses. Charts run from earliest to latest decided game; error bars show 95% Wilson confidence intervals.</p><p id="stats-error" role="alert" hidden></p><p id="stats-summary"></p><div class="stats-table"><table><caption>Results by opponent level</caption><thead><tr><th scope="col">Opponent</th><th scope="col">Wins</th><th scope="col">Losses</th><th scope="col">Draws</th><th scope="col">Win rate</th><th scope="col">Cumulative win %</th></tr></thead><tbody id="stats-rows"></tbody></table></div></main>
+  <footer id="player-bar" class="game-bar human" hidden aria-label="Your statistics and actions"><div class="bar-piles"><button id="own-discard-pile" class="pile" data-inspect="discard">Discard <b id="discard-count">0</b></button><button class="pile" data-inspect="own-deck">Deck <b id="deck">7</b></button></div><div class="bar-stats"><span class="authority resource-icon" title="Authority"><span class="sr-only">Authority </span><b id="authority">50</b></span><span class="trade resource-icon" title="Trade"><span class="sr-only">Trade </span><b id="trade">0</b></span><span class="combat resource-icon" title="Combat"><span class="sr-only">Combat </span><b id="combat">0</b></span><span class="discard-counter resource-icon" title="Next-turn discards"><span class="sr-only">Next-turn discards </span><b id="must-discard">0</b></span></div><div class="turn-controls"><button id="play-all" class="primary" hidden>Play all</button><button id="attack" hidden>Attack opponent</button><button id="end-turn" class="quiet" disabled>End turn</button><button id="resign" type="button" hidden>Resign</button></div><section class="decision" aria-labelledby="decision-title"><div class="decision-heading"><div><span id="turn" class="eyebrow"></span><h3 id="decision-title">Your turn</h3></div></div><div class="inspectors"><button data-inspect="scrap">Scrap heap</button><button data-inspect="log">Game log</button><button type="button" data-open="settings-dialog" aria-haspopup="dialog" aria-controls="settings-dialog">Settings</button></div><button id="choose-bar" type="button" hidden>Choose</button><p id="choice-note" hidden></p><div id="choices" class="choices"></div></section></footer>
   <section id="home-analysis" class="home-analysis" aria-labelledby="analysis-title"><div class="analysis-copy"><h2 id="analysis-title">Strategy</h2>
     <p>
       I analyzed game data from my best-performing model (Level 5 in the opponent list above), to attempt to understand the strategies it had learned. 
@@ -77,7 +72,7 @@
       But if Level 5 is better than you, you might learn something helpful from the data below:
     </p>
     <p>
-      Some examples of the insights according to the Level 5 model:
+      Some examples of the insights:
       <ul>
         <li>The first-player advantage is pretty big, around 56-44.</li>
         <li>Cutter (cost 2) is the best turn-1 pick, and one of the best cards throughout the game. Many cards are worse throught the entire game, including Fleet HQ (cost 8), Junkyard (cost 6), and Mech World (cost 5).</li>
