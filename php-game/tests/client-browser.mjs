@@ -25,7 +25,7 @@ async function assertTableFits(page) {
   for (let i = 1; i < rows.length; i++) assert.ok(rows[i].top >= rows[i - 1].bottom, 'Fleets, trade row, and hand stay in vertical order');
   assert.equal(layout.bars[0].position, 'fixed'); assert.equal(layout.bars[1].position, 'fixed');
   assert.equal(layout.bars[0].top, 0); assert.equal(layout.bars[1].bottom, layout.height);
-  for (const r of layout.boxes) assert.ok(r.top >= layout.bars[0].bottom && r.bottom <= layout.bars[1].top + 1 && (r.name.includes('card') || (r.left >= 0 && r.right <= layout.width + 1)), `${r.name} fits in viewport`);
+  for (const r of layout.boxes) assert.ok(r.top >= layout.bars[0].bottom && r.left >= 0 && r.bottom <= layout.bars[1].top + 1 && r.right <= layout.width + 1, `${r.name} fits in viewport`);
 }
 const root=fileURLToPath(new URL('../',import.meta.url)),requests=[];
 let newRelease=false;

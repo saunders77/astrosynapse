@@ -355,3 +355,16 @@ test('moves stay locked until audio drains and results render at their sound sta
   await pending;
   assert.equal(vm.runInContext('busy', context), false);
 });
+
+
+test('Explorer button buys from the supply only when a legal purchase exists', () => {
+  const action = {id:91, kind:'acquire', card_id:2, source_zone:'explorer_supply', amount:2};
+  const {nodes, context} = board([action], 'your_turn', {explorers_remaining:10}, 'main');
+  const button = nodes.get('buy-explorer');
+  assert.equal(button.hidden, false);
+  button.onclick();
+  assert.equal(context.chosen, 91);
+  assert.equal(board([], 'your_turn', {explorers_remaining:10}, 'main').nodes.get('buy-explorer').hidden, true);
+  assert.equal(board([action], 'your_turn', {explorers_remaining:0}, 'main').nodes.get('buy-explorer').hidden, true);
+  assert.equal(board([action], 'model_thinking', {explorers_remaining:10}, 'main').nodes.get('buy-explorer').hidden, true);
+});

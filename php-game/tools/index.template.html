@@ -45,12 +45,12 @@
     <section id="result-banner" role="status" aria-live="polite" hidden><h2 id="result-title"></h2><p id="result-message"></p></section>
     <div id="board" hidden>
 
-      <section class="zone opponent-zone"><div class="zone-title"><h3>Opponent’s fleet</h3></div><div id="opponent-fleet" tabindex="0" role="region" aria-label="Opponent’s fleet, scroll left or right for more cards" class="cards fleet"></div></section>
-      <section class="market zone"><div class="zone-title"><h3>Trade row</h3><span id="supply-count"></span></div><div id="market" tabindex="0" role="region" aria-label="Trade row, scroll left or right for more cards" class="cards"></div></section>
+      <section class="zone opponent-zone"><div class="zone-title"><h3>Opponent’s fleet</h3></div><div id="opponent-fleet" role="region" aria-label="Opponent’s fleet" class="cards fleet"></div></section>
+      <section class="market zone"><div class="zone-title"><h3>Trade row</h3><span id="supply-count"></span></div><div id="market" role="region" aria-label="Trade row" class="cards"></div><button id="buy-explorer" type="button" hidden>Buy Explorer</button></section>
 
 
-      <section class="zone own-zone"><div class="zone-title"><h3>In play</h3></div><div id="own-fleet" tabindex="0" role="region" aria-label="In play, scroll left or right for more cards" class="cards fleet"></div></section>
-      <section class="zone hand-zone"><div class="zone-title"><h3>Your hand</h3><span id="hand-count"></span></div><div id="hand" tabindex="0" role="region" aria-label="Your hand, scroll left or right for more cards" class="cards hand"></div></section>
+      <section class="zone own-zone"><div class="zone-title"><h3>In play</h3></div><div id="own-fleet" role="region" aria-label="In play" class="cards fleet"></div></section>
+      <section class="zone hand-zone"><div class="zone-title"><h3>Your hand</h3><span id="hand-count"></span></div><div id="hand" role="region" aria-label="Your hand" class="cards hand"></div></section>
 
     </div>
   </main>

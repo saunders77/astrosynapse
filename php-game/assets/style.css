@@ -660,10 +660,10 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
   #player-bar .inspectors button{font-size:.65rem;padding:3px 5px}
 }
 
-/* Compact resource HUD and single-row card carousels. */
+/* Compact resource HUD. */
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 .game-bar .resource-icon,.game-bar #opponent-attack.resource-icon{position:relative;display:inline-grid;place-items:center;flex:none;width:32px;height:30px;min-height:0;padding:0;border:0;border-radius:3px;background:transparent!important;isolation:isolate}
-.resource-icon::before{content:"";position:absolute;inset:0;z-index:-1;background:center / contain no-repeat}
+.resource-icon::before{content:"";position:absolute;inset:-3px -2px;z-index:-1;background:center / contain no-repeat}
 .resource-icon.authority{width:40px}
 .resource-icon.authority::before{background-image:url('./icons/authority.webp')}
 .resource-icon.trade::before{background-image:url('./icons/trade.webp')}
@@ -676,15 +676,11 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
 .game-bar .bar-stats{flex-wrap:nowrap;gap:4px}
 #win-estimate{font-size:.75rem;white-space:nowrap}
 #win-estimate b{font-size:inherit}
-#board .cards,#board .market .cards{flex-wrap:nowrap;align-items:start;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;scrollbar-width:none;overscroll-behavior-x:contain}
-#board .cards::-webkit-scrollbar{display:none}
-#board .card{scroll-snap-align:start}
-#board .cards:focus-visible{outline:2px solid #fff;outline-offset:-2px}
-/* Rotate landscape artwork inside the portrait market slot without distortion. */
-#board .market .card.base .card-face img{position:absolute;left:50%;top:50%;width:var(--fit-height);height:var(--fit-width);max-width:none;transform:translate(-50%,-50%) rotate(90deg)}
-#board .zone-title .carousel-controls{display:inline-flex;gap:4px;margin-left:auto;flex:none}
-#board .carousel-arrow{display:grid;place-items:center;width:28px;height:18px;min-height:0;padding:0;font-size:1rem;line-height:1;border-color:#666}
-#board .carousel-arrow:disabled{cursor:default}
+#board .market .cards{flex-wrap:nowrap}
+#board .market .empty{flex:none;width:var(--fit-width);height:var(--fit-height);overflow:hidden}
+/* Ships rotate to match landscape bases in the five-card trade row. */
+#board .market .card:not(.base) .card-face img{position:absolute;left:50%;top:50%;width:var(--fit-height);height:var(--fit-width);max-width:none;transform:translate(-50%,-50%) rotate(90deg)}
+#buy-explorer{flex:none;align-self:start;min-height:24px;padding:3px 10px;font-size:.75rem;line-height:1.2}
 @media(max-width:760px){
   #opponent-bar,.playing #player-bar{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px}
   #opponent-name{grid-column:1;grid-row:1;font-size:.85rem;max-width:80px}
@@ -701,8 +697,6 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
   .game-bar .bar-stats{gap:3px}
   #win-estimate{font-size:.65rem}
 }
-/* Reserve arrow height even when a row just fits, avoiding resize oscillation. */
-#board .zone-title{min-height:18px}
 @media(max-width:760px){
   /* Separate row widths: pile labels must not widen the name's grid column. */
   #opponent-bar{display:flex;flex-wrap:wrap}
@@ -716,3 +710,7 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
   #player-bar .turn-controls{margin-left:auto}
   #player-bar .turn-controls button{flex:none}
 }
+/* Grow into spare header space without changing which controls fit on a line. */
+#opponent-name{flex:1 1 180px;min-width:0;max-width:none}
+@media(max-width:1050px) and (min-width:761px){#opponent-name{flex-basis:110px}}
+@media(max-width:760px){#opponent-name{flex-basis:70px}}

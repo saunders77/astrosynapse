@@ -108,29 +108,37 @@ try {
       heights.push(layout.height);
       assert.ok(layout.scroll <= layout.viewport + 1);
       for (const card of layout.rows) {assert.ok(card.bottom<=layout.bottom+1, JSON.stringify({viewport,layout}));}
-      if (contents.length === 48) {
-        assert.equal(new Set(layout.rows.map(r=>r.top)).size, 1, 'Crowded rows stay on one line');
-        assert.ok(layout.rows[0].bottom - layout.rows[0].top >= layout.height - 1, `Cards fill the row height: ${JSON.stringify({viewport,layout})}`);
-        await page.getByRole('button', {name:'Scroll right: In play', exact:true}).click();
-        await page.waitForTimeout(400);
-        assert.ok(await page.locator('#own-fleet').evaluate(n=>n.scrollLeft > 0), 'Carousel moves right');
-      }
-      const market = await page.locator('#market').evaluate(n=>({width:n.clientWidth,scroll:n.scrollWidth,cards:[...n.children].map(c=>({w:c.clientWidth,h:c.clientHeight}))}));
-      assert.equal(market.cards.length,6);
-      assert.ok(market.scroll<=market.width+1, 'Six market cards fit without overflow');
-      assert.ok(market.cards.every(c=>c.h>c.w), 'All market cards use portrait slots');
+      for (const card of layout.rows) assert.ok(card.right <= layout.right + 1, 'Cards stay within available width');
+      if (contents.length === 48) assert.equal(new Set(layout.rows.map(r=>r.top)).size, 2, 'Crowded rows use two lines');
+      assert.equal(await page.locator('.carousel-arrow').count(), 0);
+      const market = await page.locator('#market').evaluate(n=>({width:n.clientWidth,scroll:n.scrollWidth,cards:[...n.children].map(c=>({w:c.clientWidth,h:c.clientHeight,top:c.offsetTop}))}));
+      assert.equal(market.cards.length,5);
+      assert.ok(market.scroll<=market.width+1, 'Five market cards fit without overflow');
+      assert.ok(market.cards.every(c=>c.w>c.h), 'All market cards use landscape slots');
+      assert.equal(new Set(market.cards.map(c=>c.top)).size,1);
       assert.equal(await page.locator('#must-discard').isVisible(),false);
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth), 'No page overflow');
     }
     assert.ok(heights[0] < heights[1] && heights[1] < heights[2], 'Empty and base-only rows reserve less space');
+    const explorerFixture = structuredClone(game);
+    explorerFixture.observation.explorers_remaining = 10;
+    explorerFixture.decision = {family:'main', actions:[{id:91, kind:'acquire', card_id:2, source_zone:'explorer_supply', amount:2}]};
+    await page.evaluate(g=>window.fixture.set(g), explorerFixture);
+    assert.equal(await page.locator('#buy-explorer').isVisible(),true);
+    assert.equal(await page.locator('#buy-explorer img').count(),0);
+    assert.ok(await page.locator('#buy-explorer').evaluate(n=>n.getBoundingClientRect().top >= document.getElementById('market').getBoundingClientRect().bottom), 'Explorer button sits below the row');
+    explorerFixture.observation.explorers_remaining = 0;
+    await page.evaluate(g=>window.fixture.set(g), explorerFixture);
+    assert.equal(await page.locator('#buy-explorer').isVisible(),false);
     const discards = structuredClone(game);
-    discards.model_label = 'Level 5';
+    discards.model_label = 'Level 5 (1283 ELO)';
     discards.observation.pending_discard = 1;
     discards.observation.opponent_pending_discard = 3;
     await page.evaluate(g=>window.fixture.set(g), discards);
     assert.equal(await page.locator('#must-discard').isVisible(), true);
     assert.equal(await page.locator('#opponent-must-discard').isVisible(), true);
-    assert.equal(await page.locator('#opponent-name').textContent(), 'Lv. 5');
+    assert.equal(await page.locator('#opponent-name').textContent(), 'Lv. 5 (1283 ELO)');
+    if (viewport.width >= 390) assert.ok(await page.locator('#opponent-name').evaluate(n=>n.scrollWidth <= n.clientWidth + 1), 'Full level name and ELO use spare header space');
     assert.equal(await page.locator('#authority').evaluate(n=>getComputedStyle(n).color), 'rgb(0, 0, 0)');
     assert.ok(await page.locator('#win-estimate').evaluate(n=>{const r=n.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth;}), 'Win probability stays inside the viewport with discard counters');
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
@@ -148,5 +156,5 @@ try {
   await page.mouse.click(2,2);
   assert.equal(await page.locator('#card-dialog').evaluate(n=>n.open), false);
   assert.deepEqual(errors, []);
-  console.log('PASS minimize/restore, pile inspection, detail backdrop, acquisition timing for both players, summaries, desktop/mobile sizing and carousels');
+  console.log('PASS minimize/restore, pile inspection, detail backdrop, acquisition timing for both players, summaries, desktop/mobile sizing and wrapping');
 } finally {await browser.close(); await new Promise(resolve=>server.close(resolve));}

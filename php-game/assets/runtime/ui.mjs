@@ -17,7 +17,7 @@ let aliases = {}; try { aliases = JSON.parse(localStorage.getItem(aliasesKey) ||
 const art = c => `https://www.starrealms.com/card-gallery/images/content/card-gallery/${c.name.toLowerCase().replaceAll(' ', '-')}.webp`;
 const el = (tag, className, text) => { const n = document.createElement(tag); if (className) n.className = className; if (text !== undefined) n.textContent = text; return n; };
 const showError = (message, id = 'error') => { $(id).textContent = message; $(id).hidden = !message; };
-function lock(value) { busy = value; document.body.classList.toggle('busy', value); document.querySelectorAll('button, select, input').forEach(n => n.disabled = (value && !n.matches('.details, .pile, .carousel-arrow, [data-close], [data-inspect], [data-open], #audio-volume, #start')) || n.dataset.unavailable === 'true'); }
+function lock(value) { busy = value; document.body.classList.toggle('busy', value); document.querySelectorAll('button, select, input').forEach(n => n.disabled = (value && !n.matches('.details, .pile, [data-close], [data-inspect], [data-open], #audio-volume, #start')) || n.dataset.unavailable === 'true'); }
 function api(payload) {
   return new Promise((resolve, reject) => {
     const id = ++requestId; waiting.set(id, { resolve, reject }); worker.postMessage({ ...payload, requestId: id });
@@ -224,6 +224,7 @@ function render() {
   if (!game || home) { $('result-banner').hidden = true; $('status').textContent = ''; return; }
   const o = game.observation, d = game.decision, actions = d?.actions || [], main = d?.family === 'main';
   $('opponent-name').textContent = compactLevel(game.model_label);
+  $('opponent-name').title = `${compactLevel(game.model_label)} · Return home`;
   $('opponent-last-turn').textContent = opponentTurnSummary(game, cards);
   for (const [id, value] of Object.entries({ authority: o.own_authority, trade: o.trade, combat: o.combat, deck: o.own_deck_count, 'opponent-authority': o.opponent_authority, 'opponent-deck': o.opponent_hand_count + o.opponent_deck_count, 'must-discard': o.pending_discard || 0, 'opponent-must-discard': o.opponent_pending_discard || 0, 'opponent-trade': game.opponent_trade || 0, 'opponent-combat': game.opponent_combat || 0 })) $(id).textContent = value;
   for (const id of ['must-discard', 'opponent-must-discard']) $(id).parentElement.hidden = Number($(id).textContent) < 1;
@@ -242,7 +243,13 @@ function render() {
   const forCard = (id, kinds, field = 'card_id', zoneName) => main && game.status === 'your_turn' ? actions.filter(a => a[field] === id && kinds.includes(a.kind) && (!zoneName || a.source_zone === zoneName)) : [];
   const handCards = () => o.hand.map(id => cardView(id, [...forCard(id, ['play_card']), ...scrapForCard(id, 'hand'), ...decisionForCard(id, 'hand')]));
   zone('hand', handCards()); zone('hand-inspector', handCards());
-  zone('market', [...o.trade_row.map(id => id === null ? el('span', 'empty', 'Empty slot') : cardView(id, [...forCard(id, ['acquire'], 'card_id', 'trade_row'), ...decisionForCard(id, 'trade_row')])), ...(o.explorers_remaining ? [cardView(2, forCard(2, ['acquire'], 'card_id', 'explorer_supply'), `${o.explorers_remaining} available`)] : [])]);
+  zone('market', o.trade_row.map(id => id === null ? el('span', 'empty', 'Empty slot') : cardView(id, [...forCard(id, ['acquire'], 'card_id', 'trade_row'), ...decisionForCard(id, 'trade_row')])));
+  const explorer = o.explorers_remaining > 0 && forCard(2, ['acquire'], 'card_id', 'explorer_supply')[0];
+  $('buy-explorer').hidden = !explorer;
+  $('buy-explorer').dataset.unavailable = String(!explorer);
+  $('buy-explorer').disabled = !explorer;
+  $('buy-explorer').title = explorer ? `Buy Explorer (${explorer.amount} trade)` : '';
+  $('buy-explorer').onclick = () => explorer && move(explorer.id);
   zone('own-fleet', o.own_in_play.map(i => cardView(i.card, [...forCard(i.card, ['activate_base', 'activate_ally', 'scrap_for_ability']).filter(a => a.kind !== 'scrap_for_ability' || (a.target_card_id === 23) === Boolean(i.copied_from_stealth_needle)), ...decisionForCard(i.card, 'in_play')], i.copied_from_stealth_needle ? 'Stealth Needle copy' : i.ally_triggered ? 'Ally used' : 'In play')));
   zone('opponent-fleet', o.opponent_in_play.map(i => cardView(i.card, [...forCard(i.card, ['attack_base'], 'target_card_id'), ...decisionForCard(i.card, 'opponent_in_play')], cards[i.card].defense ? `${cards[i.card].card_type} · ${cards[i.card].defense} defense` : 'Ship')));
   zone('discard', o.own_discard.map(id => cardView(id, scrapForCard(id, 'discard'))));
@@ -375,45 +382,44 @@ function navigate() {
   if (stats) { renderStats(); $('stats-title').focus(); }
 }
 // Fixed bars may wrap on narrow screens or with larger browser text sizes.
-// Fleets fill one row vertically; the market fits six portrait cards horizontally.
+// Maximize card height within the row, allowing up to two lines for fleets.
+// The market always reserves five equal landscape slots, including empty slots.
 function fitCards(container) {
-  const nodes = [...container.querySelectorAll(':scope > .card')];
-  if (!nodes.length || !container.clientWidth || !container.clientHeight) return;
   const market = container.id === 'market';
+  const nodes = [...container.querySelectorAll(market ? ':scope > *' : ':scope > .card')];
+  if (!nodes.length || !container.clientWidth || !container.clientHeight) return;
   const gap = parseFloat(getComputedStyle(container).columnGap) || 0;
-  const count = Math.max(6, nodes.length);
-  const height = market
-    ? Math.min(container.clientHeight, Math.max(0, (container.clientWidth - gap * (count - 1)) / count) * 7 / 5)
-    : container.clientHeight;
-  nodes.forEach(node => {
-    const ratio = !market && node.classList.contains('base') ? 7 / 5 : 5 / 7;
-    node.style.setProperty('--fit-width', `${Math.max(0, height * ratio - .1)}px`);
-    node.style.setProperty('--fit-height', `${Math.max(0, height - .1)}px`);
+  const width = container.clientWidth, height = container.clientHeight;
+  const ratios = nodes.map(node => market || node.classList.contains('base') ? 7 / 5 : 5 / 7);
+  let size;
+  if (market) {
+    size = Math.min(height, Math.max(0, (width - 4 * gap) / 5) * 5 / 7);
+  } else {
+    const fits = size => {
+      let rows = 1, used = 0;
+      for (const ratio of ratios) {
+        const cardWidth = size * ratio;
+        if (cardWidth > width) return false;
+        if (used && used + gap + cardWidth > width) { rows++; used = 0; }
+        used += (used ? gap : 0) + cardWidth;
+      }
+      return rows <= 2 && rows * size + (rows - 1) * gap <= height;
+    };
+    let low = 0, high = height;
+    for (let step = 0; step < 20; step++) {
+      const mid = (low + high) / 2;
+      if (fits(mid)) low = mid; else high = mid;
+    }
+    size = low;
+  }
+  nodes.forEach((node, index) => {
+    node.style.setProperty('--fit-width', `${Math.max(0, size * ratios[index] - .1)}px`);
+    node.style.setProperty('--fit-height', `${Math.max(0, size - .1)}px`);
   });
 }
 const cardsObserver = new ResizeObserver(entries => entries.forEach(({target}) => fitCards(target)));
 const cardsMutationObserver = new MutationObserver(entries => entries.forEach(({target}) => fitCards(target)));
 for (const id of ['hand', 'own-fleet', 'opponent-fleet', 'market']) {
-  const row = $(id);
-  const controls = el('span', 'carousel-controls');
-  for (const [direction, label, glyph] of [[-1, 'Scroll left', '‹'], [1, 'Scroll right', '›']]) {
-    const button = el('button', 'carousel-arrow', glyph);
-    button.type = 'button';
-    button.setAttribute('aria-label', `${label}: ${row.getAttribute('aria-label').split(',')[0]}`);
-    button.setAttribute('aria-controls', id);
-    button.addEventListener('click', () => row.scrollBy({left: direction * row.clientWidth * .8, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'}));
-    controls.append(button);
-  }
-  row.parentElement.querySelector('.zone-title').append(controls);
-  const updateControls = () => {
-    controls.hidden = row.scrollWidth <= row.clientWidth + 1;
-    controls.firstChild.dataset.unavailable = String(row.scrollLeft <= 1);
-    controls.lastChild.dataset.unavailable = String(row.scrollLeft + row.clientWidth >= row.scrollWidth - 1);
-    for (const button of controls.children) button.disabled = button.dataset.unavailable === 'true';
-  };
-  row.addEventListener('scroll', updateControls, {passive: true});
-  new ResizeObserver(updateControls).observe(row);
-  new MutationObserver(() => requestAnimationFrame(updateControls)).observe(row, {childList: true});
   cardsObserver.observe($(id));
   cardsMutationObserver.observe($(id), {childList: true});
 }
