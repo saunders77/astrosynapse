@@ -710,3 +710,9 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
 @media(max-width:760px){#opponent-name{flex-basis:70px}}
 
 .resource-icon:is(.authority,.trade,.combat)::before{inset:-5px -4px}
+
+/* Put game setup first and keep its readiness message to a compact text line. */
+#new-game{row-gap:8px;padding-bottom:8px}
+#new-game .welcome{flex-basis:100%;margin:0;line-height:1.3}
+.status:empty{display:none}
+#game-page:has(> #board[hidden]){padding-top:0}

@@ -6,10 +6,17 @@
   <meta name="description" content="Play Star Realms entirely in your browser against five Astrosynapse levels.">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://www.starrealms.com; script-src 'self' 'sha256-KyZLX6poqlzE332jeMZV9cQfKplqh1/uos0nETbBGZ0='; worker-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
   <title>Machine Learning for Star Realms</title>
-  <meta name="arena-build" content="f71c5db7947ce8b24947dfc62aba38bdc0b556f81638b6fecaadf90d302a7677">
+  <meta name="arena-build" content="0e1d0c373c26676a270ae9513392cae4f6403c10320ebbf1339b38eaab3724f3">
 </head>
 <body>
   <header class="masthead"><div><a class="eyebrow home-link" href="#home" aria-label="Machine Learning for Star Realms home">HOME</a><h1>Machine Learning for Star Realms</h1></div></header>
+    <form id="new-game" class="setup">
+      <label>Opponent<select id="opponent" name="opponent" required><option value="">Loading ML computer opponent…</option></select></label>
+      <button type="submit" id="start" class="primary" disabled>New game</button>
+      <p><a class="stats-link" href="#stats">Stats on your games against machine learning model opponents.</a></p>
+      <p><a id="resume-game" href="#game" hidden>Resume game</a></p>
+    <p id="welcome" class="welcome" role="status" hidden></p>
+    </form>
   <div class="home-intro">
     <p>
       I love the deckbuilding game <a href="https://starrealms.com">Star Realms</a>.
@@ -23,25 +30,18 @@
     </p>
     <p>
       On this page you can <b>try playing against some of the computer models</b> I trained and <b>see statistics about their strategy</b>.
-      The models below <b>do not cheat</b>, but they <b>do constantly make use of all available information according to the digital game rules</b>, including the cards in both discard piles, the cards in their deck (but not their order), and the (combined unordered) cards in your deck+hand.
+      The models above <b>do not cheat</b>, but they <b>do constantly make use of all available information according to the digital game rules</b>, including the cards in both discard piles, the cards in their deck (but not their order), and the (combined unordered) cards in your deck+hand.
       Hopefully you'll find it interesting or learn better strategies and ideas for your own games too!
       Note that the variance of Star Realms is very high, so a handful of games won't reveal your true playing strength.
       For example, hypothetically, if you're good enough to win exactly 60% of games against a specific ML model, then you'll need to play <b>at least 92 games</b> to be confident (95% confident) that you're actually better.
       Fortunately, it's possible to finish a game quickly in just a few minutes (though you'll want to think longer to play your best).
     </p>
   </div>
-    <form id="new-game" class="setup">
-      <label>Opponent<select id="opponent" name="opponent" required><option value="">Loading ML computer opponent…</option></select></label>
-      <button type="submit" id="start" class="primary" disabled>New game</button>
-      <p><a class="stats-link" href="#stats">Stats on your games against machine learning model opponents.</a></p>
-      <p><a id="resume-game" href="#game" hidden>Resume game</a></p>
-    </form>
   <header id="opponent-bar" class="game-bar opponent" hidden aria-label="Opponent statistics"><a id="opponent-name" href="#home" title="Return home">ML Computer Opponent</a><div class="bar-piles"><button class="pile" data-inspect="opponent-discard">Discard <b id="opponent-discard-count">0</b></button><button class="pile" data-inspect="opponent-deck">Hand+deck <b id="opponent-deck">5</b></button></div><div class="bar-stats"><button id="opponent-attack" class="authority resource-icon" title="Authority" type="button"><span class="sr-only">Authority </span><b id="opponent-authority">50</b></button><span class="trade resource-icon" title="Trade"><span class="sr-only">Trade </span><b id="opponent-trade">0</b></span><span class="combat resource-icon" title="Combat"><span class="sr-only">Combat </span><b id="opponent-combat">0</b></span><span class="discard-counter resource-icon" title="Next-turn discards"><span class="sr-only">Next-turn discards </span><b id="opponent-must-discard">0</b></span><span id="win-estimate" title="AI’s estimated probability that the AI will win, regardless of whose turn it is.">AI Win prob. <b id="opponent-win">—</b></span></div><button id="opponent-last-turn" type="button" data-inspect="log" title="View full game log">No AI turn yet · Game log</button></header>
   <main id="game-page">
 
     <div id="error" class="error" role="alert" hidden></div>
     <div id="status" class="status" role="status" aria-live="polite">Loading your local game…</div>
-    <p id="welcome" class="welcome" role="status" hidden></p>
     <section id="result-banner" role="status" aria-live="polite" hidden><h2 id="result-title"></h2><p id="result-message"></p></section>
     <div id="board" hidden>
 
