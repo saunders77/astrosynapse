@@ -404,3 +404,37 @@ test('pile and scrap sections sort by cost without changing game zone order', ()
   nodes.get('scrap-options-hand').children[1].children[0].children[0].listeners.click();
   assert.equal(context.chosen, 8);
 });
+
+test('duplicate cards hide spent base and ally actions independently', () => {
+  const actions = [
+    {id: 20, kind: 'activate_base', card_id: 0, label: 'Activate base'},
+    {id: 21, kind: 'activate_ally', card_id: 0, label: 'Activate ally'},
+    {id: 22, kind: 'scrap_for_ability', card_id: 0, target_card_id: -1, label: 'Scrap'},
+  ];
+  const {nodes, context} = board(actions, 'your_turn', {own_in_play: [
+    {card: 0, activated: true, ally_triggered: true},
+    {card: 0, activated: false, ally_triggered: false},
+    {card: 0, activated: true, ally_triggered: false},
+    {card: 0, activated: false, ally_triggered: true},
+  ]}, 'main');
+  const controls = nodes.get('own-fleet').children.map(card => card.children[1].children.at(-1).children);
+  assert.deepEqual(controls.map(buttons => buttons.filter(b => b.className === 'move').map(b => b.title)), [
+    ['Scrap'], ['Activate base', 'Activate ally', 'Scrap'],
+    ['Activate ally', 'Scrap'], ['Activate base', 'Scrap'],
+  ]);
+  controls[1][0].listeners.click(); assert.equal(context.chosen, 20);
+  controls[2][0].listeners.click(); assert.equal(context.chosen, 21);
+});
+
+test('a used duplicate has no actionable face while the ready copy remains usable', () => {
+  const {nodes, context} = board([
+    {id: 20, kind: 'activate_base', card_id: 0, label: 'Activate base'},
+  ], 'your_turn', {own_in_play: [
+    {card: 0, activated: true}, {card: 0, activated: false},
+  ]}, 'main');
+  const [used, ready] = nodes.get('own-fleet').children;
+  assert.equal(used.children[0].attributes['aria-label'], 'Details for Card 0');
+  assert.equal(used.children[1].children.at(-1).children.filter(b => b.className === 'move').length, 0);
+  ready.children[0].listeners.click();
+  assert.equal(context.chosen, 20);
+});

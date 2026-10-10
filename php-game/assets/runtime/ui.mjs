@@ -306,7 +306,11 @@ function render() {
   $('buy-explorer').disabled = !explorer;
   $('buy-explorer').title = explorer ? `Buy Explorer (${explorer.amount} trade)` : '';
   $('buy-explorer').onclick = () => explorer && move(explorer.id);
-  zone('own-fleet', o.own_in_play.map(i => cardView(i.card, [...forCard(i.card, ['activate_base', 'activate_ally', 'scrap_for_ability']).filter(a => a.kind !== 'scrap_for_ability' || (a.target_card_id === 23) === Boolean(i.copied_from_stealth_needle)), ...decisionForCard(i.card, 'in_play')], i.copied_from_stealth_needle ? 'Stealth Needle copy' : i.ally_triggered ? 'Ally used' : 'In play')));
+  zone('own-fleet', o.own_in_play.map(i => cardView(i.card, [...forCard(i.card, ['activate_base', 'activate_ally', 'scrap_for_ability']).filter(a => {
+    if (a.kind === 'activate_base') return !i.activated;
+    if (a.kind === 'activate_ally') return !i.ally_triggered;
+    return (a.target_card_id === 23) === Boolean(i.copied_from_stealth_needle);
+  }), ...decisionForCard(i.card, 'in_play')], i.copied_from_stealth_needle ? 'Stealth Needle copy' : i.ally_triggered ? 'Ally used' : 'In play')));
   zone('opponent-fleet', o.opponent_in_play.map(i => cardView(i.card, [...forCard(i.card, ['attack_base'], 'target_card_id'), ...decisionForCard(i.card, 'opponent_in_play')], cards[i.card].defense ? `${cards[i.card].card_type} · ${cards[i.card].defense} defense` : 'Ship')));
   zone('discard', sortedCards(o.own_discard).map(id => cardView(id, scrapForCard(id, 'discard'))));
   const canScrapDiscard = actions.some(a => a.kind === 'scrap_card' && a.source_zone === 'discard') && game.status === 'your_turn';
