@@ -40,6 +40,8 @@ try {
   await page.goto(`http://127.0.0.1:${server.address().port}/#game`);
   await page.waitForFunction(() => window.fixture?.get());
   await page.waitForTimeout(300);
+  await page.waitForFunction(() => [...document.querySelectorAll('#board .card img')].every(img => img.complete && img.naturalWidth > 0));
+  assert.ok(await page.locator('#board .card img').evaluateAll(images => images.length > 0 && images.every(img => img.loading === 'eager' && !!img.getAttribute('src'))), 'Displayed cards load immediately without clicks');
   assert.equal(await page.locator('#status').textContent(), '');
   assert.equal(await page.locator('#player-bar .decision .inspectors button').count(), 3);
   await page.locator('#hand .details').first().click();

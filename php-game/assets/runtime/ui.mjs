@@ -27,17 +27,15 @@ function saveGame(saved) {
   try { if (saved) localStorage.setItem(savedKey, JSON.stringify({ release, saved })); else localStorage.removeItem(savedKey); }
   catch { showError('Browser storage is unavailable. This game works, but cannot resume after leaving this page.'); }
 }
-const imageObserver = new IntersectionObserver(entries => {
-  for (const entry of entries) if (entry.isIntersecting) { imageObserver.unobserve(entry.target); loadImage(entry.target, entry.target.dataset.art); }
-}, { rootMargin: '150px' });
 function loadImage(img, path) {
   img.onerror = () => { img.title = 'Card image unavailable. Reconnect to try again.'; };
   img.onload = () => { img.title = ''; };
   img.src = path;
 }
-function setImage(img, path, immediate = false) {
+function setImage(img, path) {
   img.dataset.art = path;
-  if (immediate) loadImage(img, path); else imageObserver.observe(img);
+  img.loading = 'eager';
+  loadImage(img, path);
 }
 async function request(payload, errorTarget = 'error') {
   if (busy) return;
@@ -146,7 +144,7 @@ function confirmResignation() {
   request({ op: 'resign', id, revision });
 }
 function inspect(card) {
-  setImage($('card-large'), art(card), true); $('card-large').alt = card.name; $('card-name').textContent = card.name;
+  setImage($('card-large'), art(card)); $('card-large').alt = card.name; $('card-name').textContent = card.name;
   $('card-description').textContent = `${card.faction.replaceAll('_', ' ')} · ${card.card_type} · Cost ${card.cost}${card.defense ? ` · Defense ${card.defense}` : ''}`;
   $('card-dialog').showModal();
 }
@@ -192,7 +190,7 @@ function cardView(id, actions = [], state = '') {
   face.setAttribute('aria-label', action ? (action.label || `${actionName(action)} ${c.name}`) : `Details for ${c.name}`);
   face.title = face.getAttribute('aria-label');
   face.addEventListener('click', () => action ? move(action.id) : inspect(c));
-  const img = el('img'); setImage(img, art(c)); img.alt = c.name; img.loading = 'lazy'; face.append(img); node.append(face);
+  const img = el('img'); setImage(img, art(c)); img.alt = c.name; face.append(img); node.append(face);
   const meta = el('div', 'card-meta');
   const heading = el('div', 'card-heading');
   const cost = el('span', 'card-cost', c.cost); cost.setAttribute('aria-label', `Cost ${c.cost}`);
@@ -216,8 +214,6 @@ function zone(id, entries) {
   const next = entries.map(entry => {
     const previous = available.get(entry.dataset.cardId)?.shift();
     if (!previous) return entry;
-    const freshImage = entry.children[0].children[0];
-    imageObserver.unobserve(freshImage);
     if (previous.dataset.renderKey !== entry.dataset.renderKey) {
       // Keep the decoded image while updating action handlers and labels.
       entry.children[0].replaceChildren(previous.children[0].children[0]);
@@ -245,7 +241,6 @@ function render() {
   if (active) $('opponent').value = game.model_id;
   document.body.classList.toggle('active-game', !!game && game.status !== 'complete' && !home);
   recordStats();
-  imageObserver.disconnect();
   document.body.classList.toggle('playing', !!game && location.hash !== '#stats' && !home);
   const selectedModel = models.find(model => model.id === $('opponent').value);
   $('welcome').textContent = active ? `Resume your game against ${game.model_label}` : selectedModel ? `${selectedModel.level ? `Level ${selectedModel.level}` : aliases[selectedModel.id] || selectedModel.name} is ready to play` : '';
