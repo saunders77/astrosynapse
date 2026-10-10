@@ -192,7 +192,8 @@ function renderScrap(actions) {
   if (!targets.length || dismissedSelection === selectionKey()) { if (dialog.open) dialog.close(); return; }
   $('scrap-prompt').textContent = game.decision.prompt || 'Choose a card to scrap';
   for (const [zoneName, title] of [['hand', 'Your hand'], ['discard', 'Your discard pile'], ['trade_row', 'Trade row']]) {
-    const options = targets.filter(a => a.source_zone === zoneName);
+    const targetId = a => a.kind === 'scrap_trade_row' ? a.target_card_id : a.card_id;
+    const options = targets.filter(a => a.source_zone === zoneName).sort((a, b) => compareCards(targetId(a), targetId(b)));
     const section = $('scrap-options-' + zoneName); section.hidden = !options.length;
     section.replaceChildren(el('h3', '', title));
     const list = el('div', 'cards');
@@ -297,7 +298,7 @@ function render() {
   const scrapForCard = (id, zoneName) => game.status === 'your_turn' ? actions.filter(a => a.kind === 'scrap_card' && a.card_id === id && a.source_zone === zoneName).slice(0, 1) : [];
   const forCard = (id, kinds, field = 'card_id', zoneName) => main && game.status === 'your_turn' ? actions.filter(a => a[field] === id && kinds.includes(a.kind) && (!zoneName || a.source_zone === zoneName)) : [];
   const handCards = () => o.hand.map(id => cardView(id, [...forCard(id, ['play_card']), ...scrapForCard(id, 'hand'), ...decisionForCard(id, 'hand')]));
-  zone('hand', handCards()); zone('hand-inspector', handCards());
+  zone('hand', handCards()); zone('hand-inspector', handCards().sort((a, b) => compareCards(a.dataset.cardId, b.dataset.cardId)));
   zone('market', o.trade_row.map(id => id === null ? el('span', 'empty', 'Empty slot') : cardView(id, [...forCard(id, ['acquire'], 'card_id', 'trade_row'), ...decisionForCard(id, 'trade_row')])));
   const explorer = o.explorers_remaining > 0 && forCard(2, ['acquire'], 'card_id', 'explorer_supply')[0];
   $('buy-explorer').hidden = !explorer;
@@ -307,12 +308,12 @@ function render() {
   $('buy-explorer').onclick = () => explorer && move(explorer.id);
   zone('own-fleet', o.own_in_play.map(i => cardView(i.card, [...forCard(i.card, ['activate_base', 'activate_ally', 'scrap_for_ability']).filter(a => a.kind !== 'scrap_for_ability' || (a.target_card_id === 23) === Boolean(i.copied_from_stealth_needle)), ...decisionForCard(i.card, 'in_play')], i.copied_from_stealth_needle ? 'Stealth Needle copy' : i.ally_triggered ? 'Ally used' : 'In play')));
   zone('opponent-fleet', o.opponent_in_play.map(i => cardView(i.card, [...forCard(i.card, ['attack_base'], 'target_card_id'), ...decisionForCard(i.card, 'opponent_in_play')], cards[i.card].defense ? `${cards[i.card].card_type} · ${cards[i.card].defense} defense` : 'Ship')));
-  zone('discard', o.own_discard.map(id => cardView(id, scrapForCard(id, 'discard'))));
+  zone('discard', sortedCards(o.own_discard).map(id => cardView(id, scrapForCard(id, 'discard'))));
   const canScrapDiscard = actions.some(a => a.kind === 'scrap_card' && a.source_zone === 'discard') && game.status === 'your_turn';
   $('own-discard-pile').classList.toggle('actionable', canScrapDiscard);
   $('own-discard-pile').title = canScrapDiscard ? 'Open discard pile to choose a card to scrap' : 'Inspect your discard pile';
-  zone('opponent-discard', o.opponent_discard.map(id => cardView(id)));
-  zone('scrap', o.scrap_heap.map(id => cardView(id)));
+  zone('opponent-discard', sortedCards(o.opponent_discard).map(id => cardView(id)));
+  zone('scrap', sortedCards(o.scrap_heap).map(id => cardView(id)));
   $('play-all').hidden = !game.can_play_all;
   $('play-all').title = 'Play the cards currently in your hand, from left to right. Newly drawn cards remain in your hand.';
   const attack = game.status === 'your_turn' && actions.find(a => a.kind === 'attack_player'), end = actions.find(a => a.kind === 'end_turn');
@@ -361,14 +362,12 @@ function render() {
   if (openPile) renderPile();
   $('log').replaceChildren(...game.action_log.slice().reverse().map(entry => { const li = el('li', entry.player_id ? 'computer' : ''); li.append(el('b', '', `Turn ${entry.turn} · ${entry.player_id ? game.model_label : 'You'}`), document.createTextNode(entry.label)); return li; }));
 }
-// Shuffle only the public composition, never the game's RNG or hidden zone order.
-function shuffled(ids) {
-  const result = [...ids];
-  for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  return result;
+// Sort a copy of public composition without exposing or changing draw order.
+function compareCards(a, b) {
+  return cards[a].cost - cards[b].cost || cards[a].name.localeCompare(cards[b].name) || a - b;
+}
+function sortedCards(ids) {
+  return [...ids].sort(compareCards);
 }
 function renderPile() {
   const o = game.observation;
@@ -383,9 +382,9 @@ function renderPile() {
   };
   const [title, id, ids] = views[openPile], deck = openPile.endsWith('-deck');
   $('pile-title').textContent = title + (ids ? ` · ${ids.length} cards` : '');
-  $('pile-note').textContent = openPile === 'own-deck' ? 'Your deck, shown in random order without revealing draw order.' : deck ? 'Hand and deck combined, shown in random order. This does not reveal which cards are in the opponent’s hand or the draw order.' : openPile === 'discard' ? 'Cards here may be chosen when a scrap ability allows it.' : '';
+  $('pile-note').textContent = openPile === 'own-deck' ? 'Your deck, shown in ascending cost order without revealing draw order.' : deck ? 'Hand and deck combined, shown in ascending cost order. This does not reveal which cards are in the opponent’s hand or the draw order.' : openPile === 'discard' ? 'Cards here may be chosen when a scrap ability allows it.' : '';
   for (const view of Object.values(views)) $(view[1]).hidden = view[1] !== id;
-  if (deck) zone(id, shuffled(ids).map(card => cardView(card)));
+  if (deck) zone(id, sortedCards(ids).map(card => cardView(card)));
 }
 function inspectPile(id) {
   if (!game) return;

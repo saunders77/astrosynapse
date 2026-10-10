@@ -207,8 +207,10 @@ button.move:hover:not(:disabled),button.choice:hover:not(:disabled),.turn-contro
 #scrap-dialog{width:1200px;max-width:96vw;max-height:90dvh}
 #scrap-dialog section{margin:16px 0}
 #scrap-dialog h3{margin-bottom:8px}
-#scrap-dialog .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px}
-#scrap-dialog .card,#scrap-dialog .card.base{width:100%;max-width:175px;height:auto;aspect-ratio:5/7}
+/* Reserve room for at least five portrait cards, even in sparse sections. */
+#scrap-dialog .cards,#pile-dialog .cards{display:flex;flex-wrap:wrap;gap:8px;align-items:start}
+#scrap-dialog .card,#scrap-dialog .card.base,#pile-dialog .card,#pile-dialog .card.base{flex:0 0 auto;width:min(175px,calc((100% - 32px)/5));min-width:0;max-width:175px;height:auto;aspect-ratio:5/7}
+#scrap-dialog .card.base .card-face img,#pile-dialog .card.base .card-face img{position:absolute;left:50%;top:50%;width:140%;height:71.428571%;max-width:none;transform:translate(-50%,-50%) rotate(-90deg)}
 #scrap-dialog .card-actions .move{min-height:32px;font-size:.8rem}
 #scrap-decline{display:flex;gap:8px;position:sticky;bottom:-24px;background:var(--panel);padding:12px 0}
 

@@ -383,3 +383,24 @@ test('Explorer button buys from the supply only when a legal purchase exists', (
   assert.equal(board([action], 'your_turn', {explorers_remaining:0}, 'main').nodes.get('buy-explorer').hidden, true);
   assert.equal(board([action], 'model_thinking', {explorers_remaining:10}, 'main').nodes.get('buy-explorer').hidden, true);
 });
+
+test('pile and scrap sections sort by cost without changing game zone order', () => {
+  const { context, nodes } = board([
+    { id: 7, kind: 'scrap_card', card_id: 0, source_zone: 'hand' },
+    { id: 8, kind: 'scrap_card', card_id: 1, source_zone: 'hand' },
+    { id: 9, kind: 'scrap_trade_row', target_card_id: 0, source_zone: 'trade_row' },
+    { id: 10, kind: 'scrap_trade_row', target_card_id: 1, source_zone: 'trade_row' },
+  ], 'your_turn', { own_deck: [0, 1, 0], opponent_hidden: [0, 1] });
+  vm.runInContext('cards[0].cost = 5; cards[1].cost = 1; render();', context);
+  const ids = node => Array.from(node.children, card => card.dataset.cardId);
+  assert.deepEqual(ids(nodes.get('scrap-options-hand').children[1]), [1, 0]);
+  assert.deepEqual(ids(nodes.get('scrap-options-trade_row').children[1]), [1, 0]);
+  assert.deepEqual(ids(nodes.get('discard')), [1, 0]);
+  vm.runInContext("inspectPile('own-deck')", context);
+  assert.deepEqual(ids(nodes.get('own-deck-cards')), [1, 0, 0]);
+  vm.runInContext("inspectPile('opponent-deck')", context);
+  assert.deepEqual(ids(nodes.get('opponent-deck-cards')), [1, 0]);
+  assert.deepEqual(Array.from(context.fixture.observation.own_deck), [0, 1, 0]);
+  nodes.get('scrap-options-hand').children[1].children[0].children[0].listeners.click();
+  assert.equal(context.chosen, 8);
+});
