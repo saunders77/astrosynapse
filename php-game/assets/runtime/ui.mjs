@@ -114,6 +114,9 @@ async function animateAcquisitions(next) {
     ghost.inert = true;
     ghost.classList.add('acquiring-card'); ghost.setAttribute('aria-hidden', 'true');
     Object.assign(ghost.style, {left: `${from.x}px`, top: `${from.y}px`, width: `${from.width}px`, height: `${from.height}px`});
+    // Retain the board's inherited artwork dimensions after moving to body.
+    const sourceStyle = getComputedStyle(source);
+    for (const name of ['--fit-width', '--fit-height']) ghost.style.setProperty(name, sourceStyle.getPropertyValue(name));
     document.body.append(ghost);
     source.style.visibility = 'hidden';
     try {
@@ -143,7 +146,20 @@ function confirmResignation() {
   cancelResignation();
   request({ op: 'resign', id, revision });
 }
+function confirmScrap(action) {
+  if (busy) return;
+  const key = selectionKey();
+  inspect(cards[action.target_card_id >= 0 ? action.target_card_id : action.card_id]);
+  $('card-scrap-actions').hidden = false;
+  $('card-scrap-confirm').onclick = () => {
+    if (busy || selectionKey() !== key) return;
+    $('card-dialog').close();
+    move(action.id);
+  };
+  $('card-scrap-cancel').focus();
+}
 function inspect(card) {
+  $('card-scrap-actions').hidden = true;
   setImage($('card-large'), art(card)); $('card-large').alt = card.name; $('card-name').textContent = card.name;
   $('card-description').textContent = `${card.faction.replaceAll('_', ' ')} · ${card.card_type} · Cost ${card.cost}${card.defense ? ` · Defense ${card.defense}` : ''}`;
   $('card-dialog').showModal();
@@ -198,7 +214,7 @@ function cardView(id, actions = [], state = '') {
   if (state) meta.append(el('span', 'card-state', state));
   const controls = el('div', 'card-actions');
   for (const a of actions) {
-    const b = el('button', 'move', actionName(a)); b.type = 'button'; b.title = a.label; b.addEventListener('click', () => move(a.id)); controls.append(b);
+    const b = el('button', 'move', actionName(a)); b.type = 'button'; b.title = a.label; b.addEventListener('click', () => a.kind === 'scrap_for_ability' ? confirmScrap(a) : move(a.id)); controls.append(b);
   }
   const detail = el('button', 'details', 'Details'); detail.type = 'button'; detail.setAttribute('aria-label', `Details for ${c.name}`); detail.addEventListener('click', () => inspect(c)); controls.append(detail);
   meta.append(controls); node.append(meta); return node;

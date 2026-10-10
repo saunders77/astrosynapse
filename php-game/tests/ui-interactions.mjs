@@ -47,6 +47,21 @@ try {
   await page.locator('#hand .details').first().click();
   await page.mouse.click(2,2);
   assert.equal(await page.locator('#card-dialog').evaluate(n => n.open), false);
+  const scrapFixture = structuredClone(game);
+  scrapFixture.observation.own_in_play = [{card:2}];
+  scrapFixture.decision = {family:'main', actions:[{id:92,kind:'scrap_for_ability',card_id:2,target_card_id:-1}]};
+  await page.evaluate(g=>window.fixture.set(g), scrapFixture);
+  await page.locator('#own-fleet .move').click();
+  assert.equal(await page.locator('#card-large').getAttribute('alt'), 'Explorer');
+  assert.equal(await page.locator('#card-scrap-confirm').isVisible(), true);
+  await page.locator('#card-scrap-cancel').click();
+  assert.equal(await page.locator('#card-dialog').evaluate(n=>n.open), false);
+  assert.equal(await page.evaluate(()=>window.fixture.get().revision), scrapFixture.revision);
+  await page.locator('#own-fleet .move').click();
+  await page.locator('#card-scrap-confirm').click();
+  assert.equal(await page.locator('#card-dialog').evaluate(n=>n.open), false);
+  await page.waitForFunction(()=>!document.body.classList.contains('busy'));
+  await page.evaluate(g=>window.fixture.set(g), game);
   for (const kind of ['scrap_card','discard_card','choose_mode']) {
     const fixture = structuredClone(game);
     fixture.revision++;
@@ -66,6 +81,7 @@ try {
     assert.equal(await page.locator('#choose-bar').isVisible(), false);
     await page.evaluate(g => window.fixture.set(g), game);
   }
+  game.observation.trade_row[0] = cards.find(c => c.card_type === 'outpost').card_id;
   for (const [player_id, kind] of [[0,'acquire'],[1,'acquire'],[0,'free_acquire']]) {
     await page.evaluate(g => window.fixture.set(g), game);
     const next = structuredClone(game);
@@ -73,6 +89,10 @@ try {
     const duration = await page.evaluate(async next => {
       const promise = window.fixture.acquire(next);
       const ghost = document.querySelector('.acquiring-card');
+      const sourceArt = document.querySelector(`#market .card[data-card-id="${next.action_log.at(-1).card_id}"] img`);
+      const originalStyle = getComputedStyle(sourceArt), ghostStyle = getComputedStyle(ghost.querySelector('img'));
+      if (originalStyle.transform !== ghostStyle.transform || originalStyle.width !== ghostStyle.width || originalStyle.height !== ghostStyle.height) throw Error('Acquisition lost artwork orientation or size');
+      if (new DOMMatrix(ghostStyle.transform).b !== -1) throw Error('Base artwork must face left');
       const animation = ghost.getAnimations()[0];
       const duration = animation.effect.getTiming().duration;
       if (animation.effect.getTiming().easing !== 'cubic-bezier(0.42, 0, 1, 1)') throw Error('Acquisition should accelerate from rest');
@@ -130,6 +150,8 @@ try {
     explorerFixture.decision = {family:'main', actions:[{id:91, kind:'acquire', card_id:2, source_zone:'explorer_supply', amount:2}]};
     await page.evaluate(g=>window.fixture.set(g), explorerFixture);
     assert.equal(await page.locator('#buy-explorer').isVisible(),true);
+    assert.equal(await page.locator('#buy-explorer').textContent(),'Buy Explorer (2)');
+    assert.equal(await page.locator('#buy-explorer').evaluate(n=>getComputedStyle(n).backgroundColor),'rgb(255, 255, 255)');
     assert.equal(await page.locator('#buy-explorer img').count(),0);
     assert.ok(await page.locator('#buy-explorer').evaluate(n=>n.getBoundingClientRect().top >= document.getElementById('market').getBoundingClientRect().bottom), 'Explorer button sits below the row');
     explorerFixture.observation.explorers_remaining = 0;

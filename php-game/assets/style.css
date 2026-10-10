@@ -673,7 +673,7 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
 #board .market .cards{flex-wrap:nowrap}
 #board .market .empty{flex:none;width:var(--fit-width);height:var(--fit-height);overflow:hidden}
 /* All board cards are portrait; rotate base artwork without distortion. */
-#board .card.base .card-face img{position:absolute;left:50%;top:50%;width:var(--fit-height);height:var(--fit-width);max-width:none;transform:translate(-50%,-50%) rotate(90deg)}
+#board .card.base .card-face img,.acquiring-card.base .card-face img{position:absolute;left:50%;top:50%;width:var(--fit-height);height:var(--fit-width);max-width:none;transform:translate(-50%,-50%) rotate(90deg)}
 #buy-explorer{flex:none;align-self:start;min-height:24px;padding:3px 10px;font-size:.75rem;line-height:1.2}
 @media(max-width:760px){
   #opponent-bar,.playing #player-bar{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px}
@@ -721,3 +721,7 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
 .card .card-face img{color:transparent;font-size:0}
 #board .card{transform-origin:top left}
 @media(prefers-reduced-motion:reduce){#board{transition:none}}
+
+/* Trade-row bases have their tops on the left, including while acquired. */
+#market .card.base .card-face img,.acquiring-card.base .card-face img{transform:translate(-50%,-50%) rotate(-90deg)}
+#buy-explorer:not(:disabled){background:#fff;color:#111;border-color:#fff}

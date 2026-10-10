@@ -40,7 +40,7 @@ function board(actions, status = 'your_turn', observation = {}, family = 'scrap'
     hand: [0, 0, 1], own_discard: [0, 1], own_in_play: [], opponent_in_play: [],
     trade_row: [], opponent_discard: [0], scrap_heap: [0], explorers_remaining: 0, ...observation,
   }, action_log: [] };
-  vm.runInContext(`cards = [0, 1].map(card_id => ({card_id, name: 'Card ' + card_id, card_type: 'ship'})); game = fixture; move = id => { globalThis.chosen = id; }; render();`, context);
+  vm.runInContext(`cards = [0, 1].map(card_id => ({card_id, name: 'Card ' + card_id, card_type: 'ship', faction: 'unaligned'})); game = fixture; move = id => { globalThis.chosen = id; }; render();`, context);
   const allButtons = id => document.getElementById(id).children.flatMap(card => card.children[1]?.children.at(-1)?.children || []);
   const buttons = id => allButtons(id).filter(button => button.textContent === 'Scrap');
   return { buttons, allButtons, context, nodes };
@@ -313,14 +313,22 @@ test('home hides the table without discarding the match and supports resuming', 
 for (const copyFirst of [false, true]) test(`Stealth scrap buttons select physical card; copy first=${copyFirst}`, () => {
   const original = { card: 0, copied_from_stealth_needle: false };
   const copy = { card: 0, copied_from_stealth_needle: true };
-  const { allButtons, context } = board([
+  const { allButtons, context, nodes } = board([
     { id: 30, kind: 'scrap_for_ability', card_id: 0, target_card_id: -1 },
     { id: 31, kind: 'scrap_for_ability', card_id: 0, target_card_id: 23 },
   ], 'your_turn', { own_in_play: copyFirst ? [copy, original] : [original, copy] }, 'main');
+  vm.runInContext("cards[23] = {...cards[0], name: 'Stealth Needle'};", context);
   const buttons = allButtons('own-fleet').filter(b => b.textContent === 'Scrap');
   assert.equal(buttons.length, 2);
-  buttons[0].listeners.click(); assert.equal(context.chosen, copyFirst ? 31 : 30);
-  buttons[1].listeners.click(); assert.equal(context.chosen, copyFirst ? 30 : 31);
+  buttons[0].listeners.click();
+  assert.equal(context.chosen, undefined);
+  assert.equal(nodes.get('card-dialog').open, true);
+  assert.equal(nodes.get('card-name').textContent, copyFirst ? 'Stealth Needle' : 'Card 0');
+  nodes.get('card-scrap-confirm').onclick();
+  assert.equal(context.chosen, copyFirst ? 31 : 30);
+  buttons[1].listeners.click();
+  nodes.get('card-scrap-confirm').onclick();
+  assert.equal(context.chosen, copyFirst ? 30 : 31);
 });
 
 test('home preserves a pending choice and resume reopens it', () => {
