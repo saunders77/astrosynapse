@@ -18,23 +18,29 @@
     <p id="welcome" class="welcome" role="status" hidden></p>
     </form>
   <div class="home-intro">
+    <h2>About this page</h2>
     <p>
       I love the deckbuilding game <a href="https://starrealms.com">Star Realms</a>.
       To learn more about strategy, I used machine learning techniques to train computer models that play better than I can.
       If you're not familiar with Star Realms, <a href="https://starrealms.com">learn to play it first</a> before reading this page, or else this info won't make much sense.
     </p>
     <p>
-      I trained the models using a 2-million-parameter neural net architecture inspired by the <a href="https://www.nature.com/articles/nature16961">original AlphaGo paper</a> and subsequent AlphaZero research.
-      They are entirely trained on self-play, with zero human training or influence except for the ability to check for obvious game-winning moves within a single turn.
-      The best model I trained, <b>Level 5 (1283 ELO)</b> is trained on 23 million self-play games and it beats me in around 64% of games (70% of the time when it goes first and 58% of the time when it goes second).
-    </p>
-    <p>
       On this page you can <b>try playing against some of the computer models</b> I trained and <b>see statistics about their strategy</b>.
+    </p>
+    <h2>Playing against the computer models</h2>
+    <p>
       The models above <b>do not cheat</b>, but they <b>do constantly make use of all available information according to the digital game rules</b>, including the cards in both discard piles, the cards in their deck (but not their order), and the (combined unordered) cards in your deck+hand.
       Hopefully you'll find it interesting or learn better strategies and ideas for your own games too!
       Note that the variance of Star Realms is very high, so a handful of games won't reveal your true playing strength.
-      For example, hypothetically, if you're good enough to win exactly 60% of games against a specific ML model, then you'll need to play <b>at least 92 games</b> to be confident (95% confident) that you're actually better.
+      For example, hypothetically, if you're good enough to win exactly 60% of games against a specific ML model opponent, then you'll need to play <b>at least 92 games</b> to be confident (95% confident) that you're actually better.
       Fortunately, it's possible to finish a game quickly in just a few minutes (though you'll want to think longer to play your best).
+    </p>
+    <h2>Training details</h2>
+    <p>
+      I trained the models using a 2-million-parameter neural net architecture inspired by the <a href="https://www.nature.com/articles/nature16961">original AlphaGo paper</a> and later AlphaZero research. I built the training infrastructure with Codex, except for the game simulation logic, which I mostly wrote by hand. 
+      They are entirely trained on self-play, with zero human training or influence except for the ability to check for obvious game-winning moves within a single turn.
+      The best model I trained, <b>Level 5 (1283 ELO)</b> is trained on 26 million self-play games and it beats me (1180 ELO) in around 64% of games (70% of the time when it goes first and 58% of the time when it goes second). 
+      For comparison, the "Hard AI" included in the official Star Realms digital game is 1000 ELO on this relative scale.
     </p>
   </div>
   <header id="opponent-bar" class="game-bar opponent" hidden aria-label="Opponent statistics"><a id="opponent-name" href="#home" title="Return home">ML Computer Opponent</a><div class="bar-piles"><button class="pile" data-inspect="opponent-discard">Discard <b id="opponent-discard-count">0</b></button><button class="pile" data-inspect="opponent-deck">Hand+deck <b id="opponent-deck">5</b></button></div><div class="bar-stats"><button id="opponent-attack" class="authority resource-icon" title="Authority" type="button"><span class="sr-only">Authority </span><b id="opponent-authority">50</b></button><span class="trade resource-icon" title="Trade"><span class="sr-only">Trade </span><b id="opponent-trade">0</b></span><span class="combat resource-icon" title="Combat"><span class="sr-only">Combat </span><b id="opponent-combat">0</b></span><span class="discard-counter resource-icon" title="Next-turn discards"><span class="sr-only">Next-turn discards </span><b id="opponent-must-discard">0</b></span><span id="win-estimate" title="AI’s estimated probability that the AI will win, regardless of whose turn it is.">AI Win prob. <b id="opponent-win">—</b></span></div><button id="opponent-last-turn" type="button" data-inspect="log" title="View full game log">No AI turn yet · Game log</button></header>
@@ -57,8 +63,9 @@
   <main id="stats-page" hidden aria-labelledby="stats-title"><a href="#home">← Home</a><h1 id="stats-title" tabindex="-1">Your stats</h1><p>Completed games saved in this browser. Draws and unfinished games do not count as wins or losses. Charts run from earliest to latest decided game; error bars show 95% Wilson confidence intervals.</p><p id="stats-error" role="alert" hidden></p><p id="stats-summary"></p><div class="stats-table"><table><caption>Results by opponent level</caption><thead><tr><th scope="col">Opponent</th><th scope="col">Wins</th><th scope="col">Losses</th><th scope="col">Draws</th><th scope="col">Win rate</th><th scope="col">Cumulative win %</th></tr></thead><tbody id="stats-rows"></tbody></table></div></main>
   <footer id="player-bar" class="game-bar human" hidden aria-label="Your statistics and actions"><div class="bar-piles"><button id="own-discard-pile" class="pile" data-inspect="discard">Discard <b id="discard-count">0</b></button><button class="pile" data-inspect="own-deck">Deck <b id="deck">7</b></button></div><div class="bar-stats"><span class="authority resource-icon" title="Authority"><span class="sr-only">Authority </span><b id="authority">50</b></span><span class="trade resource-icon" title="Trade"><span class="sr-only">Trade </span><b id="trade">0</b></span><span class="combat resource-icon" title="Combat"><span class="sr-only">Combat </span><b id="combat">0</b></span><span class="discard-counter resource-icon" title="Next-turn discards"><span class="sr-only">Next-turn discards </span><b id="must-discard">0</b></span></div><div class="turn-controls"><button id="play-all" class="primary" hidden>Play all</button><button id="attack" hidden>Attack opponent</button><button id="end-turn" class="quiet" disabled>End turn</button><button id="resign" type="button" hidden>Resign</button></div><section class="decision" aria-labelledby="decision-title"><div class="decision-heading"><div><span id="turn" class="eyebrow"></span><h3 id="decision-title">Your turn</h3></div></div><div class="inspectors"><button data-inspect="scrap">Scrap heap</button><button data-inspect="log">Game log</button><button type="button" data-open="settings-dialog" aria-haspopup="dialog" aria-controls="settings-dialog">Settings</button></div><button id="choose-bar" type="button" hidden>Choose</button><p id="choice-note" hidden></p><div id="choices" class="choices"></div></section></footer>
   <section id="home-analysis" class="home-analysis" aria-labelledby="analysis-title"><div class="analysis-copy"><h2 id="analysis-title">Strategy</h2>
+    <h2>Learning strategy from the computer</h2>>
     <p>
-      I analyzed game data from my best-performing model (Level 5 in the opponent list above), to attempt to understand the strategies it had learned. 
+      I analyzed game data from my best-performing model (Lv.5 in the opponent list above), to attempt to understand the strategies it had learned. 
       Below are a series of interactive charts that answer questions like: 
       <ul>
         <li>What specific cards should I acquire at different times in the game? What is the relative value of specific cards at different times? Are higher-cost cards necessarily better than lower-cost ones?</li>
@@ -76,10 +83,14 @@
       <ul>
         <li>The first-player advantage is pretty big, around 56-44.</li>
         <li>Cutter (cost 2) is the best turn-1 pick, and one of the best cards throughout the game. Many cards are worse throught the entire game, including Fleet HQ (cost 8), Junkyard (cost 6), and Mech World (cost 5).</li>
-        <li>Imperial Fighter should NEVER be acquired on turn 1, and usually not before turn 8.</li>
+        <li>Blob World (cost 8) is slightly worse than the 6-cost blob cards throughout the game, with Battle Blob (cost 6) being slightly better than Blob Carrier (cost 6).</li>
+        <li>Imperial Fighter should not be acquired on turn 1, and usually not before turn 8.</li>
         <li>Rams and Explorers should usually be scrapped when they're played on turns before 13. That doesn't make a lot of sense to me.</li>
         <li>Recycling Station's choice values flip dramatically betwen turns 8 and 9. Afterwads you should usually cycle cards.</li>
       </ul>
+    </p>
+    <p>
+      These are generalizations based on watching the model play thousands of games, and don't reflect the intricacies of its decisions in any particular situation.
     </p>
   </div><div id="analysis-charts"><p role="status">Loading strategy charts…</p></div></section>
   <footer>This page is a personal game-analysis project about the card game Star Realms (available in digital and physical versions on starrealms.com). Star Realms and card artwork are © Wise Wizard Games LLC, and I have no relationship with the company or the official game, apart from being interested in using computers and statistics to learn about the strategy. Please send any feedback, comments, ideas, and questions about this project to michaelsaunders@outlook.com.</footer>

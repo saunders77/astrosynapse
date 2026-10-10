@@ -7,6 +7,7 @@ import { localModels } from './local-models.mjs';
 const $ = id => document.getElementById(id);
 let audio;
 let cards = [], models = [], game = null, busy = false, timer = null, openPile = null, worker, release, base, savedKey;
+const loadedModels = new Set();
 let dismissedSelection = null;
 const selectionKey = () => game ? `${game.id}:${game.revision}` : null;
 let requestId = 0; const waiting = new Map();
@@ -17,7 +18,11 @@ let aliases = {}; try { aliases = JSON.parse(localStorage.getItem(aliasesKey) ||
 const art = c => `https://www.starrealms.com/card-gallery/images/content/card-gallery/${c.name.toLowerCase().replaceAll(' ', '-')}.webp`;
 const el = (tag, className, text) => { const n = document.createElement(tag); if (className) n.className = className; if (text !== undefined) n.textContent = text; return n; };
 const showError = (message, id = 'error') => { $(id).textContent = message; $(id).hidden = !message; };
-function lock(value) { busy = value; document.body.classList.toggle('busy', value); document.querySelectorAll('button, select, input').forEach(n => n.disabled = (value && !n.matches('.details, .pile, [data-close], [data-inspect], [data-open], #audio-volume, #start')) || n.dataset.unavailable === 'true'); }
+function updateStart() {
+  const active = game && game.status !== 'complete';
+  $('start').disabled = active ? false : busy || !loadedModels.has($('opponent').value);
+}
+function lock(value) { busy = value; document.body.classList.toggle('busy', value); document.querySelectorAll('button, select, input').forEach(n => n.disabled = (value && !n.matches('.details, .pile, [data-close], [data-inspect], [data-open], #audio-volume, #start')) || n.dataset.unavailable === 'true'); updateStart(); }
 function api(payload) {
   return new Promise((resolve, reject) => {
     const id = ++requestId; waiting.set(id, { resolve, reject }); worker.postMessage({ ...payload, requestId: id });
@@ -42,6 +47,8 @@ async function request(payload, errorTarget = 'error') {
   clearTimeout(timer); showError('', errorTarget); lock(true);
   try {
     const data = await api(payload);
+    if (payload.op === 'load') loadedModels.add(payload.model);
+    if (data.imported) loadedModels.add(data.imported.id);
     if (data.models) { models = data.models; renderModels(); }
     if ('saved' in data) saveGame(data.saved);
     if (data.notice) showError(data.notice);
@@ -382,7 +389,7 @@ function renderModels() {
   const selected = $('opponent').value;
   $('opponent').replaceChildren(...models.map(m => { const option = el('option', '', compactLevel(aliases[m.id] || m.name)); option.value = m.id; return option; }));
   $('opponent').value = models.some(m => m.id === selected) ? selected : 'level-05';
-  $('start').disabled = !models.length;
+  updateStart();
   $('model-list').replaceChildren(...models.map(m => {
     const form = el('form', 'rename-form'), input = el('input'); input.value = aliases[m.id] || m.name; input.maxLength = 100; input.required = true; input.setAttribute('aria-label', `Name for ${m.name}`);
     const save = el('button', '', 'Save name'); form.append(input, save);
@@ -527,7 +534,7 @@ const barObserver = new ResizeObserver(entries => {
   for (const {target} of entries) document.documentElement.style.setProperty(`--${target.id}-height`, `${target.getBoundingClientRect().height}px`);
 });
 barObserver.observe($('opponent-bar')); barObserver.observe($('player-bar'));
-$('new-game').addEventListener('submit', e => { e.preventDefault(); if (game && game.status !== 'complete') { location.hash = '#game'; return; } request({ op: 'new', model: $('opponent').value, label: aliases[$('opponent').value] }); });
+$('new-game').addEventListener('submit', e => { e.preventDefault(); if ($('start').disabled) return; if (game && game.status !== 'complete') { location.hash = '#game'; return; } request({ op: 'new', model: $('opponent').value, label: aliases[$('opponent').value] }); });
 $('opponent').addEventListener('change', async () => {
   const id = $('opponent').value;
   $('welcome').textContent = '';
@@ -562,7 +569,7 @@ $('upload-form').addEventListener('submit', async e => {
   e.preventDefault(); const form = new FormData(e.currentTarget), file = form.get('model_file');
   if (file.size > 64 * 1024 * 1024) { showError('Choose a model smaller than 64 MB.', 'admin-error'); return; }
   const result = await request({ op: 'import', name: form.get('name'), bytes: await file.arrayBuffer() }, 'admin-error');
-  if (result?.imported) { models.push(result.imported); renderModels(); $('opponent').value = result.imported.id; $('upload-form').reset(); }
+  if (result?.imported) { models.push(result.imported); renderModels(); $('opponent').value = result.imported.id; updateStart(); $('upload-form').reset(); }
 });
 export async function start(options) {
   window.addEventListener('hashchange', navigate);
@@ -591,9 +598,10 @@ export async function start(options) {
   try {
     const data = await api({ op: 'init', base, release, saved }); cards = data.cards; models = data.models;
     try { models.push(...(await localModels('list')).map(({ bytes, ...m }) => m)); } catch { /* Gameplay does not require IndexedDB. */ }
+    loadedModels.add('level-05');
     game = data.game; renderModels(); render(); renderStats(); saveGame(data.saved);
     if (data.notice) showError(data.notice);
     if (changed) $('status').textContent = '';
   } catch (e) { showError(e.message); $('status').textContent = 'Could not load the game. Reconnect and refresh to retry.'; }
-  finally { lock(false); $('start').disabled = !models.length; if (game?.status === 'model_thinking') schedule(); }
+  finally { lock(false); updateStart(); if (game?.status === 'model_thinking') schedule(); }
 }
