@@ -265,6 +265,8 @@ function zone(id, entries) {
 function render() {
   const home = location.hash !== '#game';
   const active = !!game && game.status !== 'complete';
+  if (!game || home) $('start').before($('status'));
+  else $('result-banner').before($('status'));
   $('start').textContent = active ? 'Resume game' : 'New game';
   $('opponent').dataset.unavailable = String(active);
   $('opponent').disabled = active || busy;

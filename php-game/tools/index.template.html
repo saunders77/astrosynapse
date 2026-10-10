@@ -12,6 +12,7 @@
   <header class="masthead"><div><a class="eyebrow home-link" href="#home" aria-label="Machine Learning for Star Realms home">HOME</a><h1>Machine Learning for Star Realms</h1></div></header>
     <form id="new-game" class="setup">
       <label>Opponent<select id="opponent" name="opponent" required><option value="">Loading ML computer opponent…</option></select></label>
+    <div id="status" class="status" role="status" aria-live="polite">Loading your local game…</div>
       <button type="submit" id="start" class="primary" disabled>New game</button>
       <p><a class="stats-link" href="#stats">Stats on your games against machine learning model opponents.</a></p>
       <p><a id="resume-game" href="#game" hidden>Resume game</a></p>
@@ -47,7 +48,6 @@
   <main id="game-page">
 
     <div id="error" class="error" role="alert" hidden></div>
-    <div id="status" class="status" role="status" aria-live="polite">Loading your local game…</div>
     <section id="result-banner" role="status" aria-live="polite" hidden><h2 id="result-title"></h2><p id="result-message"></p></section>
     <div id="board" hidden>
 
