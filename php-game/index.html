@@ -6,7 +6,7 @@
   <meta name="description" content="Play Star Realms entirely in your browser against five Astrosynapse levels.">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://www.starrealms.com; script-src 'self' 'sha256-KyZLX6poqlzE332jeMZV9cQfKplqh1/uos0nETbBGZ0='; worker-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
   <title>Machine Learning for Star Realms</title>
-  <meta name="arena-build" content="03f35d8bb1e17ee530261a39c1c0c7f5130034f189f3563364e9b1eb273aeca5">
+  <meta name="arena-build" content="b827a321ab9d63a07a65ce83efc519253dadfd72306723a8331b4d6bad93f14b">
 </head>
 <body>
   <header class="masthead"><div><a class="eyebrow home-link" href="#home" aria-label="Machine Learning for Star Realms home">HOME</a><h1>Machine Learning for Star Realms</h1></div></header>
@@ -18,7 +18,7 @@
       <p><a id="resume-game" href="#game" hidden>Resume game</a></p>
     <p id="welcome" class="welcome" role="status" hidden></p>
     </form>
-  <div class="home-intro">
+  <div class="home-intro home-copy">
     <h2>About this page</h2>
     <p>
       I love the deckbuilding game <a href="https://starrealms.com">Star Realms</a>.
@@ -62,17 +62,18 @@
   </main>
   <main id="stats-page" hidden aria-labelledby="stats-title"><a href="#home">← Home</a><h1 id="stats-title" tabindex="-1">Your stats</h1><p>Completed games saved in this browser. Draws and unfinished games do not count as wins or losses. Charts run from earliest to latest decided game; error bars show 95% Wilson confidence intervals.</p><p id="stats-error" role="alert" hidden></p><p id="stats-summary"></p><div class="stats-table"><table><caption>Results by opponent level</caption><thead><tr><th scope="col">Opponent</th><th scope="col">Wins</th><th scope="col">Losses</th><th scope="col">Draws</th><th scope="col">Win rate</th><th scope="col">Cumulative win %</th></tr></thead><tbody id="stats-rows"></tbody></table></div></main>
   <footer id="player-bar" class="game-bar human" hidden aria-label="Your statistics and actions"><div class="bar-piles"><button id="own-discard-pile" class="pile" data-inspect="discard">Discard <b id="discard-count">0</b></button><button class="pile" data-inspect="own-deck">Deck <b id="deck">7</b></button></div><div class="bar-stats"><span class="authority resource-icon" title="Authority"><span class="sr-only">Authority </span><b id="authority">50</b></span><span class="trade resource-icon" title="Trade"><span class="sr-only">Trade </span><b id="trade">0</b></span><span class="combat resource-icon" title="Combat"><span class="sr-only">Combat </span><b id="combat">0</b></span><span class="discard-counter resource-icon" title="Next-turn discards"><span class="sr-only">Next-turn discards </span><b id="must-discard">0</b></span></div><div class="turn-controls"><button id="play-all" class="primary" hidden>Play all</button><button id="attack" hidden>Attack opponent</button><button id="end-turn" class="quiet" disabled>End turn</button><button id="resign" type="button" hidden>Resign</button></div><section class="decision" aria-labelledby="decision-title"><div class="decision-heading"><div><span id="turn" class="eyebrow"></span><h3 id="decision-title">Your turn</h3></div></div><div class="inspectors"><button data-inspect="scrap">Scrap heap</button><button data-inspect="log">Game log</button><button type="button" data-open="settings-dialog" aria-haspopup="dialog" aria-controls="settings-dialog">Settings</button></div><button id="choose-bar" type="button" hidden>Choose</button><p id="choice-note" hidden></p><div id="choices" class="choices"></div></section></footer>
-  <section id="home-analysis" class="home-analysis" aria-labelledby="analysis-title"><div class="analysis-copy"><h2 id="analysis-title">Strategy</h2>
-    <h2>Learning strategy from the computer</h2>>
+  <section id="home-analysis" class="home-analysis" aria-labelledby="analysis-title"><div class="analysis-copy home-copy"><h2 id="analysis-title">Learning strategy from the computer</h2>
     <p>
       I analyzed game data from my best-performing model (Lv.5 in the opponent list above), to attempt to understand the strategies it had learned. 
-      Below are a series of interactive charts that answer questions like: 
+      Below are a series of interactive charts that answer questions like:
+    </p>
       <ul>
         <li>What specific cards should I acquire at different times in the game? What is the relative value of specific cards at different times? Are higher-cost cards necessarily better than lower-cost ones?</li>
         <li>Certain cards can be scrapped from play, such as Explorer and Ram. When should they be scrapped, if at all?</li>
         <li>The red scrapping cards allow you to scrap from your hand or the discard pile. Which cards should be chosen, and when?</li>
         <li>Certain cards (like Barter World) allow you choose between two abilities. How should you choose?</li>
       </ul>
+    <p>
       The charts show data from 10,000 self-play games, along with 95% confidence intervals for each datapoint. 
       Negative action values mean that the model prefers taking no action (eg. not acquiring any card).
       Just because the charts imply a specific strategy, doesn't mean it's necessarily "correct", because my Level 5 model isn't perfect (for example, I don't think always scrapping explorers on turn 5 is correct). 
@@ -80,6 +81,7 @@
     </p>
     <p>
       Some examples of the insights:
+    </p>
       <ul>
         <li>The first-player advantage is pretty big, around 56-44.</li>
         <li>Cutter (cost 2) is the best turn-1 pick, and one of the best cards throughout the game. Many cards are worse throught the entire game, including Fleet HQ (cost 8), Junkyard (cost 6), and Mech World (cost 5).</li>
@@ -88,7 +90,6 @@
         <li>Rams and Explorers should usually be scrapped when they're played on turns before 13. That doesn't make a lot of sense to me.</li>
         <li>Recycling Station's choice values flip dramatically betwen turns 8 and 9. Afterwads you should usually cycle cards.</li>
       </ul>
-    </p>
     <p>
       These are generalizations based on watching the model play thousands of games, and don't reflect the intricacies of its decisions in any particular situation.
     </p>

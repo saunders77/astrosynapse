@@ -343,8 +343,9 @@ body:not(.busy) .card.actionable:has(.card-face:not(:disabled)):is(:hover,:focus
 
 /* Keep the homepage introduction readable on desktop and mobile. */
 .home-intro{max-width:1460px;margin:28px auto;padding:0 clamp(16px,3vw,44px);overflow-wrap:break-word}
-.home-intro p{margin:0 0 1.25em;line-height:1.75}
-.home-intro p:last-child{margin-bottom:0}
+.home-copy{overflow-wrap:break-word}
+.home-copy p,.home-copy ul{margin:0 0 1.25em;line-height:1.75}
+.home-copy > :last-child{margin-bottom:0}
 body.playing .home-intro,.viewing-stats .home-intro{display:none}
 .setup p{margin:0;max-width:100%}
 
@@ -615,7 +616,7 @@ body.playing .home-intro,.viewing-stats .home-intro{display:none}
   white-space: nowrap;
 }
 
-.home-analysis { width:100%; max-width:none; padding:32px 0; --ink:var(--text); --ink-soft:var(--text); --faint:var(--muted); --line-strong:var(--line); --mono:ui-monospace,monospace; }
+.home-analysis { width:100%; max-width:none; padding:0 0 32px; --ink:var(--text); --ink-soft:var(--text); --faint:var(--muted); --line-strong:var(--line); --mono:ui-monospace,monospace; }
 .playing .home-analysis,.viewing-stats .home-analysis { display:none; }
 .home-analysis .bucketed-elo-results > .analysis-copy > p { font-size:.875rem; }
 .home-analysis .bucketed-chart-filters button,.home-analysis .bucketed-chart-filters legend,.home-analysis .bucketed-chart-filters header span,.home-analysis .bucketed-chart-filters header strong { font-size:.8rem; }
