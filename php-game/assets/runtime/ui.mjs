@@ -124,6 +124,12 @@ async function animateAcquisitions(next) {
     // Retain the board's inherited artwork dimensions after moving to body.
     const sourceStyle = getComputedStyle(source);
     for (const name of ['--fit-width', '--fit-height']) ghost.style.setProperty(name, sourceStyle.getPropertyValue(name));
+    // Freeze the rendered artwork before the clone leaves the trade-row CSS context.
+    const artworkStyle = getComputedStyle(source.querySelector('.card-face img'));
+    const ghostArtwork = ghost.querySelector('.card-face img');
+    for (const name of ['position', 'left', 'top', 'width', 'height', 'max-width', 'transform', 'transform-origin', 'object-fit']) {
+      ghostArtwork.style.setProperty(name, artworkStyle.getPropertyValue(name));
+    }
     document.body.append(ghost);
     source.style.visibility = 'hidden';
     try {

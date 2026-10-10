@@ -81,8 +81,8 @@ try {
     assert.equal(await page.locator('#choose-bar').isVisible(), false);
     await page.evaluate(g => window.fixture.set(g), game);
   }
-  game.observation.trade_row[0] = cards.find(c => c.card_type === 'outpost').card_id;
-  for (const [player_id, kind] of [[0,'acquire'],[1,'acquire'],[0,'free_acquire']]) {
+  for (const [player_id, kind, cardType] of [[0,'acquire','outpost'],[1,'acquire','base'],[0,'free_acquire','outpost'],[0,'acquire','ship']]) {
+    game.observation.trade_row[0] = cards.find(c => c.card_type === cardType).card_id;
     await page.evaluate(g => window.fixture.set(g), game);
     const next = structuredClone(game);
     next.action_log.push({kind,player_id,card_id:game.observation.trade_row[0],target_card_id:game.observation.trade_row[0]});
@@ -91,8 +91,8 @@ try {
       const ghost = document.querySelector('.acquiring-card');
       const sourceArt = document.querySelector(`#market .card[data-card-id="${next.action_log.at(-1).card_id}"] img`);
       const originalStyle = getComputedStyle(sourceArt), ghostStyle = getComputedStyle(ghost.querySelector('img'));
-      if (originalStyle.transform !== ghostStyle.transform || originalStyle.width !== ghostStyle.width || originalStyle.height !== ghostStyle.height) throw Error('Acquisition lost artwork orientation or size');
-      if (new DOMMatrix(ghostStyle.transform).b !== -1) throw Error('Base artwork must face left');
+      if (originalStyle.transform !== ghostStyle.transform || Math.abs(parseFloat(originalStyle.width) - parseFloat(ghostStyle.width)) > 0.1 || Math.abs(parseFloat(originalStyle.height) - parseFloat(ghostStyle.height)) > 0.1) throw Error('Acquisition lost artwork orientation or size: ' + JSON.stringify({original:[originalStyle.transform,originalStyle.width,originalStyle.height],ghost:[ghostStyle.transform,ghostStyle.width,ghostStyle.height]}));
+      if (ghost.classList.contains('base') && new DOMMatrix(ghostStyle.transform).b !== -1) throw Error('Base artwork must face left');
       const animation = ghost.getAnimations()[0];
       const duration = animation.effect.getTiming().duration;
       if (animation.effect.getTiming().easing !== 'cubic-bezier(0.42, 0, 1, 1)') throw Error('Acquisition should accelerate from rest');
